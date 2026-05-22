@@ -1,9 +1,13 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.domain.Chunk;
+import dev.alvo.pieria.domain.Classification;
+import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.VerificationVerdict;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -75,5 +79,90 @@ class FakeModelGatewayTests {
       .isInstanceOf(ModelUnavailableException.class);
     assertThatThrownBy(() -> gateway.embed("x"))
       .isInstanceOf(ModelUnavailableException.class);
+    assertThatThrownBy(() -> gateway.extract(chunk(0, "t")))
+      .isInstanceOf(ModelUnavailableException.class);
+    assertThatThrownBy(() -> gateway.extractDetail(chunk(0, "t")))
+      .isInstanceOf(ModelUnavailableException.class);
+    assertThatThrownBy(() -> gateway.verify(
+      new ExtractedCandidate("c", MemoryType.FACT, 0, null), "t"))
+      .isInstanceOf(ModelUnavailableException.class);
+    assertThatThrownBy(() -> gateway.classify("c"))
+      .isInstanceOf(ModelUnavailableException.class);
+  }
+
+  private static Chunk chunk(int index, String transcript) {
+    return new Chunk(index, 0, 0, List.of(), transcript);
+  }
+
+  @Test
+  void extractEchoesChunkTranscriptAsSingleCandidate() {
+    List<ExtractedCandidate> candidates = gateway.extract(chunk(2, "user: hi"));
+
+    assertThat(candidates).hasSize(1);
+    ExtractedCandidate c = candidates.get(0);
+    assertThat(c.content()).isEqualTo("chunk:2:user: hi");
+    assertThat(c.chunkIndex()).isEqualTo(2);
+    assertThat(c.suggestedType()).isEqualTo(MemoryType.FACT);
+  }
+
+  @Test
+  void extractDetailSuffixesDetailMarker() {
+    List<ExtractedCandidate> candidates = gateway.extractDetail(chunk(1, "x"));
+
+    assertThat(candidates).hasSize(1);
+    assertThat(candidates.get(0).content()).isEqualTo("chunk:1:x [detail]");
+  }
+
+  @Test
+  void extractReturnsEmptyForBlankTranscript() {
+    assertThat(gateway.extract(chunk(0, "  "))).isEmpty();
+    assertThat(gateway.extractDetail(chunk(0, null))).isEmpty();
+    assertThat(gateway.extract(null)).isEmpty();
+  }
+
+  @Test
+  void verifyPassesByDefaultEchoingContent() {
+    var result = gateway.verify(new ExtractedCandidate("uses Postgres", MemoryType.FACT, 0, null), "t");
+
+    assertThat(result.verdict()).isEqualTo(VerificationVerdict.PASS);
+    assertThat(result.content()).isEqualTo("uses Postgres");
+  }
+
+  @Test
+  void verifyDropsOnUnsupportedSentinel() {
+    var result = gateway.verify(
+      new ExtractedCandidate("this is UNSUPPORTED claim", MemoryType.FACT, 0, null), "t");
+
+    assertThat(result.verdict()).isEqualTo(VerificationVerdict.DROP);
+    assertThat(result.content()).isEmpty();
+  }
+
+  @Test
+  void verifyCorrectsOnTypoSentinel() {
+    var result = gateway.verify(
+      new ExtractedCandidate("a TYPO here", MemoryType.FACT, 0, null), "t");
+
+    assertThat(result.verdict()).isEqualTo(VerificationVerdict.CORRECT);
+    assertThat(result.content()).isEqualTo("corrected: a TYPO here");
+  }
+
+  @Test
+  void classifyAssignsFactWithTopicKeyAndQueries() {
+    Classification c = gateway.classify("Postgres is the database");
+
+    assertThat(c.type()).isEqualTo(MemoryType.FACT);
+    assertThat(c.topicKey()).isEqualTo("topic.postgres");
+    assertThat(c.interrogativeQueries()).hasSize(3);
+    assertThat(c.payload()).isEqualTo("{}");
+  }
+
+  @Test
+  void classifyDerivesTypeFromSentinels() {
+    assertThat(gateway.classify("EVENT happened today").type()).isEqualTo(MemoryType.EVENT);
+    assertThat(gateway.classify("EVENT happened today").topicKey()).isNull();
+    assertThat(gateway.classify("INSTRUCTION always lint").type()).isEqualTo(MemoryType.INSTRUCTION);
+    assertThat(gateway.classify("INSTRUCTION always lint").topicKey()).isNotNull();
+    assertThat(gateway.classify("TASK ship release").type()).isEqualTo(MemoryType.TASK);
+    assertThat(gateway.classify("TASK ship release").topicKey()).isNull();
   }
 }

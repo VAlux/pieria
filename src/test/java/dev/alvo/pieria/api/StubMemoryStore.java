@@ -5,12 +5,14 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
 import dev.alvo.pieria.domain.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,12 @@ class StubMemoryStore implements MemoryStore {
   // profileId -> (memoryId -> memory)
   private final Map<String, Map<String, Memory>> memories = new LinkedHashMap<>();
   private final List<Message> messages = new ArrayList<>();
+  // memoryId -> outbox entry (insertion order approximates enqueue order)
+  private final Map<String, OutboxEntry> outbox = new LinkedHashMap<>();
+  private final Map<String, Long> outboxEnqueuedAt = new LinkedHashMap<>();
+  // memoryId -> embedding written by completeVectorization
+  private final Map<String, float[]> embeddings = new LinkedHashMap<>();
+  private long enqueueSeq = 0;
 
   @Override
   public Profile getOrCreateProfile(String name) {
@@ -57,6 +65,107 @@ class StubMemoryStore implements MemoryStore {
       memory.payload(), memory.embedText(), createdAt);
     memories.get(profileId).putIfAbsent(id, stored);
     return memories.get(profileId).get(id);
+  }
+
+  @Override
+  public StoreOutcome store(String profileId, Memory memory) {
+    String supersededId = null;
+
+    String id = memory.id() != null
+      ? memory.id()
+      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+
+    boolean keyed = (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)
+      && memory.topicKey() != null;
+    if (keyed) {
+      Map<String, Memory> profileMemories = memories.computeIfAbsent(profileId, k -> new LinkedHashMap<>());
+      Memory active = profileMemories.values().stream()
+        .filter(m -> !m.superseded() && m.type() == memory.type()
+          && memory.topicKey().equals(m.topicKey()))
+        .reduce((first, second) -> second) // last in insertion order
+        .orElse(null);
+      // Skip when the active row IS the incoming memory (same id): keep re-ingest idempotent.
+      if (active != null && !active.id().equals(id)) {
+        supersededId = active.id();
+        profileMemories.put(active.id(), new Memory(active.id(), active.sessionId(),
+          active.type(), active.content(), active.topicKey(), active.supersedes(),
+          true, active.payload(), active.embedText(), active.createdAt()));
+        outbox.remove(active.id());
+        outboxEnqueuedAt.remove(active.id());
+        embeddings.remove(active.id());
+      }
+    }
+
+    Memory toInsert = new Memory(id, memory.sessionId(), memory.type(), memory.content(),
+      memory.topicKey(), supersededId != null ? supersededId : memory.supersedes(),
+      memory.superseded(), memory.payload(), memory.embedText(), memory.createdAt());
+    Memory stored = insertMemory(profileId, toInsert);
+
+    boolean enqueuedVector = false;
+    if (memory.type() != MemoryType.TASK && !outbox.containsKey(stored.id())) {
+      outbox.put(stored.id(), new OutboxEntry(stored.id(), 0));
+      outboxEnqueuedAt.put(stored.id(), enqueueSeq++);
+      enqueuedVector = true;
+    }
+
+    return new StoreOutcome(stored, supersededId, enqueuedVector);
+  }
+
+  @Override
+  public List<Memory> findActiveByTopicKey(String profileId, MemoryType type, String topicKey) {
+    if (topicKey == null) {
+      return List.of();
+    }
+    List<Memory> out = new ArrayList<>();
+    for (Memory m : memories.getOrDefault(profileId, Map.of()).values()) {
+      if (!m.superseded() && m.type() == type && topicKey.equals(m.topicKey())) {
+        out.add(m);
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public Optional<Memory> findMemoryById(String memoryId) {
+    for (Map<String, Memory> profileMemories : memories.values()) {
+      Memory m = profileMemories.get(memoryId);
+      if (m != null) {
+        return Optional.of(m);
+      }
+    }
+    return Optional.empty();
+  }
+
+  @Override
+  public List<OutboxEntry> drainOutbox(int batchSize) {
+    if (batchSize <= 0) {
+      return List.of();
+    }
+    return outbox.values().stream()
+      .sorted(Comparator.comparingLong(e -> outboxEnqueuedAt.getOrDefault(e.memoryId(), 0L)))
+      .limit(batchSize)
+      .toList();
+  }
+
+  @Override
+  public void recordOutboxFailure(String memoryId, String lastError) {
+    OutboxEntry existing = outbox.get(memoryId);
+    if (existing != null) {
+      outbox.put(memoryId, new OutboxEntry(memoryId, existing.attempts() + 1));
+    }
+  }
+
+  @Override
+  public void deleteOutboxRow(String memoryId) {
+    outbox.remove(memoryId);
+    outboxEnqueuedAt.remove(memoryId);
+  }
+
+  @Override
+  public void completeVectorization(String memoryId, float[] embedding) {
+    embeddings.put(memoryId, embedding);
+    outbox.remove(memoryId);
+    outboxEnqueuedAt.remove(memoryId);
   }
 
   @Override

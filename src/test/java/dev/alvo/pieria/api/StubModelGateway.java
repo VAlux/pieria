@@ -1,13 +1,19 @@
 package dev.alvo.pieria.api;
 
+import dev.alvo.pieria.domain.Chunk;
+import dev.alvo.pieria.domain.Classification;
+import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.VerificationResult;
+import dev.alvo.pieria.domain.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Stub {@link ModelGateway} for API slice tests. Independent of the model agent's impl. Extraction
@@ -46,6 +52,60 @@ class StubModelGateway implements ModelGateway {
       sb.append(c.memory().content()).append("; ");
     }
     return sb.toString().trim();
+  }
+
+  @Override
+  public List<ExtractedCandidate> extract(Chunk chunk) {
+    if (unavailable) {
+      throw new ModelUnavailableException("model down");
+    }
+    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
+      return List.of();
+    }
+    return List.of(new ExtractedCandidate(
+      "chunk:" + chunk.index() + ":" + chunk.transcript(), MemoryType.FACT, chunk.index(), "extract"));
+  }
+
+  @Override
+  public List<ExtractedCandidate> extractDetail(Chunk chunk) {
+    if (unavailable) {
+      throw new ModelUnavailableException("model down");
+    }
+    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
+      return List.of();
+    }
+    return List.of(new ExtractedCandidate(
+      "chunk:" + chunk.index() + ":" + chunk.transcript() + " [detail]",
+      MemoryType.FACT, chunk.index(), "extractDetail"));
+  }
+
+  @Override
+  public VerificationResult verify(ExtractedCandidate candidate, String transcript) {
+    if (unavailable) {
+      throw new ModelUnavailableException("model down");
+    }
+    if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
+    }
+    if (candidate.content().toUpperCase(Locale.ROOT).contains("UNSUPPORTED")) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "unsupported by transcript");
+    }
+    return new VerificationResult(VerificationVerdict.PASS, candidate.content(), "supported");
+  }
+
+  @Override
+  public Classification classify(String content) {
+    if (unavailable) {
+      throw new ModelUnavailableException("model down");
+    }
+    if (content == null || content.isBlank()) {
+      throw new IllegalArgumentException("content must not be blank");
+    }
+    String firstWord = content.strip().split("\\s+", 2)[0].toLowerCase(Locale.ROOT)
+      .replaceAll("[^a-z0-9]", "");
+    return new Classification(MemoryType.FACT, "topic." + firstWord,
+      List.of("what is " + firstWord + "?", "tell me about " + firstWord, "details on " + firstWord),
+      "{}");
   }
 
   @Override

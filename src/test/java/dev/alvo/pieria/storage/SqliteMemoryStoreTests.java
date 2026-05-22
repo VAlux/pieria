@@ -5,8 +5,10 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -94,10 +97,10 @@ class SqliteMemoryStoreTests {
   }
 
   @Test
-  void findProfileReturnsNullWhenAbsent() {
-    assertNull(store.findProfile("ghost"));
+  void findProfileReturnsEmptyWhenAbsent() {
+    assertTrue(store.findProfile("ghost").isEmpty());
     store.getOrCreateProfile("present");
-    assertNotNull(store.findProfile("present"));
+    assertTrue(store.findProfile("present").isPresent());
   }
 
   @Test
@@ -187,5 +190,165 @@ class SqliteMemoryStoreTests {
     assertEquals("User lives in Berlin", hits.get(0).memory().content());
     assertTrue(hits.get(0).score() > 0);
     assertEquals("fts-memory", hits.get(0).source());
+  }
+
+  // ---- Phase 2 storage helpers ----
+
+  private int outboxCount() {
+    return jdbc.sql("SELECT COUNT(*) FROM vectorization_outbox").query(Integer.class).single();
+  }
+
+  private boolean hasOutbox(String memoryId) {
+    return jdbc.sql("SELECT COUNT(*) FROM vectorization_outbox WHERE memory_id = ?")
+      .param(memoryId).query(Integer.class).single() > 0;
+  }
+
+  private boolean isSuperseded(String memoryId) {
+    return jdbc.sql("SELECT superseded FROM memories WHERE id = ?")
+      .param(memoryId).query(Integer.class).single() != 0;
+  }
+
+  private byte[] embeddingOf(String memoryId) {
+    return jdbc.sql("SELECT embedding FROM memories WHERE id = ?")
+      .param(memoryId).query(byte[].class).optional().orElse(null);
+  }
+
+  @Test
+  void storeFactEnqueuesVectorAndReturnsOutcome() {
+    Profile p = store.getOrCreateProfile("hank");
+    StoreOutcome outcome = store.store(p.id(),
+      Memory.of(MemoryType.FACT, "User likes tea", "s1", "drink.pref", null));
+
+    assertNotNull(outcome.stored().id());
+    assertNull(outcome.supersededId());
+    assertTrue(outcome.enqueuedVector());
+    assertTrue(hasOutbox(outcome.stored().id()));
+  }
+
+  @Test
+  void storeKeyedFactSupersedesPredecessorAndClearsItsEmbedding() {
+    Profile p = store.getOrCreateProfile("iris");
+    StoreOutcome first = store.store(p.id(),
+      Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", "location", null));
+    // Give the old row an embedding so we can prove it is cleared on supersession.
+    store.completeVectorization(first.stored().id(), new float[] {1f, 2f, 3f});
+    assertNotNull(embeddingOf(first.stored().id()));
+
+    StoreOutcome second = store.store(p.id(),
+      Memory.of(MemoryType.FACT, "User lives in Munich", "s2", "location", null));
+
+    assertEquals(first.stored().id(), second.supersededId());
+    assertEquals(first.stored().id(), second.stored().supersedes());
+    assertTrue(isSuperseded(first.stored().id()));
+    assertNull(embeddingOf(first.stored().id()));
+    assertFalse(isSuperseded(second.stored().id()));
+
+    // Only the new fact is active.
+    List<Memory> active = store.listMemories(p.id(), MemoryType.FACT, null);
+    assertEquals(1, active.size());
+    assertEquals("User lives in Munich", active.get(0).content());
+  }
+
+  @Test
+  void eventsAndTasksAreAppendOnly() {
+    Profile p = store.getOrCreateProfile("jane");
+    StoreOutcome e1 = store.store(p.id(),
+      Memory.of(MemoryType.EVENT, "logged in", "s1", "session.event", null));
+    StoreOutcome e2 = store.store(p.id(),
+      Memory.of(MemoryType.EVENT, "logged out", "s1", "session.event", null));
+    assertNull(e2.supersededId());
+    assertFalse(isSuperseded(e1.stored().id()));
+
+    // Tasks are never embedded.
+    StoreOutcome t1 = store.store(p.id(),
+      Memory.of(MemoryType.TASK, "buy milk", "s1", "todo", null));
+    assertFalse(t1.enqueuedVector());
+    assertFalse(hasOutbox(t1.stored().id()));
+  }
+
+  @Test
+  void reStoringSameMemoryDoesNotDuplicateOutbox() {
+    Profile p = store.getOrCreateProfile("kyle");
+    Memory mem = Memory.of(MemoryType.FACT, "stable fact", "s1", null, null);
+    StoreOutcome first = store.store(p.id(), mem);
+    StoreOutcome second = store.store(p.id(), mem);
+
+    assertEquals(first.stored().id(), second.stored().id());
+    assertTrue(first.enqueuedVector());
+    assertFalse(second.enqueuedVector());
+    assertEquals(1, outboxCount());
+  }
+
+  @Test
+  void drainOutboxIsOldestFirstAndRespectsLimit() {
+    Profile p = store.getOrCreateProfile("lena");
+    StoreOutcome a = store.store(p.id(), Memory.of(MemoryType.FACT, "a", "s1", "ka", null));
+    StoreOutcome b = store.store(p.id(), Memory.of(MemoryType.FACT, "b", "s1", "kb", null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "c", "s1", "kc", null));
+
+    List<OutboxEntry> batch = store.drainOutbox(2);
+    assertEquals(2, batch.size());
+    assertEquals(a.stored().id(), batch.get(0).memoryId());
+    assertEquals(b.stored().id(), batch.get(1).memoryId());
+  }
+
+  @Test
+  void recordOutboxFailureIncrementsAttempts() {
+    Profile p = store.getOrCreateProfile("mona");
+    StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "flaky", "s1", null, null));
+
+    store.recordOutboxFailure(s.stored().id(), "boom");
+    store.recordOutboxFailure(s.stored().id(), "boom again");
+
+    int attempts = jdbc.sql("SELECT attempts FROM vectorization_outbox WHERE memory_id = ?")
+      .param(s.stored().id()).query(Integer.class).single();
+    assertEquals(2, attempts);
+  }
+
+  @Test
+  void completeVectorizationWritesEmbeddingAndRemovesOutbox() {
+    Profile p = store.getOrCreateProfile("nora");
+    StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "embed me", "s1", null, null));
+    assertTrue(hasOutbox(s.stored().id()));
+
+    store.completeVectorization(s.stored().id(), new float[] {0.1f, 0.2f, 0.3f, 0.4f});
+
+    assertFalse(hasOutbox(s.stored().id()));
+    byte[] blob = embeddingOf(s.stored().id());
+    assertNotNull(blob);
+    assertEquals(4 * Float.BYTES, blob.length);
+  }
+
+  @Test
+  void findMemoryByIdLooksUpAcrossProfiles() {
+    Profile p = store.getOrCreateProfile("opal");
+    StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "find me", "s1", null, null));
+
+    assertTrue(store.findMemoryById(s.stored().id()).isPresent());
+    assertTrue(store.findMemoryById("nope").isEmpty());
+  }
+
+  @Test
+  void findActiveByTopicKeyExcludesSupersededAndNullKey() {
+    Profile p = store.getOrCreateProfile("pete");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old role", "s1", "role", null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new role", "s2", "role", null));
+
+    List<Memory> active = store.findActiveByTopicKey(p.id(), MemoryType.FACT, "role");
+    assertEquals(1, active.size());
+    assertEquals("new role", active.get(0).content());
+    assertTrue(store.findActiveByTopicKey(p.id(), MemoryType.FACT, null).isEmpty());
+  }
+
+  @Test
+  void completeVectorizationLeavesNoPartialStateWhenItFails() {
+    Profile p = store.getOrCreateProfile("quinn");
+    StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "tx safe", "s1", null, null));
+
+    // A null embedding fails before any write; the outbox row and absent embedding are unchanged.
+    assertThrows(Exception.class, () -> store.completeVectorization(s.stored().id(), null));
+
+    assertTrue(hasOutbox(s.stored().id()), "outbox row must survive a failed completion");
+    assertNull(embeddingOf(s.stored().id()), "no embedding must be written on failure");
   }
 }

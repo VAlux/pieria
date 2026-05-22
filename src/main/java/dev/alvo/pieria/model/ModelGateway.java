@@ -1,8 +1,12 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.domain.Chunk;
+import dev.alvo.pieria.domain.Classification;
+import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.VerificationResult;
 
 import java.util.List;
 
@@ -20,6 +24,38 @@ public interface ModelGateway {
    * extract/verify/classify pipeline.
    */
   List<Memory> extractMemories(List<Message> messages);
+
+  /**
+   * Phase 2 full-pass extraction (SPEC 6.2): extract candidate memories from a single rendered
+   * chunk transcript. Returns raw candidates (content + optional suggested type) for verification.
+   */
+  default List<ExtractedCandidate> extract(Chunk chunk) {
+    throw new UnsupportedOperationException("extract(Chunk) not implemented");
+  }
+
+  /**
+   * Phase 2 detail-pass extraction (SPEC 6.2): focus on concrete values (names, versions, prices,
+   * paths, entity attributes, dates) that the broad full pass tends to miss.
+   */
+  default List<ExtractedCandidate> extractDetail(Chunk chunk) {
+    throw new UnsupportedOperationException("extractDetail(Chunk) not implemented");
+  }
+
+  /**
+   * Phase 2 verification (SPEC 6.3): check one extracted candidate against the source transcript,
+   * returning a pass/correct/drop verdict (with corrected content when applicable).
+   */
+  default VerificationResult verify(ExtractedCandidate candidate, String transcript) {
+    throw new UnsupportedOperationException("verify(...) not implemented");
+  }
+
+  /**
+   * Phase 2 classification + enrichment (SPEC 6.4): assign a type, a normalized topic key for
+   * keyed types, and 3-5 interrogative search queries for the given verified content.
+   */
+  default Classification classify(String content) {
+    throw new UnsupportedOperationException("classify(...) not implemented");
+  }
 
   /**
    * Synthesize a natural-language answer to {@code query} from the top recall candidates (large model).

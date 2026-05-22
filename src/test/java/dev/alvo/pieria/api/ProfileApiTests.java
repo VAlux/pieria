@@ -1,7 +1,10 @@
 package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
+import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.ingestion.Chunker;
 import dev.alvo.pieria.ingestion.IngestionService;
+import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -23,7 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = {ProfileController.class, GlobalExceptionHandler.class})
-@Import({ProfileApiTests.Wiring.class, IngestionService.class, RetrievalService.class})
+@Import({ProfileApiTests.Wiring.class, IngestionService.class, RetrievalService.class,
+  TranscriptNormalizer.class, Chunker.class})
 class ProfileApiTests {
 
   @Autowired
@@ -82,7 +86,7 @@ class ProfileApiTests {
         .content("{\"sessionId\":\"s1\",\"messages\":[{\"role\":\"user\",\"content\":\"I love coffee\"},{\"role\":\"assistant\",\"content\":\"noted\"}]}"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.count", is(1)))
-      .andExpect(jsonPath("$.memories[0].content", is("I love coffee")));
+      .andExpect(jsonPath("$.memories[0].content", containsString("I love coffee")));
   }
 
   @Test
@@ -162,6 +166,12 @@ class ProfileApiTests {
     @org.springframework.context.annotation.Primary
     ModelGateway modelGateway() {
       return model;
+    }
+
+    @Bean
+    PieriaProperties pieriaProperties() {
+      return new PieriaProperties(null, null, null, null,
+        new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000));
     }
 
     @Bean

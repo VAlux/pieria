@@ -1,17 +1,40 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.domain.Chunk;
+import dev.alvo.pieria.domain.Classification;
+import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.VerificationResult;
+import dev.alvo.pieria.domain.VerificationVerdict;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Deterministic, network-free {@link ModelGateway} test double, shared across module test suites
  * (model + api). All methods produce predictable output derived from their inputs so tests can
  * assert exact values. Set {@link #setUnavailable(boolean)} to make every call raise
  * {@link ModelUnavailableException} (for verifying 503 mapping).
+ *
+ * <h2>Content sentinels (case-insensitive substrings) that drive deterministic behavior</h2>
+ * Integration / service tests can embed these substrings in candidate content to force a path:
+ * <ul>
+ *   <li>{@code UNSUPPORTED} — {@link #verify} returns {@link VerificationVerdict#DROP}.</li>
+ *   <li>{@code TYPO} — {@link #verify} returns {@link VerificationVerdict#CORRECT} with content
+ *       {@code "corrected: " + originalContent}; otherwise verify returns
+ *       {@link VerificationVerdict#PASS} echoing the original content.</li>
+ *   <li>{@code EVENT} — {@link #classify} assigns {@link MemoryType#EVENT} (topicKey {@code null}).</li>
+ *   <li>{@code INSTRUCTION} — {@link #classify} assigns {@link MemoryType#INSTRUCTION}.</li>
+ *   <li>{@code TASK} — {@link #classify} assigns {@link MemoryType#TASK} (topicKey {@code null}).</li>
+ *   <li>otherwise {@link #classify} assigns {@link MemoryType#FACT}.</li>
+ * </ul>
+ * For keyed types (FACT, INSTRUCTION) the topicKey is {@code "topic." + firstWordLowercased}.
+ * {@link #extract} yields one candidate per chunk (content {@code "chunk:<index>:" + transcript});
+ * {@link #extractDetail} yields one candidate suffixed with {@code " [detail]"}.
+ * {@link #classify} always returns 3 interrogative queries.
  */
 public class FakeModelGateway implements ModelGateway {
 
@@ -54,6 +77,72 @@ public class FakeModelGateway implements ModelGateway {
     String sessionId = messages.get(0).sessionId();
     Memory memory = Memory.of(MemoryType.FACT, chosen.content(), sessionId, null, "{}");
     return List.of(memory);
+  }
+
+  @Override
+  public List<ExtractedCandidate> extract(Chunk chunk) {
+    failIfUnavailable();
+    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
+      return List.of();
+    }
+    String content = "chunk:" + chunk.index() + ":" + chunk.transcript();
+    return List.of(new ExtractedCandidate(content, MemoryType.FACT, chunk.index(), "extract"));
+  }
+
+  @Override
+  public List<ExtractedCandidate> extractDetail(Chunk chunk) {
+    failIfUnavailable();
+    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
+      return List.of();
+    }
+    String content = "chunk:" + chunk.index() + ":" + chunk.transcript() + " [detail]";
+    return List.of(new ExtractedCandidate(content, MemoryType.FACT, chunk.index(), "extractDetail"));
+  }
+
+  @Override
+  public VerificationResult verify(ExtractedCandidate candidate, String transcript) {
+    failIfUnavailable();
+    if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
+    }
+    String content = candidate.content();
+    String upper = content.toUpperCase(Locale.ROOT);
+    if (upper.contains("UNSUPPORTED")) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "unsupported by transcript");
+    }
+    if (upper.contains("TYPO")) {
+      return new VerificationResult(VerificationVerdict.CORRECT, "corrected: " + content, "fixed typo");
+    }
+    return new VerificationResult(VerificationVerdict.PASS, content, "supported");
+  }
+
+  @Override
+  public Classification classify(String content) {
+    failIfUnavailable();
+    if (content == null || content.isBlank()) {
+      throw new IllegalArgumentException("content must not be blank");
+    }
+    String upper = content.toUpperCase(Locale.ROOT);
+    MemoryType type;
+    if (upper.contains("EVENT")) {
+      type = MemoryType.EVENT;
+    } else if (upper.contains("INSTRUCTION")) {
+      type = MemoryType.INSTRUCTION;
+    } else if (upper.contains("TASK")) {
+      type = MemoryType.TASK;
+    } else {
+      type = MemoryType.FACT;
+    }
+    String firstWord = content.strip().split("\\s+", 2)[0].toLowerCase(Locale.ROOT)
+      .replaceAll("[^a-z0-9]", "");
+    String topicKey = (type == MemoryType.FACT || type == MemoryType.INSTRUCTION)
+      ? "topic." + firstWord
+      : null;
+    List<String> queries = List.of(
+      "what is " + firstWord + "?",
+      "tell me about " + firstWord,
+      "details on " + firstWord);
+    return new Classification(type, topicKey, queries, "{}");
   }
 
   @Override

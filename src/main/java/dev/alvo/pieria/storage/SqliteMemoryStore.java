@@ -5,14 +5,19 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
 import dev.alvo.pieria.domain.RecallCandidate;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -33,10 +38,24 @@ import java.util.UUID;
 @Repository
 public class SqliteMemoryStore implements MemoryStore {
 
+  private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);
+
   private final JdbcClient jdbc;
 
   public SqliteMemoryStore(JdbcClient jdbc) {
     this.jdbc = jdbc;
+  }
+
+  /**
+   * Serialize a float vector as little-endian float32 bytes (4 bytes per dimension) for the
+   * {@code embedding BLOB} column.
+   */
+  private static byte[] encodeEmbedding(float[] embedding) {
+    ByteBuffer buffer = ByteBuffer.allocate(embedding.length * Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    for (float value : embedding) {
+      buffer.putFloat(value);
+    }
+    return buffer.array();
   }
 
   private static Profile mapProfile(ResultSet rs) throws SQLException {
@@ -145,6 +164,138 @@ public class SqliteMemoryStore implements MemoryStore {
       payload,
       memory.embedText(),
       createdAt);
+  }
+
+  @Override
+  @Transactional
+  public StoreOutcome store(String profileId, Memory memory) {
+    String supersededId = null;
+
+    String id = memory.id() != null
+      ? memory.id()
+      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+
+    boolean keyed = (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)
+      && memory.topicKey() != null;
+    if (keyed) {
+      // EVENT and TASK are append-only; only FACT/INSTRUCTION supersede on a shared topic key.
+      Optional<String> activeId = jdbc.sql(
+          """
+            SELECT id FROM memories \
+            WHERE profile_id = ? AND type = ? AND topic_key = ? AND superseded = 0 \
+            ORDER BY created_at DESC LIMIT 1""")
+        .params(profileId, memory.type().wire(), memory.topicKey())
+        .query(String.class)
+        .optional();
+      // Skip when the active row IS the incoming memory (identical content-addressed id): a
+      // re-ingest must stay idempotent, not supersede the row it would re-insert.
+      if (activeId.isPresent() && !activeId.get().equals(id)) {
+        supersededId = activeId.get();
+        jdbc.sql("UPDATE memories SET superseded = 1, embedding = NULL WHERE id = ?")
+          .param(supersededId)
+          .update();
+        // Drop any pending vectorization work for the now-superseded row.
+        jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
+          .param(supersededId)
+          .update();
+      }
+    }
+
+    Memory toInsert = new Memory(
+      id,
+      memory.sessionId(),
+      memory.type(),
+      memory.content(),
+      memory.topicKey(),
+      supersededId != null ? supersededId : memory.supersedes(),
+      memory.superseded(),
+      memory.payload(),
+      memory.embedText(),
+      memory.createdAt());
+
+    Memory stored = insertMemory(profileId, toInsert);
+
+    boolean enqueuedVector = false;
+    if (memory.type() != MemoryType.TASK) {
+      // Tasks are not embedded; everything else gets an idempotent outbox entry.
+      int affected = jdbc.sql(
+          """
+            INSERT OR IGNORE INTO vectorization_outbox (memory_id, enqueued_at, attempts) \
+            VALUES (?, ?, 0)""")
+        .params(stored.id(), Instant.now().toString())
+        .update();
+      enqueuedVector = affected > 0;
+    }
+
+    return new StoreOutcome(stored, supersededId, enqueuedVector);
+  }
+
+  @Override
+  public List<Memory> findActiveByTopicKey(String profileId, MemoryType type, String topicKey) {
+    if (topicKey == null) {
+      return List.of();
+    }
+    return jdbc.sql(
+        """
+          SELECT id, session_id, type, content, topic_key, supersedes, superseded, \
+          payload, embed_text, created_at FROM memories \
+          WHERE profile_id = ? AND type = ? AND topic_key = ? AND superseded = 0 \
+          ORDER BY created_at DESC""")
+      .params(profileId, type.wire(), topicKey)
+      .query((rs, rowNum) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  public Optional<Memory> findMemoryById(String memoryId) {
+    return jdbc.sql(
+        """
+          SELECT id, session_id, type, content, topic_key, supersedes, superseded, \
+          payload, embed_text, created_at FROM memories WHERE id = ?""")
+      .param(memoryId)
+      .query((rs, rowNum) -> mapMemory(rs))
+      .optional();
+  }
+
+  @Override
+  public List<OutboxEntry> drainOutbox(int batchSize) {
+    if (batchSize <= 0) {
+      return List.of();
+    }
+    return jdbc.sql("SELECT memory_id, attempts FROM vectorization_outbox ORDER BY enqueued_at LIMIT ?")
+      .param(batchSize)
+      .query((rs, rowNum) -> new OutboxEntry(rs.getString("memory_id"), rs.getInt("attempts")))
+      .list();
+  }
+
+  @Override
+  @Transactional
+  public void recordOutboxFailure(String memoryId, String lastError) {
+    jdbc.sql("UPDATE vectorization_outbox SET attempts = attempts + 1 WHERE memory_id = ?")
+      .param(memoryId)
+      .update();
+    log.warn("Vectorization attempt failed for memory {}: {}", memoryId, lastError);
+  }
+
+  @Override
+  @Transactional
+  public void deleteOutboxRow(String memoryId) {
+    jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
+      .param(memoryId)
+      .update();
+  }
+
+  @Override
+  @Transactional
+  public void completeVectorization(String memoryId, float[] embedding) {
+    // Write the embedding first, then remove the outbox row, in the same transaction.
+    jdbc.sql("UPDATE memories SET embedding = ? WHERE id = ?")
+      .params(encodeEmbedding(embedding), memoryId)
+      .update();
+
+    jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
+      .param(memoryId)
+      .update();
   }
 
   @Override

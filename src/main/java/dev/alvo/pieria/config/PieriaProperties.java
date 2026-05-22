@@ -12,7 +12,8 @@ public record PieriaProperties(
   Daemon daemon,
   Db db,
   Ollama ollama,
-  Model model) {
+  Model model,
+  Ingestion ingestion) {
 
   public record Daemon(@DefaultValue("127.0.0.1") String host,
                        @DefaultValue("8077") int port) {
@@ -28,5 +29,19 @@ public record PieriaProperties(
                       String chatLarge,
                       String embedding,
                       @DefaultValue("1024") int embeddingDimension) {
+  }
+
+  /**
+   * Ingestion pipeline tuning (SPEC 6). Chunk size/overlap, parallelism, the detail-pass message
+   * threshold, and vectorization-outbox batching/retry limits.
+   */
+  public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
+                          @DefaultValue("2") int chunkOverlapMessages,
+                          @DefaultValue("4") int maxExtractionConcurrency,
+                          @DefaultValue("9") int detailPassMinMessages,
+                          @DefaultValue("32") int outboxBatchSize,
+                          @DefaultValue("5") int outboxMaxAttempts,
+                          @DefaultValue("true") boolean vectorizationSchedulerEnabled,
+                          @DefaultValue("5000") long vectorizationIntervalMs) {
   }
 }
