@@ -4,8 +4,7 @@
       "command": "java",
       "args": [
         "-jar",
-        "<PIERIA_JAR>",
-        "--mcp-shim"
+        "<PIERIA_SHIM_JAR>"
       ],
       "env": {
         "PIERIA_PROFILE": "",

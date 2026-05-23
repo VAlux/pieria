@@ -10,10 +10,10 @@ Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
 ## Prerequisites
 
 - Pieria daemon is running and reachable at `http://127.0.0.1:8077` (default).
-  Start it with `./gradlew bootRun` or the installed OS service (Phase 5).
+  Start it with `./gradlew :daemon:bootRun` or the installed OS service (Phase 5).
   Verify: `curl http://127.0.0.1:8077/healthz`
-- A built jar is available at a known path (e.g. `build/libs/pieria-0.0.1-SNAPSHOT.jar`).
-  Build: `./gradlew build`
+- The shim jar is available at a known path (e.g. `shim/build/libs/pieria-shim.jar`).
+  Build: `./gradlew :shim:bootJar`
 - Java 25 is on `$PATH` (required to launch the shim).
 
 ## Step 1 — Register the MCP shim
@@ -22,24 +22,24 @@ Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
 
 ```sh
 claude mcp add pieria \
-  -- java -jar <PIERIA_JAR> --mcp-shim
+  -- java -jar <PIERIA_SHIM_JAR>
 ```
 
-Replace `<PIERIA_JAR>` with the absolute path to the built jar.
+Replace `<PIERIA_SHIM_JAR>` with the absolute path to the built shim jar.
 
 To set an explicit profile (instead of the auto-derived one):
 
 ```sh
 claude mcp add pieria \
   -e PIERIA_PROFILE=my-project \
-  -- java -jar <PIERIA_JAR> --mcp-shim
+  -- java -jar <PIERIA_SHIM_JAR>
 ```
 
 **Option B: copy `.mcp.json` into your project root**
 
 Copy `harness/claude-code/.mcp.json` to your project root (or
-`~/.claude/.mcp.json` for user-level registration) and replace `<PIERIA_JAR>`
-with the absolute path to the jar.
+`~/.claude/.mcp.json` for user-level registration) and replace `<PIERIA_SHIM_JAR>`
+with the absolute path to the shim jar.
 
 After registration, Claude Code surfaces the tools as `mcp__pieria__recall`, etc.
 The shim derives the profile from `$PIERIA_PROFILE` > git remote > directory name

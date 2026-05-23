@@ -22,7 +22,7 @@ Add a `mcp` entry to your `opencode.json` (project root or `~/.config/opencode/o
   "mcp": {
     "pieria": {
       "type": "local",
-      "command": ["java", "-jar", "<PIERIA_JAR>", "--mcp-shim"],
+      "command": ["java", "-jar", "<PIERIA_SHIM_JAR>"],
       "env": {
         "PIERIA_PROFILE": "",
         "PIERIA_DAEMON_URL": "http://127.0.0.1:8077"
@@ -32,7 +32,8 @@ Add a `mcp` entry to your `opencode.json` (project root or `~/.config/opencode/o
 }
 ```
 
-Replace `<PIERIA_JAR>` with the absolute path to the built jar. Leave
+Replace `<PIERIA_SHIM_JAR>` with the absolute path to `shim/build/libs/pieria-shim.jar`.
+Leave
 `PIERIA_PROFILE` empty to use automatic profile derivation (git remote / directory
 name); set it to an explicit slug to force a specific profile.
 

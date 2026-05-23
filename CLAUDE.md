@@ -6,17 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Pieria** is a local-first persistent memory layer for AI agents. It runs as a background daemon, exposes a REST API on localhost, and lets AI coding tools (Claude Code, OpenCode, Codex, etc.) share a single memory store via MCP. See `docs/SPEC.md` for the full specification and `docs/PLAN.md` for the phased implementation plan.
 
-The current state is an **early scaffold** — Spring Boot entry point exists, no domain code yet. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
+The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio shim, and harness assets split across three Gradle modules. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
 
 ## Build and test commands
 
 ```bash
 ./gradlew test          # run the full test suite (required before any commit)
 ./gradlew build         # compile + test + assemble
-./gradlew bootRun       # run the application locally
-./gradlew bootBuildImage  # build a container image
-./gradlew nativeCompile   # GraalVM native executable (requires GraalVM 25+)
-./gradlew nativeTest      # run tests in native image
+./gradlew :daemon:bootRun     # run the daemon locally
+./gradlew :daemon:bootJar     # build daemon/build/libs/pieria.jar
+./gradlew :shim:bootJar       # build shim/build/libs/pieria-shim.jar
+./gradlew :daemon:bootBuildImage  # build a daemon container image
+./gradlew :daemon:nativeCompile   # GraalVM daemon executable (requires GraalVM 25+)
+./gradlew :shim:nativeCompile     # GraalVM shim executable (requires GraalVM 25+)
 ```
 
 ## Stack
@@ -30,7 +32,7 @@ The current state is an **early scaffold** — Spring Boot entry point exists, n
 
 ## Architecture
 
-### Core abstractions (to be implemented)
+### Core abstractions
 
 - `MemoryStore` — single interface behind both storage backends (SQLite and Postgres). All retrieval channels and ingestion writes are defined against this interface. This is what makes the local→server transition a backend swap.
 - `ModelGateway` — provider-agnostic chat + embedding; backed by Spring AI. Two tiers: small/fast model for structured stages (extract/verify/classify), large model for synthesis only.
@@ -59,7 +61,11 @@ The current state is an **early scaffold** — Spring Boot entry point exists, n
 
 ### Package structure (use as the codebase grows)
 
-Keep all code under `dev.alvo.pieria`. Suggested sub-packages: `api` (controllers/DTOs), `domain` (records/enums), `storage` (MemoryStore + backend impls), `ingestion`, `retrieval`, `model` (ModelGateway), `mcp` (shim).
+Keep all code under `dev.alvo.pieria`, with module boundaries enforced by Gradle:
+
+- `shared`: HTTP request/response DTOs and `ProfileResolver`.
+- `daemon`: REST controllers, domain, storage, ingestion, retrieval, and model gateway.
+- `shim`: stdio MCP tools and the HTTP client that forwards to the daemon.
 
 ## Testing conventions
 

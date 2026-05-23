@@ -16,15 +16,15 @@ The model calls `recall`, `remember`, `list`, or `forget` mid-task. These tools
 are served by the **MCP stdio shim** — a thin process that speaks MCP over stdio
 toward the harness and forwards calls to the daemon over localhost HTTP.
 
-Launch command (all harnesses, same jar):
+Launch command (all harnesses):
 
 ```sh
-java -jar <PIERIA_JAR> --mcp-shim
+java -jar <PIERIA_SHIM_JAR>
 ```
 
-The jar is the standard Pieria build artifact. The same jar serves both the daemon
-(`./gradlew bootRun` or bare `java -jar`) and the shim (`--mcp-shim` flag or
-`-Dspring.profiles.active=shim`).
+The shim jar is built by `./gradlew :shim:bootJar` and is separate from the
+daemon jar built by `./gradlew :daemon:bootJar`. The daemon remains the long-lived
+process that owns storage; the shim remains the harness-spawned stdio process.
 
 MCP tools exposed:
 

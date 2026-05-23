@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This is a single-module Gradle Kotlin DSL project named `pieria`. Application code lives under `src/main/java/dev/alvo/pieria`, with `PieriaApplication` as the Spring Boot entry point. Configuration belongs in `src/main/resources`, currently `application.properties`.
+This is a multi-module Gradle Kotlin DSL project named `pieria`. The `daemon` module contains the Spring Boot REST daemon, with `PieriaApplication` as the entry point. The `shim` module contains the MCP stdio shim, with `ShimApplication` as the entry point. The `shared` module contains the HTTP contract DTOs and profile mapping logic used across processes.
 
-Tests live under `src/test/java/dev/alvo/pieria`. The generated Testcontainers development launcher is `TestPieriaApplication`, and shared test configuration is in `TestcontainersConfiguration`. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `SPEC.md` and `HELP.md`.
+Daemon configuration belongs in `daemon/src/main/resources`; shim configuration belongs in `shim/src/main/resources` when needed. Tests live under each module's `src/test/java/dev/alvo/pieria`. The generated Testcontainers development launcher is in the daemon module. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `docs/SPEC.md` and `docs/HARNESS.md`.
 
 ## Build, Test, and Development Commands
 
@@ -12,10 +12,11 @@ Use the checked-in Gradle wrapper so builds use the expected Gradle version.
 
 - `./gradlew test` runs the JUnit Platform test suite.
 - `./gradlew build` compiles, tests, and assembles the project.
-- `./gradlew bootRun` starts the Spring Boot application locally.
-- `./gradlew bootBuildImage` builds a container image named from the project/version.
-- `./gradlew nativeCompile` builds a GraalVM native executable; it requires GraalVM 25+.
-- `./gradlew nativeTest` runs tests in a native image when native tooling is configured.
+- `./gradlew :daemon:bootRun` starts the daemon locally.
+- `./gradlew :daemon:bootJar` builds `daemon/build/libs/pieria.jar`.
+- `./gradlew :shim:bootJar` builds `shim/build/libs/pieria-shim.jar`.
+- `./gradlew :daemon:bootBuildImage` builds a daemon container image named from the project/version.
+- `./gradlew :daemon:nativeCompile` or `./gradlew :shim:nativeCompile` builds a GraalVM native executable; it requires GraalVM 25+.
 
 ## Coding Style & Naming Conventions
 

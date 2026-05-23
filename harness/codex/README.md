@@ -21,14 +21,15 @@ Add an entry to your Codex `config.toml` (typically `~/.codex/config.toml` or
 ```toml
 [mcp_servers.pieria]
 command = "java"
-args    = ["-jar", "<PIERIA_JAR>", "--mcp-shim"]
+args    = ["-jar", "<PIERIA_SHIM_JAR>"]
 
 [mcp_servers.pieria.env]
 PIERIA_PROFILE    = ""          # leave empty for auto-derivation
 PIERIA_DAEMON_URL = "http://127.0.0.1:8077"
 ```
 
-Replace `<PIERIA_JAR>` with the absolute path to the built jar. Leave
+Replace `<PIERIA_SHIM_JAR>` with the absolute path to `shim/build/libs/pieria-shim.jar`.
+Leave
 `PIERIA_PROFILE` empty to use automatic profile derivation (git remote / directory
 name); set it to an explicit slug to force a specific profile.
 
