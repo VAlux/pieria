@@ -38,7 +38,7 @@ class MemoryToolsTests {
     server.createContext("/", this::handle);
     server.start();
     String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-    tools = new MemoryTools(new DaemonClient(baseUrl), "myproj", new ObjectMapper());
+    tools = new MemoryTools(new DaemonClient(baseUrl), "myproj");
   }
 
   @AfterEach
@@ -150,7 +150,7 @@ class MemoryToolsTests {
   void daemonDownReturnsConciseErrorNotStackTrace() {
     // Point at a closed port — connection refused.
     DaemonClient closed = new DaemonClient("http://127.0.0.1:1");
-    MemoryTools offline = new MemoryTools(closed, "myproj", new ObjectMapper());
+    MemoryTools offline = new MemoryTools(closed, "myproj");
 
     String out = offline.recall("anything", null, null);
 

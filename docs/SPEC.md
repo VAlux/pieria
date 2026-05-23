@@ -7,7 +7,7 @@
 > knowledge and memory.
 
 **Status:** Draft v0.3 (local-first)
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-23
 
 ---
 
@@ -21,7 +21,7 @@ forcing the agent to keep everything in its context window.
 
 It is inspired by Cloudflare's Agent Memory but designed to run entirely on the user's
 own machine with no managed-service, network, or single-vendor dependency. The default
-deployment needs nothing beyond the installed binary and a local model runtime. A
+deployment needs nothing beyond the installed Pieria bundle and a local model runtime. A
 **server mode** (multi-user, shared team memory) is supported as an opt-in, using the
 same code with a different storage backend.
 
@@ -91,7 +91,8 @@ the storage backend and tenancy configuration differ.
 
 - Runs as an OS service: **launchd** (macOS), **systemd** (Linux), Windows service.
 - Listens on a configurable localhost port; never binds a public interface in local mode.
-- Single binary distributable (see §14): GraalVM native image (preferred) or `jpackage`.
+- Single installable bundle (see §14): daemon + shim artifacts, preferably native images,
+  with a JVM/`jpackage` fallback.
 
 ---
 
@@ -147,8 +148,8 @@ of deployment topology or storage backend.
 | Async work           | Transactional outbox + virtual-thread workers | No broker dependency.                                  |
 | SQLite driver        | `sqlite-jdbc` (xerial)                        | Loads `sqlite-vec` via `enableLoadExtension`.          |
 | Migrations           | Flyway                                        | Per-backend migration sets.                            |
-| Packaging            | GraalVM native image (preferred) / `jpackage` | Single distributable binary; OS service.               |
-| Build                | Gradle (Kotlin DSL)                           | `./gradlew` wrapper; `bootBuildImage` / `nativeCompile`.|
+| Packaging            | GraalVM native image (preferred) / `jpackage` | Install bundle with daemon service + shim binary.      |
+| Build                | Gradle (Kotlin DSL, 3 modules)                | `:daemon`, `:shim`, `:shared`; Boot/AOT per app module. |
 | Testing              | JUnit 5; embedded SQLite + Testcontainers (PG)| Test both backends.                                    |
 
 ### 4.1 Models
@@ -431,8 +432,8 @@ POST /v1/profiles/my-project/recall
 Harnesses integrate through two surfaces that mirror the ingestion/retrieval split:
 
 1. **Model-driven tools** — the model calls `recall`, `remember`, `list`, `forget`
-   mid-task. Delivered as an **MCP stdio shim** that forwards to the daemon. Built once;
-   reused by every harness, since all of them speak MCP.
+   mid-task. Delivered as an **MCP stdio shim** that forwards to the daemon. Built as a
+   dedicated shim artifact and reused by every harness, since all of them speak MCP.
 2. **Harness-driven ingestion** — at compaction the harness ships the conversation to the
    daemon's `/ingest`. Delivered as a per-harness **lifecycle hook** (thin glue script).
 
@@ -443,8 +444,8 @@ burn context designing storage queries.
 ### 10.1 MCP shim
 
 - **Implementation:** Spring AI MCP (built on the official MCP Java SDK). The shim is a
-  thin stdio client; the daemon holds all state. (In server mode the shim may instead use
-  streamable HTTP directly to the shared host.)
+  thin stdio client packaged separately from the daemon; the daemon holds all state. (In
+  server mode the shim may instead use streamable HTTP directly to the shared host.)
 - **Transport:** stdio (local harness ↔ shim), then localhost HTTP (shim ↔ daemon).
 - **Tools exposed (and their daemon mappings):**
 
@@ -547,13 +548,16 @@ local→server migration: export from the embedded store, import into Postgres, 
 
 ## 14. Packaging & operation
 
-- **Distributable:** GraalVM native image (preferred — fast start, low memory, ideal for a
-  background daemon; built via `./gradlew nativeCompile`, requires GraalVM 25+) or
-  `jpackage` (bundles a JRE). Native image requires Spring AOT and
-  reflection/resource config, plus per-platform bundling of the `sqlite-vec` native
-  extension; budget build-system time for this.
+- **Distributable:** installable bundle containing two app artifacts: the daemon
+  (`:daemon`, long-running service, owns storage) and the MCP stdio shim (`:shim`,
+  harness-spawned client). GraalVM native images are preferred — especially for the shim's
+  cold start and the daemon's memory footprint — with JVM boot jars / `jpackage` as the
+  fallback. Native image requires Spring AOT and reflection/resource config, plus
+  per-platform bundling of the `sqlite-vec` native extension for the daemon; budget
+  build-system time for this.
 - **Service registration:** installer registers the daemon with launchd / systemd /
-  Windows service and starts it on login/boot.
+  Windows service and starts it on login/boot. The shim is not a service; harnesses launch
+  it on demand via the configured MCP stdio command.
 - **Data location:** embedded DB and config under an OS-appropriate app data dir (e.g.
   `~/.local/share/pieria/` on Linux); single file, easy to back up or delete.
 - **First-run:** pulls default Ollama models if absent; creates the embedded DB and runs
@@ -586,7 +590,7 @@ measured, not vibes.
 | 2     | Full ingestion: content IDs, parallel extraction, verification, classification, supersession.     |
 | 3     | Full retrieval: five channels (sqlite-vec + FTS5 + keyed) + RRF + HyDE; deterministic temporal.   |
 | 4     | Daemon + thin MCP shim + Claude Code plugin (PreCompact/Stop/SessionStart); shared across tools.  |
-| 5     | Packaging: native image + OS service install; first-run model pull; eval harness (LoCoMo/LongMemEval). |
+| 5     | Packaging: daemon + shim native/JVM bundle, OS service install, first-run model pull, eval harness. |
 | 6     | Server mode: Postgres backend behind the storage seam, RLS multi-tenancy, export/import migration. |
 
 ---

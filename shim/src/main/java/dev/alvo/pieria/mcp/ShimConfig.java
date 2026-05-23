@@ -26,7 +26,7 @@ public class ShimConfig {
   @Bean
   MemoryTools memoryTools(DaemonClient client, ObjectMapper objectMapper) {
     String profile = ProfileResolver.create(Path.of("").toAbsolutePath()).resolve();
-    return new MemoryTools(client, profile, objectMapper);
+    return new MemoryTools(client, profile);
   }
 
   /** Exposes the {@code @Tool}-annotated {@link MemoryTools} methods to the MCP server. */

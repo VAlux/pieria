@@ -5,8 +5,6 @@ import dev.alvo.pieria.api.request.RememberRequest;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
-import tools.jackson.databind.ObjectMapper;
-
 /**
  * Model-facing MCP tools (SPEC 10.1). Each tool forwards to the daemon's REST surface via
  * {@link DaemonClient}; the shim itself holds no state. {@code ingest} is intentionally absent —
@@ -22,12 +20,10 @@ public class MemoryTools {
 
   private final DaemonClient client;
   private final String defaultProfile;
-  private final ObjectMapper json;
 
-  public MemoryTools(DaemonClient client, String defaultProfile, ObjectMapper json) {
+  public MemoryTools(DaemonClient client, String defaultProfile) {
     this.client = client;
     this.defaultProfile = defaultProfile;
-    this.json = json;
   }
 
   @Tool(name = "recall", description = "Recall relevant memories for a query and return a synthesized answer.")
@@ -69,7 +65,9 @@ public class MemoryTools {
     return (override != null && !override.isBlank()) ? override : defaultProfile;
   }
 
-  /** Translates a daemon-down failure into a concise tool error string instead of throwing. */
+  /**
+   * Translates a daemon-down failure into a concise tool error string instead of throwing.
+   */
   private String guarded(java.util.function.Supplier<String> call) {
     try {
       return call.get();

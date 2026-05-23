@@ -52,7 +52,7 @@ class ShimDaemonSmokeTests {
   void wireShimToLivePort() {
     baseUrl = "http://127.0.0.1:" + port;
     // The shim's real forwarder, pointed at the live daemon — no test seam.
-    tools = new MemoryTools(new DaemonClient(baseUrl), "smoke-proj", new ObjectMapper());
+    tools = new MemoryTools(new DaemonClient(baseUrl), "smoke-proj");
   }
 
   @Test
@@ -106,7 +106,7 @@ class ShimDaemonSmokeTests {
   @Test
   void daemonDownSurfacesConciseStringNotException() {
     MemoryTools offline = new MemoryTools(new DaemonClient("http://127.0.0.1:1"),
-      "smoke-proj", new ObjectMapper());
+      "smoke-proj");
 
     String out = offline.recall("anything", null, null);
 

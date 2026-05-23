@@ -5,8 +5,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * Config for the MCP stdio shim launch mode (SPEC 10.1, phase-4 step 3). Kept as a separate
- * top-level {@code @ConfigurationProperties} (rather than a nested {@link PieriaProperties}
- * component) so the daemon's existing positional constructor calls in tests stay untouched.
+ * top-level {@code @ConfigurationProperties}
+ * so the daemon's existing positional constructor calls in tests stay untouched.
  *
  * <p>{@code daemonUrl} defaults to the daemon's bound host/port so the shim points at the local
  * daemon out of the box; override with {@code pieria.shim.daemon-url} or the harness-wide
