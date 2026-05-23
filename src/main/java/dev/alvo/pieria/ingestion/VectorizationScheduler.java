@@ -3,6 +3,7 @@ package dev.alvo.pieria.ingestion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
  * through {@code pieria.ingestion.vectorization-interval-ms}.
  */
 @Component
+@Profile("!shim")
 @ConditionalOnProperty(
   prefix = "pieria.ingestion",
   name = "vectorization-scheduler-enabled",

@@ -1,5 +1,7 @@
 package dev.alvo.pieria.api.error;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.api.response.ErrorResponse;
 import dev.alvo.pieria.domain.NotFoundException;
 import dev.alvo.pieria.model.ModelUnavailableException;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * filesystem paths or provider secrets.
  */
 @RestControllerAdvice
+@Profile("!shim")
 public class GlobalExceptionHandler {
 
   @ExceptionHandler(MethodArgumentNotValidException.class)

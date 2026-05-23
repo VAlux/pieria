@@ -1,5 +1,7 @@
 package dev.alvo.pieria.api;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
@@ -39,6 +41,7 @@ import java.util.List;
  * services, never leaked back to the client.
  */
 @RestController
+@Profile("!shim")
 @RequestMapping("/v1/profiles/{name}")
 public class ProfileController {
 

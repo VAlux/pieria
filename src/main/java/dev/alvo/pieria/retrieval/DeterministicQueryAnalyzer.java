@@ -1,5 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.domain.QueryAnalysis;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +32,7 @@ import java.util.Set;
  * Output depends only on the input string, so the same query always yields the same analysis.
  */
 @Component
+@Profile("!shim")
 public class DeterministicQueryAnalyzer {
 
   /** Tokens shorter than this many characters are discarded. */

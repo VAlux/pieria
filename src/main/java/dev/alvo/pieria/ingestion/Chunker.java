@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.Chunk;
 import dev.alvo.pieria.domain.Message;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Component;
  * absolute message index, keeping provenance line indices consistent across chunks.
  */
 @Component
+@Profile("!shim")
 public class Chunker {
 
   private final TranscriptNormalizer normalizer;

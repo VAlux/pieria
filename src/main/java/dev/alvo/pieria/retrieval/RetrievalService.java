@@ -1,5 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.Memory;
@@ -46,6 +48,7 @@ import java.util.concurrent.TimeoutException;
  * timing out is logged and contributes nothing. Synthesis failure propagates (mapped to 503).
  */
 @Service
+@Profile("!shim")
 public class RetrievalService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(RetrievalService.class);

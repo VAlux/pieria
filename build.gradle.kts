@@ -26,7 +26,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
-	implementation("org.springframework.ai:spring-ai-starter-mcp-server-webmvc")
+	implementation("org.springframework.ai:spring-ai-starter-mcp-server")
 	implementation("org.springframework.ai:spring-ai-starter-model-ollama")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	// sqlite-vec (SPEC 4/5.2): there is no reliable, cross-platform Maven coordinate that ships the

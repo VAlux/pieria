@@ -1,5 +1,7 @@
 package dev.alvo.pieria.config;
 
+import org.springframework.context.annotation.Profile;
+
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,7 @@ import java.sql.Statement;
  * vector features disabled (see {@link dev.alvo.pieria.storage.SqliteVectorIndex}).
  */
 @Configuration
+@Profile("!shim")
 public class DataSourceConfig {
 
   private static final Logger log = LoggerFactory.getLogger(DataSourceConfig.class);

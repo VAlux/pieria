@@ -39,6 +39,7 @@ import java.util.UUID;
  * {@code INSERT OR IGNORE}; deletes are logical (supersession).
  */
 @Repository
+@org.springframework.context.annotation.Profile("!shim")
 public class SqliteMemoryStore implements MemoryStore {
 
   private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);

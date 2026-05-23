@@ -36,6 +36,7 @@ import java.time.Instant;
  * Explicit single-memory writes ({@link #remember}) bypass the model entirely.
  */
 @Service
+@org.springframework.context.annotation.Profile("!shim")
 public class IngestionService {
 
   private static final Logger log = LoggerFactory.getLogger(IngestionService.class);

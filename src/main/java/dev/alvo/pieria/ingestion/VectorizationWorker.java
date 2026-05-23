@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.OutboxEntry;
@@ -27,6 +29,7 @@ import java.util.ArrayList;
  * {@link VectorizationScheduler} so the worker is trivially unit-testable via {@link #drainOnce()}.
  */
 @Component
+@Profile("!shim")
 public class VectorizationWorker {
 
   private static final Logger log = LoggerFactory.getLogger(VectorizationWorker.class);

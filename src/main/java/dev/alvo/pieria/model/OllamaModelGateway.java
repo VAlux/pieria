@@ -1,5 +1,7 @@
 package dev.alvo.pieria.model;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.Chunk;
 import dev.alvo.pieria.domain.Classification;
@@ -17,6 +19,8 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,6 +34,7 @@ import java.util.stream.Collectors;
  * message so provider hosts/secrets never leak to callers.
  */
 @Component
+@Profile("!shim")
 public class OllamaModelGateway implements ModelGateway {
 
   private final ChatClient extractionChatClient;
@@ -426,6 +431,33 @@ public class OllamaModelGateway implements ModelGateway {
       return embeddingModel.embed(text);
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model embedding failed", e);
+    }
+  }
+
+  /**
+   * Cheap reachability probe: HTTP GET to the Ollama base URL with a short timeout.
+   * Returns {@code true} on a 2xx/4xx response (server is up, regardless of model state);
+   * {@code false} on any IO failure. Never invokes a model or generates tokens.
+   * The provider base URL is never echoed in the health response.
+   */
+  @Override
+  public boolean isModelProviderReachable() {
+    String baseUrl = properties.ollama().baseUrl();
+    if (baseUrl == null || baseUrl.isBlank()) {
+      return false;
+    }
+    try {
+      HttpURLConnection conn = (HttpURLConnection) URI.create(baseUrl).toURL().openConnection();
+      conn.setRequestMethod("GET");
+      conn.setConnectTimeout(2000);
+      conn.setReadTimeout(2000);
+      conn.setInstanceFollowRedirects(false);
+      int code = conn.getResponseCode();
+      conn.disconnect();
+      // Any HTTP response (including 404) means the server is reachable.
+      return code > 0;
+    } catch (Exception e) {
+      return false;
     }
   }
 

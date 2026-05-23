@@ -1,5 +1,7 @@
 package dev.alvo.pieria.model;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.PieriaProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.ollama.OllamaChatModel;
@@ -15,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
  * single autoconfigured chat model.
  */
 @Configuration
+@Profile("!shim")
 public class ModelGatewayConfig {
 
   private static ChatClient chatClientForModel(OllamaChatModel chatModel, String modelName) {

@@ -1,5 +1,7 @@
 package dev.alvo.pieria.storage;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.config.PieriaProperties;
 import org.slf4j.Logger;
@@ -27,6 +29,7 @@ import java.util.regex.Pattern;
  * an explicit, deliberate operation — see SPEC 5.1 / 18).
  */
 @Component
+@Profile("!shim")
 public class SqliteVectorIndex {
 
   private static final Logger log = LoggerFactory.getLogger(SqliteVectorIndex.class);

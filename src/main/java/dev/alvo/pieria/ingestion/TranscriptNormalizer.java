@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
+import org.springframework.context.annotation.Profile;
+
 import dev.alvo.pieria.domain.Message;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -28,6 +30,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  */
 @Component
+@Profile("!shim")
 public class TranscriptNormalizer {
 
   private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;

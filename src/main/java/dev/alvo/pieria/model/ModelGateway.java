@@ -93,4 +93,15 @@ public interface ModelGateway {
    * does not use it (no vector index until Phase 3).
    */
   float[] embed(String text);
+
+  /**
+   * Lightweight provider reachability probe for {@code /healthz}. Must NOT invoke a model or
+   * generate tokens. The default returns {@code false} (configured but status unknown) so existing
+   * test stubs ({@code FakeModelGateway}, {@code StubModelGateway}) compile without modification.
+   * Production implementations should override with a cheap network check (e.g. HTTP HEAD on the
+   * provider base URL). Never leak provider hostnames or secrets through the health response.
+   */
+  default boolean isModelProviderReachable() {
+    return false;
+  }
 }
