@@ -85,6 +85,101 @@ class SqliteMemoryStoreTests {
     assertTrue(tables.contains("messages"));
     assertTrue(tables.contains("memories"));
     assertTrue(tables.contains("vectorization_outbox"));
+    assertTrue(tables.contains("memories_fts"));
+    assertTrue(tables.contains("messages_fts"));
+  }
+
+  // ---- Phase 3 step 1: FTS5 migration + triggers + active filtering ----
+
+  @Test
+  void existingMemoriesAreSearchableAfterMigration() {
+    // Rows inserted before any explicit FTS work must still be found (the migration rebuilds the
+    // index, and triggers keep new inserts in sync).
+    Profile p = store.getOrCreateProfile("fts-alpha");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "User prefers the pnpm package manager", "s1", null, null));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", null, null));
+
+    List<Memory> hits = store.searchMemoriesFts(p.id(), "package manager", 10);
+    assertEquals(1, hits.size());
+    assertTrue(hits.get(0).content().contains("pnpm"));
+  }
+
+  @Test
+  void ftsUsesPorterStemming() {
+    Profile p = store.getOrCreateProfile("fts-stem");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "The user manages several running services", "s1", null, null));
+
+    // 'run' stems to match 'running'; 'manage' matches 'manages'.
+    assertEquals(1, store.searchMemoriesFts(p.id(), "run", 10).size());
+    assertEquals(1, store.searchMemoriesFts(p.id(), "manage", 10).size());
+  }
+
+  @Test
+  void ftsExcludesSupersededMemories() {
+    Profile p = store.getOrCreateProfile("fts-supersede");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", "location", null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "User lives in Munich", "s2", "location", null));
+
+    List<Memory> hits = store.searchMemoriesFts(p.id(), "lives", 10);
+    assertEquals(1, hits.size());
+    assertEquals("User lives in Munich", hits.get(0).content());
+  }
+
+  @Test
+  void ftsDropsForgottenMemoriesViaTrigger() {
+    Profile p = store.getOrCreateProfile("fts-forget");
+    Memory stored = store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Temporary preference for vim", "s1", null, null));
+    assertEquals(1, store.searchMemoriesFts(p.id(), "vim", 10).size());
+
+    store.forgetMemory(p.id(), stored.id());
+    // Still indexed (row not deleted), but the active-filtered query excludes it.
+    assertTrue(store.searchMemoriesFts(p.id(), "vim", 10).isEmpty());
+  }
+
+  @Test
+  void ftsHandlesRawQueryWithSpecialCharacters() {
+    Profile p = store.getOrCreateProfile("fts-raw");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Deploy uses the staging environment", "s1", null, null));
+
+    // A raw query with FTS operators/punctuation must not throw.
+    List<Memory> hits = store.searchMemoriesFts(p.id(), "what about \"staging\" (env)? AND OR *", 10);
+    assertEquals(1, hits.size());
+  }
+
+  @Test
+  void messageFtsSurfacesMemoriesFromMatchingSession() {
+    Profile p = store.getOrCreateProfile("msg-fts");
+    store.insertMessages(p.id(), "s1", List.of(
+      Message.of("s1", "user", "Please configure the kubernetes ingress controller")));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Deployment target decided", "s1", null, null));
+    // An unrelated session/memory must not be surfaced by the s1 message hit.
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Unrelated note", "s2", null, null));
+
+    List<Memory> hits = store.searchMemoriesByMessageFts(p.id(), "kubernetes ingress", 10);
+    assertEquals(1, hits.size());
+    assertEquals("Deployment target decided", hits.get(0).content());
+  }
+
+  @Test
+  void exactKeyLookupOrdersByInputPriority() {
+    Profile p = store.getOrCreateProfile("keys");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "pkg manager is pnpm", "s1", "tooling.pkg", null));
+    store.store(p.id(), Memory.of(MemoryType.INSTRUCTION, "run tests with gradle", "s1", "tooling.test", null));
+    store.store(p.id(), Memory.of(MemoryType.TASK, "do a thing", "s1", "tooling.pkg", null)); // tasks excluded
+
+    List<Memory> hits = store.exactKeyLookup(p.id(), List.of("tooling.test", "tooling.pkg"), 10);
+    assertEquals(2, hits.size());
+    assertEquals("tooling.test", hits.get(0).topicKey());
+    assertEquals("tooling.pkg", hits.get(1).topicKey());
+  }
+
+  @Test
+  void vectorSearchUnavailableWithoutExtensionConstructor() {
+    // The single-arg (test/Phase-1) constructor reports vector search unavailable, so the vector
+    // channel is a graceful no-op even on a machine that has sqlite-vec.
+    assertFalse(store.isVectorSearchAvailable());
+    assertTrue(store.vectorSearch("any", new float[] {1f, 2f, 3f}, 5).isEmpty());
+    assertEquals(0, store.backfillVectors());
   }
 
   @Test

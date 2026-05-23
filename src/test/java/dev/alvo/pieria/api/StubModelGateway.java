@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.QueryAnalysis;
 import dev.alvo.pieria.domain.RecallCandidate;
 import dev.alvo.pieria.domain.VerificationResult;
 import dev.alvo.pieria.domain.VerificationVerdict;
@@ -106,6 +107,24 @@ class StubModelGateway implements ModelGateway {
     return new Classification(MemoryType.FACT, "topic." + firstWord,
       List.of("what is " + firstWord + "?", "tell me about " + firstWord, "details on " + firstWord),
       "{}");
+  }
+
+  @Override
+  public QueryAnalysis analyzeQuery(String query) {
+    if (unavailable) {
+      throw new ModelUnavailableException("model down");
+    }
+    if (query == null || query.isBlank()) {
+      return new QueryAnalysis(List.of(), List.of(), null);
+    }
+    List<String> terms = new java.util.ArrayList<>();
+    for (String token : query.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+      if (!token.isBlank() && !terms.contains(token)) {
+        terms.add(token);
+      }
+    }
+    List<String> topicKeys = terms.isEmpty() ? List.of() : List.of("topic." + terms.get(0));
+    return new QueryAnalysis(topicKeys, terms, "answer: " + query.strip());
   }
 
   @Override

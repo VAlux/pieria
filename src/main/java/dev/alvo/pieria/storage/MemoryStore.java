@@ -107,6 +107,78 @@ public interface MemoryStore {
   record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector) {
   }
 
+  // ---- Phase 3: sqlite-vec index + FTS5 retrieval channels (SPEC 5.2, 5.6, 7.1) ----
+
+  /**
+   * Whether embedded vector search is available: the native {@code sqlite-vec} extension loaded
+   * AND {@code pieria.retrieval.vector-enabled} is true. When false, the vector channels are
+   * no-ops and {@link #vectorSearch} returns an empty list so recall degrades to FTS + keyed.
+   */
+  default boolean isVectorSearchAvailable() {
+    return false;
+  }
+
+  /**
+   * Upsert an embedding into the {@code memories_vec} index for {@code memoryId}. No-op when vector
+   * search is unavailable. Tasks must never be passed here (they are excluded from the index).
+   */
+  default void upsertEmbedding(String memoryId, float[] embedding) {
+    throw new UnsupportedOperationException("upsertEmbedding(...) not implemented");
+  }
+
+  /**
+   * Delete the {@code memories_vec} row for {@code memoryId} (used on supersession/forget). No-op
+   * when vector search is unavailable.
+   */
+  default void deleteEmbedding(String memoryId) {
+    throw new UnsupportedOperationException("deleteEmbedding(...) not implemented");
+  }
+
+  /**
+   * Memory FTS channel (SPEC 7.1): FTS5 MATCH over {@code memories_fts}, joined to {@code memories},
+   * filtered to {@code profileId} and the active set ({@code superseded = 0}), ordered by FTS rank
+   * (best first). The query is sanitized so arbitrary user text cannot raise an FTS5 syntax error.
+   */
+  default List<Memory> searchMemoriesFts(String profileId, String matchQuery, int limit) {
+    throw new UnsupportedOperationException("searchMemoriesFts(...) not implemented");
+  }
+
+  /**
+   * Raw-message FTS safety net (SPEC 7.1): FTS5 MATCH over {@code messages_fts} for {@code profileId};
+   * returns ACTIVE memories whose {@code session_id} is among the matched messages' sessions, ranked
+   * by message relevance then recency.
+   */
+  default List<Memory> searchMemoriesByMessageFts(String profileId, String matchQuery, int limit) {
+    throw new UnsupportedOperationException("searchMemoriesByMessageFts(...) not implemented");
+  }
+
+  /**
+   * Exact topic-key channel (SPEC 7.1): active {@code fact}/{@code instruction} memories whose
+   * {@code topic_key} is in {@code topicKeys}, ordered by the position of the key in the input list
+   * (priority) then {@code created_at} desc.
+   */
+  default List<Memory> exactKeyLookup(String profileId, List<String> topicKeys, int limit) {
+    throw new UnsupportedOperationException("exactKeyLookup(...) not implemented");
+  }
+
+  /**
+   * Direct/HyDE vector channel (SPEC 7.1): KNN over {@code memories_vec} joined to {@code memories},
+   * filtered to {@code profileId}, the active set, and excluding {@code task} (defensive), ordered by
+   * distance ascending. Returns an empty list when vector search is unavailable.
+   */
+  default List<Memory> vectorSearch(String profileId, float[] queryEmbedding, int limit) {
+    throw new UnsupportedOperationException("vectorSearch(...) not implemented");
+  }
+
+  /**
+   * Backfill {@code memories_vec} from the {@code embedding} BLOB column for active, vector-eligible
+   * memories ({@code superseded = 0} and {@code type != 'task'}) that are missing from the index.
+   * Returns the count backfilled. No-op (returns 0) when vector search is unavailable.
+   */
+  default int backfillVectors() {
+    return 0;
+  }
+
   /**
    * List active (non-superseded) memories, optionally filtered by type and/or session.
    * Null filters mean "no filter on that dimension".

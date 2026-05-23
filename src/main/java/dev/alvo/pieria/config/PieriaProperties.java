@@ -13,7 +13,8 @@ public record PieriaProperties(
   Db db,
   Ollama ollama,
   Model model,
-  Ingestion ingestion) {
+  Ingestion ingestion,
+  Retrieval retrieval) {
 
   public record Daemon(@DefaultValue("127.0.0.1") String host,
                        @DefaultValue("8077") int port) {
@@ -43,5 +44,31 @@ public record PieriaProperties(
                           @DefaultValue("5") int outboxMaxAttempts,
                           @DefaultValue("true") boolean vectorizationSchedulerEnabled,
                           @DefaultValue("5000") long vectorizationIntervalMs) {
+  }
+
+  /**
+   * Retrieval pipeline tuning (SPEC 7, phase-3 steps 6-7). Vector support can be disabled so recall
+   * degrades gracefully to FTS + keyed lookup. RRF {@code k} and the per-channel weights are
+   * defaults until Phase 5 evaluation tunes them; channel limit/timeout bound each parallel channel.
+   *
+   * @param vectorEnabled      master switch for the two vector channels (off ⇒ FTS + keyed only)
+   * @param rrfK               RRF rank constant {@code k} (SPEC 7.3, default 60)
+   * @param weightExactKey     fusion weight for the exact topic-key channel (highest signal)
+   * @param weightFtsMemory    fusion weight for the memory FTS channel
+   * @param weightHydeVector   fusion weight for the HyDE vector channel
+   * @param weightDirectVector fusion weight for the direct vector channel
+   * @param weightFtsMessage   fusion weight for the raw-message FTS safety-net channel (lowest)
+   * @param channelLimit       max hits each channel returns before fusion
+   * @param channelTimeoutMs   per-channel timeout in milliseconds for the parallel fan-out
+   */
+  public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
+                          @DefaultValue("60") int rrfK,
+                          @DefaultValue("3.0") double weightExactKey,
+                          @DefaultValue("1.0") double weightFtsMemory,
+                          @DefaultValue("1.0") double weightHydeVector,
+                          @DefaultValue("1.0") double weightDirectVector,
+                          @DefaultValue("0.5") double weightFtsMessage,
+                          @DefaultValue("10") int channelLimit,
+                          @DefaultValue("3000") long channelTimeoutMs) {
   }
 }

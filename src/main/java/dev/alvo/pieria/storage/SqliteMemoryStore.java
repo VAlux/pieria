@@ -1,5 +1,7 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
+import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.Memory;
@@ -25,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,9 +44,26 @@ public class SqliteMemoryStore implements MemoryStore {
   private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);
 
   private final JdbcClient jdbc;
+  private final VecCapability vecCapability;
+  private final boolean vectorEnabled;
 
+  /**
+   * Production constructor: wires the sqlite-vec capability flag and the retrieval feature switch.
+   */
+  @org.springframework.beans.factory.annotation.Autowired
+  public SqliteMemoryStore(JdbcClient jdbc, VecCapability vecCapability, PieriaProperties properties) {
+    this.jdbc = jdbc;
+    this.vecCapability = vecCapability;
+    this.vectorEnabled = properties.retrieval().vectorEnabled();
+  }
+
+  /**
+   * Test/Phase-1 constructor: no sqlite-vec capability (vector search reports unavailable).
+   */
   public SqliteMemoryStore(JdbcClient jdbc) {
     this.jdbc = jdbc;
+    this.vecCapability = null;
+    this.vectorEnabled = false;
   }
 
   /**
@@ -56,6 +76,52 @@ public class SqliteMemoryStore implements MemoryStore {
       buffer.putFloat(value);
     }
     return buffer.array();
+  }
+
+  /**
+   * Inverse of {@link #encodeEmbedding}: decode little-endian float32 bytes back to a float vector.
+   */
+  private static float[] decodeEmbedding(byte[] blob) {
+    ByteBuffer buffer = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
+    float[] out = new float[blob.length / Float.BYTES];
+    for (int i = 0; i < out.length; i++) {
+      out[i] = buffer.getFloat();
+    }
+    return out;
+  }
+
+  /**
+   * Render a float vector as a sqlite-vec JSON array literal (the most portable input form for
+   * {@code vec0} inserts and KNN queries).
+   */
+  private static String toVecJson(float[] embedding) {
+    StringBuilder sb = new StringBuilder(embedding.length * 8).append('[');
+    for (int i = 0; i < embedding.length; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append(embedding[i]);
+    }
+    return sb.append(']').toString();
+  }
+
+  /**
+   * Build a safe FTS5 MATCH expression from arbitrary user text: lowercase, split on non-word
+   * characters, and OR the surviving tokens as double-quoted strings so punctuation/operators in
+   * the raw query cannot raise an FTS5 syntax error. Returns {@code null} when no usable token.
+   */
+  private static String toFtsMatch(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    List<String> tokens = new ArrayList<>();
+    for (String token : raw.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{Nd}]+")) {
+      if (!token.isBlank() && !tokens.contains(token)) {
+        // Double-quote and escape any embedded quotes; an FTS5 string token matches literally.
+        tokens.add('"' + token.replace("\"", "\"\"") + '"');
+      }
+    }
+    return tokens.isEmpty() ? null : String.join(" OR ", tokens);
   }
 
   private static Profile mapProfile(ResultSet rs) throws SQLException {
@@ -102,7 +168,7 @@ public class SqliteMemoryStore implements MemoryStore {
   public Optional<Profile> findProfile(String name) {
     return jdbc.sql("SELECT id, name, created_at FROM profiles WHERE name = ?")
       .param(name)
-      .query((rs, rowNum) -> mapProfile(rs))
+      .query((rs, _) -> mapProfile(rs))
       .optional();
   }
 
@@ -198,6 +264,9 @@ public class SqliteMemoryStore implements MemoryStore {
         jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
           .param(supersededId)
           .update();
+        // Remove the superseded row's vector in the same transaction (SPEC 5.6) so it never
+        // surfaces in vector results.
+        deleteEmbedding(supersededId);
       }
     }
 
@@ -237,12 +306,12 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     return jdbc.sql(
         """
-          SELECT id, session_id, type, content, topic_key, supersedes, superseded, \
-          payload, embed_text, created_at FROM memories \
+          SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
+          FROM memories \
           WHERE profile_id = ? AND type = ? AND topic_key = ? AND superseded = 0 \
           ORDER BY created_at DESC""")
       .params(profileId, type.wire(), topicKey)
-      .query((rs, rowNum) -> mapMemory(rs))
+      .query((rs, _) -> mapMemory(rs))
       .list();
   }
 
@@ -250,10 +319,11 @@ public class SqliteMemoryStore implements MemoryStore {
   public Optional<Memory> findMemoryById(String memoryId) {
     return jdbc.sql(
         """
-          SELECT id, session_id, type, content, topic_key, supersedes, superseded, \
-          payload, embed_text, created_at FROM memories WHERE id = ?""")
+          SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
+          FROM memories \
+          WHERE id = ?""")
       .param(memoryId)
-      .query((rs, rowNum) -> mapMemory(rs))
+      .query((rs, _) -> mapMemory(rs))
       .optional();
   }
 
@@ -264,7 +334,7 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     return jdbc.sql("SELECT memory_id, attempts FROM vectorization_outbox ORDER BY enqueued_at LIMIT ?")
       .param(batchSize)
-      .query((rs, rowNum) -> new OutboxEntry(rs.getString("memory_id"), rs.getInt("attempts")))
+      .query((rs, _) -> new OutboxEntry(rs.getString("memory_id"), rs.getInt("attempts")))
       .list();
   }
 
@@ -288,10 +358,14 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public void completeVectorization(String memoryId, float[] embedding) {
-    // Write the embedding first, then remove the outbox row, in the same transaction.
+    // Write the BLOB first, mirror it into the sqlite-vec index, then remove the outbox row, all in
+    // one transaction. encodeEmbedding throws on a null vector before any write happens.
+    byte[] encoded = encodeEmbedding(embedding);
     jdbc.sql("UPDATE memories SET embedding = ? WHERE id = ?")
-      .params(encodeEmbedding(embedding), memoryId)
+      .params(encoded, memoryId)
       .update();
+
+    upsertEmbedding(memoryId, embedding);
 
     jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
       .param(memoryId)
@@ -302,8 +376,8 @@ public class SqliteMemoryStore implements MemoryStore {
   public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
     StringBuilder sql = new StringBuilder(
       """
-        SELECT id, session_id, type, content, topic_key, supersedes, superseded, \
-        payload, embed_text, created_at FROM memories \
+        SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
+        FROM memories \
         WHERE profile_id = ? AND superseded = 0""");
 
     List<Object> params = new ArrayList<>();
@@ -320,16 +394,21 @@ public class SqliteMemoryStore implements MemoryStore {
 
     return jdbc.sql(sql.toString())
       .params(params)
-      .query((rs, rowNum) -> mapMemory(rs))
+      .query((rs, _) -> mapMemory(rs))
       .list();
   }
 
   @Override
   @Transactional
   public boolean forgetMemory(String profileId, String memoryId) {
-    int affected = jdbc.sql("UPDATE memories SET superseded = 1 WHERE id = ? AND profile_id = ? AND superseded = 0")
+    int affected = jdbc.sql("UPDATE memories SET superseded = 1, embedding = NULL WHERE id = ? AND profile_id = ? AND superseded = 0")
       .params(memoryId, profileId)
       .update();
+
+    if (affected > 0) {
+      // A forgotten memory must drop out of vector results too (SPEC 5.6).
+      deleteEmbedding(memoryId);
+    }
 
     return affected > 0;
   }
@@ -350,7 +429,7 @@ public class SqliteMemoryStore implements MemoryStore {
           payload, embed_text, created_at FROM memories \
           WHERE profile_id = ? ORDER BY created_at DESC""")
       .param(profileId)
-      .query((rs, rowNum) -> mapMemory(rs))
+      .query((rs, _) -> mapMemory(rs))
       .list();
 
     List<ExportRow> rows = new ArrayList<>(memories.size());
@@ -435,5 +514,179 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   private record Scored(Memory memory, int score, String source) {
+  }
+
+  // ---- Phase 3: sqlite-vec index + FTS5 retrieval channels (SPEC 5.2, 5.6, 7.1) ----
+
+  private static final String MEMORY_COLUMNS =
+    "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
+
+  @Override
+  public boolean isVectorSearchAvailable() {
+    return vectorEnabled && vecCapability != null && vecCapability.isLoaded();
+  }
+
+  @Override
+  @Transactional
+  public void upsertEmbedding(String memoryId, float[] embedding) {
+    if (!isVectorSearchAvailable() || embedding == null) {
+      return;
+    }
+    // vec0 has no UPSERT; delete-then-insert keeps memory_id unique and idempotent.
+    jdbc.sql("DELETE FROM memories_vec WHERE memory_id = ?").param(memoryId).update();
+    jdbc.sql("INSERT INTO memories_vec (memory_id, embedding) VALUES (?, ?)")
+      .params(memoryId, toVecJson(embedding))
+      .update();
+  }
+
+  @Override
+  @Transactional
+  public void deleteEmbedding(String memoryId) {
+    if (!isVectorSearchAvailable()) {
+      return;
+    }
+    jdbc.sql("DELETE FROM memories_vec WHERE memory_id = ?").param(memoryId).update();
+  }
+
+  @Override
+  public List<Memory> searchMemoriesFts(String profileId, String matchQuery, int limit) {
+    String match = toFtsMatch(matchQuery);
+    if (match == null || limit <= 0) {
+      return List.of();
+    }
+    // Join FTS rowid back to memories; filter to this profile's active set, rank best-first.
+    return jdbc.sql(
+        """
+          SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, \
+          m.superseded, m.payload, m.embed_text, m.created_at \
+          FROM memories_fts f \
+          JOIN memories m ON m.rowid = f.rowid \
+          WHERE memories_fts MATCH ? AND m.profile_id = ? AND m.superseded = 0 \
+          ORDER BY f.rank LIMIT ?""")
+      .params(match, profileId, limit)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  public List<Memory> searchMemoriesByMessageFts(String profileId, String matchQuery, int limit) {
+    String match = toFtsMatch(matchQuery);
+    if (match == null || limit <= 0) {
+      return List.of();
+    }
+    // Active memories whose session has a matching raw message; rank by best (lowest) message rank
+    // for the session, then recency. The safety net for verbatim details the extractor generalized.
+    return jdbc.sql(
+        """
+          SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, \
+          m.superseded, m.payload, m.embed_text, m.created_at \
+          FROM memories m \
+          JOIN ( \
+            SELECT msg.session_id AS sid, MIN(f.rank) AS best_rank \
+            FROM messages_fts f \
+            JOIN messages msg ON msg.rowid = f.rowid \
+            WHERE messages_fts MATCH ? AND msg.profile_id = ? \
+            GROUP BY msg.session_id \
+          ) hit ON hit.sid = m.session_id \
+          WHERE m.profile_id = ? AND m.superseded = 0 \
+          ORDER BY hit.best_rank, m.created_at DESC LIMIT ?""")
+      .params(match, profileId, profileId, limit)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  public List<Memory> exactKeyLookup(String profileId, List<String> topicKeys, int limit) {
+    if (topicKeys == null || topicKeys.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    // De-duplicate while preserving caller priority order.
+    List<String> keys = new ArrayList<>();
+    for (String key : topicKeys) {
+      if (key != null && !key.isBlank() && !keys.contains(key)) {
+        keys.add(key);
+      }
+    }
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    String placeholders = String.join(", ", keys.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.add(MemoryType.FACT.wire());
+    params.add(MemoryType.INSTRUCTION.wire());
+    params.addAll(keys);
+    params.add(limit);
+
+    List<Memory> matches = jdbc.sql(
+        "SELECT " + MEMORY_COLUMNS + " FROM memories "
+          + "WHERE profile_id = ? AND type IN (?, ?) AND superseded = 0 "
+          + "AND topic_key IN (" + placeholders + ") "
+          + "ORDER BY created_at DESC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+
+    // Re-order by the priority of the key in the input list, then created_at desc (SQL gave us the
+    // latter within each key already, but the final comparator makes priority the primary sort).
+    matches.sort(Comparator
+      .comparingInt((Memory m) -> {
+        int idx = keys.indexOf(m.topicKey());
+        return idx < 0 ? Integer.MAX_VALUE : idx;
+      })
+      .thenComparing(Memory::createdAt, Comparator.reverseOrder()));
+
+    return matches.size() > limit ? new ArrayList<>(matches.subList(0, limit)) : matches;
+  }
+
+  @Override
+  public List<Memory> vectorSearch(String profileId, float[] queryEmbedding, int limit) {
+    if (!isVectorSearchAvailable() || queryEmbedding == null || limit <= 0) {
+      return List.of();
+    }
+    // sqlite-vec KNN: the `embedding MATCH ? AND k = ?` form returns the k nearest rows ordered by
+    // distance. Join to memories and re-filter to the active, non-task, in-profile set defensively.
+    return jdbc.sql(
+        """
+          SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, \
+          m.superseded, m.payload, m.embed_text, m.created_at \
+          FROM memories_vec v \
+          JOIN memories m ON m.id = v.memory_id \
+          WHERE v.embedding MATCH ? AND k = ? \
+          AND m.profile_id = ? AND m.superseded = 0 AND m.type != ? \
+          ORDER BY v.distance""")
+      .params(toVecJson(queryEmbedding), limit, profileId, MemoryType.TASK.wire())
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  @Transactional
+  public int backfillVectors() {
+    if (!isVectorSearchAvailable()) {
+      return 0;
+    }
+    // Active, vector-eligible memories with a stored BLOB but no vec row yet.
+    record Pending(String id, byte[] embedding) {
+    }
+    List<Pending> rows = jdbc.sql(
+        """
+          SELECT m.id AS id, m.embedding AS embedding FROM memories m \
+          WHERE m.superseded = 0 AND m.type != ? AND m.embedding IS NOT NULL \
+          AND NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.memory_id = m.id)""")
+      .param(MemoryType.TASK.wire())
+      .query((rs, _) -> new Pending(rs.getString("id"), rs.getBytes("embedding")))
+      .list();
+
+    int count = 0;
+    for (Pending row : rows) {
+      if (row.embedding() == null || row.embedding().length == 0) {
+        continue;
+      }
+      upsertEmbedding(row.id(), decodeEmbedding(row.embedding()));
+      count++;
+    }
+    return count;
   }
 }

@@ -40,7 +40,8 @@ class IngestionServiceTests {
   private static PieriaProperties props() {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024),
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000));
+      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
+      null);
   }
 
   private static Message msg(String role, String content) {

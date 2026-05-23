@@ -226,4 +226,91 @@ class StubMemoryStore implements MemoryStore {
     }
     return out;
   }
+
+  // --- Phase 3 retrieval channels: simple in-memory lexical/keyed matching (no real FTS/vector) ---
+
+  private static List<String> terms(String raw) {
+    List<String> out = new ArrayList<>();
+    if (raw == null) {
+      return out;
+    }
+    for (String t : raw.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+")) {
+      if (!t.isBlank() && !out.contains(t)) {
+        out.add(t);
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public boolean isVectorSearchAvailable() {
+    return false;
+  }
+
+  @Override
+  public List<Memory> searchMemoriesFts(String profileId, String matchQuery, int limit) {
+    List<String> terms = terms(matchQuery);
+    if (terms.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<Memory> matched = new ArrayList<>();
+    for (Memory m : listMemories(profileId, null, null)) {
+      String content = m.content() == null ? "" : m.content().toLowerCase(java.util.Locale.ROOT);
+      if (terms.stream().anyMatch(content::contains)) {
+        matched.add(m);
+      }
+    }
+    return matched.size() > limit ? matched.subList(0, limit) : matched;
+  }
+
+  @Override
+  public List<Memory> searchMemoriesByMessageFts(String profileId, String matchQuery, int limit) {
+    List<String> terms = terms(matchQuery);
+    if (terms.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    java.util.Set<String> matchedSessions = new java.util.LinkedHashSet<>();
+    for (Message msg : messages) {
+      String content = msg.content() == null ? "" : msg.content().toLowerCase(java.util.Locale.ROOT);
+      if (terms.stream().anyMatch(content::contains)) {
+        matchedSessions.add(msg.sessionId());
+      }
+    }
+    List<Memory> out = new ArrayList<>();
+    for (Memory m : listMemories(profileId, null, null)) {
+      if (m.sessionId() != null && matchedSessions.contains(m.sessionId())) {
+        out.add(m);
+      }
+      if (out.size() >= limit) {
+        break;
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public List<Memory> exactKeyLookup(String profileId, List<String> topicKeys, int limit) {
+    if (topicKeys == null || topicKeys.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<Memory> out = new ArrayList<>();
+    for (String key : topicKeys) {
+      for (Memory m : listMemories(profileId, null, null)) {
+        if (key.equals(m.topicKey())
+            && (m.type() == MemoryType.FACT || m.type() == MemoryType.INSTRUCTION)
+            && !out.contains(m)) {
+          out.add(m);
+        }
+        if (out.size() >= limit) {
+          return out;
+        }
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public List<Memory> vectorSearch(String profileId, float[] queryEmbedding, int limit) {
+    return List.of(); // stub has no vector index
+  }
 }

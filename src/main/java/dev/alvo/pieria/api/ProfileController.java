@@ -85,9 +85,29 @@ public class ProfileController {
   public RecallResponse recall(@PathVariable String name,
                                @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
-    RecallResult result = retrievalService.recall(name, request.query(), limit);
-    return new RecallResponse(result.answer(),
-      result.memories().stream().map(MemoryResponse::from).toList());
+    boolean debug = Boolean.TRUE.equals(request.debug());
+    RecallResult result = retrievalService.recall(name, request.query(), limit, debug);
+
+    List<MemoryResponse> memories = result.candidates().stream()
+      .map(c -> MemoryResponse.from(c.memory()))
+      .toList();
+
+    return new RecallResponse(result.answer(), memories, debug ? debugBlock(result) : null);
+  }
+
+  private static RecallResponse.RecallDebug debugBlock(RecallResult result) {
+    List<RecallResponse.RecallDebug.Provenance> candidates = result.candidates().stream()
+      .map(c -> new RecallResponse.RecallDebug.Provenance(c.memory().id(), c.score(), c.source()))
+      .toList();
+    List<String> temporalFacts = result.temporalFacts().stream()
+      .map(f -> f.render())
+      .toList();
+    List<RecallResponse.RecallDebug.ChannelDiagnostic> channels =
+      result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
+        .map(d -> new RecallResponse.RecallDebug.ChannelDiagnostic(
+          d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
+        .toList();
+    return new RecallResponse.RecallDebug(candidates, temporalFacts, channels);
   }
 
   @GetMapping("/memories")

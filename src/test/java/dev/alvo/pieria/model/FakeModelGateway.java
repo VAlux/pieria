@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.QueryAnalysis;
 import dev.alvo.pieria.domain.RecallCandidate;
 import dev.alvo.pieria.domain.VerificationResult;
 import dev.alvo.pieria.domain.VerificationVerdict;
@@ -35,6 +36,10 @@ import java.util.Locale;
  * {@link #extract} yields one candidate per chunk (content {@code "chunk:<index>:" + transcript});
  * {@link #extractDetail} yields one candidate suffixed with {@code " [detail]"}.
  * {@link #classify} always returns 3 interrogative queries.
+ * {@link #analyzeQuery} lowercases + splits the query on non-alphanumerics into terms; it returns
+ * those terms as {@code ftsTerms}, a single topicKey {@code "topic." + firstTerm} (empty list if no
+ * terms), and a {@code hydeStatement} of {@code "answer: " + query.strip()} (or {@code null} for a
+ * blank/null query). Honors {@link #setUnavailable(boolean)}.
  */
 public class FakeModelGateway implements ModelGateway {
 
@@ -146,10 +151,44 @@ public class FakeModelGateway implements ModelGateway {
   }
 
   @Override
+  public QueryAnalysis analyzeQuery(String query) {
+    failIfUnavailable();
+    if (query == null || query.isBlank()) {
+      return new QueryAnalysis(List.of(), List.of(), null);
+    }
+    List<String> terms = new java.util.ArrayList<>();
+    for (String token : query.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+      if (!token.isBlank() && !terms.contains(token)) {
+        terms.add(token);
+      }
+    }
+    List<String> topicKeys = terms.isEmpty() ? List.of() : List.of("topic." + terms.get(0));
+    return new QueryAnalysis(topicKeys, terms, "answer: " + query.strip());
+  }
+
+  @Override
   public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
     failIfUnavailable();
     int count = candidates == null ? 0 : candidates.size();
     return "Answer to '" + query + "' from " + count + " candidate(s).";
+  }
+
+  /**
+   * Surfaces the temporal-fact count so retrieval-pipeline tests can assert that deterministic
+   * temporal facts reached synthesis. The candidate contents are echoed so callers can also assert
+   * which fused memories were passed in.
+   */
+  @Override
+  public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                 List<dev.alvo.pieria.domain.TemporalFact> temporalFacts) {
+    failIfUnavailable();
+    int count = candidates == null ? 0 : candidates.size();
+    int temporal = temporalFacts == null ? 0 : temporalFacts.size();
+    String contents = candidates == null ? "" : candidates.stream()
+      .map(c -> c.memory().content())
+      .collect(java.util.stream.Collectors.joining("; "));
+    return "Answer to '" + query + "' from " + count + " candidate(s), "
+      + temporal + " temporal fact(s): " + contents;
   }
 
   @Override

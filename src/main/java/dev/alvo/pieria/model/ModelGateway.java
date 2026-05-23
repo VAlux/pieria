@@ -5,7 +5,9 @@ import dev.alvo.pieria.domain.Classification;
 import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.QueryAnalysis;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.TemporalFact;
 import dev.alvo.pieria.domain.VerificationResult;
 
 import java.util.List;
@@ -58,9 +60,33 @@ public interface ModelGateway {
   }
 
   /**
+   * Phase 3 recall query analysis (SPEC 7.1, stage 1): turn a raw recall query into ranked
+   * candidate topic keys (for the exact-key channel), FTS keyword terms expanded with synonyms,
+   * and a single HyDE declarative statement (a hypothetical one-sentence answer for the HyDE
+   * vector channel). Runs on the small/fast model (structured stage). Implementations must throw
+   * {@link ModelUnavailableException} on provider failure; callers decide whether to fall back to
+   * a deterministic analyzer.
+   */
+  default QueryAnalysis analyzeQuery(String query) {
+    throw new UnsupportedOperationException("analyzeQuery(...) not implemented");
+  }
+
+  /**
    * Synthesize a natural-language answer to {@code query} from the top recall candidates (large model).
    */
   String synthesizeRecall(String query, List<RecallCandidate> candidates);
+
+  /**
+   * Phase 3 synthesis (SPEC 7.2, phase-3 step 9): synthesize an answer from the fused candidates,
+   * with pre-computed deterministic {@code temporalFacts} injected into the prompt (the model is
+   * never asked to do date arithmetic). Implementations should require the answer to state when the
+   * memory evidence is insufficient. The default ignores temporal facts and delegates to the
+   * two-argument form so existing implementations keep working.
+   */
+  default String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                  List<TemporalFact> temporalFacts) {
+    return synthesizeRecall(query, candidates);
+  }
 
   /**
    * Embed text for vector search. Defined now so config/contracts are stable; Phase 1 recall

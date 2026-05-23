@@ -19,7 +19,8 @@ class ChunkerTests {
       new PieriaProperties.Db(":memory:"),
       new PieriaProperties.Ollama("http://localhost:11434"),
       new PieriaProperties.Model("small", "large", "embed", 1024),
-      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000));
+      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000),
+      null);
     return new Chunker(normalizer, props);
   }
 

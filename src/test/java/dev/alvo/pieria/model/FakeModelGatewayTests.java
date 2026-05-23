@@ -157,6 +157,31 @@ class FakeModelGatewayTests {
   }
 
   @Test
+  void analyzeQueryDerivesTermsTopicKeyAndHydeStatement() {
+    var analysis = gateway.analyzeQuery("Which editor do I use?");
+
+    assertThat(analysis.ftsTerms()).contains("which", "editor", "do", "use");
+    assertThat(analysis.topicKeys()).containsExactly("topic.which");
+    assertThat(analysis.hydeStatement()).isEqualTo("answer: Which editor do I use?");
+  }
+
+  @Test
+  void analyzeQueryIsDeterministicAndEmptyForBlank() {
+    assertThat(gateway.analyzeQuery("same query")).isEqualTo(gateway.analyzeQuery("same query"));
+    var empty = gateway.analyzeQuery("   ");
+    assertThat(empty.ftsTerms()).isEmpty();
+    assertThat(empty.topicKeys()).isEmpty();
+    assertThat(empty.hydeStatement()).isNull();
+  }
+
+  @Test
+  void analyzeQueryThrowsWhenUnavailable() {
+    gateway.setUnavailable(true);
+    assertThatThrownBy(() -> gateway.analyzeQuery("q"))
+      .isInstanceOf(ModelUnavailableException.class);
+  }
+
+  @Test
   void classifyDerivesTypeFromSentinels() {
     assertThat(gateway.classify("EVENT happened today").type()).isEqualTo(MemoryType.EVENT);
     assertThat(gateway.classify("EVENT happened today").topicKey()).isNull();

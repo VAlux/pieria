@@ -27,6 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {ProfileController.class, GlobalExceptionHandler.class})
 @Import({ProfileApiTests.Wiring.class, IngestionService.class, RetrievalService.class,
+  dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer.class,
   TranscriptNormalizer.class, Chunker.class})
 class ProfileApiTests {
 
@@ -140,6 +141,40 @@ class ProfileApiTests {
     }
   }
 
+  @Test
+  void recallWithDebugReturnsProvenanceAndChannels() throws Exception {
+    remember();
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType("application/json")
+        .content("{\"query\":\"tea\",\"debug\":true}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")))
+      .andExpect(jsonPath("$.debug.candidates[0].source", containsString("fts_memory")))
+      .andExpect(jsonPath("$.debug.candidates[0].id", is(org.hamcrest.Matchers.notNullValue())))
+      .andExpect(jsonPath("$.debug.channels", org.hamcrest.Matchers.hasSize(5)));
+  }
+
+  @Test
+  void recallWithoutDebugOmitsDebugBlock() throws Exception {
+    remember();
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType("application/json")
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.debug").doesNotExist());
+  }
+
+  @Test
+  void recallWithNoMatchesReportsInsufficientEvidence() throws Exception {
+    remember();
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType("application/json")
+        .content("{\"query\":\"quantumchromodynamics\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories", org.hamcrest.Matchers.hasSize(0)))
+      .andExpect(jsonPath("$.answer", is("No relevant memories.")));
+  }
+
   private String remember() throws Exception {
     String response = mvc.perform(post("/v1/profiles/alice/memories")
         .contentType("application/json")
@@ -171,7 +206,8 @@ class ProfileApiTests {
     @Bean
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
-        new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000));
+        new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));
     }
 
     @Bean

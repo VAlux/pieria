@@ -7,7 +7,9 @@ import dev.alvo.pieria.domain.ExtractedCandidate;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.QueryAnalysis;
 import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.TemporalFact;
 import dev.alvo.pieria.domain.VerificationResult;
 import dev.alvo.pieria.domain.VerificationVerdict;
 import org.springframework.ai.chat.client.ChatClient;
@@ -16,7 +18,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -121,14 +125,14 @@ public class OllamaModelGateway implements ModelGateway {
       You are the FULL-PASS extractor of a memory pipeline. Read the conversation chunk below
       and extract durable, long-lived candidate memories worth remembering across future sessions:
       stable facts, notable events, standing instructions/preferences, and outstanding tasks.
-
+      
       For each candidate set:
       - content: a concise, self-contained declarative statement
       - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
-
+      
       Do not invent information not present in the chunk. If nothing is worth remembering,
       return an empty list.
-
+      
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -144,14 +148,14 @@ public class OllamaModelGateway implements ModelGateway {
       You are the DETAIL-PASS extractor of a memory pipeline. The broad full pass tends to miss
       concrete values. From the conversation chunk below, extract candidates that capture concrete,
       specific values: names, versions, prices, file paths, URLs, entity attributes, and dates.
-
+      
       For each candidate set:
       - content: a concise, self-contained declarative statement carrying the concrete value
       - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
-
+      
       Do not invent information not present in the chunk. If there are no concrete values worth
       capturing, return an empty list.
-
+      
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -194,15 +198,15 @@ public class OllamaModelGateway implements ModelGateway {
       - pass: the candidate is fully supported by the transcript; keep content unchanged
       - correct: the candidate is mostly right but needs a factual fix; return corrected content
       - drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
-
+      
       Set:
       - verdict: one of pass, correct, drop
       - content: for pass echo the original; for correct give the fixed statement; for drop empty
       - reason: a short justification
-
+      
       Candidate:
       %s
-
+      
       Source transcript:
       %s
       """.formatted(candidate.content(), safeTranscript);
@@ -246,7 +250,7 @@ public class OllamaModelGateway implements ModelGateway {
       - interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
         answers (interrogative search queries, SPEC 8.1)
       - payload: a JSON object string of extra structured fields, or "{}"
-
+      
       Memory content:
       %s
       """.formatted(content);
@@ -305,7 +309,75 @@ public class OllamaModelGateway implements ModelGateway {
   }
 
   @Override
+  public QueryAnalysis analyzeQuery(String query) {
+    if (query == null || query.isBlank()) {
+      return new QueryAnalysis(List.of(), List.of(), null);
+    }
+    String prompt = """
+      You are the QUERY ANALYZER of a memory retrieval pipeline. Given a recall query,
+      produce the inputs the retrieval channels need:
+      - topicKeys: 1 to 5 ranked candidate subject keys, most likely first. Each is a short
+        normalized key (lowercase, words joined by '.', e.g. "user.editor", "db.engine").
+      - ftsTerms: the salient keyword terms from the query EXPANDED with close synonyms and
+        common alternate spellings, for full-text search. Single words, lowercase.
+      - hydeStatement: one plausible declarative sentence that would directly ANSWER the query
+        (a hypothetical answer), used for HyDE vector search.
+      
+      Do not answer the question for real; just produce a plausible hypothetical answer sentence.
+      
+      Query:
+      %s
+      """.formatted(query);
+
+    QueryAnalysisDto dto;
+    try {
+      dto = extractionChatClient.prompt()
+        .user(prompt)
+        .call()
+        .entity(QueryAnalysisDto.class);
+    } catch (RuntimeException e) {
+      throw new ModelUnavailableException("model query analysis failed", e);
+    }
+    if (dto == null) {
+      return new QueryAnalysis(List.of(), List.of(), null);
+    }
+
+    List<String> topicKeys = new ArrayList<>();
+    LinkedHashSet<String> seenKeys = new LinkedHashSet<>();
+    if (dto.topicKeys() != null) {
+      for (String raw : dto.topicKeys()) {
+        String key = normalizeTopicKey(raw);
+        if (key != null && seenKeys.add(key)) {
+          topicKeys.add(key);
+        }
+      }
+    }
+
+    List<String> ftsTerms = new ArrayList<>();
+    LinkedHashSet<String> seenTerms = new LinkedHashSet<>();
+    if (dto.ftsTerms() != null) {
+      for (String raw : dto.ftsTerms()) {
+        String term = blankToNull(raw);
+        if (term != null) {
+          term = term.toLowerCase(Locale.ROOT);
+          if (seenTerms.add(term)) {
+            ftsTerms.add(term);
+          }
+        }
+      }
+    }
+
+    return new QueryAnalysis(topicKeys, ftsTerms, blankToNull(dto.hydeStatement()));
+  }
+
+  @Override
   public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
+    return synthesizeRecall(query, candidates, List.of());
+  }
+
+  @Override
+  public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                 List<TemporalFact> temporalFacts) {
     List<RecallCandidate> safeCandidates = candidates == null ? List.of() : candidates;
     String context = safeCandidates.stream()
       .map(c -> "- " + c.memory().content())
@@ -314,16 +386,29 @@ public class OllamaModelGateway implements ModelGateway {
       context = "(no candidate memories were retrieved)";
     }
 
+    // Temporal facts are computed deterministically in Java (SPEC 7.2) and injected as ground truth;
+    // the model must use them verbatim and never do its own date arithmetic.
+    List<TemporalFact> safeTemporal = temporalFacts == null ? List.of() : temporalFacts;
+    String temporalBlock = safeTemporal.isEmpty()
+      ? "(none)"
+      : safeTemporal.stream().map(f -> "- " + f.render()).collect(Collectors.joining("\n"));
+
     String prompt = """
       You are answering a question using only the remembered memories below.
-      If the memories do not contain the answer, say you don't know.
+      If the memories do not contain enough information to answer, say clearly that there is
+      insufficient memory evidence to answer — do not guess.
+      The pre-computed temporal facts are authoritative: use them verbatim and never perform your
+      own date or duration arithmetic.
       
       Question:
       %s
       
+      Pre-computed temporal facts:
+      %s
+      
       Remembered memories:
       %s
-      """.formatted(query, context);
+      """.formatted(query, temporalBlock, context);
 
     try {
       return synthesisChatClient.prompt()
@@ -377,7 +462,12 @@ public class OllamaModelGateway implements ModelGateway {
   /**
    * Structured-output target for {@link #classify}. Shape v1.
    */
-  private record ClassificationDto(String type, String topicKey,
-                                   List<String> interrogativeQueries, String payload) {
+  private record ClassificationDto(String type, String topicKey, List<String> interrogativeQueries, String payload) {
+  }
+
+  /**
+   * Structured-output target for {@link #analyzeQuery}. Shape v1.
+   */
+  private record QueryAnalysisDto(List<String> topicKeys, List<String> ftsTerms, String hydeStatement) {
   }
 }
