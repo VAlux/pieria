@@ -1,0 +1,49 @@
+{
+	"name": "release-facts",
+	"profileName": "pieria-release-eval",
+	"sessionId": "fixture-release-facts",
+	"transcript": [
+		{
+			"role": "user",
+			"content": "The local daemon should bind only to 127.0.0.1 in local mode."
+		},
+		{
+			"role": "assistant",
+			"content": "I will keep the daemon on localhost for the default local-first setup."
+		},
+		{
+			"role": "user",
+			"content": "For launchd packaging, register only the daemon as a service. The shim remains a harness executable."
+		}
+	],
+	"expectedMemories": [
+		{
+			"type": "FACT",
+			"content": "The local daemon should bind only to 127.0.0.1 in local mode.",
+			"topicKey": "daemon.local-bind-address",
+			"payload": "{}"
+		},
+		{
+			"type": "INSTRUCTION",
+			"content": "For launchd packaging, register only the daemon as a service and keep the shim as a harness executable.",
+			"topicKey": "packaging.launchd-service-scope",
+			"payload": "{\"service\":\"daemon\",\"shim\":\"harness executable\"}"
+		}
+	],
+	"recalls": [
+		{
+			"query": "What address should the daemon bind in local mode?",
+			"expectedEvidence": [
+				"The local daemon should bind only to 127.0.0.1 in local mode."
+			],
+			"expectedAnswer": "In local mode, bind the daemon only to 127.0.0.1."
+		},
+		{
+			"query": "What should launchd register as a service?",
+			"expectedEvidence": [
+				"For launchd packaging, register only the daemon as a service and keep the shim as a harness executable."
+			],
+			"expectedAnswer": "Register only the daemon as a launchd service; keep the shim as the harness executable."
+		}
+	]
+}

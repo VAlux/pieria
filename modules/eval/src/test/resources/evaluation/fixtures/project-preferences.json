@@ -1,0 +1,49 @@
+{
+	"name": "project-preferences",
+	"profileName": "pieria-eval",
+	"sessionId": "fixture-project-preferences",
+	"transcript": [
+		{
+			"role": "user",
+			"content": "For this repo, remember that I prefer pnpm for JavaScript package management."
+		},
+		{
+			"role": "assistant",
+			"content": "Noted. I will use pnpm when package-manager choices come up."
+		},
+		{
+			"role": "user",
+			"content": "Also, when touching backend Java, run focused Gradle tests before broader suites."
+		}
+	],
+	"expectedMemories": [
+		{
+			"type": "FACT",
+			"content": "The user prefers pnpm for JavaScript package management in this repo.",
+			"topicKey": "preference.package-manager",
+			"payload": "{}"
+		},
+		{
+			"type": "INSTRUCTION",
+			"content": "When touching backend Java, run focused Gradle tests before broader suites.",
+			"topicKey": "workflow.backend-java-tests",
+			"payload": "{\"steps\":[\"run focused Gradle tests\",\"run broader suites when needed\"]}"
+		}
+	],
+	"recalls": [
+		{
+			"query": "What JavaScript package manager should I use?",
+			"expectedEvidence": [
+				"The user prefers pnpm for JavaScript package management in this repo."
+			],
+			"expectedAnswer": "Use pnpm for JavaScript package management in this repo."
+		},
+		{
+			"query": "How should I test backend Java changes?",
+			"expectedEvidence": [
+				"When touching backend Java, run focused Gradle tests before broader suites."
+			],
+			"expectedAnswer": "For backend Java changes, run focused Gradle tests before broader suites."
+		}
+	]
+}

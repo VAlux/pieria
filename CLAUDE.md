@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Pieria** is a local-first persistent memory layer for AI agents. It runs as a background daemon, exposes a REST API on localhost, and lets AI coding tools (Claude Code, OpenCode, Codex, etc.) share a single memory store via MCP. See `docs/SPEC.md` for the full specification and `docs/PLAN.md` for the phased implementation plan.
 
-The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio shim, and harness assets split across three Gradle modules. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
+The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio shim, evaluation harness, and shared DTOs split across four Gradle modules under `modules/`. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
 
 ## Build and test commands
 
@@ -14,8 +14,8 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 ./gradlew test          # run the full test suite (required before any commit)
 ./gradlew build         # compile + test + assemble
 ./gradlew :daemon:bootRun     # run the daemon locally
-./gradlew :daemon:bootJar     # build daemon/build/libs/pieria.jar
-./gradlew :shim:bootJar       # build shim/build/libs/pieria-shim.jar
+./gradlew :daemon:bootJar     # build modules/daemon/build/libs/pieria.jar
+./gradlew :shim:bootJar       # build modules/shim/build/libs/pieria-shim.jar
 ./gradlew :daemon:bootBuildImage  # build a daemon container image
 ./gradlew :daemon:nativeCompile   # GraalVM daemon executable (requires GraalVM 25+)
 ./gradlew :shim:nativeCompile     # GraalVM shim executable (requires GraalVM 25+)
@@ -63,9 +63,11 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 
 Keep all code under `dev.alvo.pieria`, with module boundaries enforced by Gradle:
 
+All modules live under `modules/`:
 - `shared`: HTTP request/response DTOs and `ProfileResolver`.
 - `daemon`: REST controllers, domain, storage, ingestion, retrieval, and model gateway.
 - `shim`: stdio MCP tools and the HTTP client that forwards to the daemon.
+- `eval`: offline evaluation harness — fixtures, runner, report writer, and benchmark adapters.
 
 ## Testing conventions
 

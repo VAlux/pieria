@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pieria": {
+      "command": "@PIERIA_HOME@/bin/pieria-shim",
+      "env": {
+        "PIERIA_DAEMON_URL": "http://127.0.0.1:8077"
+      }
+    }
+  }
+}

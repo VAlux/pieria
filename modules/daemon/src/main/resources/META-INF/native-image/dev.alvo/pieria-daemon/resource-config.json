@@ -1,0 +1,15 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "application.*"
+      },
+      {
+        "pattern": "db/migration/.*\\.sql"
+      },
+      {
+        "pattern": "native/.*/vec0\\..*"
+      }
+    ]
+  }
+}

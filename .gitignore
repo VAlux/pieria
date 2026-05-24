@@ -26,6 +26,14 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 
+### Pieria local evaluation ###
+pieria-eval-reports/
+
+### Pieria native sqlite-vec extension (platform binaries fetched at build/release time) ###
+packaging/native/*/*.dylib
+packaging/native/*/*.so
+packaging/native/*/*.dll
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/

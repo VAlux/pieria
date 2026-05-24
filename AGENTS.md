@@ -2,9 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This is a multi-module Gradle Kotlin DSL project named `pieria`. The `daemon` module contains the Spring Boot REST daemon, with `PieriaApplication` as the entry point. The `shim` module contains the MCP stdio shim, with `ShimApplication` as the entry point. The `shared` module contains the HTTP contract DTOs and profile mapping logic used across processes.
+This is a multi-module Gradle Kotlin DSL project named `pieria`. All four modules live under `modules/`:
 
-Daemon configuration belongs in `daemon/src/main/resources`; shim configuration belongs in `shim/src/main/resources` when needed. Tests live under each module's `src/test/java/dev/alvo/pieria`. The generated Testcontainers development launcher is in the daemon module. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `docs/SPEC.md` and `docs/HARNESS.md`.
+- `daemon` — Spring Boot REST daemon; entry point `PieriaApplication`. Configuration in `modules/daemon/src/main/resources`.
+- `shim` — MCP stdio shim; entry point `ShimApplication`. Configuration in `modules/shim/src/main/resources`.
+- `shared` — HTTP contract DTOs and profile mapping logic shared across processes.
+- `eval` — offline evaluation harness (fixtures, runner, report writer); depends on `daemon` classes but never ships in the production artifact.
+
+Module names are short logical names; Gradle task paths use them directly (`:daemon:test`, `:shim:bootJar`, etc.). Tests live under each module's `src/test/java/dev/alvo/pieria`. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `docs/SPEC.md` and `docs/HARNESS.md`.
 
 ## Build, Test, and Development Commands
 
@@ -13,8 +18,8 @@ Use the checked-in Gradle wrapper so builds use the expected Gradle version.
 - `./gradlew test` runs the JUnit Platform test suite.
 - `./gradlew build` compiles, tests, and assembles the project.
 - `./gradlew :daemon:bootRun` starts the daemon locally.
-- `./gradlew :daemon:bootJar` builds `daemon/build/libs/pieria.jar`.
-- `./gradlew :shim:bootJar` builds `shim/build/libs/pieria-shim.jar`.
+- `./gradlew :daemon:bootJar` builds `modules/daemon/build/libs/pieria.jar`.
+- `./gradlew :shim:bootJar` builds `modules/shim/build/libs/pieria-shim.jar`.
 - `./gradlew :daemon:bootBuildImage` builds a daemon container image named from the project/version.
 - `./gradlew :daemon:nativeCompile` or `./gradlew :shim:nativeCompile` builds a GraalVM native executable; it requires GraalVM 25+.
 
