@@ -1,0 +1,136 @@
+name: release
+
+# Builds the native daemon + gateway for each supported platform and publishes
+# them as GitHub Release assets in the archive layout the installers expect:
+#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway)
+#   pieria-linux-x86_64.tar.gz
+#   pieria-windows-x86_64.zip     (bin\pieria-daemon.exe, bin\pieria-gateway.exe)
+#   checksums.txt                 (sha256, verified by packaging/install.{sh,ps1})
+#
+# Native images cannot cross-compile, so each platform builds on its own runner.
+# Push a tag (v*) to cut a release; workflow_dispatch builds artifacts without
+# publishing unless a tag is supplied.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0); leave blank to build only"
+        required: false
+        default: ""
+
+# Pin once; keep in sync with packaging/native/README.md.
+env:
+  SQLITE_VEC_VERSION: "0.1.9"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # Git bash is present on the Windows runner, unifying most steps.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon
+            platform: macos-aarch64
+            vec_lib: vec0.dylib
+            archive: tar
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            vec_lib: vec0.so
+            archive: tar
+          - os: windows-latest
+            platform: windows-x86_64
+            vec_lib: vec0.dll
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      # native-image needs the MSVC toolchain on Windows; export it to the job env
+      # so later (bash) steps inherit cl.exe.
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up GraalVM (JDK 25)
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: "graalvm"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          native-image-job-reports: "true"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Fetch the platform sqlite-vec loadable extension so it gets embedded into
+      # the native image (build still succeeds without it, but vector search would
+      # be disabled — a release must ship it). See packaging/native/README.md.
+      - name: Fetch sqlite-vec extension
+        run: |
+          dir="packaging/native/${{ matrix.platform }}"
+          url="https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-loadable-${{ matrix.platform }}.tar.gz"
+          mkdir -p "$dir"
+          curl -fsSL "$url" | tar -xz -C "$dir" "${{ matrix.vec_lib }}"
+          ls -l "$dir"
+
+      - name: Build native distribution
+        run: ./gradlew :daemon:nativeDist --no-daemon --stacktrace
+
+      - name: Package archive
+        if: matrix.archive == 'tar'
+        run: |
+          mkdir -p dist
+          tar -czf "dist/pieria-${{ matrix.platform }}.tar.gz" \
+            -C modules/daemon/build/distributions/pieria-native bin
+
+      - name: Package archive (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path modules/daemon/build/distributions/pieria-native/bin `
+            -DestinationPath "dist/pieria-${{ matrix.platform }}.zip" -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    # Publish only for a tag push or a dispatch that supplied a tag.
+    if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+    steps:
+      - name: Download all platform archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

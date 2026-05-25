@@ -94,7 +94,10 @@ fetch() {  # fetch <url> <dest>
 		return 0
 	fi
 	if [[ "$DOWNLOADER" == "curl" ]]; then
-		curl -fSL --proto '=https' --retry 3 -o "$dest" "$url"
+		# Pin to https for remote downloads; relax for http/file used in local testing.
+		local proto_opt=()
+		[[ "$url" == https://* ]] && proto_opt=(--proto '=https')
+		curl -fSL "${proto_opt[@]+"${proto_opt[@]}"}" --retry 3 -o "$dest" "$url"
 	else
 		wget -q -O "$dest" "$url"
 	fi
@@ -142,7 +145,8 @@ if fetch "$CHECKSUMS_URL" "$WORK/checksums.txt" 2>/dev/null && [[ -s "$WORK/chec
 	if ((DRY_RUN)); then
 		echo "verify $TARBALL against checksums.txt"
 	else
-		expected="$(grep " ${TARBALL}\$\| \*${TARBALL}\$" "$WORK/checksums.txt" | awk '{print $1}' | head -1)"
+		# Match "<hash>  name" and the BSD binary form "<hash> *name"; portable across awk/grep.
+		expected="$(awk -v f="$TARBALL" '$2 == f || $2 == "*" f {print $1; exit}' "$WORK/checksums.txt")"
 		if [[ -n "$expected" ]]; then
 			if command -v shasum >/dev/null 2>&1; then
 				actual="$(shasum -a 256 "$WORK/$TARBALL" | awk '{print $1}')"
