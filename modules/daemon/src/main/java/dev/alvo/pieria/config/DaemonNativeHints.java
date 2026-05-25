@@ -13,6 +13,7 @@ import dev.alvo.pieria.api.response.StatusResponse;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.aot.hint.TypeReference;
 
 /**
  * Native-image reflection hints for shared API records used by Spring MVC and manual Jackson calls.
@@ -26,6 +27,28 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
         MemberCategory.INVOKE_PUBLIC_METHODS);
     }
+    // Structured-output DTOs are private records nested in OllamaModelGateway, parsed from model
+    // JSON by Spring AI's BeanOutputConverter (Jackson). They are registered by binary name because
+    // they are not visible here; declared constructors reach the private canonical constructor and
+    // public methods reach the record accessors that Jackson reflects over.
+    for (String type : modelGatewayDtoTypes()) {
+      hints.reflection().registerType(TypeReference.of(type),
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+        MemberCategory.INVOKE_PUBLIC_METHODS);
+    }
+  }
+
+  private static String[] modelGatewayDtoTypes() {
+    String owner = "dev.alvo.pieria.model.OllamaModelGateway$";
+    return new String[] {
+      owner + "ExtractedMemory",
+      owner + "ExtractionResult",
+      owner + "RawCandidate",
+      owner + "CandidateList",
+      owner + "VerificationDto",
+      owner + "ClassificationDto",
+      owner + "QueryAnalysisDto"
+    };
   }
 
   private static Class<?>[] contractTypes() {

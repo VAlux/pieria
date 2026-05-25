@@ -43,3 +43,8 @@ packaging/native/*/*.dll
 
 ### VS Code ###
 .vscode/
+
+### Local-only daemon rebuild helper (not for commit) ###
+daemon_rebuild_local.sh
+.mcp.json
+.claude

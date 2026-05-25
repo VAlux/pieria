@@ -36,7 +36,7 @@ public class MemoryTools {
 
   @Tool(name = "remember", description = "Store a single memory explicitly.")
   public String remember(
-    @ToolParam(description = "Memory type: fact, instruction, task, or context") String type,
+    @ToolParam(description = "Memory type: fact, event, instruction, or task") String type,
     @ToolParam(description = "Memory content") String content,
     @ToolParam(required = false, description = "Session id") String sessionId,
     @ToolParam(required = false, description = "Topic key for keyed supersession") String topicKey,

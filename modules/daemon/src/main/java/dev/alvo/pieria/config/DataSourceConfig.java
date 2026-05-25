@@ -15,7 +15,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -80,73 +83,89 @@ public class DataSourceConfig {
     String path = pathResolver.resolve().databaseFile().toString();
     ensureParentDirectory(path);
 
+    // enable_load_extension is a xerial connection property: without it load_extension() throws.
+    String url = "jdbc:sqlite:" + path + "?enable_load_extension=true";
     HikariDataSource dataSource = DataSourceBuilder.create()
       .type(HikariDataSource.class)
       .driverClassName("org.sqlite.JDBC")
-      // enable_load_extension is a xerial connection property: without it load_extension() throws.
-      .url("jdbc:sqlite:" + path + "?enable_load_extension=true")
+      .url(url)
       .build();
 
-    // SQLite is single-writer; WAL lets readers proceed during a write. We also try to load
-    // sqlite-vec per connection. connectionInitSql must succeed for a connection to be handed out,
-    // so we cannot put a hard load_extension there (it would fail the whole pool when the native
-    // lib is absent). Instead WAL is the init SQL, and the extension is loaded best-effort here on
-    // each new physical connection via a Hikari listener.
-    dataSource.setConnectionInitSql("PRAGMA journal_mode=WAL");
-    loadVecExtensionBestEffort(dataSource, vecCapability, vecResolver.resolve());
+    // Decide the per-connection init SQL before the pool starts (Hikari seals its config on the
+    // first getConnection). SQLite is single-writer; WAL lets readers proceed during a write.
+    configureConnectionInit(dataSource, url, vecCapability, vecResolver.resolve());
     return dataSource;
   }
 
   /**
-   * Best-effort: open one connection, try to load {@code sqlite-vec}, and probe it. We register no
-   * permanent per-connection hook because, once loaded into the process, the {@code vec0} module is
-   * available to all connections of the same SQLite library; but to be safe each store query that
-   * touches {@code memories_vec} runs against a pool where the module has been loaded at least once.
-   * The xerial driver loads extensions process-wide via {@code load_extension}.
+   * Probe a raw (non-pooled) connection for {@code sqlite-vec}, then install the per-connection
+   * init SQL on the not-yet-started pool.
+   *
+   * <p>{@code load_extension} is <em>connection-scoped</em> in the xerial driver — the module is NOT
+   * shared process-wide — so the winning {@code load_extension(...)} invocation is installed as
+   * Hikari's {@code connectionInitSql}, making every pooled connection load {@code vec0} on
+   * creation. Without this, queries against {@code memories_vec} fail with {@code no such module:
+   * vec0} whenever they land on a connection other than the one that did the load.
+   *
+   * <p>We probe over a separate {@link DriverManager} connection rather than {@code
+   * dataSource.getConnection()} because the latter starts the pool and seals its configuration,
+   * which would then reject {@code setConnectionInitSql}. {@code PRAGMA journal_mode=WAL} is run on
+   * the probe connection; it is a persistent database-level setting, so it sticks for the pool too.
    *
    * <p>When {@code bundledExtension} is present (the distribution shipped {@code vec0} next to the
    * binary, SPEC 14) it is tried first by absolute path; this is the path that works on a clean
    * install with no system-wide sqlite-vec. The bare entry-point names remain as a fallback for
-   * developer machines that have the library on the OS extension search path.
+   * developer machines that have the library on the OS extension search path. When no extension is
+   * available the pool still asserts WAL on every connection and vector search stays disabled.
    */
-  private static void loadVecExtensionBestEffort(HikariDataSource dataSource,
-                                                 VecCapability cap,
-                                                 Optional<Path> bundledExtension) {
-    try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
-      // Prefer the bundled extension by absolute path; otherwise probe common search-path names.
-      boolean loaded = bundledExtension.map(p -> tryLoad(st, p.toString())).orElse(false)
-        || tryLoad(st, "vec0")
-        || tryLoad(st, "vec")
-        || tryLoad(st, "sqlite_vec")
-        || tryLoadAuto(st);
-      if (loaded && probeVec(st)) {
+  private static void configureConnectionInit(HikariDataSource dataSource,
+                                              String url,
+                                              VecCapability cap,
+                                              Optional<Path> bundledExtension) {
+    String walPragma = "PRAGMA journal_mode=WAL";
+    try (Connection conn = DriverManager.getConnection(url); Statement st = conn.createStatement()) {
+      st.execute(walPragma);
+      String loadSql = firstLoadableSql(st, bundledExtension);
+      if (loadSql != null && probeVec(st)) {
+        dataSource.setConnectionInitSql(loadSql);
         cap.markLoaded();
-        bundledExtension.ifPresentOrElse(
-          p -> log.info("sqlite-vec extension loaded from {}; embedded vector search enabled.", p),
-          () -> log.info("sqlite-vec extension loaded from OS search path; embedded vector search enabled."));
-      } else {
-        log.warn("sqlite-vec extension not available; vector search disabled "
-          + "(FTS + keyed lookup still work). Bundle vec0 beside the binary or set "
-          + "pieria.vec.extension-path / PIERIA_VEC_EXTENSION to enable it.");
+        log.info("sqlite-vec extension loaded ({}); embedded vector search enabled.", loadSql);
+        return;
       }
+      log.warn("sqlite-vec extension not available; vector search disabled "
+        + "(FTS + keyed lookup still work). Bundle vec0 beside the binary or set "
+        + "pieria.vec.extension-path / PIERIA_VEC_EXTENSION to enable it.");
     } catch (Exception e) {
       log.warn("sqlite-vec extension could not be loaded ({}); vector search disabled.", e.toString());
     }
+    // No vector capability: keep asserting WAL on every pooled connection.
+    dataSource.setConnectionInitSql(walPragma);
   }
 
-  private static boolean tryLoad(Statement st, String name) {
-    try {
-      st.execute("SELECT load_extension('" + name + "')");
-      return true;
-    } catch (Exception ignored) {
-      return false;
+  /**
+   * Return the first {@code SELECT load_extension(...)} statement that succeeds, or {@code null}.
+   * The bundled absolute path is preferred; bare entry-point names and the explicit init symbol are
+   * fallbacks for developer machines with the library on the OS extension search path.
+   */
+  private static String firstLoadableSql(Statement st, Optional<Path> bundledExtension) {
+    List<String> argLists = new ArrayList<>();
+    bundledExtension.ifPresent(p -> argLists.add("'" + p + "'"));
+    argLists.add("'vec0'");
+    argLists.add("'vec'");
+    argLists.add("'sqlite_vec'");
+    argLists.add("'vec0', 'sqlite3_vec_init'");
+    for (String args : argLists) {
+      String sql = "SELECT load_extension(" + args + ")";
+      if (tryExecute(st, sql)) {
+        return sql;
+      }
     }
+    return null;
   }
 
-  /** Fall back to letting SQLite resolve the default entry point from a bare {@code vec0} name. */
-  private static boolean tryLoadAuto(Statement st) {
+  private static boolean tryExecute(Statement st, String sql) {
     try {
-      st.execute("SELECT load_extension('vec0', 'sqlite3_vec_init')");
+      st.execute(sql);
       return true;
     } catch (Exception ignored) {
       return false;
