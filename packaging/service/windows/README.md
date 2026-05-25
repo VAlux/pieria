@@ -8,7 +8,7 @@ Windows SCM services require a service-aware executable or wrapper such as WinSW
 The script therefore refuses a real install unless `-AllowStagedInstall` is provided,
 which is intended for environments that have already supplied such a wrapper command.
 
-Only the daemon should be installed as a Windows service. Keep `pieria-shim.exe` as a
+Only the daemon should be installed as a Windows service. Keep `pieria-gateway.exe` as a
 normal executable referenced by MCP harness configuration.
 
 Example dry run:
@@ -17,6 +17,6 @@ Example dry run:
 .\pieria-service.ps1 -Action Install `
   -Daemon "$env:LOCALAPPDATA\Pieria\bin\pieria.jar" `
   -Java "java" `
-  -Shim "$env:LOCALAPPDATA\Pieria\bin\pieria-shim.exe" `
+  -Gateway "$env:LOCALAPPDATA\Pieria\bin\pieria-gateway.exe" `
   -DryRun
 ```

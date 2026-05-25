@@ -7,6 +7,8 @@ import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
+import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.Memory;
@@ -101,7 +103,7 @@ public class ProfileController {
     return new RecallResponse(result.answer(), memories, debug ? debugBlock(result) : null);
   }
 
-  private static RecallResponse.RecallDebug debugBlock(RecallResult result) {
+  private static RecallDebug debugBlock(RecallResult result) {
     List<Provenance> candidates = result.candidates().stream()
       .map(candidate -> new Provenance(candidate.memory().id(), candidate.score(), candidate.source()))
       .toList();
@@ -110,12 +112,11 @@ public class ProfileController {
       .map(TemporalFact::render)
       .toList();
 
-    List<RecallResponse.RecallDebug.ChannelDiagnostic> channels =
-      result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
-        .map(d -> new RecallResponse.RecallDebug.ChannelDiagnostic(
-          d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
+    List<ChannelDiagnostic> channels = result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
+        .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
         .toList();
-    return new RecallResponse.RecallDebug(candidates, temporalFacts, channels);
+
+    return new RecallDebug(candidates, temporalFacts, channels);
   }
 
   @GetMapping("/memories")

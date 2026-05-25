@@ -6,13 +6,13 @@ usage() {
 Usage: pieria-launchd.sh <install|start|stop|status|uninstall> [options]
 
 Installs and controls the Pieria daemon as a per-user launchd agent on macOS.
-Only the daemon is registered as a service; the shim path is emitted as harness
+Only the daemon is registered as a service; the gateway path is emitted as harness
 configuration guidance.
 
 Options:
   --daemon PATH     Daemon executable, wrapper, or pieria.jar path (default: ~/.local/bin/pieria-daemon)
   --java PATH       Java executable used when --daemon points at a jar (default: java)
-  --shim PATH       Shim executable path for harness MCP configs (default: ~/.local/bin/pieria-shim)
+  --gateway PATH       Gateway executable path for harness MCP configs (default: ~/.local/bin/pieria-gateway)
   --label LABEL     launchd label (default: dev.alvo.pieria.daemon)
   --host HOST       Daemon bind host (default: 127.0.0.1)
   --port PORT       Daemon bind port (default: 8077)
@@ -58,7 +58,7 @@ generate_plist() {
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Pieria shim executable for harness MCP configs: $(xml_escape "$SHIM") -->
+<!-- Pieria gateway executable for harness MCP configs: $(xml_escape "$GATEWAY") -->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -95,7 +95,7 @@ shift
 LABEL="dev.alvo.pieria.daemon"
 DAEMON="$HOME/.local/bin/pieria-daemon"
 JAVA="java"
-SHIM="$HOME/.local/bin/pieria-shim"
+GATEWAY="$HOME/.local/bin/pieria-gateway"
 HOST="127.0.0.1"
 PORT="8077"
 DATA_DIR="$HOME/Library/Application Support/Pieria"
@@ -108,7 +108,7 @@ while (($#)); do
 	case "$1" in
 		--daemon) DAEMON="$2"; shift 2 ;;
 		--java) JAVA="$2"; shift 2 ;;
-		--shim) SHIM="$2"; shift 2 ;;
+		--gateway) GATEWAY="$2"; shift 2 ;;
 		--label) LABEL="$2"; shift 2 ;;
 		--host) HOST="$2"; shift 2 ;;
 		--port) PORT="$2"; shift 2 ;;

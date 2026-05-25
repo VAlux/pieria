@@ -1,0 +1,68 @@
+package dev.alvo.pieria.evaluation;
+
+import org.junit.jupiter.api.Test;
+
+import java.io.InputStream;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class LoCoMoBenchmarkAdapterTests {
+
+	private List<EvaluationFixture> parseSample() throws Exception {
+		ClassLoader loader = Thread.currentThread().getContextClassLoader();
+		try (InputStream in = loader.getResourceAsStream("evaluation/benchmarks/locomo-sample.json")) {
+			assertThat(in).as("sample resource present").isNotNull();
+			return new LoCoMoBenchmarkAdapter().parse(in);
+		}
+	}
+
+	@Test
+	void parsesConversationSessionsInOrderIntoTranscript() throws Exception {
+		List<EvaluationFixture> fixtures = parseSample();
+
+		assertThat(fixtures).hasSize(1);
+		EvaluationFixture fixture = fixtures.getFirst();
+		assertThat(fixture.name()).isEqualTo("conv-1");
+		assertThat(fixture.profileName()).isEqualTo("locomo-eval");
+
+		// session_1 (2 turns) then session_2 (1 text turn + 1 image-caption turn) in ascending order.
+		assertThat(fixture.transcript()).hasSize(4);
+		assertThat(fixture.transcript().get(0).role()).isEqualTo("user");
+		assertThat(fixture.transcript().get(0).content()).isEqualTo("Caroline: I just adopted a rescue dog named Biscuit last weekend!");
+		assertThat(fixture.transcript().get(1).role()).isEqualTo("assistant");
+		assertThat(fixture.transcript().get(2).content()).contains("Yosemite");
+		// image-only turn folds blip_caption into text.
+		assertThat(fixture.transcript().get(3).content()).contains("a photo of a dog on a mountain trail");
+	}
+
+	@Test
+	void mapsQaPairsToRecallExpectationsWithEvidence() throws Exception {
+		EvaluationFixture fixture = parseSample().getFirst();
+
+		assertThat(fixture.recalls()).hasSize(2);
+		EvaluationFixture.RecallExpectation first = fixture.recalls().getFirst();
+		assertThat(first.query()).isEqualTo("What is the name of Caroline's dog?");
+		assertThat(first.expectedAnswer()).isEqualTo("Biscuit");
+		assertThat(first.expectedEvidence()).containsExactly("D1:1");
+
+		// LoCoMo supplies no gold extraction set.
+		assertThat(fixture.expectedMemories()).isEmpty();
+	}
+
+	@Test
+	void runsParsedFixturesThroughDeterministicHarness() throws Exception {
+		List<EvaluationFixture> fixtures = parseSample();
+
+		EvaluationReport report = new EvaluationRunner().run(
+			fixtures,
+			DeterministicBenchmarkGateway::new,
+			InMemoryEvaluationMemoryStore::new);
+
+		assertThat(report.fixtures()).hasSize(1);
+		// LoCoMo evidence are dialog ids (e.g. "D1:1"), not text, so content hit-rate is not meaningful;
+		// the harness still runs both recall queries through the real retrieval pipeline.
+		assertThat(report.fixtures().getFirst().recalls()).hasSize(2);
+		assertThat(report.summary().retrievalHitRate()).isGreaterThanOrEqualTo(0.0);
+	}
+}

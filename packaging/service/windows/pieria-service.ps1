@@ -4,7 +4,7 @@ param(
 	[string]$ServiceName = "PieriaDaemon",
 	[string]$Daemon = "$env:LOCALAPPDATA\Pieria\bin\pieria-daemon.exe",
 	[string]$Java = "java",
-	[string]$Shim = "$env:LOCALAPPDATA\Pieria\bin\pieria-shim.exe",
+	[string] = "$env:LOCALAPPDATA\Pieria\bin\pieria-gateway.exe",
 	[string]$HostAddress = "127.0.0.1",
 	[int]$Port = 8077,
 	[string]$DataDir = "$env:LOCALAPPDATA\Pieria\data",
@@ -52,7 +52,7 @@ switch ($Action) {
 			Write-Output "Would install service $ServiceName with command:"
 			Write-Output $daemonCommand
 			Write-Output "Real install requires a Windows service-aware wrapper or executable; pass -AllowStagedInstall after providing one."
-			Write-Output "Shim executable for harness MCP configs: $Shim"
+			Write-Output "gateway executable for harness MCP configs: $Gateway"
 			break
 		}
 		if (-not $AllowStagedInstall) {

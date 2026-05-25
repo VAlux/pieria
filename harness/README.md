@@ -13,18 +13,18 @@ Every harness uses the same two surfaces regardless of vendor:
 ### 1. Model-driven MCP tools
 
 The model calls `recall`, `remember`, `list`, or `forget` mid-task. These tools
-are served by the **MCP stdio shim** — a thin process that speaks MCP over stdio
+are served by the **MCP stdio gateway** — a thin process that speaks MCP over stdio
 toward the harness and forwards calls to the daemon over localhost HTTP.
 
 Launch command (all harnesses):
 
 ```sh
-java -jar <PIERIA_SHIM_JAR>
+java -jar <PIERIA_GATEWAY_JAR>
 ```
 
-The shim jar is built by `./gradlew :shim:bootJar` and is separate from the
+The gateway jar is built by `./gradlew :gateway:bootJar` and is separate from the
 daemon jar built by `./gradlew :daemon:bootJar`. The daemon remains the long-lived
-process that owns storage; the shim remains the harness-spawned stdio process.
+process that owns storage; the gateway remains the harness-spawned stdio process.
 
 MCP tools exposed:
 
@@ -59,7 +59,7 @@ subdirectory contains wrapper scripts that adapt the hook event to call it.
 
 ## Shared profile-mapping contract
 
-All harnesses and the shim use the same profile-name derivation (SPEC §10.2).
+All harnesses and the gateway use the same profile-name derivation (SPEC §10.2).
 The canonical logic is in `ProfileResolver.java`; the shell equivalent is
 `harness/profile-name.sh`. Source or invoke that script in any hook to get
 the correct slug.
@@ -77,7 +77,7 @@ replaced with a single hyphen, leading/trailing hyphens trimmed, empty → `"def
 ## Localhost-only security assumption
 
 In local mode the daemon binds `127.0.0.1` only and never accepts connections from
-remote hosts. The MCP shim connects to the daemon over localhost HTTP. No
+remote hosts. The MCP gateway connects to the daemon over localhost HTTP. No
 authentication is required in this topology — the security model relies on the
 OS-level localhost isolation (SPEC §12). **Never expose the daemon port externally
 in local mode.** Server mode (Phase 6) adds authentication and multi-tenant

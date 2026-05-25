@@ -21,7 +21,7 @@ class ServiceScriptTests {
 				"--dry-run",
 				"--daemon", "/opt/pieria/pieria.jar",
 				"--java", "/usr/bin/java",
-				"--shim", "/opt/pieria/pieria-shim",
+				"--gateway", "/opt/pieria/pieria-gateway",
 				"--data-dir", "/tmp/pieria-data",
 				"--log-dir", "/tmp/pieria-logs"
 			)
@@ -35,10 +35,10 @@ class ServiceScriptTests {
 		assertThat(output).contains("<string>--pieria.daemon.host=127.0.0.1</string>");
 		assertThat(output).contains("<string>--pieria.daemon.port=8077</string>");
 		assertThat(output).contains("<string>--pieria.db.path=/tmp/pieria-data/pieria.db</string>");
-		assertThat(output).contains("Pieria shim executable for harness MCP configs: /opt/pieria/pieria-shim");
+		assertThat(output).contains("Pieria gateway executable for harness MCP configs: /opt/pieria/pieria-gateway");
 
 		String programArguments = substringBetween(output, "<key>ProgramArguments</key>", "</array>");
-		assertThat(programArguments).doesNotContain("pieria-shim");
+		assertThat(programArguments).doesNotContain("pieria-gateway");
 	}
 
 	@Test
@@ -50,7 +50,7 @@ class ServiceScriptTests {
 				"--dry-run",
 				"--daemon", "/opt/pieria/pieria.jar",
 				"--java", "/usr/bin/java",
-				"--shim", "/opt/pieria/pieria-shim",
+				"--gateway", "/opt/pieria/pieria-gateway",
 				"--data-dir", "/tmp/pieria-data",
 				"--log-dir", "/tmp/pieria-logs"
 			)
@@ -62,13 +62,13 @@ class ServiceScriptTests {
 		assertThat(output).contains("\"--pieria.daemon.host=127.0.0.1\"");
 		assertThat(output).contains("\"--pieria.daemon.port=8077\"");
 		assertThat(output).contains("\"--pieria.db.path=/tmp/pieria-data/pieria.db\"");
-		assertThat(output).contains("Pieria shim executable for harness MCP configs: /opt/pieria/pieria-shim");
+		assertThat(output).contains("Pieria gateway executable for harness MCP configs: /opt/pieria/pieria-gateway");
 
 		String execStart = output.lines()
 			.filter(line -> line.startsWith("ExecStart="))
 			.findFirst()
 			.orElseThrow();
-		assertThat(execStart).doesNotContain("pieria-shim");
+		assertThat(execStart).doesNotContain("pieria-gateway");
 	}
 
 	@Test
@@ -78,9 +78,9 @@ class ServiceScriptTests {
 
 		assertThat(content).contains("[ValidateSet(\"Install\", \"Start\", \"Stop\", \"Status\", \"Uninstall\")]");
 		assertThat(content).contains("New-Service -Name $ServiceName");
-		assertThat(content).contains("Shim executable for harness MCP configs: $Shim");
+		assertThat(content).contains("gateway executable for harness MCP configs: $Gateway");
 		assertThat(content).contains("if ($DryRun)");
-		assertThat(content).doesNotContain("New-Service -Name $Shim");
+		assertThat(content).doesNotContain("New-Service -Name $Gateway");
 	}
 
 	private static String runScript(String relativePath, List<String> arguments) throws IOException, InterruptedException {

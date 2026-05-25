@@ -26,8 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * JSON contract tests for every shim-facing ProfileController endpoint. Field names here are the
- * stable contract the MCP shim depends on; do NOT rename them without a coordinated shim update.
+ * JSON contract tests for every gateway-facing ProfileController endpoint. Field names here are the
+ * stable contract the MCP gateway depends on; do NOT rename them without a coordinated gateway update.
  *
  * <p>Covered contracts:
  * <ul>

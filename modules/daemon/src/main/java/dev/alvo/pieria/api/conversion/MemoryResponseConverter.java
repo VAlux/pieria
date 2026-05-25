@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
  * Maps the daemon's domain {@link Memory} into the shared {@link MemoryResponse} wire DTO.
  *
  * <p>This mapping lives in the daemon (not in the shared contract module) so the shared module
- * stays free of any dependency on the daemon's domain types. The shim, which also depends on the
+ * stays free of any dependency on the daemon's domain types. The gateway, which also depends on the
  * shared module, therefore never sees {@code Memory}.
  */
 @Component

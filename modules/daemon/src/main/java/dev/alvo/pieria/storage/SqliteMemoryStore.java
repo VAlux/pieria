@@ -658,8 +658,17 @@ public class SqliteMemoryStore implements MemoryStore {
     // distance. Join to memories and re-filter to the active, non-task, in-profile set defensively.
     return jdbc.sql(
         """
-          SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, \
-          m.superseded, m.payload, m.embed_text, m.created_at \
+          SELECT \
+           m.id,\
+           m.session_id,\
+           m.type,\
+           m.content,\
+           m.topic_key,\
+           m.supersedes, \
+           m.superseded, \
+           m.payload, \
+           m.embed_text, \
+           m.created_at \
           FROM memories_vec v \
           JOIN memories m ON m.id = v.memory_id \
           WHERE v.embedding MATCH ? AND k = ? \

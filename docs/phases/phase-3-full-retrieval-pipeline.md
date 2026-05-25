@@ -8,7 +8,7 @@ Replace the Phase 1 recall lookup with the full read pipeline: query analysis, F
 
 - Retrieval quality and ranking.
 - SQLite FTS5 and embedded vector search.
-- No MCP shim or packaging work.
+- No MCP gateway or packaging work.
 - Postgres search is deferred to Phase 6.
 
 ## Implementation Sequence

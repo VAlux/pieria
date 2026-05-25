@@ -4,7 +4,7 @@
       "command": "java",
       "args": [
         "-jar",
-        "<PIERIA_SHIM_JAR>"
+        "<PIERIA_GATEWAY_JAR>"
       ],
       "env": {
         "PIERIA_PROFILE": "",

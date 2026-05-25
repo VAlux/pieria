@@ -13,7 +13,7 @@
 		},
 		{
 			"role": "user",
-			"content": "For launchd packaging, register only the daemon as a service. The shim remains a harness executable."
+			"content": "For launchd packaging, register only the daemon as a service. The gateway remains a harness executable."
 		}
 	],
 	"expectedMemories": [
@@ -25,9 +25,9 @@
 		},
 		{
 			"type": "INSTRUCTION",
-			"content": "For launchd packaging, register only the daemon as a service and keep the shim as a harness executable.",
+			"content": "For launchd packaging, register only the daemon as a service and keep the gateway as a harness executable.",
 			"topicKey": "packaging.launchd-service-scope",
-			"payload": "{\"service\":\"daemon\",\"shim\":\"harness executable\"}"
+			"payload": "{\"service\":\"daemon\",\"gateway\":\"harness executable\"}"
 		}
 	],
 	"recalls": [
@@ -41,9 +41,9 @@
 		{
 			"query": "What should launchd register as a service?",
 			"expectedEvidence": [
-				"For launchd packaging, register only the daemon as a service and keep the shim as a harness executable."
+				"For launchd packaging, register only the daemon as a service and keep the gateway as a harness executable."
 			],
-			"expectedAnswer": "Register only the daemon as a launchd service; keep the shim as the harness executable."
+			"expectedAnswer": "Register only the daemon as a launchd service; keep the gateway as the harness executable."
 		}
 	]
 }

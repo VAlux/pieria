@@ -2,7 +2,7 @@
 
 Wires Pieria into the Codex CLI via two surfaces (SPEC §10.4):
 
-1. **MCP stdio shim** — registered via the `[mcp_servers]` section in `config.toml`.
+1. **MCP stdio gateway** — registered via the `[mcp_servers]` section in `config.toml`.
 2. **Lifecycle hooks** — `Stop`-hook ingestion (no compaction-specific event in Codex)
    and session-start recall.
 
@@ -13,7 +13,7 @@ Wires Pieria into the Codex CLI via two surfaces (SPEC §10.4):
 
 ---
 
-## Step 1 — Register the MCP shim
+## Step 1 — Register the MCP gateway
 
 Add an entry to your Codex `config.toml` (typically `~/.codex/config.toml` or
 `<project>/.codex/config.toml`):
@@ -21,19 +21,19 @@ Add an entry to your Codex `config.toml` (typically `~/.codex/config.toml` or
 ```toml
 [mcp_servers.pieria]
 command = "java"
-args    = ["-jar", "<PIERIA_SHIM_JAR>"]
+args    = ["-jar", "<PIERIA_GATEWAY_JAR>"]
 
 [mcp_servers.pieria.env]
 PIERIA_PROFILE    = ""          # leave empty for auto-derivation
 PIERIA_DAEMON_URL = "http://127.0.0.1:8077"
 ```
 
-Replace `<PIERIA_SHIM_JAR>` with the absolute path to `shim/build/libs/pieria-shim.jar`.
+Replace `<PIERIA_GATEWAY_JAR>` with the absolute path to `gateway/build/libs/pieria-gateway.jar`.
 Leave
 `PIERIA_PROFILE` empty to use automatic profile derivation (git remote / directory
 name); set it to an explicit slug to force a specific profile.
 
-The shim exposes `mcp__pieria__recall`, `mcp__pieria__remember`,
+The gateway exposes `mcp__pieria__recall`, `mcp__pieria__remember`,
 `mcp__pieria__list`, and `mcp__pieria__forget` as model-facing tools.
 
 > VERIFY: confirm the `[mcp_servers.*]` table name, `command`/`args`/`env` keys,

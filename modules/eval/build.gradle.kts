@@ -9,12 +9,25 @@ dependencyManagement {
 	}
 }
 
+tasks.withType<Test> {
+	testLogging {
+		showStandardStreams = true
+	}
+	// Benchmark tests require a live model and dataset; run them explicitly via
+	// PIERIA_LIVE_EVAL=1 ./gradlew :eval:test
+	filter.excludeTestsMatching("*Benchmark*")
+}
+
 dependencies {
 	// Evaluation code instantiates the real IngestionService and RetrievalService directly.
 	// daemon publishes a plain jar (jar.enabled = true) alongside its bootJar for this dependency.
 	implementation(project(":daemon"))
-	// Jackson is used by EvaluationFixtureLoader and EvaluationReportWriter; version from BOM.
 	implementation("com.fasterxml.jackson.core:jackson-databind")
+	// The live benchmark entry point boots a Spring context to obtain the daemon's OllamaModelGateway.
+	implementation("org.springframework.boot:spring-boot")
+	implementation("org.springframework.boot:spring-boot-autoconfigure")
+	implementation("org.springframework:spring-context")
+	implementation("org.slf4j:slf4j-api")
 
 	testImplementation("org.junit.jupiter:junit-jupiter")
 	testImplementation("org.assertj:assertj-core")

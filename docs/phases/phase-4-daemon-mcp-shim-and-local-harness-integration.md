@@ -1,13 +1,13 @@
-# Phase 4 - Daemon, MCP Shim, And Local Harness Integration
+# Phase 4 - Daemon, MCP Gateway, And Local Harness Integration
 
 ## Objective
 
-Harden Pieria as a local daemon and make it usable from agent harnesses through a thin MCP stdio shim plus lifecycle hook assets. Claude Code integration is first-class in this phase, with OpenCode and Codex documented as equivalent configurations.
+Harden Pieria as a local daemon and make it usable from agent harnesses through a thin MCP stdio gateway plus lifecycle hook assets. Claude Code integration is first-class in this phase, with OpenCode and Codex documented as equivalent configurations.
 
 ## Scope
 
 - Daemon hardening for local mode.
-- MCP stdio shim for model-facing tools.
+- MCP stdio gateway for model-facing tools.
 - Profile mapping and harness configuration assets.
 - No native installer or OS service automation yet; that is Phase 5.
 - No server-mode auth or remote tenancy yet; that is Phase 6.
@@ -24,11 +24,11 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
 2. Stabilize REST API behavior.
    - Ensure each endpoint has clear request and response schemas.
    - Add consistent error response bodies for validation, daemon unavailable, model unavailable, and missing memory cases.
-   - Add compatibility tests so the MCP shim can rely on stable JSON.
+   - Add compatibility tests so the MCP gateway can rely on stable JSON.
    - Document localhost-only security assumptions for local mode.
 
-3. Add MCP stdio shim.
-   - Implement the shim as thin client code in the existing project unless a later packaging need justifies a separate artifact.
+3. Add MCP stdio gateway.
+   - Implement the gateway as thin client code in the existing project unless a later packaging need justifies a separate artifact.
    - Expose model-facing tools:
      - `recall` -> `POST /v1/profiles/{name}/recall`
      - `remember` -> `POST /v1/profiles/{name}/memories`
@@ -42,7 +42,7 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
    - Support explicit profile from environment or config, for example `PIERIA_PROFILE`.
    - Fall back to git remote-derived project name when available.
    - Fall back to the current project directory name when no git remote exists.
-   - Keep profile normalization identical between hooks and the MCP shim.
+   - Keep profile normalization identical between hooks and the MCP gateway.
    - Add tests for remote URL variants, detached directories, and explicit overrides.
 
 5. Add harness-driven ingestion hooks.
@@ -65,14 +65,14 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
 
 8. Add local integration smoke tests.
    - Start the daemon on a random local port in tests.
-   - Run MCP shim calls against fake or seeded memory data.
+   - Run MCP gateway calls against fake or seeded memory data.
    - Validate hook command payloads without depending on a real harness.
 
 ## Tests
 
-- API compatibility tests for all shim-facing endpoint JSON contracts.
+- API compatibility tests for all gateway-facing endpoint JSON contracts.
 - Unit tests for profile mapping and config precedence.
-- MCP shim tests with a fake daemon HTTP server.
+- MCP gateway tests with a fake daemon HTTP server.
 - Hook payload tests using transcript fixtures.
 - Daemon tests for `127.0.0.1` default binding and `/healthz`.
 - Run `./gradlew test`.
@@ -82,11 +82,11 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
 - The daemon is safe for local default use and binds localhost only unless explicitly configured otherwise.
 - `/healthz` works without invoking expensive model calls.
 - MCP tools can recall, remember, list, and forget through the daemon.
-- Profile mapping is deterministic and shared by the shim and hooks.
+- Profile mapping is deterministic and shared by the gateway and hooks.
 - Claude Code setup assets exist, with OpenCode and Codex equivalents documented.
 
 ## Risks And Follow-Ups
 
 - Harness hook APIs change over time; installation docs should identify the verified harness versions.
-- The shim should remain thin. Business logic belongs in daemon services so every harness behaves the same way.
+- The gateway should remain thin. Business logic belongs in daemon services so every harness behaves the same way.
 - Phase 5 should turn these assets into an installable distribution with OS service management.

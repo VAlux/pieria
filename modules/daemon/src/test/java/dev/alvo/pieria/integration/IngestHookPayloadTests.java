@@ -74,7 +74,7 @@ class IngestHookPayloadTests {
     assertThat(ingestResp.getStatusCode().value()).isEqualTo(200);
     assertThat(ingestResp.getBody()).contains("memories");
 
-    // The ingested content is then retrievable via the list endpoint the hooks/shim rely on.
+    // The ingested content is then retrievable via the list endpoint the hooks/gateway rely on.
     ResponseEntity<String> listResp = http.get()
       .uri("/v1/profiles/hookproj/memories")
       .retrieve().toEntity(String.class);

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Pieria** is a local-first persistent memory layer for AI agents. It runs as a background daemon, exposes a REST API on localhost, and lets AI coding tools (Claude Code, OpenCode, Codex, etc.) share a single memory store via MCP. See `docs/SPEC.md` for the full specification and `docs/PLAN.md` for the phased implementation plan.
 
-The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio shim, evaluation harness, and shared DTOs split across four Gradle modules under `modules/`. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
+The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio gateway, evaluation harness, and shared DTOs split across four Gradle modules under `modules/`. Implementation follows a six-phase plan; always check `docs/PLAN.md` for the current phase's scope before adding code.
 
 ## Build and test commands
 
@@ -15,10 +15,10 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 ./gradlew build         # compile + test + assemble
 ./gradlew :daemon:bootRun     # run the daemon locally
 ./gradlew :daemon:bootJar     # build modules/daemon/build/libs/pieria.jar
-./gradlew :shim:bootJar       # build modules/shim/build/libs/pieria-shim.jar
+./gradlew :gateway:bootJar       # build modules/gateway/build/libs/pieria-gateway.jar
 ./gradlew :daemon:bootBuildImage  # build a daemon container image
 ./gradlew :daemon:nativeCompile   # GraalVM daemon executable (requires GraalVM 25+)
-./gradlew :shim:nativeCompile     # GraalVM shim executable (requires GraalVM 25+)
+./gradlew :gateway:nativeCompile     # GraalVM gateway executable (requires GraalVM 25+)
 ```
 
 ## Stack
@@ -42,7 +42,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 
 ### Key design constraints
 
-- **Single daemon, single writer**: the daemon is the only writer to the embedded SQLite store. Harnesses connect through thin MCP stdio shims. Never open the embedded DB directly from a harness.
+- **Single daemon, single writer**: the daemon is the only writer to the embedded SQLite store. Harnesses connect through thin MCP stdio gateways. Never open the embedded DB directly from a harness.
 - **Content-addressed IDs**: message and memory IDs are `SHA-256(sessionId + role + content)` truncated to 128 bits, making ingest idempotent (insert-or-ignore on conflict).
 - **Supersession, not deletion**: when a new keyed `fact` or `instruction` shares a `topic_key` with an existing memory, mark the old one superseded and point the new row's `supersedes` at it. Remove the old vector in the same transaction.
 - **Tasks excluded from vector index**: `task` memories are discoverable via FTS/listing but not embedded, to keep the index lean.
@@ -66,7 +66,7 @@ Keep all code under `dev.alvo.pieria`, with module boundaries enforced by Gradle
 All modules live under `modules/`:
 - `shared`: HTTP request/response DTOs and `ProfileResolver`.
 - `daemon`: REST controllers, domain, storage, ingestion, retrieval, and model gateway.
-- `shim`: stdio MCP tools and the HTTP client that forwards to the daemon.
+- `gateway`: stdio MCP tools and the HTTP client that forwards to the daemon.
 - `eval`: offline evaluation harness — fixtures, runner, report writer, and benchmark adapters.
 
 ## Testing conventions

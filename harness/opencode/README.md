@@ -2,7 +2,7 @@
 
 Wires Pieria into OpenCode via two surfaces (SPEC §10.4):
 
-1. **MCP stdio shim** — registered via the `mcp` key in `opencode.json`.
+1. **MCP stdio gateway** — registered via the `mcp` key in `opencode.json`.
 2. **Session lifecycle hooks** — compaction-time ingestion and session-bootstrap recall
    using OpenCode's experimental plugin surfaces.
 
@@ -13,7 +13,7 @@ Wires Pieria into OpenCode via two surfaces (SPEC §10.4):
 
 ---
 
-## Step 1 — Register the MCP shim
+## Step 1 — Register the MCP gateway
 
 Add a `mcp` entry to your `opencode.json` (project root or `~/.config/opencode/opencode.json`):
 
@@ -22,7 +22,7 @@ Add a `mcp` entry to your `opencode.json` (project root or `~/.config/opencode/o
   "mcp": {
     "pieria": {
       "type": "local",
-      "command": ["java", "-jar", "<PIERIA_SHIM_JAR>"],
+      "command": ["java", "-jar", "<PIERIA_GATEWAY_JAR>"],
       "env": {
         "PIERIA_PROFILE": "",
         "PIERIA_DAEMON_URL": "http://127.0.0.1:8077"
@@ -32,12 +32,12 @@ Add a `mcp` entry to your `opencode.json` (project root or `~/.config/opencode/o
 }
 ```
 
-Replace `<PIERIA_SHIM_JAR>` with the absolute path to `shim/build/libs/pieria-shim.jar`.
+Replace `<PIERIA_GATEWAY_JAR>` with the absolute path to `gateway/build/libs/pieria-gateway.jar`.
 Leave
 `PIERIA_PROFILE` empty to use automatic profile derivation (git remote / directory
 name); set it to an explicit slug to force a specific profile.
 
-The shim exposes `mcp__pieria__recall`, `mcp__pieria__remember`,
+The gateway exposes `mcp__pieria__recall`, `mcp__pieria__remember`,
 `mcp__pieria__list`, and `mcp__pieria__forget` as model-facing tools.
 
 > VERIFY: confirm the `mcp.*.type` value (`"local"` vs `"stdio"` vs `"process"`)

@@ -15,18 +15,18 @@ Make Pieria installable and measurable. This phase adds native/JVM packaging, fi
 
 1. Configure JVM packaging fallback.
    - Build and document separate boot jars: `:daemon:bootJar` (`pieria.jar`) and
-     `:shim:bootJar` (`pieria-shim.jar`).
+     `:gateway:bootJar` (`pieria-gateway.jar`).
    - Include daemon resources, Flyway migrations, and configuration metadata in the daemon
      artifact.
-   - Include MCP shim configuration and shared contract classes in the shim artifact, while
-     keeping JDBC/Flyway/SQLite/Ollama daemon dependencies off the shim runtime classpath.
-   - Package harness assets with placeholders that point to the shim artifact.
+   - Include MCP gateway configuration and shared contract classes in the gateway artifact, while
+     keeping JDBC/Flyway/SQLite/Ollama daemon dependencies off the gateway runtime classpath.
+   - Package harness assets with placeholders that point to the gateway artifact.
    - Add smoke commands for starting the daemon with a temporary data directory and running
-     the shim against it.
+     the gateway against it.
 
 2. Configure GraalVM native image packaging.
    - Use Spring AOT and the existing GraalVM Gradle plugin.
-   - Produce separate native binaries for the daemon and shim; optimize the shim for fast
+   - Produce separate native binaries for the daemon and gateway; optimize the gateway for fast
      harness-spawned cold start.
    - Add reflection/resource configuration needed by Spring AI, SQLite, Flyway, validation,
      JSON, and MCP code.
@@ -47,7 +47,7 @@ Make Pieria installable and measurable. This phase adds native/JVM packaging, fi
    - Check required chat and embedding models.
    - Offer or perform model pull behavior according to configuration.
    - Print daemon URL, profile mapping behavior, and harness setup snippets that reference
-     the installed shim command or `pieria-shim` path.
+     the installed gateway command or `pieria-gateway` path.
    - Ensure first-run can be repeated safely.
 
 5. Add local observability.
@@ -62,7 +62,7 @@ Make Pieria installable and measurable. This phase adds native/JVM packaging, fi
    - Add systemd service/user unit for Linux.
    - Add Windows service installation guidance or scripts after the native/JVM command shape is stable.
    - Include install, start, stop, status, and uninstall flows.
-   - Register only the daemon as an OS service; install the shim as an executable used by
+   - Register only the daemon as an OS service; install the gateway as an executable used by
      harness MCP configs.
    - Validate scripts with dry-run or generated-file tests where possible.
 
@@ -85,22 +85,22 @@ Make Pieria installable and measurable. This phase adds native/JVM packaging, fi
 
 ## Tests
 
-- Packaging tests for daemon/shim boot jar resource inclusion, dependency separation, and
+- Packaging tests for daemon/gateway boot jar resource inclusion, dependency separation, and
   startup with a temporary data directory.
 - Native image build smoke test on supported environments.
 - First-run tests for idempotent directory creation, migration, model check handling, and setup output.
 - Service script tests for generated launchd/systemd content.
-- Shim smoke tests for daemon-down messaging and daemon-backed MCP tool forwarding from the
+- Gateway smoke tests for daemon-down messaging and daemon-backed MCP tool forwarding from the
   packaged command shape.
 - Evaluation harness tests using deterministic fixtures and fake model responses.
 - Run `./gradlew test`; run `./gradlew :daemon:nativeCompile` and
-  `./gradlew :shim:nativeCompile` on environments configured for GraalVM 25+.
+  `./gradlew :gateway:nativeCompile` on environments configured for GraalVM 25+.
 
 ## Acceptance Criteria
 
-- Pieria can run from packaged JVM artifacts: daemon process plus harness-spawned shim
+- Pieria can run from packaged JVM artifacts: daemon process plus harness-spawned gateway
   process.
-- Native image packaging is configured and documented for both daemon and shim, with a
+- Native image packaging is configured and documented for both daemon and gateway, with a
   working build on supported local environments.
 - First-run setup initializes directories, database, migrations, and model checks idempotently.
 - launchd service assets are available first, with systemd and Windows coverage added or clearly staged.
@@ -110,7 +110,7 @@ Make Pieria installable and measurable. This phase adds native/JVM packaging, fi
 ## Risks And Follow-Ups
 
 - Native image support for Spring AI, MCP, SQLite, and vector native libraries may require
-  iterative reflection/resource configuration; daemon and shim should keep separate
+  iterative reflection/resource configuration; daemon and gateway should keep separate
   reachability metadata where possible.
 - OS service behavior must be tested per platform; script generation tests do not replace real install checks.
 - Benchmark adapters may require dataset licensing or manual download steps, so keep local fixtures as the always-available quality gate.

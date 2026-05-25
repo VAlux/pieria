@@ -2,7 +2,7 @@
 # profile-name.sh — derive the Pieria profile slug for the current working directory.
 #
 # Implements the SAME resolution precedence as ProfileResolver.java (SPEC §10.2, phase-4 step 4)
-# so that hooks and the MCP stdio shim always agree on the profile name.
+# so that hooks and the MCP stdio gateway always agree on the profile name.
 #
 # Resolution order (highest to lowest):
 #   1. $PIERIA_PROFILE env var (explicit override)

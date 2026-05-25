@@ -10,12 +10,12 @@ Cross-references: SPEC §10, §10.1–10.5; `harness/README.md`; phase-4 plan st
 Harnesses connect to Pieria via two surfaces (SPEC §10):
 
 ```
-  AI harness ──► MCP stdio shim ──► Daemon REST (/v1/profiles/{name}/...)
+  AI harness ──► MCP stdio gateway ──► Daemon REST (/v1/profiles/{name}/...)
                  (model tools)      (http://127.0.0.1:8077)
   AI harness ──► lifecycle hook ──► POST /ingest  (harness-driven, at compaction)
 ```
 
-The shim and hooks share a single profile-name derivation algorithm so every
+The gateway and hooks share a single profile-name derivation algorithm so every
 component writes to and reads from the same profile.
 
 ---
@@ -132,7 +132,7 @@ documentation before deploying to a team. They are marked with
 
 ## Phase 5 follow-up (SPEC §10.5)
 
-Bundle the Claude Code shim registration and all three hooks into a single
+Bundle the Claude Code gateway registration and all three hooks into a single
 installable plugin via a marketplace manifest (`claude plugin add`). The manual
 install steps in `harness/claude-code/README.md` are the interim path.
 

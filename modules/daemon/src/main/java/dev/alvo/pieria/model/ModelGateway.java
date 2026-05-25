@@ -89,6 +89,17 @@ public interface ModelGateway {
   }
 
   /**
+   * Judge whether {@code actualAnswer} is semantically faithful to {@code expectedAnswer} for the
+   * given {@code question}. The default falls back to case-insensitive exact match so test stubs
+   * and CI gateways that don't implement this keep working without a live model.
+   */
+  default boolean judgeAnswerFaithfulness(String question, String expectedAnswer, String actualAnswer) {
+    if (expectedAnswer == null && actualAnswer == null) return true;
+    if (expectedAnswer == null || actualAnswer == null) return false;
+    return expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip());
+  }
+
+  /**
    * Embed text for vector search. Defined now so config/contracts are stable; Phase 1 recall
    * does not use it (no vector index until Phase 3).
    */
@@ -103,5 +114,17 @@ public interface ModelGateway {
    */
   default boolean isModelProviderReachable() {
     return false;
+  }
+
+  /**
+   * Report the model names the provider currently has available locally (e.g. the names returned by
+   * Ollama's {@code /api/tags}). Used only for LOG-ONLY first-run guidance about which configured
+   * models are missing; this method MUST NOT invoke a model, generate tokens, or trigger any
+   * download. The default returns an empty set so existing stubs ({@code FakeModelGateway},
+   * {@code StubModelGateway}) compile unchanged and callers degrade gracefully when the provider is
+   * unreachable. Implementations must never throw; on any IO failure return an empty set.
+   */
+  default java.util.Set<String> availableModels() {
+    return java.util.Set.of();
   }
 }

@@ -10,7 +10,7 @@ Build the first runnable Pieria daemon on the embedded SQLite backend. This phas
 - Embedded SQLite as the only active storage backend.
 - Minimal but stable domain contracts and REST DTOs.
 - Naive model-assisted `ingest` and `recall` paths.
-- No MCP shim, native packaging, Postgres backend, or full retrieval fusion yet.
+- No MCP gateway, native packaging, Postgres backend, or full retrieval fusion yet.
 
 ## Implementation Sequence
 

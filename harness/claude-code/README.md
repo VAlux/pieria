@@ -2,7 +2,7 @@
 
 Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
 
-1. **MCP stdio shim** — registers `mcp__pieria__recall`, `mcp__pieria__remember`,
+1. **MCP stdio gateway** — registers `mcp__pieria__recall`, `mcp__pieria__remember`,
    `mcp__pieria__list`, and `mcp__pieria__forget` as model-facing tools.
 2. **Lifecycle hooks** — `SessionStart` primes context from prior memories;
    `PreCompact` and `Stop` ingest the transcript so memories survive compaction.
@@ -12,37 +12,37 @@ Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
 - Pieria daemon is running and reachable at `http://127.0.0.1:8077` (default).
   Start it with `./gradlew :daemon:bootRun` or the installed OS service (Phase 5).
   Verify: `curl http://127.0.0.1:8077/healthz`
-- The shim jar is available at a known path (e.g. `shim/build/libs/pieria-shim.jar`).
-  Build: `./gradlew :shim:bootJar`
-- Java 25 is on `$PATH` (required to launch the shim).
+- The gateway jar is available at a known path (e.g. `gateway/build/libs/pieria-gateway.jar`).
+  Build: `./gradlew :gateway:bootJar`
+- Java 25 is on `$PATH` (required to launch the gateway).
 
-## Step 1 — Register the MCP shim
+## Step 1 — Register the MCP gateway
 
 **Option A: via `claude mcp add` (recommended)**
 
 ```sh
 claude mcp add pieria \
-  -- java -jar <PIERIA_SHIM_JAR>
+  -- java -jar <PIERIA_GATEWAY_JAR>
 ```
 
-Replace `<PIERIA_SHIM_JAR>` with the absolute path to the built shim jar.
+Replace `<PIERIA_GATEWAY_JAR>` with the absolute path to the built gateway jar.
 
 To set an explicit profile (instead of the auto-derived one):
 
 ```sh
 claude mcp add pieria \
   -e PIERIA_PROFILE=my-project \
-  -- java -jar <PIERIA_SHIM_JAR>
+  -- java -jar <PIERIA_GATEWAY_JAR>
 ```
 
 **Option B: copy `.mcp.json` into your project root**
 
 Copy `harness/claude-code/.mcp.json` to your project root (or
-`~/.claude/.mcp.json` for user-level registration) and replace `<PIERIA_SHIM_JAR>`
-with the absolute path to the shim jar.
+`~/.claude/.mcp.json` for user-level registration) and replace `<PIERIA_GATEWAY_JAR>`
+with the absolute path to the gateway jar.
 
 After registration, Claude Code surfaces the tools as `mcp__pieria__recall`, etc.
-The shim derives the profile from `$PIERIA_PROFILE` > git remote > directory name
+The gateway derives the profile from `$PIERIA_PROFILE` > git remote > directory name
 (same logic as `harness/profile-name.sh` and `ProfileResolver.java`).
 
 ## Step 2 — Install lifecycle hooks
@@ -113,13 +113,13 @@ The profile name is derived automatically (see `harness/profile-name.sh`):
 2. Last segment of `git config --get remote.origin.url`, minus `.git`
 3. `basename "$PWD"`
 
-The name is then normalized to a lower-case `[a-z0-9-]` slug. The shim
+The name is then normalized to a lower-case `[a-z0-9-]` slug. The gateway
 (`ProfileResolver.java`) and the hook scripts use the same logic, so they always
 agree on the profile.
 
 ## Pointing multiple harnesses at the same profile
 
-Set `PIERIA_PROFILE=<slug>` in each harness's env (MCP server env for the shim,
+Set `PIERIA_PROFILE=<slug>` in each harness's env (MCP server env for the gateway,
 shell env for hook scripts). Any harness targeting the same slug shares the same
 memory store via the common daemon.
 
@@ -136,6 +136,6 @@ memory store via the common daemon.
 
 ## Phase 5 follow-up
 
-SPEC §10.5 calls for bundling the shim registration and all three hooks into a
+SPEC §10.5 calls for bundling the gateway registration and all three hooks into a
 single installable Claude Code plugin via a marketplace manifest (`claude plugin add`).
 This is a Phase 5 deliverable; the manual steps above are the interim install path.

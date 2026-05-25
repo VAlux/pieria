@@ -5,11 +5,11 @@
 This is a multi-module Gradle Kotlin DSL project named `pieria`. All four modules live under `modules/`:
 
 - `daemon` — Spring Boot REST daemon; entry point `PieriaApplication`. Configuration in `modules/daemon/src/main/resources`.
-- `shim` — MCP stdio shim; entry point `ShimApplication`. Configuration in `modules/shim/src/main/resources`.
+- `gateway` — MCP stdio gateway; entry point `GatewayApplication`. Configuration in `modules/gateway/src/main/resources`.
 - `shared` — HTTP contract DTOs and profile mapping logic shared across processes.
 - `eval` — offline evaluation harness (fixtures, runner, report writer); depends on `daemon` classes but never ships in the production artifact.
 
-Module names are short logical names; Gradle task paths use them directly (`:daemon:test`, `:shim:bootJar`, etc.). Tests live under each module's `src/test/java/dev/alvo/pieria`. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `docs/SPEC.md` and `docs/HARNESS.md`.
+Module names are short logical names; Gradle task paths use them directly (`:daemon:test`, `:gateway:bootJar`, etc.). Tests live under each module's `src/test/java/dev/alvo/pieria`. Keep future package paths aligned with `dev.alvo.pieria`. Project-level documentation and specs belong at the repository root, for example `docs/SPEC.md` and `docs/HARNESS.md`.
 
 ## Build, Test, and Development Commands
 
@@ -19,9 +19,9 @@ Use the checked-in Gradle wrapper so builds use the expected Gradle version.
 - `./gradlew build` compiles, tests, and assembles the project.
 - `./gradlew :daemon:bootRun` starts the daemon locally.
 - `./gradlew :daemon:bootJar` builds `modules/daemon/build/libs/pieria.jar`.
-- `./gradlew :shim:bootJar` builds `modules/shim/build/libs/pieria-shim.jar`.
+- `./gradlew :gateway:bootJar` builds `modules/gateway/build/libs/pieria-gateway.jar`.
 - `./gradlew :daemon:bootBuildImage` builds a daemon container image named from the project/version.
-- `./gradlew :daemon:nativeCompile` or `./gradlew :shim:nativeCompile` builds a GraalVM native executable; it requires GraalVM 25+.
+- `./gradlew :daemon:nativeCompile` or `./gradlew :gateway:nativeCompile` builds a GraalVM native executable; it requires GraalVM 25+.
 
 ## Coding Style & Naming Conventions
 

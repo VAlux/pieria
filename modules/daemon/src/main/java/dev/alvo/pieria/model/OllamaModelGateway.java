@@ -16,16 +16,29 @@ import dev.alvo.pieria.domain.VerificationVerdict;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingResponse;
+import org.springframework.ai.embedding.EmbeddingResponseMetadata;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -54,8 +67,49 @@ public class OllamaModelGateway implements ModelGateway {
     this.properties = properties;
   }
 
+  private final ObjectMapper objectMapper = new ObjectMapper();
+
   private static String blankToNull(String value) {
     return (value == null || value.isBlank()) ? null : value.strip();
+  }
+
+  /**
+   * Run a structured-output chat call on the extraction client, log the per-stage token usage at
+   * INFO, and return the bound entity. Usage capture is best-effort and never NPEs: if the provider
+   * does not report usage, token counts are logged as zero. {@code stage} names the pipeline stage
+   * (extract, extractDetail, verify, classify, analyzeQuery) for the log line.
+   */
+  private <T> T callExtractionEntity(String prompt, String stage, Class<T> type) {
+    var response = extractionChatClient.prompt()
+      .user(prompt)
+      .call()
+      .responseEntity(type);
+    logTokenUsage(stage, response.getResponse());
+    return response.getEntity();
+  }
+
+  /**
+   * Log prompt/completion/total token usage for a single model-call {@code stage}. Null-safe at
+   * every level: a missing {@link ChatResponse}, metadata, or {@link Usage} simply logs zeros.
+   */
+  private static void logTokenUsage(String stage, ChatResponse chatResponse) {
+    int prompt = 0;
+    int completion = 0;
+    int total = 0;
+    if (chatResponse != null && chatResponse.getMetadata() != null) {
+      Usage usage = chatResponse.getMetadata().getUsage();
+      if (usage != null) {
+        prompt = nullToZero(usage.getPromptTokens());
+        completion = nullToZero(usage.getCompletionTokens());
+        total = nullToZero(usage.getTotalTokens());
+      }
+    }
+    LOGGER.info("model stage={} promptTokens={} completionTokens={} totalTokens={}",
+      stage, prompt, completion, total);
+  }
+
+  private static int nullToZero(Integer value) {
+    return value == null ? 0 : value;
   }
 
   @Override
@@ -88,10 +142,7 @@ public class OllamaModelGateway implements ModelGateway {
 
     ExtractionResult result;
     try {
-      result = extractionChatClient.prompt()
-        .user(prompt)
-        .call()
-        .entity(ExtractionResult.class);
+      result = callExtractionEntity(prompt, "extractMemories", ExtractionResult.class);
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model extraction failed", e);
     }
@@ -138,8 +189,12 @@ public class OllamaModelGateway implements ModelGateway {
       - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
       
       Do not invent information not present in the chunk. If nothing is worth remembering,
-      return an empty list.
-      
+      return an empty array.
+
+      Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
+      Format: [{"content": "...", "suggestedType": "..."}]
+      Empty result: []
+
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -161,8 +216,12 @@ public class OllamaModelGateway implements ModelGateway {
       - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
       
       Do not invent information not present in the chunk. If there are no concrete values worth
-      capturing, return an empty list.
-      
+      capturing, return an empty array.
+
+      Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
+      Format: [{"content": "...", "suggestedType": "..."}]
+      Empty result: []
+
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -170,20 +229,23 @@ public class OllamaModelGateway implements ModelGateway {
   }
 
   private List<ExtractedCandidate> callExtraction(String prompt, int chunkIndex, String stage) {
-    CandidateList result;
+    ChatResponse chatResponse;
     try {
-      result = extractionChatClient.prompt()
+      chatResponse = extractionChatClient.prompt()
         .user(prompt)
         .call()
-        .entity(CandidateList.class);
+        .chatResponse();
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model " + stage + " failed", e);
     }
-    if (result == null || result.candidates() == null) {
-      return List.of();
-    }
+    logTokenUsage(stage, chatResponse);
+
+    String rawText = chatResponse != null && chatResponse.getResult() != null
+      && chatResponse.getResult().getOutput() != null
+      ? chatResponse.getResult().getOutput().getText() : null;
+
     List<ExtractedCandidate> candidates = new ArrayList<>();
-    for (RawCandidate raw : result.candidates()) {
+    for (RawCandidate raw : parseCandidatesResilient(rawText, stage)) {
       if (raw == null || raw.content() == null || raw.content().isBlank()) {
         continue;
       }
@@ -191,6 +253,88 @@ public class OllamaModelGateway implements ModelGateway {
       candidates.add(new ExtractedCandidate(raw.content().strip(), suggested, chunkIndex, stage));
     }
     return candidates;
+  }
+
+  /**
+   * Parses model output into a list of {@link RawCandidate}s tolerating two shapes:
+   * the expected wrapped object {@code {"candidates":[...]}} and a bare array {@code [...]}.
+   * Also strips markdown code fences that some models emit around JSON.
+   */
+  private static final Pattern MD_CONTENT = Pattern.compile(
+    "(?im)^[-*\\d.]*\\s*\\*{0,2}(?:content)\\*{0,2}:?\\s*(.+)$");
+  private static final Pattern MD_TYPE = Pattern.compile(
+    "(?im)^[-*\\s]*\\*{0,2}suggested(?:type)?\\*{0,2}:?\\s*([a-z/]+)",
+    Pattern.CASE_INSENSITIVE);
+
+  private List<RawCandidate> parseCandidatesResilient(String rawText, String stage) {
+    if (rawText == null || rawText.isBlank()) {
+      return List.of();
+    }
+    String json = stripCodeFences(rawText);
+
+    // Try wrapped object {"candidates": [...]}
+    try {
+      CandidateList wrapped = objectMapper.readValue(json, CandidateList.class);
+      if (wrapped != null && wrapped.candidates() != null) {
+        return wrapped.candidates();
+      }
+    } catch (Exception ignored) {}
+
+    // Try bare array [...]
+    try {
+      return objectMapper.readValue(json, new TypeReference<List<RawCandidate>>() {});
+    } catch (Exception ignored) {}
+
+    // Fallback: parse markdown bullet/numbered output the model emits when it ignores JSON instructions
+    List<RawCandidate> markdown = parseMarkdownCandidates(rawText);
+    if (!markdown.isEmpty()) {
+      return markdown;
+    }
+
+    LOGGER.warn("stage={} model returned unparseable candidates output; treating as empty. Raw response: {}", stage, rawText);
+    return List.of();
+  }
+
+  private static List<RawCandidate> parseMarkdownCandidates(String text) {
+    List<RawCandidate> candidates = new ArrayList<>();
+    String[] lines = text.split("\n");
+    String pendingContent = null;
+    for (String line : lines) {
+      Matcher cm = MD_CONTENT.matcher(line);
+      if (cm.find()) {
+        pendingContent = cm.group(1).strip().replaceAll("\\*+", "").strip();
+        continue;
+      }
+      if (pendingContent != null) {
+        Matcher tm = MD_TYPE.matcher(line);
+        if (tm.find()) {
+          String rawType = tm.group(1).strip().toLowerCase(Locale.ROOT);
+          // normalize "instruction/preference" → "instruction", etc.
+          String type = rawType.contains("instruction") ? "instruction"
+            : rawType.contains("event") ? "event"
+            : rawType.contains("task") ? "task"
+            : rawType.contains("fact") ? "fact"
+            : rawType;
+          candidates.add(new RawCandidate(pendingContent, type));
+          pendingContent = null;
+        }
+      }
+    }
+    return candidates;
+  }
+
+  private static String stripCodeFences(String text) {
+    String s = text.strip();
+    if (s.startsWith("```")) {
+      int newline = s.indexOf('\n');
+      if (newline >= 0) {
+        s = s.substring(newline + 1);
+      }
+      if (s.endsWith("```")) {
+        s = s.substring(0, s.length() - 3).stripTrailing();
+      }
+    }
+    return s;
   }
 
   @Override
@@ -220,10 +364,7 @@ public class OllamaModelGateway implements ModelGateway {
 
     VerificationDto dto;
     try {
-      dto = extractionChatClient.prompt()
-        .user(prompt)
-        .call()
-        .entity(VerificationDto.class);
+      dto = callExtractionEntity(prompt, "verify", VerificationDto.class);
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model verification failed", e);
     }
@@ -264,10 +405,7 @@ public class OllamaModelGateway implements ModelGateway {
 
     ClassificationDto dto;
     try {
-      dto = extractionChatClient.prompt()
-        .user(prompt)
-        .call()
-        .entity(ClassificationDto.class);
+      dto = callExtractionEntity(prompt, "classify", ClassificationDto.class);
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model classification failed", e);
     }
@@ -338,10 +476,7 @@ public class OllamaModelGateway implements ModelGateway {
 
     QueryAnalysisDto dto;
     try {
-      dto = extractionChatClient.prompt()
-        .user(prompt)
-        .call()
-        .entity(QueryAnalysisDto.class);
+      dto = callExtractionEntity(prompt, "analyzeQuery", QueryAnalysisDto.class);
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model query analysis failed", e);
     }
@@ -418,23 +553,102 @@ public class OllamaModelGateway implements ModelGateway {
       """.formatted(query, temporalBlock, context);
 
     try {
-      return synthesisChatClient.prompt()
+      ChatResponse chatResponse = synthesisChatClient.prompt()
         .user(prompt)
         .call()
-        .content();
+        .chatResponse();
+      logTokenUsage("synthesizeRecall", chatResponse);
+      if (chatResponse == null || chatResponse.getResult() == null
+        || chatResponse.getResult().getOutput() == null) {
+        return "";
+      }
+      return chatResponse.getResult().getOutput().getText();
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model synthesis failed", e);
     }
   }
 
   @Override
+  public boolean judgeAnswerFaithfulness(String question, String expectedAnswer, String actualAnswer) {
+    String prompt = """
+      You are a strict answer equivalence judge. Decide whether the ACTUAL answer conveys the same
+      information as the EXPECTED answer for the given question.
+
+      Rules:
+      - Respond "true" if the actual answer contains the expected answer or is semantically equivalent.
+      - Respond "false" if the actual answer is wrong, incomplete, or claims insufficient evidence
+        when the expected answer exists.
+      - Ignore differences in phrasing, capitalization, or minor wording.
+
+      Question: %s
+      Expected: %s
+      Actual: %s
+
+      Respond with only "true" or "false".
+      """.formatted(
+        question == null ? "" : question,
+        expectedAnswer == null ? "" : expectedAnswer,
+        actualAnswer == null ? "" : actualAnswer);
+    LOGGER.info("judge question='{}' expected='{}'", truncate(question, 80), truncate(expectedAnswer, 80));
+    LOGGER.info("judge actual='{}'", truncate(actualAnswer, 120));
+    try {
+      String response = synthesisChatClient.prompt()
+        .user(prompt)
+        .call()
+        .content();
+      boolean verdict = response != null && response.strip().toLowerCase(Locale.ROOT).startsWith("true");
+      LOGGER.info("judge verdict={} raw='{}'", verdict, truncate(response, 40));
+      return verdict;
+    } catch (RuntimeException e) {
+      LOGGER.warn("judge call failed ({}); falling back to exact match", e.getMessage());
+      String normExpected = expectedAnswer == null ? "" : expectedAnswer.strip().toLowerCase(Locale.ROOT);
+      String normActual = actualAnswer == null ? "" : actualAnswer.strip().toLowerCase(Locale.ROOT);
+      boolean verdict = normExpected.equals(normActual);
+      LOGGER.info("judge verdict={} (exact-match fallback)", verdict);
+      return verdict;
+    }
+  }
+
+  private static String truncate(String s, int max) {
+    if (s == null) return "(null)";
+    String stripped = s.strip().replace('\n', ' ');
+    return stripped.length() <= max ? stripped : stripped.substring(0, max) + "…";
+  }
+
+  @Override
   public float[] embed(String text) {
     try {
-      LOGGER.info("Embedding text: {}", text);
-      return embeddingModel.embed(text);
+      EmbeddingResponse response = embeddingModel.embedForResponse(List.of(text == null ? "" : text));
+      logEmbeddingUsage(response);
+      if (response == null || response.getResult() == null) {
+        return new float[0];
+      }
+      return response.getResult().getOutput();
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("Model embedding failed: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * Log embedding token usage when the provider reports it; skip silently otherwise. Null-safe at
+   * every level. Some providers (Ollama included) do not surface embedding usage, so a zero/absent
+   * usage is expected and simply skipped.
+   */
+  private static void logEmbeddingUsage(EmbeddingResponse response) {
+    if (response == null) {
+      return;
+    }
+    EmbeddingResponseMetadata metadata = response.getMetadata();
+    if (metadata == null) {
+      return;
+    }
+    Usage usage = metadata.getUsage();
+    if (usage == null) {
+      return;
+    }
+    LOGGER.info("model stage=embed promptTokens={} completionTokens={} totalTokens={}",
+      nullToZero(usage.getPromptTokens()), nullToZero(usage.getCompletionTokens()),
+      nullToZero(usage.getTotalTokens()));
   }
 
   /**
@@ -461,6 +675,54 @@ public class OllamaModelGateway implements ModelGateway {
       return code > 0;
     } catch (Exception e) {
       return false;
+    }
+  }
+
+  /**
+   * Query Ollama's {@code GET /api/tags} and return the set of locally-available model names.
+   * Read-only: never invokes a model or generates tokens. Returns an empty set on any IO/parse
+   * failure and never throws, so first-run guidance degrades gracefully when the provider is down.
+   * Model names are returned verbatim (e.g. {@code "llama3.2:3b"}).
+   */
+  @Override
+  public Set<String> availableModels() {
+    String baseUrl = properties.ollama().baseUrl();
+    if (baseUrl == null || baseUrl.isBlank()) {
+      return Set.of();
+    }
+    String tagsUrl = baseUrl.replaceAll("/+$", "") + "/api/tags";
+    HttpURLConnection conn = null;
+    try {
+      conn = (HttpURLConnection) URI.create(tagsUrl).toURL().openConnection();
+      conn.setRequestMethod("GET");
+      conn.setConnectTimeout(2000);
+      conn.setReadTimeout(2000);
+      conn.setInstanceFollowRedirects(false);
+      int code = conn.getResponseCode();
+      if (code < 200 || code >= 300) {
+        return Set.of();
+      }
+      LinkedHashSet<String> names = new LinkedHashSet<>();
+      try (InputStream in = conn.getInputStream()) {
+        JsonNode root = objectMapper.readTree(in);
+        JsonNode models = root.get("models");
+        if (models != null && models.isArray()) {
+          for (JsonNode model : models) {
+            JsonNode name = model.get("name");
+            if (name != null && !name.asString().isBlank()) {
+              names.add(name.asString().strip());
+            }
+          }
+        }
+      }
+      return Set.copyOf(names);
+    } catch (Exception e) {
+      // Never throw: missing/unreachable provider just yields no available models.
+      return Set.of();
+    } finally {
+      if (conn != null) {
+        conn.disconnect();
+      }
     }
   }
 

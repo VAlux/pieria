@@ -6,13 +6,13 @@ usage() {
 Usage: pieria-systemd-user.sh <install|start|stop|status|uninstall> [options]
 
 Installs and controls the Pieria daemon as a per-user systemd service.
-Only the daemon is registered as a service; the shim path is emitted as harness
+Only the daemon is registered as a service; the gateway path is emitted as harness
 configuration guidance.
 
 Options:
   --daemon PATH     Daemon executable, wrapper, or pieria.jar path (default: ~/.local/bin/pieria-daemon)
   --java PATH       Java executable used when --daemon points at a jar (default: java)
-  --shim PATH       Shim executable path for harness MCP configs (default: ~/.local/bin/pieria-shim)
+  --gateway PATH       Gateway executable path for harness MCP configs (default: ~/.local/bin/pieria-gateway)
   --name NAME       systemd unit name without .service (default: pieria-daemon)
   --host HOST       Daemon bind host (default: 127.0.0.1)
   --port PORT       Daemon bind port (default: 8077)
@@ -65,7 +65,7 @@ exec_start() {
 
 generate_unit() {
 	cat <<UNIT
-# Pieria shim executable for harness MCP configs: $SHIM
+# Pieria gateway executable for harness MCP configs: $GATEWAY
 [Unit]
 Description=Pieria local memory daemon
 Documentation=https://github.com/dev-alvo/pieria
@@ -95,7 +95,7 @@ shift
 NAME="pieria-daemon"
 DAEMON="$HOME/.local/bin/pieria-daemon"
 JAVA="java"
-SHIM="$HOME/.local/bin/pieria-shim"
+GATEWAY="$HOME/.local/bin/pieria-gateway"
 HOST="127.0.0.1"
 PORT="8077"
 DATA_DIR="$HOME/.local/share/pieria"
@@ -108,7 +108,7 @@ while (($#)); do
 	case "$1" in
 		--daemon) DAEMON="$2"; shift 2 ;;
 		--java) JAVA="$2"; shift 2 ;;
-		--shim) SHIM="$2"; shift 2 ;;
+		--gateway) GATEWAY="$2"; shift 2 ;;
 		--name) NAME="${2%.service}"; shift 2 ;;
 		--host) HOST="$2"; shift 2 ;;
 		--port) PORT="$2"; shift 2 ;;

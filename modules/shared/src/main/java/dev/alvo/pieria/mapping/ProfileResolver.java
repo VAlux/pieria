@@ -9,7 +9,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Deterministic profile-name resolver shared by the MCP shim and harness hooks (SPEC §10.2,
+ * Deterministic profile-name resolver shared by the MCP gateway and harness hooks (SPEC §10.2,
  * phase-4 step 4). A given working directory always maps to the same profile name regardless
  * of which component calls it.
  *
@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  *
  * <p>The raw name from whichever source wins is then passed through {@link #normalize(String)}
  * (lower-case, non-{@code [a-z0-9-]} runs → single hyphen, leading/trailing hyphens trimmed,
- * empty → {@code "default"}). Normalization is deterministic and source-agnostic so the shim
+ * empty → {@code "default"}). Normalization is deterministic and source-agnostic so the gateway
  * and hooks always agree.
  *
  * <h2>Testability</h2>
@@ -105,7 +105,7 @@ public final class ProfileResolver {
   }
 
   // -------------------------------------------------------------------------
-  // Pure static helpers — exposed for reuse by the shim, hooks, and tests.
+  // Pure static helpers — exposed for reuse by the gateway, hooks, and tests.
   // -------------------------------------------------------------------------
 
   /**

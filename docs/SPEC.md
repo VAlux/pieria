@@ -54,7 +54,7 @@ same code with a different storage backend.
 - **Session** — a single conversation thread; memories carry a `sessionId` for provenance.
 - **Daemon** — the long-running local process that owns the database and pipelines and
   binds an HTTP API to localhost. The single writer of the embedded store.
-- **MCP shim** — a thin, per-harness stdio client that forwards tool calls to the daemon.
+- **MCP gateway** — a thin, per-harness stdio client that forwards tool calls to the daemon.
 - **Ingest** — bulk path: extract memories from a conversation (called at compaction).
 - **Remember** — store a single memory explicitly (direct model tool use).
 - **Recall** — run the full retrieval pipeline and return a synthesized answer.
@@ -67,11 +67,11 @@ same code with a different storage backend.
 ### 2.1 Local-first (default)
 
 A single background **daemon** owns the embedded database and the pipelines, and binds an
-HTTP API to `127.0.0.1`. Each harness launches a tiny **MCP stdio shim** that forwards to
+HTTP API to `127.0.0.1`. Each harness launches a tiny **MCP stdio gateway** that forwards to
 the daemon. All harnesses on the machine therefore share one memory store.
 
 ```
-  Agent harnesses ──► MCP stdio shims ──► Local daemon ──► Embedded store (SQLite + vec + FTS5)
+  Agent harnesses ──► MCP stdio gateways ──► Local daemon ──► Embedded store (SQLite + vec + FTS5)
   (any MCP harness)   (thin clients)      (binds 127.0.0.1)  └─► Local models (Ollama, default)
 ```
 
@@ -91,7 +91,7 @@ the storage backend and tenancy configuration differ.
 
 - Runs as an OS service: **launchd** (macOS), **systemd** (Linux), Windows service.
 - Listens on a configurable localhost port; never binds a public interface in local mode.
-- Single installable bundle (see §14): daemon + shim artifacts, preferably native images,
+- Single installable bundle (see §14): daemon + gateway artifacts, preferably native images,
   with a JVM/`jpackage` fallback.
 
 ---
@@ -123,7 +123,7 @@ of deployment topology or storage backend.
 | Component            | Responsibility                                                          |
 |----------------------|-------------------------------------------------------------------------|
 | Daemon               | Long-running process; owns DB + pipelines; binds localhost HTTP API.    |
-| MCP shim             | Thin per-harness stdio client; forwards tool calls to the daemon.       |
+| MCP gateway             | Thin per-harness stdio client; forwards tool calls to the daemon.       |
 | API layer            | REST endpoints; request validation; profile resolution.                |
 | Ingestion service    | ID generation, extraction, verification, classification, supersession.  |
 | Retrieval service    | Query analysis, parallel channels, RRF fusion, synthesis.              |
@@ -148,8 +148,8 @@ of deployment topology or storage backend.
 | Async work           | Transactional outbox + virtual-thread workers | No broker dependency.                                  |
 | SQLite driver        | `sqlite-jdbc` (xerial)                        | Loads `sqlite-vec` via `enableLoadExtension`.          |
 | Migrations           | Flyway                                        | Per-backend migration sets.                            |
-| Packaging            | GraalVM native image (preferred) / `jpackage` | Install bundle with daemon service + shim binary.      |
-| Build                | Gradle (Kotlin DSL, 3 modules)                | `:daemon`, `:shim`, `:shared`; Boot/AOT per app module. |
+| Packaging            | GraalVM native image (preferred) / `jpackage` | Install bundle with daemon service + gateway binary.      |
+| Build                | Gradle (Kotlin DSL, 3 modules)                | `:daemon`, `:gateway`, `:shared`; Boot/AOT per app module. |
 | Testing              | JUnit 5; embedded SQLite + Testcontainers (PG)| Test both backends.                                    |
 
 ### 4.1 Models
@@ -383,10 +383,10 @@ Per-type heterogeneous fields live in a JSON `payload`; only fields we query or 
 promoted to typed columns. Schemaless iteration during early phases, with no migration
 churn as the memory shape evolves.
 
-### 8.4 Single daemon, thin shims
+### 8.4 Single daemon, thin gateways
 
 One local daemon is the single writer of the embedded store; harnesses connect through
-thin MCP stdio shims. This is required by SQLite's single-writer model and is also what
+thin MCP stdio gateways. This is required by SQLite's single-writer model and is also what
 gives shared memory across every tool on the machine.
 
 ### 8.5 Local models by default
@@ -427,13 +427,13 @@ POST /v1/profiles/my-project/recall
 
 ---
 
-## 10. Harness integration (MCP shims + hooks)
+## 10. Harness integration (MCP gateways + hooks)
 
 Harnesses integrate through two surfaces that mirror the ingestion/retrieval split:
 
 1. **Model-driven tools** — the model calls `recall`, `remember`, `list`, `forget`
-   mid-task. Delivered as an **MCP stdio shim** that forwards to the daemon. Built as a
-   dedicated shim artifact and reused by every harness, since all of them speak MCP.
+   mid-task. Delivered as an **MCP stdio gateway** that forwards to the daemon. Built as a
+   dedicated gateway artifact and reused by every harness, since all of them speak MCP.
 2. **Harness-driven ingestion** — at compaction the harness ships the conversation to the
    daemon's `/ingest`. Delivered as a per-harness **lifecycle hook** (thin glue script).
 
@@ -441,12 +441,12 @@ Harnesses integrate through two surfaces that mirror the ingestion/retrieval spl
 job. Keeping the model's tool surface narrow is deliberate: the primary agent must not
 burn context designing storage queries.
 
-### 10.1 MCP shim
+### 10.1 MCP gateway
 
-- **Implementation:** Spring AI MCP (built on the official MCP Java SDK). The shim is a
+- **Implementation:** Spring AI MCP (built on the official MCP Java SDK). The gateway is a
   thin stdio client packaged separately from the daemon; the daemon holds all state. (In
-  server mode the shim may instead use streamable HTTP directly to the shared host.)
-- **Transport:** stdio (local harness ↔ shim), then localhost HTTP (shim ↔ daemon).
+  server mode the gateway may instead use streamable HTTP directly to the shared host.)
+- **Transport:** stdio (local harness ↔ gateway), then localhost HTTP (gateway ↔ daemon).
 - **Tools exposed (and their daemon mappings):**
 
 | MCP tool   | Daemon mapping                                | Model-facing? |
@@ -462,7 +462,7 @@ Harnesses surface these as `mcp__pieria__recall`, etc.
 ### 10.2 Profile mapping
 
 Default convention is **profile-per-repo**: derive the name from the git remote or project
-directory, supply it to the shim via env var or config, and use the harness's own session
+directory, supply it to the gateway via env var or config, and use the harness's own session
 ID as `sessionId`. Because all harnesses share the daemon, pointing them at the same
 profile name gives shared memory across tools (local) or across people (server).
 
@@ -488,7 +488,7 @@ verify the current event list against Codex docs, as this area is evolving.
 
 ### 10.5 Distribution
 
-For Claude Code, bundle the shim registration + `PreCompact`/`Stop`/`SessionStart` hooks
+For Claude Code, bundle the gateway registration + `PreCompact`/`Stop`/`SessionStart` hooks
 into a single installable plugin via a marketplace manifest — one `claude plugin add`.
 OpenCode ships as an npm plugin referenced in `opencode.json`. Codex is configured via
 `config.toml`. The installer also registers and starts the daemon as an OS service (§14).
@@ -549,14 +549,14 @@ local→server migration: export from the embedded store, import into Postgres, 
 ## 14. Packaging & operation
 
 - **Distributable:** installable bundle containing two app artifacts: the daemon
-  (`:daemon`, long-running service, owns storage) and the MCP stdio shim (`:shim`,
-  harness-spawned client). GraalVM native images are preferred — especially for the shim's
+  (`:daemon`, long-running service, owns storage) and the MCP stdio gateway (`:gateway`,
+  harness-spawned client). GraalVM native images are preferred — especially for the gateway's
   cold start and the daemon's memory footprint — with JVM boot jars / `jpackage` as the
   fallback. Native image requires Spring AOT and reflection/resource config, plus
   per-platform bundling of the `sqlite-vec` native extension for the daemon; budget
   build-system time for this.
 - **Service registration:** installer registers the daemon with launchd / systemd /
-  Windows service and starts it on login/boot. The shim is not a service; harnesses launch
+  Windows service and starts it on login/boot. The gateway is not a service; harnesses launch
   it on demand via the configured MCP stdio command.
 - **Data location:** embedded DB and config under an OS-appropriate app data dir (e.g.
   `~/.local/share/pieria/` on Linux); single file, easy to back up or delete.
@@ -589,8 +589,8 @@ measured, not vibes.
 | 1     | Walking skeleton on **embedded SQLite**: schema, naive `ingest` (1 LLM call via Ollama), `recall` (vector + synthesis). |
 | 2     | Full ingestion: content IDs, parallel extraction, verification, classification, supersession.     |
 | 3     | Full retrieval: five channels (sqlite-vec + FTS5 + keyed) + RRF + HyDE; deterministic temporal.   |
-| 4     | Daemon + thin MCP shim + Claude Code plugin (PreCompact/Stop/SessionStart); shared across tools.  |
-| 5     | Packaging: daemon + shim native/JVM bundle, OS service install, first-run model pull, eval harness. |
+| 4     | Daemon + thin MCP gateway + Claude Code plugin (PreCompact/Stop/SessionStart); shared across tools.  |
+| 5     | Packaging: daemon + gateway native/JVM bundle, OS service install, first-run model pull, eval harness. |
 | 6     | Server mode: Postgres backend behind the storage seam, RLS multi-tenancy, export/import migration. |
 
 ---
