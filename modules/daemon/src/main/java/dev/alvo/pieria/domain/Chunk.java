@@ -3,7 +3,7 @@ package dev.alvo.pieria.domain;
 import java.util.List;
 
 /**
- * A contiguous slice of a normalized conversation produced by the chunker (SPEC 6.2). Each chunk
+ * A contiguous slice of a normalized conversation produced by the chunker. Each chunk
  * carries the source messages it spans (for provenance) plus a pre-rendered, role-labeled
  * {@code transcript} with line indices and absolute dates, ready to hand to the extraction model.
  *

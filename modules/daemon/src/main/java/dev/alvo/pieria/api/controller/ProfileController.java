@@ -39,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 
 /**
- * REST surface for a single profile (CLAUDE.md table, SPEC 9). All paths are scoped to
+ * REST surface for a single profile. All paths are scoped to
  * {@code /v1/profiles/{name}}; the profile name is resolved to an internal id only inside the
  * services, never leaked back to the client.
  */

@@ -12,7 +12,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
 
 /**
  * Entry point for the Pieria MCP stdio gateway — a stateless stdio MCP server that forwards model
- * tool calls to the local daemon's REST surface (SPEC 10.1).
+ * tool calls to the local daemon's REST surface.
  *
  * <p>Running this jar IS the gateway: there is no launch flag and no Spring profile. The gateway
  * module simply does not have JDBC/Flyway/Ollama on its classpath, so none of the daemon's

@@ -5,7 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * Content-addressed identifiers (SPEC 6.1): {@code SHA-256(sessionId + role + content)} truncated
+ * Content-addressed identifiers: {@code SHA-256(sessionId + role + content)} truncated
  * to 128 bits, hex-encoded. Re-ingesting the same conversation yields identical ids, making
  * inserts idempotent via {@code INSERT OR IGNORE}.
  */

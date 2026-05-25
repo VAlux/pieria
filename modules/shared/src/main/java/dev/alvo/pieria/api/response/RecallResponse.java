@@ -5,9 +5,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 
 /**
- * Result of a recall (SPEC 9.1): the synthesized answer and the memories used as evidence. When the
+ * Result of a recall: the synthesized answer and the memories used as evidence. When the
  * request opted into debug, an optional {@link RecallDebug} block carries candidate provenance,
- * the deterministic temporal facts, and per-channel diagnostics (phase-3 steps 9-10). The debug
+ * the deterministic temporal facts, and per-channel diagnostics. The debug
  * block is omitted from the JSON when {@code null} so default responses stay concise.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)

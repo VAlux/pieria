@@ -89,7 +89,7 @@ class SqliteMemoryStoreTests {
     assertTrue(tables.contains("messages_fts"));
   }
 
-  // ---- Phase 3 step 1: FTS5 migration + triggers + active filtering ----
+  // ---- FTS5 migration + triggers + active filtering ----
 
   @Test
   void existingMemoriesAreSearchableAfterMigration() {
@@ -175,7 +175,7 @@ class SqliteMemoryStoreTests {
 
   @Test
   void vectorSearchUnavailableWithoutExtensionConstructor() {
-    // The single-arg (test/Phase-1) constructor reports vector search unavailable, so the vector
+    // The single-arg constructor reports vector search unavailable, so the vector
     // channel is a graceful no-op even on a machine that has sqlite-vec.
     assertFalse(store.isVectorSearchAvailable());
     assertTrue(store.vectorSearch("any", new float[] {1f, 2f, 3f}, 5).isEmpty());
@@ -287,7 +287,7 @@ class SqliteMemoryStoreTests {
     assertEquals("fts-memory", hits.get(0).source());
   }
 
-  // ---- Phase 2 storage helpers ----
+  // ---- Storage helpers ----
 
   private int outboxCount() {
     return jdbc.sql("SELECT COUNT(*) FROM vectorization_outbox").query(Integer.class).single();

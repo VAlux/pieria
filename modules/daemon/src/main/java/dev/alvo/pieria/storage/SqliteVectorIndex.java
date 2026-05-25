@@ -15,7 +15,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Phase 3 step 2/3: programmatically creates the {@code memories_vec} (sqlite-vec {@code vec0})
+ *  step 2/3: programmatically creates the {@code memories_vec} (sqlite-vec {@code vec0})
  * virtual table at startup and backfills it from existing embedding BLOBs.
  *
  * <p>The table is created here, not in Flyway, because a {@code vec0} table requires the native
@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  *
  * <p>If the configured embedding dimension conflicts with an already-existing {@code memories_vec}
  * of a different width, startup fails with a clear error (re-embedding the store at a new width is
- * an explicit, deliberate operation — see SPEC 5.1 / 18).
+ * an explicit, deliberate operation — see / 18).
  */
 @Component
 public class SqliteVectorIndex {

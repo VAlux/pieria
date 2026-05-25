@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Splits a normalized message list into message-boundary-aligned {@link Chunk}s around a
- * configurable character target (SPEC 6.2, phase-2 step 3).
+ * configurable character target.
  *
  * <p>Rules:
  * <ul>

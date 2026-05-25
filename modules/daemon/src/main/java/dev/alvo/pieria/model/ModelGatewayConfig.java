@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Builds the two tiered {@link ChatClient} beans (SPEC 4.1) from the autoconfigured
+ * Builds the two tiered {@link ChatClient} beans from the autoconfigured
  * {@link OllamaChatModel}. The small client drives structured stages (extraction); the large
  * client is reserved for synthesis. Each client pins its own Ollama model via default options,
  * overriding the {@code spring.ai.ollama.chat.options.model} default so both tiers coexist on a

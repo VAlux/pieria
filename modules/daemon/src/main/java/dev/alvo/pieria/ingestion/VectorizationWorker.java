@@ -19,7 +19,7 @@ import java.util.concurrent.Future;
 import java.util.ArrayList;
 
 /**
- * Drains the vectorization outbox (SPEC 6.7, phase-2 step 9): for each pending memory, embeds its
+ * Drains the vectorization outbox: for each pending memory, embeds its
  * {@code embed_text} on a virtual thread and persists the vector, deleting the outbox row only
  * after the embedding write commits ({@link MemoryStore#completeVectorization}). Failures increment
  * the attempt counter; entries past {@code outboxMaxAttempts} are abandoned (outbox row dropped) to

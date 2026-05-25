@@ -13,7 +13,7 @@ import java.util.Map;
 
 /**
  * Wires the Codex CLI: an {@code [mcp_servers.pieria]} table plus {@code [[hooks]]} entries
- * ({@code Stop} ingestion, {@code SessionStart} recall) in {@code config.toml} (SPEC §10.4).
+ * ({@code Stop} ingestion, {@code SessionStart} recall) in {@code config.toml}.
  * Project scope writes {@code ./.codex/config.toml}; {@code --user} writes {@code ~/.codex/config.toml}.
  *
  * <p>VERIFY against current Codex CLI docs (as of 2026-05): the {@code [mcp_servers.*]} table,

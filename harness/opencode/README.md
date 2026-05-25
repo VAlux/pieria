@@ -1,6 +1,6 @@
 # OpenCode Integration
 
-Wires Pieria into OpenCode via two surfaces (SPEC §10.4):
+Wires Pieria into OpenCode via two surfaces:
 
 1. **MCP stdio gateway** — registered via the `mcp` key in `opencode.json`.
 2. **Session lifecycle hooks** — compaction-time ingestion and session-bootstrap recall

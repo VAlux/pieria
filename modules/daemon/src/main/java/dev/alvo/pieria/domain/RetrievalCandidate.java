@@ -1,7 +1,7 @@
 package dev.alvo.pieria.domain;
 
 /**
- * One hit produced by a single retrieval channel before fusion (phase-3 steps 5-7). Carries the
+ * One hit produced by a single retrieval channel before fusion. Carries the
  * matched {@link Memory}, which {@link RetrievalChannelType} produced it, the 1-based rank within
  * that channel (the input to Reciprocal Rank Fusion), and an optional source snippet for diagnostics.
  *

@@ -1,13 +1,13 @@
-# Phase 4 Harness Integration
+# Harness Integration
 
-Summary of the harness-facing glue assets delivered in Phase 4 workstream D.
-Cross-references: SPEC §10, §10.1–10.5; `harness/README.md`; phase-4 plan steps 5–7.
+Summary of the harness-facing glue assets.
+Cross-references: `harness/README.md`.
 
 ---
 
 ## Integration architecture
 
-Harnesses connect to Pieria via two surfaces (SPEC §10):
+Harnesses connect to Pieria via two surfaces:
 
 ```
   AI harness ──► MCP stdio gateway ──► Daemon REST (/v1/profiles/{name}/...)
@@ -38,7 +38,7 @@ component writes to and reads from the same profile.
 
 ---
 
-## Profile-name resolution (SPEC §10.2)
+## Profile-name resolution
 
 All components agree on the same precedence (implemented in `ProfileResolver.java`
 and mirrored in `harness/profile-name.sh`):
@@ -97,13 +97,13 @@ block or break the harness session. Errors are logged to stderr only.
 
 ## Security assumption (local mode)
 
-The daemon binds `127.0.0.1` only in local mode (SPEC §12). No authentication is
+The daemon binds `127.0.0.1` only in local mode. No authentication is
 required. Never expose the daemon port on a network interface in local mode.
-Server mode (Phase 6) adds authentication and multi-tenant Row-Level Security.
+Server mode adds authentication and multi-tenant Row-Level Security.
 
 ---
 
-## Version-sensitive items (SPEC §10.4 footnotes)
+## Version-sensitive items
 
 The following harness surfaces must be verified against current harness
 documentation before deploying to a team. They are marked with
@@ -130,12 +130,12 @@ documentation before deploying to a team. They are marked with
 
 ---
 
-## Phase 5 follow-up (SPEC §10.5)
+## Future work: Marketplace plugin
 
 Bundle the Claude Code gateway registration and all three hooks into a single
 installable plugin via a marketplace manifest (`claude plugin add`). The manual
 install steps in `harness/claude-code/README.md` are the interim path.
 
 OpenCode ships as an npm plugin referenced in `opencode.json`; Codex is configured
-via `config.toml`. The Phase 5 installer also registers and starts the daemon as
+via `config.toml`. An installer will register and start the daemon as
 an OS service (launchd / systemd / Windows service).

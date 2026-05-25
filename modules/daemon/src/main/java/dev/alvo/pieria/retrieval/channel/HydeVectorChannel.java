@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * Similarity to the embedded HyDE statement — what the <em>answer</em> would look like — surfacing
- * results the direct embedding misses, especially abstract/multi-hop queries (SPEC 7.1). Best-effort.
+ * results the direct embedding misses, especially abstract/multi-hop queries. Best-effort.
  */
 public final class HydeVectorChannel implements RetrievalChannel {
 

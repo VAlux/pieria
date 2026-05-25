@@ -13,7 +13,7 @@ import java.util.Map;
 
 /**
  * Wires Claude Code: an MCP server in {@code .mcp.json} plus {@code SessionStart}/{@code PreCompact}/
- * {@code Stop} hooks in {@code settings.json} (SPEC §10.4). Project scope writes to the repo;
+ * {@code Stop} hooks in {@code settings.json}. Project scope writes to the repo;
  * {@code --user} writes under {@code ~/.claude/}.
  *
  * <p>VERIFY against current Claude Code docs (as of 2026-05): hook event names, the {@code .mcp.json}

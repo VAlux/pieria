@@ -20,7 +20,7 @@ import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end smoke test (phase-4 step 8): the gateway's real {@link DaemonClient} +
+ * End-to-end smoke test: the gateway's real {@link DaemonClient} +
  * {@link MemoryTools} driven against a REAL daemon booted on a random local port. The embedded
  * SQLite store is the real throwaway DB (application-test.properties), so storage is exercised
  * end-to-end; only the {@link ModelGateway} is faked (no Ollama, no network egress).

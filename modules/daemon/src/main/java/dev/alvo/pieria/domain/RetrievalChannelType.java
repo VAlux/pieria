@@ -1,7 +1,7 @@
 package dev.alvo.pieria.domain;
 
 /**
- * The five parallel retrieval channels fused by RRF (SPEC 7.1). Channel identity is carried on
+ * The five parallel retrieval channels fused by RRF. Channel identity is carried on
  * every {@link RetrievalCandidate} so fusion can apply per-channel weights and diagnostics can
  * report per-channel hits.
  */

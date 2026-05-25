@@ -17,7 +17,7 @@ import org.springframework.web.client.RestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates the harness-driven ingestion payload contract (phase-4 steps 5 + 8) WITHOUT a real
+ * Validates the harness-driven ingestion payload contract WITHOUT a real
  * harness: a transcript fixture is POSTed to {@code /v1/profiles/{name}/ingest} on a real daemon
  * (random port, faked model gateway producing deterministic extractions). The hook scripts depend
  * on this exact request shape ({@code sessionId} + {@code messages[].role} + {@code messages[].content}),

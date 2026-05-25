@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Service-level test of the full Phase 2 ingestion pipeline driven by the deterministic
+ * Service-level test of the full ingestion pipeline driven by the deterministic
  * {@link FakeModelGateway} (no network) against a real SQLite-backed {@link SqliteMemoryStore}.
  * Relies on the gateway's documented content sentinels (UNSUPPORTED → drop, TASK → task type).
  */
@@ -87,7 +87,7 @@ class IngestionServiceTests {
     Memory m = stored.getFirst();
     assertEquals(MemoryType.FACT, m.type());
     assertTrue(m.content().contains("I love coffee"));
-    // embed_text prepends interrogative queries to the declarative content (SPEC 8.1).
+    // embed_text prepends interrogative queries to the declarative content.
     assertTrue(m.embedText().startsWith("what is "), "embed_text should lead with interrogatives");
     assertTrue(m.embedText().endsWith(m.content()), "embed_text should end with the content");
 

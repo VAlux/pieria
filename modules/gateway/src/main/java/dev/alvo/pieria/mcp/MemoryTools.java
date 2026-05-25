@@ -6,7 +6,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 /**
- * Model-facing MCP tools (SPEC 10.1). Each tool forwards to the daemon's REST surface via
+ * Model-facing MCP tools. Each tool forwards to the daemon's REST surface via
  * {@link DaemonClient}; the gateway itself holds no state. {@code ingest} is intentionally absent —
  * bulk ingestion is a harness hook, not a model tool, to keep the model's surface narrow.
  *

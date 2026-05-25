@@ -17,7 +17,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Locates the {@code sqlite-vec} loadable extension for the daemon (SPEC 14 packaging).
+ * Locates the {@code sqlite-vec} loadable extension for the daemon.
  *
  * <p>The platform {@code vec0} extension is embedded as a classpath resource ({@code native/vec0.*})
  * in both the native image and the boot jar, so the daemon ships as a single self-contained

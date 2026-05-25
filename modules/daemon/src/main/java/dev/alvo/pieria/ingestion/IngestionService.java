@@ -29,7 +29,7 @@ import java.util.concurrent.Semaphore;
 import java.time.Instant;
 
 /**
- * Phase 2 write path (SPEC 6): normalize the transcript, store raw messages, chunk, run parallel
+ * Write path: normalize the transcript, store raw messages, chunk, run parallel
  * full + detail extraction, verify each candidate against its source chunk, classify and enrich
  * (topic key + interrogative queries → {@code embed_text}), then store with supersession and
  * enqueue vectorization. Returns to the caller before vectorization completes (async worker).
@@ -237,7 +237,7 @@ public class IngestionService {
   }
 
   /**
-   * Build {@code embed_text} (SPEC 8.1): interrogative queries prepended to the declarative content
+   * Build {@code embed_text}: interrogative queries prepended to the declarative content
    * so the stored vector bridges declarative storage and interrogative recall queries.
    */
   private static String buildEmbedText(List<String> interrogativeQueries, String content) {

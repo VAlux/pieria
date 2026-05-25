@@ -3,7 +3,7 @@ package dev.alvo.pieria.domain;
 import java.util.Locale;
 
 /**
- * Outcome of verifying an extracted candidate against the source transcript (SPEC 6.3):
+ * Outcome of verifying an extracted candidate against the source transcript:
  * {@code PASS} (kept as-is), {@code CORRECT} (kept with corrected content), or {@code DROP}
  * (unsupported/ambiguous, discarded).
  */

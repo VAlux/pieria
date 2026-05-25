@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Periodically triggers {@link VectorizationWorker#drainOnce()} (SPEC 6.7). Split from the worker
+ * Periodically triggers {@link VectorizationWorker#drainOnce()}. Split from the worker
  * so the draining logic stays unit-testable without a scheduler. Disabled in tests via
  * {@code pieria.ingestion.vectorization-scheduler-enabled=false}; the run interval is configurable
  * through {@code pieria.ingestion.vectorization-interval-ms}.

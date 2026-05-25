@@ -18,7 +18,7 @@ import java.util.concurrent.Callable;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Thin, type-safe HTTP client from the MCP gateway to the local daemon's REST surface (SPEC 10.1). The
+ * Thin, type-safe HTTP client from the MCP gateway to the local daemon's REST surface. The
  * gateway holds no state; every tool call forwards to {@code /v1/profiles/{name}/...} on the daemon.
  *
  * <p>Requests and responses are exchanged using the shared HTTP-contract DTOs

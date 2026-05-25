@@ -3,7 +3,7 @@ package dev.alvo.pieria.retrieval;
 import dev.alvo.pieria.domain.QueryAnalysis;
 
 /**
- * Immutable inputs shared by every retrieval channel for a single recall (phase-3 steps 5-6).
+ * Immutable inputs shared by every retrieval channel for a single recall (steps 5-6).
  * The two embeddings are {@code null} when vector search is unavailable or embedding failed, in
  * which case the vector channels return no hits.
  *

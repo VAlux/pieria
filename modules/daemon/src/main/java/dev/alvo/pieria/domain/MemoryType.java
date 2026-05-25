@@ -3,7 +3,7 @@ package dev.alvo.pieria.domain;
 import java.util.Locale;
 
 /**
- * The four memory classes (SPEC 5.5). Stored lower-cased in the {@code memories.type} column.
+ * The four memory classes. Stored lower-cased in the {@code memories.type} column.
  */
 public enum MemoryType {
   FACT,

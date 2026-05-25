@@ -14,13 +14,13 @@ Replace the Phase 1 recall lookup with the full read pipeline: query analysis, F
 ## Implementation Sequence
 
 1. Add FTS5 support for SQLite.
-   - Create `memories_fts` and `messages_fts` as **external-content** FTS5 tables (`content='memories'`/`content='messages'`, `content_rowid='rowid'`) with the **`porter`** tokenizer, per SPEC §5.2.
+   - Create `memories_fts` and `messages_fts` as **external-content** FTS5 tables (`content='memories'`/`content='messages'`, `content_rowid='rowid'`) with the **`porter`** tokenizer.
    - Add triggers to keep the external-content FTS rows synchronized on insert, update, and delete/forget.
    - Include active-memory filtering so superseded rows do not dominate results.
    - Add migration tests that prove existing Phase 1 and Phase 2 rows are searchable after migration.
 
 2. Validate embedded vector support.
-   - Use `sqlite-vec` (the SPEC §4 / §5.2 choice), loaded at startup via the xerial driver's `enableLoadExtension`; document DuckDB VSS only as the open-question fallback (SPEC §18), not as a decision to make here.
+   - Use `sqlite-vec`, loaded at startup via the xerial driver's `enableLoadExtension`; document DuckDB VSS only as an alternative fallback, not as the primary choice.
    - Confirm the native extension loads on the supported development platform before making it mandatory.
    - Add a `memories_vec` virtual table (`vec0`) keyed by `memory_id` with the configured embedding dimension (`FLOAT[n]`).
    - Fail startup clearly if configured embedding dimensions do not match the vector table.

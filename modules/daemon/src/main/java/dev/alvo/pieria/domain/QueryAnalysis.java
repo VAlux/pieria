@@ -3,7 +3,7 @@ package dev.alvo.pieria.domain;
 import java.util.List;
 
 /**
- * Output of recall query analysis (SPEC 7.1, phase-3 step 4). The analyzer turns a raw recall
+ * Output of recall query analysis. The analyzer turns a raw recall
  * query into the inputs the retrieval channels need:
  * <ul>
  *   <li>{@code topicKeys} — ranked normalized keys for the exact fact-key channel.</li>

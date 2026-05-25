@@ -9,7 +9,7 @@ import dev.alvo.pieria.storage.MemoryStore;
 import java.util.List;
 
 /**
- * Semantic similarity using the embedded raw query (SPEC 7.1). Best-effort: returns nothing when
+ * Semantic similarity using the embedded raw query. Best-effort: returns nothing when
  * vector search is unavailable or the query embedding is absent, so recall degrades to FTS + keyed.
  */
 public final class DirectVectorChannel implements RetrievalChannel {

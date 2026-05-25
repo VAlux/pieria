@@ -18,7 +18,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Deterministic temporal extraction for the synthesis prompt (SPEC §7.2, phase-3 step 8).
+ * Deterministic temporal extraction for the synthesis prompt.
  *
  * <p>All date math and durations are computed here in {@code java.time} and handed to synthesis as
  * ready-made {@link TemporalFact}s. The model is <strong>never</strong> asked to do arithmetic,

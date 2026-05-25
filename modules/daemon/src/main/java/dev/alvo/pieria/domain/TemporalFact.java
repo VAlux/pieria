@@ -1,7 +1,7 @@
 package dev.alvo.pieria.domain;
 
 /**
- * A pre-computed temporal fact injected into the synthesis prompt (SPEC 7.2, phase-3 step 8).
+ * A pre-computed temporal fact injected into the synthesis prompt.
  * Date math and durations are resolved deterministically in Java — never by the model — and
  * handed to synthesis as ready-made statements.
  *

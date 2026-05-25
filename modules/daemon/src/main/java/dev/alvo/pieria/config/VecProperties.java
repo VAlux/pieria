@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * sqlite-vec loadable-extension configuration (SPEC 4 / 5.2 / 14).
+ * sqlite-vec loadable-extension configuration.
  *
  * <p>The xerial SQLite driver bundles its own SQLite engine as a runtime JNI library, so sqlite-vec
  * cannot be statically linked into the GraalVM native image; it must be a loadable extension reached

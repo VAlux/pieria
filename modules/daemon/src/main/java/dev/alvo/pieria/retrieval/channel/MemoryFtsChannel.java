@@ -8,7 +8,7 @@ import dev.alvo.pieria.storage.MemoryStore;
 
 import java.util.List;
 
-/** Porter-stemmed FTS over active memory content (SPEC 7.1). Primary lexical channel. */
+/** Porter-stemmed FTS over active memory content. Primary lexical channel. */
 public final class MemoryFtsChannel implements RetrievalChannel {
 
   private final MemoryStore store;

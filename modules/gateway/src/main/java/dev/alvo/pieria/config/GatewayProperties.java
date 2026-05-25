@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Config for the MCP stdio gateway (SPEC 10.1, phase-4 step 3). Kept as a separate top-level
+ * Config for the MCP stdio gateway. Kept as a separate top-level
  * {@code @ConfigurationProperties} so the daemon's existing positional constructor calls in tests
  * stay untouched.
  *

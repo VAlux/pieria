@@ -93,8 +93,8 @@ public interface MemoryStore {
 
   /**
    * Persist an embedding for a memory and delete its outbox row, in one transaction (the outbox
-   * row is removed only after the embedding write commits). Phase 2 stores the raw vector on the
-   * memory row; Phase 3 builds the {@code sqlite-vec} index from it.
+   * row is removed only after the embedding write commits).  stores the raw vector on the
+   * memory row;  builds the {@code sqlite-vec} index from it.
    */
   default void completeVectorization(String memoryId, float[] embedding) {
     throw new UnsupportedOperationException("completeVectorization(...) not implemented");
@@ -115,7 +115,7 @@ public interface MemoryStore {
   record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector) {
   }
 
-  // ---- Phase 3: sqlite-vec index + FTS5 retrieval channels (SPEC 5.2, 5.6, 7.1) ----
+  // ---- sqlite-vec index + FTS5 retrieval channels ----
 
   /**
    * Whether embedded vector search is available: the native {@code sqlite-vec} extension loaded
@@ -143,7 +143,7 @@ public interface MemoryStore {
   }
 
   /**
-   * Memory FTS channel (SPEC 7.1): FTS5 MATCH over {@code memories_fts}, joined to {@code memories},
+   * Memory FTS channel: FTS5 MATCH over {@code memories_fts}, joined to {@code memories},
    * filtered to {@code profileId} and the active set ({@code superseded = 0}), ordered by FTS rank
    * (best first). The query is sanitized so arbitrary user text cannot raise an FTS5 syntax error.
    */
@@ -152,7 +152,7 @@ public interface MemoryStore {
   }
 
   /**
-   * Raw-message FTS safety net (SPEC 7.1): FTS5 MATCH over {@code messages_fts} for {@code profileId};
+   * Raw-message FTS safety net: FTS5 MATCH over {@code messages_fts} for {@code profileId};
    * returns ACTIVE memories whose {@code session_id} is among the matched messages' sessions, ranked
    * by message relevance then recency.
    */
@@ -161,7 +161,7 @@ public interface MemoryStore {
   }
 
   /**
-   * Exact topic-key channel (SPEC 7.1): active {@code fact}/{@code instruction} memories whose
+   * Exact topic-key channel: active {@code fact}/{@code instruction} memories whose
    * {@code topic_key} is in {@code topicKeys}, ordered by the position of the key in the input list
    * (priority) then {@code created_at} desc.
    */
@@ -170,7 +170,7 @@ public interface MemoryStore {
   }
 
   /**
-   * Direct/HyDE vector channel (SPEC 7.1): KNN over {@code memories_vec} joined to {@code memories},
+   * Direct/HyDE vector channel: KNN over {@code memories_vec} joined to {@code memories},
    * filtered to {@code profileId}, the active set, and excluding {@code task} (defensive), ordered by
    * distance ascending. Returns an empty list when vector search is unavailable.
    */
@@ -194,19 +194,19 @@ public interface MemoryStore {
   List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter);
 
   /**
-   * Mark a memory superseded (logical delete, SPEC 5.6); never physically deletes.
+   * Mark a memory superseded (logical delete); never physically deletes.
    * Returns {@code true} if a matching active memory was found and updated.
    */
   boolean forgetMemory(String profileId, String memoryId);
 
   /**
-   * Export all memories for a profile as NDJSON-friendly rows (SPEC 13).
+   * Export all memories for a profile as NDJSON-friendly rows.
    */
   List<ExportRow> exportProfile(String profileId);
 
   /**
-   * Phase 1 retrieval: keyed + lexical (LIKE) lookup over active memories and message text.
-   * Shaped so Phase 3 can add FTS/vector/HyDE channels + RRF without changing callers.
+   * Retrieval: keyed + lexical (LIKE) lookup over active memories and message text.
+   * Shaped so additional channels can be added without changing callers.
    */
   List<RecallCandidate> findRecallCandidates(String profileId, String query, int limit);
 }

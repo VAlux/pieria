@@ -9,8 +9,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Deterministic profile-name resolver shared by the MCP gateway and harness hooks (SPEC §10.2,
- * phase-4 step 4). A given working directory always maps to the same profile name regardless
+ * Deterministic profile-name resolver shared by the MCP gateway and harness hooks.
+ * A given working directory always maps to the same profile name regardless
  * of which component calls it.
  *
  * <h2>Resolution precedence (highest first)</h2>

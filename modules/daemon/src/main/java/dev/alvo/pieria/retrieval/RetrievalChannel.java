@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One of the five parallel retrieval strategies (SPEC 7.1, phase-3 step 5). Each channel turns the
+ * One of the five parallel retrieval strategies. Each channel turns the
  * shared {@link RetrievalContext} into a ranked list of {@link RetrievalCandidate}s carrying its
  * own {@link RetrievalChannelType}; fusion ({@link ReciprocalRankFusion}) combines them downstream.
  *
@@ -23,7 +23,7 @@ public interface RetrievalChannel {
    * Whether a failure of this channel should fail the whole recall. Local-storage channels (FTS,
    * exact key) are {@code critical}; the vector channels are best-effort so recall degrades
    * gracefully to FTS + keyed lookup when the embedding/vector index is unavailable
-   * (phase-3 acceptance criterion).
+   * (acceptance criterion).
    */
   default boolean critical() {
     return true;

@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies that the daemon's host binding defaults to {@code 127.0.0.1} so the process
- * never accidentally binds a public interface in local mode (SPEC 2.1, Phase 4 step 1).
+ * never accidentally binds a public interface in local mode.
  */
 @SpringBootTest(classes = DaemonBindingTests.Config.class)
 @TestPropertySource(properties = {

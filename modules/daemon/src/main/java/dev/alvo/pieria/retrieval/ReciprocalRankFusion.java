@@ -14,11 +14,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Weighted Reciprocal Rank Fusion over per-channel retrieval hits (SPEC §7.3, phase-3 step 7).
+ * Weighted Reciprocal Rank Fusion over per-channel retrieval hits.
  *
  * <p>This is a plain, immutable, side-effect-free class (NOT a Spring bean). The orchestrator
- * instantiates it from configuration so RRF weights and {@code k} can be tuned against the
- * evaluation harness in Phase 5.
+ * instantiates it from configuration so RRF weights and {@code k} can be tuned.
  *
  * <h2>Algorithm</h2>
  * Candidates are grouped by {@link Memory#id()}. For each memory the fused score is
@@ -30,7 +29,7 @@ import java.util.stream.Collectors;
  * <h2>Weights</h2>
  * Weights are supplied per {@link RetrievalChannelType}. A channel with no entry in the map
  * defaults to weight {@code 0.0} (it contributes nothing). {@code k} is taken as a constructor
- * argument; SPEC §7.3 recommends {@code k ≈ 60} as the default, but it is not hard-coded here.
+ * argument (default approximately 60) and is configurable.
  *
  * <h2>Deterministic ordering</h2>
  * Results are sorted by fused score descending. Ties are broken deterministically:
@@ -71,7 +70,7 @@ public final class ReciprocalRankFusion {
       .thenComparing(candidate -> candidate.memory().id(), Comparator.nullsLast(Comparator.naturalOrder()));
 
   /**
-   * @param k       the RRF rank-smoothing constant (SPEC §7.3 default ≈ 60); must be {@code >= 1}
+   * @param k       the RRF rank-smoothing constant (default approximately 60); must be {@code >= 1}
    * @param weights per-channel weights; a missing channel defaults to {@code 0.0}. May be empty.
    * @throws IllegalArgumentException if {@code k < 1}
    */

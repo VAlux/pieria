@@ -233,7 +233,7 @@ class StubMemoryStore implements MemoryStore {
     return out;
   }
 
-  // --- Phase 3 retrieval channels: simple in-memory lexical/keyed matching (no real FTS/vector) ---
+  // --- Retrieval channels: simple in-memory lexical/keyed matching (no real FTS/vector) ---
 
   private static List<String> terms(String raw) {
     List<String> out = new ArrayList<>();

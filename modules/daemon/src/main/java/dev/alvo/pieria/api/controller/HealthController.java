@@ -12,7 +12,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 
 /**
- * Lightweight health endpoint for the Pieria daemon (SPEC 14, Phase 4 step 1).
+ * Lightweight health endpoint for the Pieria daemon.
  *
  * <p>{@code GET /healthz} returns an overall {@code status} plus two subsystem indicators:
  * <ul>

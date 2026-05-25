@@ -12,8 +12,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 /**
- * Normalizes and validates raw inbound conversation messages before chunking/extraction
- * (SPEC 6.2, phase-2 step 2).
+ * Normalizes and validates raw inbound conversation messages before chunking/extraction.
  *
  * <p>Responsibilities:
  * <ul>

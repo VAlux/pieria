@@ -3,9 +3,9 @@ package dev.alvo.pieria.domain;
 import java.time.Instant;
 
 /**
- * A single extracted unit of knowledge (SPEC 5.1). Fields beyond {@code type}/{@code content}
+ * A single extracted unit of knowledge. Fields beyond {@code type}/{@code content}
  * are populated progressively: {@code topicKey}/{@code supersedes}/{@code embedText} arrive in
- * Phase 2. {@code id} and {@code createdAt} are assigned at store time when null.
+ * . {@code id} and {@code createdAt} are assigned at store time when null.
  *
  * @param payload heterogeneous per-type fields as a JSON string (defaults to {@code "{}"})
  */

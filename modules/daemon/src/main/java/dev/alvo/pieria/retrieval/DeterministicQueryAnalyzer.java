@@ -11,7 +11,7 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Pure, network-free fallback query analyzer (SPEC 7.1, phase-3 step 4). Used when the model is
+ * Pure, network-free fallback query analyzer. Used when the model is
  * unavailable so the exact-key and FTS retrieval channels can still run ("degrades gracefully").
  * Has no {@code ModelGateway} dependency and never produces a HyDE statement (which needs a model).
  *

@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integration tests for the Phase-3 read pipeline orchestration (phase-3 steps 5-10): parallel
+ * Integration tests for the read pipeline orchestration: parallel
  * channels, weighted RRF fusion, deterministic-analysis fallback, graceful vector degradation,
  * temporal-fact injection, critical-vs-soft channel failure, and debug diagnostics. Uses a
  * configurable in-memory {@link MemoryStore} fake and the deterministic {@link FakeModelGateway}.

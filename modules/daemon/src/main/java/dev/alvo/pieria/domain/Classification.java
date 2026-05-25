@@ -3,9 +3,9 @@ package dev.alvo.pieria.domain;
 import java.util.List;
 
 /**
- * Classification + enrichment output for one verified candidate (SPEC 6.4): the assigned
+ * Classification and enrichment output for one verified candidate: the assigned
  * {@link MemoryType}, a normalized {@code topicKey} for {@code fact}/{@code instruction} (else
- * {@code null}), 3-5 {@code interrogativeQueries} used to build {@code embed_text} (SPEC 8.1),
+ * {@code null}), 3-5 {@code interrogativeQueries} used to build {@code embed_text},
  * and the per-type {@code payload} JSON.
  *
  * @param type                 the assigned memory type

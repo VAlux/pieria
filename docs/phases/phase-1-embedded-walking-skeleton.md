@@ -24,9 +24,9 @@ Build the first runnable Pieria daemon on the embedded SQLite backend. This phas
 
 2. Configure the embedded database.
    - Add application properties for database path, daemon host, daemon port, Ollama base URL, and embedding dimension.
-   - Configure the **two model tiers** behind `ModelGateway` from the start (per SPEC §4.1): a small/fast chat model (extraction/verification/classification/query analysis in later phases) and a large model used for synthesis only, plus a separate embedding model. Phase 1 may point both chat tiers at the same default Ollama model, but the two configuration knobs and gateway methods must already exist so Phases 2-3 do not reshape config.
+   - Configure the **two model tiers** behind `ModelGateway` from the start: a small/fast chat model (extraction/verification/classification/query analysis in later phases) and a large model used for synthesis only, plus a separate embedding model. Phase 1 may point both chat tiers at the same default Ollama model, but the two configuration knobs and gateway methods must already exist so later phases do not reshape config.
    - Use Flyway migrations under `src/main/resources/db/migration`.
-   - Create `profiles`, `messages`, `memories`, and `vectorization_outbox`. The `memories` table includes all SPEC §5.2 columns now — `type`, `content`, `topic_key`, `supersedes`, `superseded`, `payload`, `embed_text`, `created_at` — even though `topic_key`, `supersedes`/`superseded`, and `embed_text` are not populated until Phase 2, so later phases need no schema migration churn.
+   - Create `profiles`, `messages`, `memories`, and `vectorization_outbox`. The `memories` table includes all required columns now — `type`, `content`, `topic_key`, `supersedes`, `superseded`, `payload`, `embed_text`, `created_at` — even though `topic_key`, `supersedes`/`superseded`, and `embed_text` are not populated initially, so later phases need no schema migration churn.
    - Enable SQLite WAL mode at startup through the datasource or a startup initializer.
    - Keep vector and FTS-specific schema out of this phase unless the dependency is already validated.
 

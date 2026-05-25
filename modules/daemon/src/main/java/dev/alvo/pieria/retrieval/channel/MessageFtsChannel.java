@@ -10,7 +10,7 @@ import java.util.List;
 
 /**
  * FTS over raw stored messages: a lower-priority safety net for verbatim details the extractor may
- * have generalized away (SPEC 7.1). Surfaces active memories from sessions whose messages matched.
+ * have generalized away. Surfaces active memories from sessions whose messages matched.
  */
 public final class MessageFtsChannel implements RetrievalChannel {
 

@@ -7,7 +7,7 @@ import dev.alvo.pieria.domain.TemporalFact;
 import java.util.List;
 
 /**
- * Outcome of a recall (phase-3 steps 7-10): the synthesized answer, the fused candidates that were
+ * Outcome of a recall (steps 7-10): the synthesized answer, the fused candidates that were
  * used as evidence (carrying RRF score + channel provenance), the deterministic temporal facts
  * injected into synthesis, and optional per-channel diagnostics (present only when debug was
  * requested). Keeps the controller decoupled from the multi-channel retrieval internals.

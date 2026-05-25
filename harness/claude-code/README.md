@@ -1,6 +1,6 @@
 # Claude Code Integration
 
-Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
+Wires Pieria into Claude Code via two surfaces:
 
 1. **MCP stdio gateway** — registers `mcp__pieria__recall`, `mcp__pieria__remember`,
    `mcp__pieria__list`, and `mcp__pieria__forget` as model-facing tools.
@@ -10,7 +10,7 @@ Wires Pieria into Claude Code via two surfaces (SPEC §10, §10.4):
 ## Prerequisites
 
 - Pieria daemon is running and reachable at `http://127.0.0.1:8077` (default).
-  Start it with `./gradlew :daemon:bootRun` or the installed OS service (Phase 5).
+  Start it with `./gradlew :daemon:bootRun` or the installed OS service.
   Verify: `curl http://127.0.0.1:8077/healthz`
 - The gateway jar is available at a known path (e.g. `gateway/build/libs/pieria-gateway.jar`).
   Build: `./gradlew :gateway:bootJar`
@@ -134,8 +134,8 @@ memory store via the common daemon.
 > These surfaces are evolving; check the Claude Code changelog before deploying
 > to a team.
 
-## Phase 5 follow-up
+## Future work: Marketplace plugin
 
-SPEC §10.5 calls for bundling the gateway registration and all three hooks into a
+Bundle the gateway registration and all three hooks into a
 single installable Claude Code plugin via a marketplace manifest (`claude plugin add`).
-This is a Phase 5 deliverable; the manual steps above are the interim install path.
+The manual steps above are the interim install path.

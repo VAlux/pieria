@@ -1,6 +1,6 @@
 # Codex CLI Integration
 
-Wires Pieria into the Codex CLI via two surfaces (SPEC §10.4):
+Wires Pieria into the Codex CLI via two surfaces:
 
 1. **MCP stdio gateway** — registered via the `[mcp_servers]` section in `config.toml`.
 2. **Lifecycle hooks** — `Stop`-hook ingestion (no compaction-specific event in Codex)

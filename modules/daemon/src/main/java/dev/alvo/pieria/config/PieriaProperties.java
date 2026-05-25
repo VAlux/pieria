@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * Strongly-typed Pieria configuration. The two chat tiers (small/large) and the embedding
- * model are separate knobs from the start (SPEC 4.1) so Phases 2-3 do not reshape config.
+ * model are separate configuration knobs from the start.
  */
 @ConfigurationProperties(prefix = "pieria")
 public record PieriaProperties(
@@ -33,7 +33,7 @@ public record PieriaProperties(
   }
 
   /**
-   * Ingestion pipeline tuning (SPEC 6). Chunk size/overlap, parallelism, the detail-pass message
+   * Ingestion pipeline tuning. Chunk size/overlap, parallelism, the detail-pass message
    * threshold, and vectorization-outbox batching/retry limits.
    */
   public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
@@ -47,12 +47,12 @@ public record PieriaProperties(
   }
 
   /**
-   * Retrieval pipeline tuning (SPEC 7, phase-3 steps 6-7). Vector support can be disabled so recall
+   * Retrieval pipeline tuning. Vector support can be disabled so recall
    * degrades gracefully to FTS + keyed lookup. RRF {@code k} and the per-channel weights are
-   * defaults until Phase 5 evaluation tunes them; channel limit/timeout bound each parallel channel.
+   * configurable; channel limit/timeout bound each parallel channel.
    *
    * @param vectorEnabled      master switch for the two vector channels (off ⇒ FTS + keyed only)
-   * @param rrfK               RRF rank constant {@code k} (SPEC 7.3, default 60)
+   * @param rrfK               RRF rank constant {@code k} (default 60)
    * @param weightExactKey     fusion weight for the exact topic-key channel (highest signal)
    * @param weightFtsMemory    fusion weight for the memory FTS channel
    * @param weightHydeVector   fusion weight for the HyDE vector channel

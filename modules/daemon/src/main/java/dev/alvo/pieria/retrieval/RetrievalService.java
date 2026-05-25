@@ -41,7 +41,7 @@ import java.util.concurrent.TimeoutException;
  * fuses their results with weighted Reciprocal Rank Fusion, computes deterministic temporal facts,
  * and asks the large model to synthesize an answer.
  *
- * <p>Failure policy (phase-3 step 6): query-analysis failure falls back to the deterministic
+ * <p>Failure policy (step 6): query-analysis failure falls back to the deterministic
  * analyzer; embedding failure disables the vector channels; a critical channel (FTS / exact-key,
  * i.e. local storage) failing aborts the recall, while a best-effort vector channel failing or
  * timing out is logged and contributes nothing. Synthesis failure propagates (mapped to 503).

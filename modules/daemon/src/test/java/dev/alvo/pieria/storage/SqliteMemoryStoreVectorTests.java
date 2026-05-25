@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * Phase 3 steps 2-3: sqlite-vec index behavior. Every assertion that depends on the native
+ * sqlite-vec index behavior. Every assertion that depends on the native
  * extension is guarded by {@code assumeTrue(store.isVectorSearchAvailable())} so the suite passes
  * on machines without the native lib (the assumption simply skips the body there).
  */

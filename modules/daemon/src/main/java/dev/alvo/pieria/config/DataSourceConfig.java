@@ -23,11 +23,10 @@ import java.util.Optional;
 
 /**
  * Builds the embedded SQLite {@link DataSource} from the resolved app-data database path, creating
- * the parent directory if needed and enabling WAL mode (concurrent reads under the single writer,
- * SPEC 5.2 / 11). Flyway and the application share this datasource.
+ * the parent directory if needed and enabling WAL mode for concurrent reads. Flyway and the application share this datasource.
  *
  * <p>Each pooled connection also attempts a best-effort load of the {@code sqlite-vec}
- * extension (SPEC 4 / 5.2). The xerial driver only permits {@code load_extension(...)} when
+ * extension. The xerial driver only permits {@code load_extension(...)} when
  * {@code enable_load_extension} was set on the connection, so we set that driver property and
  * then probe whether the native {@code vec0} module is actually available. Loading is strictly
  * best-effort: if the native extension is missing the application still starts and runs, with
@@ -112,8 +111,7 @@ public class DataSourceConfig {
    * which would then reject {@code setConnectionInitSql}. {@code PRAGMA journal_mode=WAL} is run on
    * the probe connection; it is a persistent database-level setting, so it sticks for the pool too.
    *
-   * <p>When {@code bundledExtension} is present (the distribution shipped {@code vec0} next to the
-   * binary, SPEC 14) it is tried first by absolute path; this is the path that works on a clean
+   * <p>When {@code bundledExtension} is present it is tried first by absolute path; this is the path that works on a clean
    * install with no system-wide sqlite-vec. The bare entry-point names remain as a fallback for
    * developer machines that have the library on the OS extension search path. When no extension is
    * available the pool still asserts WAL on every connection and vector search stays disabled.

@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
 
 /**
  * Spring AI / Ollama implementation of {@link ModelGateway}. Uses the small chat client for
- * Phase 1 naive extraction (structured output) and the large chat client for synthesis. Any
+ * extraction (structured output) and the large chat client for synthesis. Any
  * failure reaching the provider is wrapped in {@link ModelUnavailableException} with a generic
  * message so provider hosts/secrets never leak to callers.
  */
@@ -168,8 +168,8 @@ public class OllamaModelGateway implements ModelGateway {
     return memories;
   }
 
-  // --- Phase 2 pipeline stages (SPEC 6.2-6.4) ----------------------------------------------
-  // All four stages below run on the small/fast extraction client (SPEC 4.1: structured stages).
+  // --- Pipeline stages: extraction, verification, classification ----
+  // All stages below run on the small/fast extraction client for structured output.
   // The prompts and the structured-output record shapes below are part of the stable contract
   // the ingestion + test layers rely on; bump a version note here if the JSON shapes change.
   // Prompt/shape version: v1.
@@ -396,7 +396,7 @@ public class OllamaModelGateway implements ModelGateway {
       - topicKey: ONLY for fact and instruction, a short normalized subject key
         (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
       - interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
-        answers (interrogative search queries, SPEC 8.1)
+        answers (interrogative search queries)
       - payload: a JSON object string of extra structured fields, or "{}"
       
       Memory content:
@@ -528,7 +528,7 @@ public class OllamaModelGateway implements ModelGateway {
       context = "(no candidate memories were retrieved)";
     }
 
-    // Temporal facts are computed deterministically in Java (SPEC 7.2) and injected as ground truth;
+    // Temporal facts are computed deterministically in Java and injected as ground truth;
     // the model must use them verbatim and never do its own date arithmetic.
     List<TemporalFact> safeTemporal = temporalFacts == null ? List.of() : temporalFacts;
     String temporalBlock = safeTemporal.isEmpty()

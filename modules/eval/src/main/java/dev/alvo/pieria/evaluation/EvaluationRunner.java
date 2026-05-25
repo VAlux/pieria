@@ -37,7 +37,7 @@ import java.util.Set;
 import static dev.alvo.pieria.evaluation.EvaluationFixture.normalizedContent;
 
 /**
- * Fixture-first evaluation harness for Phase 5. It runs the real ingestion/retrieval orchestration
+ * Fixture-first evaluation harness. It runs the real ingestion/retrieval orchestration
  * against an injectable {@link ModelGateway} and {@link MemoryStore}, then emits local metrics and
  * token/latency accounting.
  *

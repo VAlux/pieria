@@ -35,7 +35,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 
 /**
- * Embedded SQLite backend for {@link MemoryStore} (Phase 1). Hand-written SQL against the V1 schema
+ * Embedded SQLite backend for {@link MemoryStore}. Hand-written SQL against the V1 schema
  * via Spring's {@link JdbcClient}. Writes are content-addressed and idempotent via
  * {@code INSERT OR IGNORE}; deletes are logical (supersession).
  */
@@ -59,7 +59,7 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   /**
-   * Test/Phase-1 constructor: no sqlite-vec capability (vector search reports unavailable).
+   * Constructor for tests: no sqlite-vec capability (vector search reports unavailable).
    */
   public SqliteMemoryStore(JdbcClient jdbc) {
     this.jdbc = jdbc;
@@ -265,7 +265,7 @@ public class SqliteMemoryStore implements MemoryStore {
         jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
           .param(supersededId)
           .update();
-        // Remove the superseded row's vector in the same transaction (SPEC 5.6) so it never
+        // Remove the superseded row's vector in the same transaction so it never
         // surfaces in vector results.
         deleteEmbedding(supersededId);
       }
@@ -415,7 +415,7 @@ public class SqliteMemoryStore implements MemoryStore {
       .update();
 
     if (affected > 0) {
-      // A forgotten memory must drop out of vector results too (SPEC 5.6).
+      // A forgotten memory must drop out of vector results too.
       deleteEmbedding(memoryId);
     }
 
@@ -525,7 +525,7 @@ public class SqliteMemoryStore implements MemoryStore {
   private record Scored(Memory memory, int score, String source) {
   }
 
-  // ---- Phase 3: sqlite-vec index + FTS5 retrieval channels (SPEC 5.2, 5.6, 7.1) ----
+  // ---- sqlite-vec index + FTS5 retrieval channels ----
 
   private static final String MEMORY_COLUMNS =
     "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
