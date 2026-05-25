@@ -9,12 +9,12 @@ set -euo pipefail
 # release. Windows is served by a separate install.ps1.
 #
 # Usage (inspect before piping to a shell):
-#   curl -fsSL https://raw.githubusercontent.com/alvo/pieria/main/packaging/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash
 #   bash install.sh [options]
 #
 # Re-running is safe: download + link + service install are all idempotent.
 
-REPO="${PIERIA_REPO:-alvo/pieria}"
+REPO="${PIERIA_REPO:-VAlux/pieria}"
 VERSION="${PIERIA_VERSION:-latest}"
 PIERIA_HOME="${PIERIA_HOME:-$HOME/.local/share/pieria}"
 BIN_DIR="${PIERIA_BIN_DIR:-$HOME/.local/bin}"

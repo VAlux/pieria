@@ -81,6 +81,13 @@ class ServiceScriptTests {
 		assertThat(content).contains("gateway executable for harness MCP configs: $Gateway");
 		assertThat(content).contains("if ($DryRun)");
 		assertThat(content).doesNotContain("New-Service -Name $Gateway");
+		// The $Gateway param must be declared so the dry-run guidance resolves it.
+		assertThat(content).contains("[string]$Gateway = ");
+		// Guard against a typed-but-unnamed parameter (e.g. "[string] = ...") that
+		// parses as text but breaks the real param block on Windows.
+		assertThat(content.lines())
+			.as("every PowerShell parameter must have a name after its [type]")
+			.noneMatch(line -> line.strip().matches("^\\[[A-Za-z]+\\]\\s*=.*"));
 	}
 
 	private static String runScript(String relativePath, List<String> arguments) throws IOException, InterruptedException {

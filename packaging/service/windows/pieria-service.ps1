@@ -4,7 +4,7 @@ param(
 	[string]$ServiceName = "PieriaDaemon",
 	[string]$Daemon = "$env:LOCALAPPDATA\Pieria\bin\pieria-daemon.exe",
 	[string]$Java = "java",
-	[string] = "$env:LOCALAPPDATA\Pieria\bin\pieria-gateway.exe",
+	[string]$Gateway = "$env:LOCALAPPDATA\Pieria\bin\pieria-gateway.exe",
 	[string]$HostAddress = "127.0.0.1",
 	[int]$Port = 8077,
 	[string]$DataDir = "$env:LOCALAPPDATA\Pieria\data",

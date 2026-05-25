@@ -15,14 +15,14 @@
     Re-running is safe: download, PATH update, and task registration are idempotent.
 
 .EXAMPLE
-    irm https://raw.githubusercontent.com/alvo/pieria/main/packaging/install.ps1 | iex
+    irm https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.ps1 | iex
 
 .EXAMPLE
     .\install.ps1 -Version v0.1.0 -DryRun
 #>
 param(
 	[string]$Version = $(if ($env:PIERIA_VERSION) { $env:PIERIA_VERSION } else { "latest" }),
-	[string]$Repo = $(if ($env:PIERIA_REPO) { $env:PIERIA_REPO } else { "alvo/pieria" }),
+	[string]$Repo = $(if ($env:PIERIA_REPO) { $env:PIERIA_REPO } else { "VAlux/pieria" }),
 	[string]$InstallDir = $(if ($env:PIERIA_HOME) { $env:PIERIA_HOME } else { "$env:LOCALAPPDATA\Pieria" }),
 	[string]$BaseUrl = $env:PIERIA_BASE_URL,   # override download host (mirror / local testing)
 	[string]$TaskName = "PieriaDaemon",
