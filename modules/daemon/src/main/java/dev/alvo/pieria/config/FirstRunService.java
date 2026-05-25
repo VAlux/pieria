@@ -215,8 +215,10 @@ public class FirstRunService implements ApplicationRunner {
         + "$PIERIA_PROFILE, else the git remote repo name, else the directory basename "
         + "(normalized to a lowercase slug; empty -> \"default\").")
       .append(System.lineSeparator());
-    sb.append("MCP setup: add the following to your harness MCP config to share this memory store "
-        + "via the Pieria gateway:")
+    sb.append("Harness setup: run 'pieria harness install claude-code' (or 'codex') from your "
+        + "project to register the MCP gateway and lifecycle hooks automatically.")
+      .append(System.lineSeparator());
+    sb.append("Manual MCP config (equivalent), if you prefer to wire it by hand:")
       .append(System.lineSeparator());
     sb.append(snippet).append(System.lineSeparator());
     sb.append("=======================").append(System.lineSeparator());

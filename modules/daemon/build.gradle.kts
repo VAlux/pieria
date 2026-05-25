@@ -121,8 +121,12 @@ val jvmDist by tasks.registering(Sync::class) {
 
 val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
-	description = "Assemble a native-image distribution: self-contained daemon + gateway binaries and harness assets."
-	dependsOn(tasks.named("nativeCompile"), project(":gateway").tasks.named("nativeCompile"))
+	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."
+	dependsOn(
+		tasks.named("nativeCompile"),
+		project(":gateway").tasks.named("nativeCompile"),
+		project(":cli").tasks.named("nativeCompile")
+	)
 
 	into(layout.buildDirectory.dir("distributions/pieria-native"))
 	// The sqlite-vec extension is embedded in the binary; nothing extra rides alongside it.
@@ -133,6 +137,10 @@ val nativeDist by tasks.registering(Sync::class) {
 	from(project(":gateway").tasks.named("nativeCompile")) {
 		into("bin")
 		include("pieria-gateway", "pieria-gateway.exe")
+	}
+	from(project(":cli").tasks.named("nativeCompile")) {
+		into("bin")
+		include("pieria", "pieria.exe")
 	}
 	from(rootProject.layout.projectDirectory.dir("packaging/harness")) {
 		into("harness")

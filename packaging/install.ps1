@@ -70,6 +70,7 @@ function Invoke-Download([string]$Url, [string]$Dest) {
 $platform     = Get-Platform
 $releaseBase  = Get-ReleaseBase
 $binDir       = Join-Path $InstallDir "bin"
+$cliExe       = Join-Path $binDir "pieria.exe"
 $daemonExe    = Join-Path $binDir "pieria-daemon.exe"
 $gatewayExe   = Join-Path $binDir "pieria-gateway.exe"
 $zipName      = "pieria-$platform.zip"
@@ -110,7 +111,7 @@ try {
 	}
 
 	if ($DryRun) {
-		Write-Host "expand $zipName -> $InstallDir (expects bin\pieria-daemon.exe, bin\pieria-gateway.exe)"
+		Write-Host "expand $zipName -> $InstallDir (expects bin\{pieria,pieria-daemon,pieria-gateway}.exe)"
 	} else {
 		New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 		# Archive root contains bin\*.exe; expand into the install root.
@@ -183,24 +184,18 @@ $serviceLine = if ($NoService) {
 @"
 
 === Pieria installed ===
-Binaries:   $binDir\{pieria-daemon.exe,pieria-gateway.exe}
+Binaries:   $binDir\{pieria,pieria-daemon,pieria-gateway}.exe
 Daemon URL: $daemonUrl
 Service:    $serviceLine
 
-Wire a harness by adding this MCP server to its config:
+Wire a harness (registers the MCP gateway + lifecycle hooks). From your project:
 
-  {
-    "mcpServers": {
-      "pieria": {
-        "command": "$($gatewayExe -replace '\\','\\')",
-        "env": { "PIERIA_DAEMON_URL": "$daemonUrl" }
-      }
-    }
-  }
+  pieria harness install claude-code        # or: codex
+  pieria harness install claude-code --user   # wire ~\.claude instead of this repo
 
-Per-harness hooks (ingestion + session-start recall) live in packaging\harness\
-and harness\<name>\. A 'pieria harness install <name>' subcommand will automate
-this wiring in a later release. For a true SCM service instead of the logon task,
-see packaging\service\windows\pieria-service.ps1.
+Inspect or undo with 'pieria harness list' and 'pieria harness uninstall <name>'.
+Run 'pieria harness install <name> --dry-run' first to preview the changes.
+For a true SCM service instead of the logon task, see
+packaging\service\windows\pieria-service.ps1.
 ========================
 "@ | Write-Host

@@ -57,6 +57,7 @@ check() {  # check <description> <test-expression...>
 # --- build the stand-in release ---------------------------------------------
 echo "==> building stand-in release for $PLATFORM"
 mkdir -p "$REL" "$WORK/stage/bin"
+printf '#!/bin/sh\necho "pieria stub $*"\n'         > "$WORK/stage/bin/pieria"
 printf '#!/bin/sh\necho "pieria-daemon stub $*"\n'  > "$WORK/stage/bin/pieria-daemon"
 printf '#!/bin/sh\necho "pieria-gateway stub $*"\n' > "$WORK/stage/bin/pieria-gateway"
 chmod +x "$WORK/stage/bin/"*
@@ -92,13 +93,15 @@ check "dry-run wrote nothing to home" bash -c "[[ ! -e '$HOME_DIR/bin/pieria-dae
 echo "==> install"
 INSTALL_OUT="$(PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$HOME_DIR" --bin-dir "$BIN_DIR" --no-service)"
 check "checksum verified line printed"   grep -q "checksum verified" <<<"$INSTALL_OUT"
+check "cli binary installed"             test -x "$HOME_DIR/bin/pieria"
 check "daemon binary installed"          test -x "$HOME_DIR/bin/pieria-daemon"
 check "gateway binary installed"         test -x "$HOME_DIR/bin/pieria-gateway"
+check "cli symlinked onto PATH dir"      test -L "$BIN_DIR/pieria"
 check "daemon symlinked onto PATH dir"   test -L "$BIN_DIR/pieria-daemon"
 check "gateway symlinked onto PATH dir"  test -L "$BIN_DIR/pieria-gateway"
 check "gateway symlink resolves"         test -x "$BIN_DIR/pieria-gateway"
-check "MCP snippet references gateway"   grep -q "$HOME_DIR/bin/pieria-gateway" <<<"$INSTALL_OUT"
-check "installed binary runs"            bash -c "'$BIN_DIR/pieria-gateway' --version | grep -q 'pieria-gateway stub'"
+check "next-steps shows harness install" grep -q "pieria harness install" <<<"$INSTALL_OUT"
+check "installed binary runs"            bash -c "'$BIN_DIR/pieria' --version | grep -q 'pieria stub'"
 
 # --- idempotency -------------------------------------------------------------
 echo "==> re-install (idempotency)"

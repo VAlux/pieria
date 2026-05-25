@@ -167,13 +167,13 @@ if ((DRY_RUN)); then
 	echo "extract $TARBALL -> $PIERIA_HOME/bin"
 else
 	mkdir -p "$PIERIA_HOME/bin" "$BIN_DIR"
-	# Tarball lays out bin/pieria-daemon and bin/pieria-gateway; strip the bin/.
+	# Tarball lays out bin/{pieria,pieria-daemon,pieria-gateway}; strip the bin/.
 	tar -xzf "$WORK/$TARBALL" -C "$PIERIA_HOME/bin" --strip-components=1
-	chmod +x "$PIERIA_HOME/bin/pieria-daemon" "$PIERIA_HOME/bin/pieria-gateway"
+	chmod +x "$PIERIA_HOME/bin/pieria" "$PIERIA_HOME/bin/pieria-daemon" "$PIERIA_HOME/bin/pieria-gateway"
 fi
 
 # --- link onto PATH ----------------------------------------------------------
-for tool in pieria-daemon pieria-gateway; do
+for tool in pieria pieria-daemon pieria-gateway; do
 	if ((DRY_RUN)); then
 		echo "ln -sf $PIERIA_HOME/bin/$tool $BIN_DIR/$tool"
 	else
@@ -221,23 +221,16 @@ DAEMON_URL="http://127.0.0.1:8077"
 cat <<NEXT
 
 === Pieria installed ===
-Binaries:   $PIERIA_HOME/bin/{pieria-daemon,pieria-gateway}
+Binaries:   $PIERIA_HOME/bin/{pieria,pieria-daemon,pieria-gateway}
 Daemon URL: $DAEMON_URL
 $( ((INSTALL_SERVICE)) && echo "Service:    registered (first-run init runs on daemon start; check logs for model-pull guidance)." || echo "Service:    skipped (--no-service). Start the daemon yourself: pieria-daemon" )
 
-Wire a harness by adding this MCP server to its config:
+Wire a harness (registers the MCP gateway + lifecycle hooks). From your project:
 
-  {
-    "mcpServers": {
-      "pieria": {
-        "command": "$PIERIA_HOME/bin/pieria-gateway",
-        "env": { "PIERIA_DAEMON_URL": "$DAEMON_URL" }
-      }
-    }
-  }
+  pieria harness install claude-code      # or: codex
+  pieria harness install claude-code --user   # wire ~/.claude instead of this repo
 
-Per-harness hooks (ingestion + session-start recall) live in packaging/harness/
-and harness/<name>/. A 'pieria harness install <name>' subcommand will automate
-this wiring in a later release.
+Inspect or undo with 'pieria harness list' and 'pieria harness uninstall <name>'.
+Run 'pieria harness install <name> --dry-run' first to preview the changes.
 ========================
 NEXT
