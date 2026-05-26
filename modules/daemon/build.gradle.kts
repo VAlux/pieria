@@ -95,14 +95,22 @@ sourceSets["main"].resources.srcDir(embedVecExtensions)
 
 val jvmDist by tasks.registering(Sync::class) {
 	group = "distribution"
-	description = "Assemble a local JVM distribution with daemon, gateway, command wrappers, and harness assets."
-	dependsOn(tasks.named("bootJar"), project(":gateway").tasks.named("bootJar"))
+	description = "Assemble a local JVM distribution with daemon, gateway, cli, command wrappers, and harness assets."
+	dependsOn(
+		tasks.named("bootJar"),
+		project(":gateway").tasks.named("bootJar"),
+		project(":cli").tasks.named("runnableJar")
+	)
 
 	into(layout.buildDirectory.dir("distributions/pieria-jvm"))
 	from(tasks.named("bootJar")) {
 		into("lib")
 	}
 	from(project(":gateway").tasks.named("bootJar")) {
+		into("lib")
+	}
+	// Fat jar so the `pieria` wrapper (packaging/bin/pieria) can `java -jar` it on the JVM fallback path.
+	from(project(":cli").tasks.named("runnableJar")) {
 		into("lib")
 	}
 	from(rootProject.layout.projectDirectory.dir("packaging/bin")) {
