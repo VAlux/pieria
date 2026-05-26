@@ -6,6 +6,8 @@ import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.ProfileCount;
+import dev.alvo.pieria.domain.ProfileStats;
 import dev.alvo.pieria.domain.RecallCandidate;
 
 import java.util.List;
@@ -27,6 +29,21 @@ public interface MemoryStore {
    * Find a profile by name, or {@code null} if it does not exist.
    */
   Optional<Profile> findProfile(String name);
+
+  /**
+   * All profiles with their active (non-superseded) memory counts, ordered by name.
+   */
+  default List<ProfileCount> listProfiles() {
+    throw new UnsupportedOperationException("listProfiles() not implemented");
+  }
+
+  /**
+   * Aggregate counts over a single profile's memories (active totals, by-type breakdown,
+   * superseded count, distinct active sessions, and the active createdAt range).
+   */
+  default ProfileStats profileStats(String profileId) {
+    throw new UnsupportedOperationException("profileStats(...) not implemented");
+  }
 
   /**
    * Insert raw conversation messages with content-addressed ids (insert-or-ignore, idempotent).

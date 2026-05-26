@@ -7,6 +7,8 @@ import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.ProfileCount;
+import dev.alvo.pieria.domain.ProfileStats;
 import dev.alvo.pieria.domain.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
 
@@ -48,6 +50,46 @@ class StubMemoryStore implements MemoryStore {
   @Override
   public Optional<Profile> findProfile(String name) {
     return Optional.ofNullable(profilesByName.get(name));
+  }
+
+  @Override
+  public List<ProfileCount> listProfiles() {
+    return profilesByName.values().stream()
+      .sorted(Comparator.comparing(Profile::name))
+      .map(p -> new ProfileCount(p, listMemories(p.id(), null, null).size()))
+      .toList();
+  }
+
+  @Override
+  public ProfileStats profileStats(String profileId) {
+    Map<String, Long> byType = new LinkedHashMap<>();
+    for (MemoryType t : MemoryType.values()) {
+      byType.put(t.wire(), 0L);
+    }
+    long superseded = 0;
+    java.util.Set<String> sessions = new java.util.LinkedHashSet<>();
+    Instant first = null;
+    Instant last = null;
+    for (Memory m : memories.getOrDefault(profileId, Map.of()).values()) {
+      if (m.superseded()) {
+        superseded++;
+        continue;
+      }
+      byType.merge(m.type().wire(), 1L, Long::sum);
+      if (m.sessionId() != null) {
+        sessions.add(m.sessionId());
+      }
+      if (m.createdAt() != null) {
+        if (first == null || m.createdAt().isBefore(first)) {
+          first = m.createdAt();
+        }
+        if (last == null || m.createdAt().isAfter(last)) {
+          last = m.createdAt();
+        }
+      }
+    }
+    long total = byType.values().stream().mapToLong(Long::longValue).sum();
+    return new ProfileStats(total, byType, superseded, sessions.size(), first, last);
   }
 
   @Override

@@ -1,7 +1,8 @@
 package dev.alvo.pieria.cli.command;
 
 import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.cli.init.IngestClient;
+import dev.alvo.pieria.cli.command.init.InitCommand;
+import dev.alvo.pieria.cli.modules.init.IngestClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,31 +17,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class InitCommandTests {
 
-  /** Fake client with scripted reachability + ingest results; records whether it was contacted. */
-  private static final class FakeClient implements IngestClient {
-    Reachability reachability = Reachability.OK;
-    IngestResult result = new Success(0);
-    boolean pinged = false;
-    boolean ingested = false;
-
-    @Override
-    public Reachability ping() {
-      pinged = true;
-      return reachability;
-    }
-
-    @Override
-    public IngestResult ingest(String profile, IngestRequest body) {
-      ingested = true;
-      return result;
-    }
-  }
-
   private static void writeReadme(Path proj) throws IOException {
     Files.writeString(proj.resolve("README.md"), "# Project\nSome durable knowledge.");
   }
 
-  /** Run InitCommand with a fake client and captured stdout/stderr. */
+  /**
+   * Run InitCommand with a fake client and captured stdout/stderr.
+   */
   private static Result run(InitCommand cmd, FakeClient fake) {
     cmd.clientOverride = fake;
     ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -57,8 +40,6 @@ class InitCommandTests {
       System.setErr(origErr);
     }
   }
-
-  private record Result(int code, String out, String err) {}
 
   @Test
   void dryRunReportsDocsAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
@@ -130,5 +111,30 @@ class InitCommandTests {
 
     assertThat(r.code()).isEqualTo(4);
     assertThat(r.err()).contains("model provider");
+  }
+
+  /**
+   * Fake client with scripted reachability + ingest results; records whether it was contacted.
+   */
+  private static final class FakeClient implements IngestClient {
+    Reachability reachability = Reachability.OK;
+    IngestResult result = new Success(0);
+    boolean pinged = false;
+    boolean ingested = false;
+
+    @Override
+    public Reachability ping() {
+      pinged = true;
+      return reachability;
+    }
+
+    @Override
+    public IngestResult ingest(String profile, IngestRequest body) {
+      ingested = true;
+      return result;
+    }
+  }
+
+  private record Result(int code, String out, String err) {
   }
 }

@@ -6,6 +6,7 @@ import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
+import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
@@ -15,6 +16,7 @@ import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.NotFoundException;
+import dev.alvo.pieria.domain.ProfileStats;
 import dev.alvo.pieria.domain.TemporalFact;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.retrieval.RecallResult;
@@ -117,6 +119,27 @@ public class ProfileController {
         .toList();
 
     return new RecallDebug(candidates, temporalFacts, channels);
+  }
+
+  @GetMapping("/stats")
+  public ProfileStatsResponse stats(@PathVariable String name) {
+    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
+
+    ProfileStats stats = store.profileStats(profile.id());
+    Long backlog = store.vectorizationOutboxDepth().isPresent()
+      ? store.vectorizationOutboxDepth().getAsLong()
+      : null;
+
+    return new ProfileStatsResponse(
+      profile.name(),
+      profile.createdAt(),
+      stats.totalActive(),
+      stats.byType(),
+      stats.superseded(),
+      stats.sessions(),
+      stats.firstMemoryAt(),
+      stats.lastMemoryAt(),
+      backlog);
   }
 
   @GetMapping("/memories")

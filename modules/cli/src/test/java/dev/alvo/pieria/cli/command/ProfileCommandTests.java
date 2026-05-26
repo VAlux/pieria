@@ -25,7 +25,7 @@ class ProfileCommandTests {
     int code;
     try {
       System.setOut(new PrintStream(captured));
-      code = new CommandLine(new PieriaCli()).execute("profile", "--project-dir", dir.toString());
+      code = new CommandLine(new PieriaCli()).execute("profile", "resolve", "--project-dir", dir.toString());
     } finally {
       System.setOut(original);
     }

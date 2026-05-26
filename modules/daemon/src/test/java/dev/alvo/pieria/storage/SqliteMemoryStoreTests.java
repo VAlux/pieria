@@ -7,6 +7,8 @@ import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.ProfileCount;
+import dev.alvo.pieria.domain.ProfileStats;
 import dev.alvo.pieria.domain.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
 import org.flywaydb.core.Flyway;
@@ -196,6 +198,61 @@ class SqliteMemoryStoreTests {
     assertTrue(store.findProfile("ghost").isEmpty());
     store.getOrCreateProfile("present");
     assertTrue(store.findProfile("present").isPresent());
+  }
+
+  @Test
+  void listProfilesReturnsActiveCountsOrderedByName() {
+    Profile zed = store.getOrCreateProfile("zed");
+    Profile amy = store.getOrCreateProfile("amy");
+    store.getOrCreateProfile("empty");
+
+    store.insertMemory(amy.id(), Memory.of(MemoryType.FACT, "a fact", "s1", null, null));
+    store.insertMemory(amy.id(), Memory.of(MemoryType.EVENT, "an event", "s1", null, null));
+    // Superseded memories must not be counted.
+    store.store(zed.id(), Memory.of(MemoryType.FACT, "old", "s1", "k", null));
+    store.store(zed.id(), Memory.of(MemoryType.FACT, "new", "s2", "k", null));
+
+    List<ProfileCount> profiles = store.listProfiles();
+
+    assertEquals(List.of("amy", "empty", "zed"),
+      profiles.stream().map(p -> p.profile().name()).toList());
+    assertEquals(2, profiles.get(0).activeCount()); // amy
+    assertEquals(0, profiles.get(1).activeCount()); // empty
+    assertEquals(1, profiles.get(2).activeCount()); // zed (one superseded, one active)
+  }
+
+  @Test
+  void profileStatsAggregatesByTypeSessionsAndRange() {
+    Profile p = store.getOrCreateProfile("stats");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "f1", "s1", null, null));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "f2", "s2", null, null));
+    store.insertMemory(p.id(), Memory.of(MemoryType.INSTRUCTION, "i1", "s1", null, null));
+    // A supersession: one active 'new', one superseded 'old'.
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old", "s3", "key", null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new", "s3", "key", null));
+
+    ProfileStats stats = store.profileStats(p.id());
+
+    assertEquals(4, stats.totalActive()); // f1, f2, i1, new
+    assertEquals(3L, stats.byType().get("fact"));
+    assertEquals(1L, stats.byType().get("instruction"));
+    assertEquals(0L, stats.byType().get("event"));
+    assertEquals(0L, stats.byType().get("task"));
+    assertEquals(1, stats.superseded());
+    assertEquals(3, stats.sessions()); // s1, s2, s3
+    assertNotNull(stats.firstMemoryAt());
+    assertNotNull(stats.lastMemoryAt());
+  }
+
+  @Test
+  void profileStatsOnEmptyProfileHasNullRange() {
+    Profile p = store.getOrCreateProfile("blank");
+    ProfileStats stats = store.profileStats(p.id());
+
+    assertEquals(0, stats.totalActive());
+    assertEquals(0, stats.sessions());
+    assertNull(stats.firstMemoryAt());
+    assertNull(stats.lastMemoryAt());
   }
 
   @Test

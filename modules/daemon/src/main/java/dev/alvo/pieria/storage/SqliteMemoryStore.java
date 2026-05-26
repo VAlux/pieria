@@ -9,6 +9,8 @@ import dev.alvo.pieria.domain.MemoryType;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.OutboxEntry;
 import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.ProfileCount;
+import dev.alvo.pieria.domain.ProfileStats;
 import dev.alvo.pieria.domain.RecallCandidate;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -171,6 +173,61 @@ public class SqliteMemoryStore implements MemoryStore {
       .param(name)
       .query((rs, _) -> mapProfile(rs))
       .optional();
+  }
+
+  @Override
+  public List<ProfileCount> listProfiles() {
+    return jdbc.sql("""
+        SELECT p.id, p.name, p.created_at, \
+        COUNT(m.id) FILTER (WHERE m.superseded = 0) AS active_count \
+        FROM profiles p LEFT JOIN memories m ON m.profile_id = p.id \
+        GROUP BY p.id, p.name, p.created_at \
+        ORDER BY p.name""")
+      .query((rs, _) -> new ProfileCount(mapProfile(rs), rs.getLong("active_count")))
+      .list();
+  }
+
+  @Override
+  public ProfileStats profileStats(String profileId) {
+    // Per-type active counts in one grouped scan; missing types default to 0 below.
+    Map<String, Long> byType = new LinkedHashMap<>();
+    for (MemoryType type : MemoryType.values()) {
+      byType.put(type.wire(), 0L);
+    }
+    jdbc.sql("SELECT type, COUNT(*) AS n FROM memories WHERE profile_id = ? AND superseded = 0 GROUP BY type")
+      .param(profileId)
+      .query((rs, _) -> Map.entry(rs.getString("type"), rs.getLong("n")))
+      .list()
+      .forEach(e -> byType.put(e.getKey(), e.getValue()));
+
+    long totalActive = byType.values().stream().mapToLong(Long::longValue).sum();
+
+    long superseded = jdbc.sql("SELECT COUNT(*) FROM memories WHERE profile_id = ? AND superseded = 1")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+
+    long sessions = jdbc.sql(
+        "SELECT COUNT(DISTINCT session_id) FROM memories WHERE profile_id = ? AND superseded = 0 AND session_id IS NOT NULL")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+
+    // MIN/MAX over ISO-8601 strings sorts chronologically; null when the profile has no active rows.
+    String first = jdbc.sql("SELECT MIN(created_at) FROM memories WHERE profile_id = ? AND superseded = 0")
+      .param(profileId)
+      .query(String.class)
+      .optional()
+      .orElse(null);
+    String last = jdbc.sql("SELECT MAX(created_at) FROM memories WHERE profile_id = ? AND superseded = 0")
+      .param(profileId)
+      .query(String.class)
+      .optional()
+      .orElse(null);
+
+    return new ProfileStats(totalActive, byType, superseded, sessions,
+      first == null ? null : Instant.parse(first),
+      last == null ? null : Instant.parse(last));
   }
 
   @Override

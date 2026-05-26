@@ -1,6 +1,7 @@
 package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.api.controller.ProfileController;
+import dev.alvo.pieria.api.controller.ProfilesController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.ingestion.Chunker;
@@ -26,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {ProfileController.class, GlobalExceptionHandler.class})
+@WebMvcTest(controllers = {ProfileController.class, ProfilesController.class, GlobalExceptionHandler.class})
 @Import({ProfileApiTests.Wiring.class, IngestionService.class, RetrievalService.class,
   dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer.class,
   TranscriptNormalizer.class, Chunker.class})
@@ -174,6 +175,46 @@ class ProfileApiTests {
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.memories", org.hamcrest.Matchers.hasSize(0)))
       .andExpect(jsonPath("$.answer", is("No relevant memories.")));
+  }
+
+  @Test
+  void listProfilesReportsActiveCounts() throws Exception {
+    // Dedicated profile so the count is stable regardless of sibling-test ordering.
+    storeFact("listtest", "only fact in listtest");
+
+    mvc.perform(get("/v1/profiles"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.profiles[?(@.name=='listtest')].memoryCount",
+        org.hamcrest.Matchers.contains(1)));
+  }
+
+  @Test
+  void statsReportsCountsForProfile() throws Exception {
+    // Dedicated profile (never forgotten elsewhere) keeps the counts deterministic.
+    storeFact("statstest", "only fact in statstest");
+
+    mvc.perform(get("/v1/profiles/statstest/stats"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.name", is("statstest")))
+      .andExpect(jsonPath("$.totalActive", is(1)))
+      .andExpect(jsonPath("$.byType.fact", is(1)))
+      .andExpect(jsonPath("$.byType.event", is(0)))
+      .andExpect(jsonPath("$.sessions", is(1)))
+      .andExpect(jsonPath("$.firstMemoryAt", is(org.hamcrest.Matchers.notNullValue())));
+  }
+
+  private void storeFact(String profile, String content) throws Exception {
+    mvc.perform(post("/v1/profiles/" + profile + "/memories")
+        .contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"" + content + "\",\"sessionId\":\"s1\"}"))
+      .andExpect(status().isCreated());
+  }
+
+  @Test
+  void statsOnMissingProfileIsNotFound() throws Exception {
+    mvc.perform(get("/v1/profiles/ghost/stats"))
+      .andExpect(status().isNotFound())
+      .andExpect(jsonPath("$.error", is("not_found")));
   }
 
   private String remember() throws Exception {

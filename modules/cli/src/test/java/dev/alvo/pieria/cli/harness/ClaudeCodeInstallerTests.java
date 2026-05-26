@@ -1,5 +1,9 @@
 package dev.alvo.pieria.cli.harness;
 
+import dev.alvo.pieria.cli.modules.harness.ClaudeCodeInstaller;
+import dev.alvo.pieria.cli.modules.harness.JsonConfigMerger;
+import dev.alvo.pieria.cli.modules.harness.Scope;
+import dev.alvo.pieria.cli.modules.harness.WiringContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;

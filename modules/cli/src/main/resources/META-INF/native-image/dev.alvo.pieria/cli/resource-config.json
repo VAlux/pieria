@@ -1,7 +1,9 @@
 {
   "resources": {
     "includes": [
-      { "pattern": "harness/.*" }
+      {
+        "pattern": "harness/.*"
+      }
     ]
   }
 }

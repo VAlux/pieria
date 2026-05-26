@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.daemon;
 
+import dev.alvo.pieria.cli.modules.daemon.RuntimePaths;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;

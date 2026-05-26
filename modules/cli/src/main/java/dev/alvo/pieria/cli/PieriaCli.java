@@ -1,9 +1,9 @@
 package dev.alvo.pieria.cli;
 
-import dev.alvo.pieria.cli.command.DaemonCommand;
-import dev.alvo.pieria.cli.command.HarnessCommand;
-import dev.alvo.pieria.cli.command.InitCommand;
-import dev.alvo.pieria.cli.command.ProfileCommand;
+import dev.alvo.pieria.cli.command.daemon.DaemonCommand;
+import dev.alvo.pieria.cli.command.harness.HarnessCommand;
+import dev.alvo.pieria.cli.command.init.InitCommand;
+import dev.alvo.pieria.cli.command.profile.ProfileCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
@@ -21,14 +21,14 @@ import picocli.CommandLine.Command;
 )
 public final class PieriaCli implements Runnable {
 
+  static void main(String[] args) {
+    int exitCode = new CommandLine(new PieriaCli()).execute(args);
+    System.exit(exitCode);
+  }
+
   @Override
   public void run() {
     // No subcommand given: show usage.
     CommandLine.usage(this, System.out);
-  }
-
-  static void main(String[] args) {
-    int exitCode = new CommandLine(new PieriaCli()).execute(args);
-    System.exit(exitCode);
   }
 }
