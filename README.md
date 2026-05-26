@@ -141,6 +141,27 @@ The default convention is **profile-per-repo**: the profile name is derived from
 remote or project directory, so pointing every harness at the same profile gives shared
 memory across tools.
 
+### Seed the profile from project docs
+
+A fresh profile starts empty, so `recall` returns nothing until a few sessions have
+accumulated. `pieria init` solves this cold start by seeding the profile from the project's
+existing markdown documentation:
+
+```bash
+pieria init             # seed from every .md in the repo (except CLAUDE.md / AGENTS.md)
+pieria init --dry-run   # list the docs and messages that would be sent, contact nothing
+```
+
+It enumerates docs via `git ls-files` (so build output and gitignored files are skipped),
+packages them as a transcript, and runs them through the normal ingest pipeline — the
+daemon's extraction, verification, and supersession keep low-signal content out.
+`CLAUDE.md` and `AGENTS.md` are excluded by default since harnesses already load them into
+context every session; pass `--include-agent-docs` to seed them too. Re-running is
+idempotent: unchanged docs add no duplicate memories.
+
+> Requires the daemon to be running (and a model provider reachable). Useful flags:
+> `--profile <slug>`, `--daemon-url <url>`.
+
 ### Build from source
 
 Requires JDK 25 (and GraalVM 25+ for native images).
