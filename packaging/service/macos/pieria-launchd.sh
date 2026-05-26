@@ -158,10 +158,13 @@ case "$ACTION" in
 		;;
 	stop)
 		if ((DRY_RUN)); then
-			echo "launchctl kill TERM $SERVICE_TARGET"
+			echo "launchctl bootout $SERVICE_TARGET"
 			exit 0
 		fi
-		launchctl kill TERM "$SERVICE_TARGET" || true
+		# The plist sets KeepAlive, so `kill TERM` is seen as an unsuccessful (signal) exit and the
+		# job is respawned immediately. `bootout` removes it from the domain so it stays down; `start`
+		# re-bootstraps it.
+		launchctl bootout "$SERVICE_TARGET" || true
 		;;
 	status)
 		if ((DRY_RUN)); then

@@ -113,7 +113,7 @@ public final class InitCommand implements Callable<Integer> {
 
   private int daemonDown(String url) {
     System.err.printf("Pieria daemon is not reachable at %s.%n", url);
-    System.err.println("Start it (the installed service, or 'pieria-daemon') and re-run 'pieria init'.");
+    System.err.println("Start it with 'pieria daemon start' and re-run 'pieria init'.");
     return 3;
   }
 

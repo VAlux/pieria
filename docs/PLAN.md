@@ -70,6 +70,15 @@ Implement Pieria as a local-first memory daemon using the current scaffold stack
 - Implement import from local NDJSON export and re-embedding into the server backend.
 - Keep local SQLite mode as the default and server mode opt-in by configuration.
 
+### Phase 7: Remote Chat Providers
+
+- Make the chat tier selectable between Ollama, Anthropic, and OpenAI behind the existing `ModelGateway` seam.
+- Select the embedding provider independently of chat; default to local Ollama embeddings so the fixed embedding dimension is unaffected.
+- Support remote chat + local embeddings as the recommended hosted setup (Anthropic has no embedding API).
+- Add `pieria login`/`pieria logout` to capture, validate, and securely store a metered API key (OS keychain preferred, restricted-permission file fallback).
+- Use metered API keys only; never reuse consumer subscriptions (Claude Pro/Max, ChatGPT Plus).
+- Keep Ollama local-only mode the zero-config default; no remote provider is contacted unless configured.
+
 ## Test Plan
 
 - Unit tests for ID generation, chunking, classification mapping, supersession, RRF scoring, temporal arithmetic, and DTO validation.
