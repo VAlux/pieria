@@ -536,18 +536,23 @@ public class OllamaModelGateway implements ModelGateway {
       : safeTemporal.stream().map(f -> "- " + f.render()).collect(Collectors.joining("\n"));
 
     String prompt = """
-      You are answering a question using only the remembered memories below.
-      If the memories do not contain enough information to answer, say clearly that there is
-      insufficient memory evidence to answer — do not guess.
+      You answer strictly from the remembered memories below; never add facts they do not contain.
+      Interpret the query generously: it may be a full question, a phrase, or a single keyword, so
+      infer the subject it points at and gather every memory bearing on that subject. Count a memory
+      as relevant when it concerns the query's subject, even if it states a related fact, rule, or
+      detail rather than a direct answer. Then answer concisely, grounding each claim in those
+      memories.
+      Declare insufficient memory evidence only when no memory bears on the query's subject at all;
+      brevity or vagueness of the query is never itself a reason to refuse.
       The pre-computed temporal facts are authoritative: use them verbatim and never perform your
       own date or duration arithmetic.
-      
-      Question:
+
+      Query:
       %s
-      
+
       Pre-computed temporal facts:
       %s
-      
+
       Remembered memories:
       %s
       """.formatted(query, temporalBlock, context);
