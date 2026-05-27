@@ -77,6 +77,26 @@ All modules live under `modules/`:
 - Postgres integration tests use Testcontainers and belong in Phase 6 only.
 - `./gradlew test` must pass before every commit.
 
+## Dogfooding: use Pieria as your own memory
+
+This repo is wired to its own daemon via the `pieria` MCP server (profile `pieria`).
+Use it actively while working here — recall is model-invoked, not a passive backdrop.
+
+- **Before planning a non-trivial task**: call `recall` (MCP `mcp__pieria__recall`)
+  with the task description to pull prior decisions, rejected approaches, and gotchas.
+- **After settling something non-obvious**: call `remember` —
+  design decisions and constraints as `type: fact`; conventions the user insists on
+  as `type: instruction`; notable events as `type: event`.
+- Use `topicKey` for facts that supersede a prior value (e.g. `embedding-dimension`,
+  `embedding-backend`) so the new row replaces the old instead of accumulating.
+- Don't pass `profile` explicitly — the gateway resolves it from the git remote (`pieria`).
+- **Latency note**: recall runs the full retrieval+synthesis pipeline through Ollama
+  and currently takes tens of seconds (the `qwen2.5:14b` small model on CPU). Call it
+  deliberately at task boundaries, not on every turn.
+- **Prerequisite**: Ollama must be running (launch Ollama.app) or recall/ingest hang.
+  Session-start recall and the PreCompact/Stop ingest hooks fail-closed and silently
+  no-op when the daemon or Ollama is unreachable.
+
 ## Configuration
 
 The daemon binds to `127.0.0.1` by default and must never bind a public interface in local mode. Key properties to add in `application.properties` as implementation progresses: database path, daemon host/port, Ollama base URL, chat model name, embedding model name, and embedding dimension (fixes the `FLOAT[n]` column width — decide this once and avoid re-embedding later).
