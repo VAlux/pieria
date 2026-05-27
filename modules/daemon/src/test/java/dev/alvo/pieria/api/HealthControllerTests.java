@@ -44,7 +44,7 @@ class HealthControllerTests {
     wiring.dbOk.set(true);
     wiring.modelReachable.set(true);
 
-    mvc.perform(get("/healthz"))
+    mvc.perform(get("/pieria-health"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.status", is("up")))
       .andExpect(jsonPath("$.db", is("ok")))
@@ -56,7 +56,7 @@ class HealthControllerTests {
     wiring.dbOk.set(true);
     wiring.modelReachable.set(false);
 
-    mvc.perform(get("/healthz"))
+    mvc.perform(get("/pieria-health"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.status", is("up")))
       .andExpect(jsonPath("$.db", is("ok")))
@@ -68,7 +68,7 @@ class HealthControllerTests {
     wiring.dbOk.set(false);
     wiring.modelReachable.set(true);
 
-    mvc.perform(get("/healthz"))
+    mvc.perform(get("/pieria-health"))
       .andExpect(status().isServiceUnavailable())
       .andExpect(jsonPath("$.status", is("degraded")))
       .andExpect(jsonPath("$.db", is("down")));
@@ -79,7 +79,7 @@ class HealthControllerTests {
     wiring.dbOk.set(true);
     wiring.modelReachable.set(false);
 
-    mvc.perform(get("/healthz"))
+    mvc.perform(get("/pieria-health"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.status").exists())
       .andExpect(jsonPath("$.db").exists())

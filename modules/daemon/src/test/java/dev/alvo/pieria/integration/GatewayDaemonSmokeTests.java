@@ -56,9 +56,9 @@ class GatewayDaemonSmokeTests {
   }
 
   @Test
-  void healthzReportsUpAndDbOk() {
+  void pieriaHealthReportsUpAndDbOk() {
     ResponseEntity<String> resp = RestClient.create()
-      .get().uri(baseUrl + "/healthz")
+      .get().uri(baseUrl + "/pieria-health")
       .retrieve().toEntity(String.class);
 
     assertThat(resp.getStatusCode().value()).isEqualTo(200);

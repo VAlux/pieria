@@ -17,7 +17,7 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
 1. Harden daemon defaults.
    - Bind to `127.0.0.1` by default.
    - Make host and port configurable through `pieria.daemon.*` properties.
-   - Expose `/healthz` with lightweight database and model-provider status.
+   - Expose `/pieria-health` with lightweight database and model-provider status.
    - Use explicit transaction boundaries for embedded writes.
    - Keep SQLite writes serialized through service methods owned by the daemon.
 
@@ -74,13 +74,13 @@ Harden Pieria as a local daemon and make it usable from agent harnesses through 
 - Unit tests for profile mapping and config precedence.
 - MCP gateway tests with a fake daemon HTTP server.
 - Hook payload tests using transcript fixtures.
-- Daemon tests for `127.0.0.1` default binding and `/healthz`.
+- Daemon tests for `127.0.0.1` default binding and `/pieria-health`.
 - Run `./gradlew test`.
 
 ## Acceptance Criteria
 
 - The daemon is safe for local default use and binds localhost only unless explicitly configured otherwise.
-- `/healthz` works without invoking expensive model calls.
+- `/pieria-health` works without invoking expensive model calls.
 - MCP tools can recall, remember, list, and forget through the daemon.
 - Profile mapping is deterministic and shared by the gateway and hooks.
 - Claude Code setup assets exist, with OpenCode and Codex equivalents documented.

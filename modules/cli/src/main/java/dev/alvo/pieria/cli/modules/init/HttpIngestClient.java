@@ -31,7 +31,7 @@ public final class HttpIngestClient implements IngestClient {
 
   @Override
   public Reachability ping() {
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/healthz"))
+    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/pieria-health"))
       .timeout(Duration.ofSeconds(3))
       .GET()
       .build();

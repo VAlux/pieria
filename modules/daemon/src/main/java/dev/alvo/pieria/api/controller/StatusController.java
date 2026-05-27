@@ -16,7 +16,7 @@ import java.util.OptionalLong;
  * secrets, and row-level memory data.
  */
 @RestController
-@RequestMapping("/statusz")
+@RequestMapping("/pieria-status")
 public class StatusController {
 
   private final FirstRunService firstRunService;

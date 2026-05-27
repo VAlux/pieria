@@ -36,7 +36,7 @@ class StatusControllerTests {
 
   @Test
   void statusReportsLocalConfigurationAndOutboxDepth() throws Exception {
-    mvc.perform(get("/statusz"))
+    mvc.perform(get("/pieria-status"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.status", is("ready")))
       .andExpect(jsonPath("$.databasePath", endsWith("pieria.db")))

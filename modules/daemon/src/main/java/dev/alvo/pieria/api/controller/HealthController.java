@@ -14,7 +14,7 @@ import java.sql.Connection;
 /**
  * Lightweight health endpoint for the Pieria daemon.
  *
- * <p>{@code GET /healthz} returns an overall {@code status} plus two subsystem indicators:
+ * <p>{@code GET /pieria-health} returns an overall {@code status} plus two subsystem indicators:
  * <ul>
  *   <li><b>db</b> — a {@link Connection#isValid(int)} probe against the embedded store; no
  *       schema details or row counts are disclosed.</li>
@@ -32,7 +32,7 @@ import java.sql.Connection;
  * reachable from the network.
  */
 @RestController
-@RequestMapping("/healthz")
+@RequestMapping("/pieria-health")
 public class HealthController {
 
   private final DataSource dataSource;

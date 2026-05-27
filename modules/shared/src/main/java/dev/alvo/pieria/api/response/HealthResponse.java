@@ -1,7 +1,7 @@
 package dev.alvo.pieria.api.response;
 
 /**
- * Response body for {@code GET /healthz}.
+ * Response body for {@code GET /pieria-health}.
  *
  * <ul>
  *   <li>{@code status} — {@code "up"} when all subsystems are healthy; {@code "degraded"} when

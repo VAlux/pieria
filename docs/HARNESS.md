@@ -60,7 +60,7 @@ properties).
 
 | Endpoint | Method | Hook usage |
 |----------|--------|-----------|
-| `/healthz` | GET | Liveness check before hook invocations |
+| `/pieria-health` | GET | Liveness check before hook invocations |
 | `/v1/profiles/{name}/ingest` | POST | Ingestion hooks (PreCompact, Stop) |
 | `/v1/profiles/{name}/recall` | POST | SessionStart context priming |
 

@@ -54,7 +54,7 @@ All endpoints are scoped under `/v1/profiles/{name}`.
 | `GET` | `/memories` | List memories (filter by type and/or session) |
 | `DELETE` | `/memories/{id}` | Forget a memory (marks it superseded, never deletes) |
 | `GET` | `/export` | Export all memories as NDJSON |
-| `GET` | `/healthz` | Health: db status + model provider reachability |
+| `GET` | `/pieria-health` | Health: db status + model provider reachability |
 | `GET` | `/status` | Operational status: outbox depth, vector search availability |
 
 ## Configuration

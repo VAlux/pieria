@@ -17,6 +17,6 @@ PIERIA_JAVA_OPTS="-Dpieria.db.path=$TMPDIR/pieria.db -Dpieria.app-data.root=$TMP
 In another shell, check health and run the gateway command shape:
 
 ```sh
-curl -fsS http://127.0.0.1:8077/healthz
+curl -fsS http://127.0.0.1:8077/pieria-health
 PIERIA_DAEMON_URL=http://127.0.0.1:8077 daemon/build/distributions/pieria-jvm/bin/pieria-gateway
 ```

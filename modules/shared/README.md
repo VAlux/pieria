@@ -20,7 +20,7 @@ The `shared` module is a plain Java library â€” no Spring Boot, no web server â€
 | `MemoryListResponse` | Wrapper for `GET /memories` |
 | `RecallResponse` | Synthesized answer + supporting memories + optional debug block |
 | `IngestResponse` | Count of stored memories returned from `/ingest` |
-| `HealthResponse` | Body for `/healthz` |
+| `HealthResponse` | Body for `/pieria-health` |
 | `StatusResponse` | Body for `/status` |
 | `ErrorResponse` | Uniform error envelope |
 

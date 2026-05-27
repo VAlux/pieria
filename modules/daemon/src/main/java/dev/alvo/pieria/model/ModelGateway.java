@@ -104,7 +104,7 @@ public interface ModelGateway {
   float[] embed(String text);
 
   /**
-   * Lightweight provider reachability probe for {@code /healthz}. Must NOT invoke a model or
+   * Lightweight provider reachability probe for {@code /pieria-health}. Must NOT invoke a model or
    * generate tokens. The default returns {@code false} (configured but status unknown) so existing
    * test stubs ({@code FakeModelGateway}, {@code StubModelGateway}) compile without modification.
    * Production implementations should override with a cheap network check (e.g. HTTP HEAD on the

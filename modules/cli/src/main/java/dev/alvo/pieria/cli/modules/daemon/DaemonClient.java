@@ -12,7 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 
 /**
- * Talks to the local daemon's introspection endpoints ({@code GET /healthz}, {@code GET /statusz})
+ * Talks to the local daemon's introspection endpoints ({@code GET /pieria-health}, {@code GET /pieria-status})
  * with short timeouts so the {@code pieria daemon} commands stay snappy.
  */
 public final class DaemonClient {
@@ -31,11 +31,11 @@ public final class DaemonClient {
   }
 
   /**
-   * Cheap pre-flight check ({@code GET /healthz}) used to tell "running" from "down" without
+   * Cheap pre-flight check ({@code GET /pieria-health}) used to tell "running" from "down" without
    * parsing a body. Any HTTP response counts as reachable; only transport failures are down.
    */
   public Reachability ping() {
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/healthz"))
+    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/pieria-health"))
       .timeout(Duration.ofSeconds(3))
       .GET()
       .build();
@@ -53,14 +53,14 @@ public final class DaemonClient {
   public StatusResult status() {
     HttpResponse<String> healthResponse;
     try {
-      healthResponse = get("/healthz");
+      healthResponse = get("/pieria-health");
     } catch (Exception e) {
       return new Down(e.getMessage());
     }
 
     HealthResponse health = parse(healthResponse.body(), HealthResponse.class);
-    // /statusz is best-effort: a healthy daemon should serve it, but never let its failure mask
-    // the reachability we already established via /healthz.
+    // /pieria-status is best-effort: a healthy daemon should serve it, but never let its failure mask
+    // the reachability we already established via /pieria-health.
     StatusResponse status = fetchStatus();
 
     return healthResponse.statusCode() == 200
@@ -70,7 +70,7 @@ public final class DaemonClient {
 
   private StatusResponse fetchStatus() {
     try {
-      return parse(get("/statusz").body(), StatusResponse.class);
+      return parse(get("/pieria-status").body(), StatusResponse.class);
     } catch (Exception e) {
       return null;
     }
@@ -107,14 +107,14 @@ public final class DaemonClient {
   }
 
   /**
-   * Daemon is up ({@code /healthz} returned 200). {@code status} may be {@code null} if the
-   * {@code /statusz} call itself failed despite a healthy daemon.
+   * Daemon is up ({@code /pieria-health} returned 200). {@code status} may be {@code null} if the
+   * {@code /pieria-status} call itself failed despite a healthy daemon.
    */
   public record Reachable(HealthResponse health, StatusResponse status) implements StatusResult {
   }
 
   /**
-   * Daemon is reachable but unhealthy ({@code /healthz} returned 503, typically a DB-down probe).
+   * Daemon is reachable but unhealthy ({@code /pieria-health} returned 503, typically a DB-down probe).
    */
   public record Degraded(HealthResponse health, StatusResponse status) implements StatusResult {
   }

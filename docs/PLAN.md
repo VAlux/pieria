@@ -48,7 +48,7 @@ Implement Pieria as a local-first memory daemon using the current scaffold stack
 
 ### Phase 4: Daemon, MCP Gateway, and Local Harness Integration
 
-- Harden the Spring Boot app as the localhost daemon: bind to `127.0.0.1` by default, expose `/healthz`, and serialize embedded writes through service transactions.
+- Harden the Spring Boot app as the localhost daemon: bind to `127.0.0.1` by default, expose `/pieria-health`, and serialize embedded writes through service transactions.
 - Add a thin MCP stdio gateway that exposes `recall`, `remember`, `list`, and `forget`, forwarding to the daemon REST API.
 - Add profile mapping from env/config, defaulting to git remote or project directory name.
 - Provide Claude Code installation assets first: MCP registration plus session-start, pre-compact, and stop hooks.

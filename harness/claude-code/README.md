@@ -11,7 +11,7 @@ Wires Pieria into Claude Code via two surfaces:
 
 - Pieria daemon is running and reachable at `http://127.0.0.1:8077` (default).
   Start it with `./gradlew :daemon:bootRun` or the installed OS service.
-  Verify: `curl http://127.0.0.1:8077/healthz`
+  Verify: `curl http://127.0.0.1:8077/pieria-health`
 - The gateway jar is available at a known path (e.g. `gateway/build/libs/pieria-gateway.jar`).
   Build: `./gradlew :gateway:bootJar`
 - Java 25 is on `$PATH` (required to launch the gateway).

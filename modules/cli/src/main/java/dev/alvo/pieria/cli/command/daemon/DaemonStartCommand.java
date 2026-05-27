@@ -14,7 +14,7 @@ import java.util.concurrent.Callable;
  *
  * <p>Hybrid: if an OS service is installed (launchd / systemd --user) the start is delegated to it;
  * otherwise a detached daemon process is spawned and tracked by a PID file. After triggering a
- * start, it polls {@code /healthz} until the daemon answers or the wait budget elapses.
+ * start, it polls {@code /pieria-health} until the daemon answers or the wait budget elapses.
  */
 @Command(
   name = "start",
@@ -90,7 +90,7 @@ public final class DaemonStartCommand implements Callable<Integer> {
   }
 
   /**
-   * Poll {@code /healthz} until the daemon answers or the timeout elapses.
+   * Poll {@code /pieria-health} until the daemon answers or the timeout elapses.
    */
   private int awaitHealthy(DaemonClient client, String url) {
     long deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L;

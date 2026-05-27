@@ -8,7 +8,7 @@ import dev.alvo.pieria.api.request.IngestRequest;
 public interface IngestClient {
 
   /**
-   * Cheap pre-flight check ({@code GET /healthz}) to distinguish "daemon down" from a real error.
+   * Cheap pre-flight check ({@code GET /pieria-health}) to distinguish "daemon down" from a real error.
    */
   Reachability ping();
 

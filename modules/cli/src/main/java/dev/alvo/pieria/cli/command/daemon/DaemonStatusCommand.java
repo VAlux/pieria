@@ -11,8 +11,8 @@ import java.util.concurrent.Callable;
 
 /**
  * {@code pieria daemon status} — report whether the daemon is running and, when it is, a rich
- * operational snapshot drawn from {@code /healthz} (overall health, db, model provider) and
- * {@code /statusz} (backend, models, paths, vectorization backlog).
+ * operational snapshot drawn from {@code /pieria-health} (overall health, db, model provider) and
+ * {@code /pieria-status} (backend, models, paths, vectorization backlog).
  *
  * <p>Exit codes: {@code 0} up, {@code 5} reachable-but-degraded, {@code 3} unreachable — so scripts
  * can distinguish the three states.

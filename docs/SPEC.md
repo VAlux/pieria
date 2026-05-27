@@ -562,7 +562,7 @@ local→server migration: export from the embedded store, import into Postgres, 
   `~/.local/share/pieria/` on Linux); single file, easy to back up or delete.
 - **First-run:** pulls default Ollama models if absent; creates the embedded DB and runs
   migrations; prints the localhost port and the per-harness setup snippets.
-- **Health/observability:** `/healthz`; per-stage token and latency metrics (local logs
+- **Health/observability:** `/pieria-health`; per-stage token and latency metrics (local logs
   by default, no telemetry leaves the machine).
 
 ---
