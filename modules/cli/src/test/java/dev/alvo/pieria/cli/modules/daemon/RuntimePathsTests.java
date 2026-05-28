@@ -1,4 +1,4 @@
-package dev.alvo.pieria.cli.daemon;
+package dev.alvo.pieria.cli.modules.daemon;
 
 import dev.alvo.pieria.cli.modules.daemon.RuntimePaths;
 import org.junit.jupiter.api.Test;

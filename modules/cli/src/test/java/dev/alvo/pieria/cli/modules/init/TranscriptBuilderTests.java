@@ -1,9 +1,7 @@
-package dev.alvo.pieria.cli.init;
+package dev.alvo.pieria.cli.modules.init;
 
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.IngestRequest.MessageDto;
-import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
-import dev.alvo.pieria.cli.modules.init.TranscriptBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
