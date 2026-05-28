@@ -68,8 +68,8 @@ public final class DaemonStatusCommand implements Callable<Integer> {
     line("Setup", status.status());
     line("Backend", status.backend());
     line("Provider", status.modelProvider());
-    line("Chat (small)", status.chatSmallModel());
-    line("Chat (large)", status.chatLargeModel());
+    line("Extraction model", status.extractionModel());
+    line("Synthesis model", status.synthesisModel());
     line("Embedding", status.embeddingModel());
     line("Database path", status.databasePath());
     line("Vectorization backlog",

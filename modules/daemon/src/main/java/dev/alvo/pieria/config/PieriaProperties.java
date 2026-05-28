@@ -4,8 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Strongly-typed Pieria configuration. The two chat tiers (small/large) and the embedding
- * model are separate configuration knobs from the start.
+ * Strongly-typed Pieria configuration. The two chat tiers (extraction/synthesis) and the
+ * embedding model are separate configuration knobs from the start.
  */
 @ConfigurationProperties(prefix = "pieria")
 public record PieriaProperties(
@@ -26,8 +26,8 @@ public record PieriaProperties(
   public record Ollama(@DefaultValue("http://localhost:11434") String baseUrl) {
   }
 
-  public record Model(String chatSmall,
-                      String chatLarge,
+  public record Model(String extractionModel,
+                      String synthesisModel,
                       String embedding,
                       @DefaultValue("1024") int embeddingDimension) {
   }

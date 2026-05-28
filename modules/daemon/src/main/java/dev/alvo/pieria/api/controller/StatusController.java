@@ -45,8 +45,8 @@ public class StatusController {
       state.paths().databaseFile().toString(),
       storage.backend(),
       "ollama",
-      model.chatSmall(),
-      model.chatLarge(),
+      model.extractionModel(),
+      model.synthesisModel(),
       model.embedding(),
       outboxDepth.isPresent() ? outboxDepth.getAsLong() : null,
       new StatusResponse.Setup(
