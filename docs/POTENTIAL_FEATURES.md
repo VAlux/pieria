@@ -3,87 +3,113 @@
 1. Graph / relationship memory layer
 Phase: 8 | Status: pending
 Who has it: Zep, Graphiti, Cognee, Supermemory, Hindsight — universally, the single biggest thing Pieria lacks.
-What: Extract entities and relations during classification; store an entity-relation graph; add graph traversal as a retrieval signal. Answers "who/what is connected to X" and multi-hop questions that vector+FTS miss.
+What: Extract entities and relations during classification; store an entity-relation graph; add graph traversal as a retrieval signal. Answers "who/what is connected to X" and multi-hop questions that vector+FTS miss. For coding-agent use, make code entities first-class too: repository, module, package, file, class, method, endpoint, config key, command, test, tool, and memory.
 Fit: New GraphChannel alongside the existing five in RetrievalService's StructuredTaskScope fan-out; extend MemoryStore with edge tables. Largest effort here, largest payoff. SQLite can hold the adjacency tables; no new
-infra needed.
+infra needed. Later server/large-local modes can evaluate Neo4j (graph + vector indexes), Kuzu (embedded graph + Cypher/vector/FTS), or TinkerPop/Gremlin as optional graph backends, but the first implementation should stay SQLite-native.
 
-2. Reranker stage between fusion and synthesis
+2. Source-code ingestion / persistent code intelligence index
+Phase: unassigned | Status: pending
+Who has it: Sourcegraph SCIP/LSIF, CodeGraphContext/codebase-memory-style MCP servers, Serena memories partially.
+What: `pieria init` only seeds markdown today. Add source-code ingestion that builds a persistent semantic index from the actual repo: symbols, definitions, references, implementations, imports, ownership boundaries, API endpoints, config keys, tests, and module dependencies. Do not store full source as ordinary memories; store structured code-index rows and derive compact durable memories from them.
+Fit: New `pieria code index` or `pieria init --source-code` path. For Java/Kotlin/Scala, start with `scip-java` because it supports Gradle/Maven/sbt and emits precise symbol occurrences. Use Tree-sitter as a lower-confidence fallback when the build cannot resolve or for polyglot files. Add `CodeIndexStore` methods under/alongside MemoryStore, then add SymbolFts/CodeGraph retrieval channels that feed the existing RRF pipeline.
+
+3. Reranker stage between fusion and synthesis
 Phase: 9 | Status: pending
 Who has it: Mem0, LanceDB, Pinecone, Langbase.
-What: RRF currently feeds top-K straight into synthesis. A cross-encoder (or small-model) rerank of the fused candidates before synthesis sharply improves precision of what the large model sees.
-Fit: Drops in cleanly after ReciprocalRankFusion, before synthesis, using the existing two-tier model gateway (small model does the rerank). Low effort, measurable on your eval harness immediately.
+What: RRF currently feeds top-K straight into synthesis. A cross-encoder (or small-model) rerank of the fused candidates before synthesis sharply improves precision of what the large model sees. Once code-index channels exist, reranking becomes more important because memory, code symbol, trace, and graph candidates will be competing for the same context budget.
+Fit: Drops in cleanly after ReciprocalRankFusion, before synthesis, using the existing two-tier model gateway (small model does the rerank). Low effort, measurable on your eval harness immediately. Add feature flags to compare memory-only rerank vs mixed memory+code rerank.
 
-3. Bi-temporal fact validity / temporal invalidation
+4. Bi-temporal fact validity / temporal invalidation
 Phase: 10 | Status: pending
 Who has it: Zep, Graphiti.
 What: Today supersession only fires on explicit topic_key collision. Competitors track valid_from/valid_to so facts can be invalidated by time, enabling "what was true last week" and conflict resolution without an exact
 key match.
 Fit: You already have TemporalExtractor and the supersession machinery — extend the memory row with validity columns and filter active queries on them. Medium effort.
 
-4. Memory consolidation / reflection (background replay)
+5. Memory consolidation / reflection (background replay)
 Phase: 11 | Status: pending
 Who has it: Hindsight (observations from raw facts), Letta, Generative Agents research. Already in your SPEC §17 as "future."
 What: A background worker merges/strengthens related memories and derives higher-level observations from clusters of raw facts.
-Fit: The transactional-outbox + virtual-thread worker pattern (VectorizationWorker/VectorizationScheduler) is exactly the host for a ConsolidationWorker. Architecturally pre-paved.
+Fit: The transactional-outbox + virtual-thread worker pattern (VectorizationWorker/VectorizationScheduler) is exactly the host for a ConsolidationWorker. Architecturally pre-paved. Once source-code indexing exists, consolidation should also derive/update high-level project observations from code facts (module responsibilities, entry points, service boundaries, test strategy) rather than relying only on docs and conversations.
 
-5. Execution-trace / tool-output memory
+6. Execution-trace / tool-output memory
 Phase: 12 | Status: pending
 Who has it: Memori (its core differentiator).
 What: Ingest tool calls, outputs, and failures — not just chat messages. For coding agents this is often the most valuable signal (what commands worked, what errored).
-Fit: New ingestion source feeding IngestionService; possibly a new memory type or payload shape. The content-addressed ID scheme already handles dedup. Medium effort, high relevance to your coding-agent target.
+Fit: New ingestion source feeding IngestionService; possibly a new memory type or payload shape. The content-addressed ID scheme already handles dedup. Medium effort, high relevance to your coding-agent target. Link traces to code graph entities (`test`, `command`, `file`, `class`, `method`, `build tool`) so "why did this test fail" or "what command validates this module" can retrieve both the trace and the affected code.
 
 ---
 # Tier 2 — Capabilities (new things agents can do)
 
-6. reflect()-style reasoning recall mode
+7. Live code MCP / LSP tools
+Phase: unassigned | Status: pending
+Who has it: Serena, JetBrains MCP/Serena JetBrains plugin, raw LSP bridges, Eclipse JDT LS for Java.
+What: Give agents IDE-like code navigation and basic semantic editing through Pieria's gateway: find symbol, file outline, go to definition, find references, find implementations, hover, diagnostics, call hierarchy, type hierarchy, rename preview/apply, and organize imports. This is live project intelligence, complementary to the persisted code index.
+Fit: Shortest path is to integrate or co-install Serena as a companion MCP server and optionally proxy a narrow stable subset through Pieria. Native path is an LSP client inside the daemon/gateway, with Eclipse JDT LS as the Java backend and other language servers configured per project. Keep destructive edit/refactor tools gated behind preview/diff-first calls.
+
+8. Safe semantic refactoring recipes
+Phase: unassigned | Status: pending
+Who has it: OpenRewrite/Moderne for Java ecosystem migrations, IDE refactoring engines, Serena/JetBrains for symbol refactors.
+What: Agents need more than text edits for reliable repo-wide changes. Add recipe-backed transformations: change type/package, migrate APIs, update dependencies, organize imports, remove unused code, and apply framework-specific migrations with a preview diff.
+Fit: Use LSP/JDT for small symbol refactors (`rename`, `organizeImports`) and OpenRewrite for repeatable Java/Spring/Gradle migrations. Expose as `refactor.preview`, `refactor.apply`, and `refactor.listRecipes`; never apply without a diff and test recommendation.
+
+9. reflect()-style reasoning recall mode
 Phase: unassigned | Status: pending
 Who has it: Hindsight.
 What: A recall variant that reasons over retrieved memories to answer harder questions, distinct from straight synthesis. Exposed as a second MCP tool.
 Fit: New endpoint + MCP tool reusing the retrieval pipeline with a different (reasoning) synthesis prompt.
 
-7. TTL / expiration for ephemeral memories
+10. TTL / expiration for ephemeral memories
 Phase: unassigned | Status: pending
 Who has it: Mem0 (expiration policies), Redis (TTL primitive). This is literally your open question §18 on task retention.
 What: Auto-expire task and other ephemeral memories.
 Fit: An expires_at column + a sweep in an existing scheduler. Low effort.
 
-8. Citations / provenance surfaced in the answer
+11. Citations / provenance surfaced in the answer
 Phase: unassigned | Status: pending
 Who has it: Hindsight.
-What: You already store session_id provenance and line indices; surface them as citations in the synthesized recall answer so the agent (and user) can trust/trace claims.
-Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff.
+What: You already store session_id provenance and line indices; surface them as citations in the synthesized recall answer so the agent (and user) can trust/trace claims. With code indexing, citations should include file path, symbol id/FQN, line range, memory id, trace id, and source freshness.
+Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff. Code-index candidates should carry structured provenance so citations do not depend on the model inventing file references.
 
-9. Rolling user/project profile compaction
+12. Rolling user/project profile compaction
 Phase: unassigned | Status: pending
 Who has it: Supermemory (user profiles), Zep (context templates).
-What: Maintain a continuously-compacted "profile" memory per project — a synthesized standing summary that's cheap to inject at session start.
-Fit: Pairs with consolidation (#4); feeds your SessionStart hook injection path.
+What: Maintain a continuously-compacted "profile" memory per project — a synthesized standing summary that's cheap to inject at session start. Extend it with code-derived standing context: architecture map, module responsibilities, public entry points, test/build commands, generated-code boundaries, and known risky files.
+Fit: Pairs with consolidation (#5); feeds your SessionStart hook injection path. Source-code summaries should be content-addressed by commit/tree/file hashes so unchanged code does not regenerate duplicate memories.
 
-10. Procedural / skill memory as versioned artifacts
+13. Procedural / skill memory as versioned artifacts
 Phase: unassigned | Status: pending
-Who has it: Letta MemFS, Voyager research.
-What: Your instruction type is declarative text; competitors store reusable procedures/code recipes as versioned artifacts. Relevant specifically because you target coding agents.
-Fit: Larger conceptual addition; could layer on the existing version-chain (supersedes) idea.
+Who has it: Letta MemFS, Voyager research, OpenRewrite recipes for code transformations.
+What: Your instruction type is declarative text; competitors store reusable procedures/code recipes as versioned artifacts. Relevant specifically because you target coding agents. Examples: "release checklist", "debug native-image failure", "add a new Spring endpoint", "apply migration recipe X".
+Fit: Larger conceptual addition; could layer on the existing version-chain (supersedes) idea. For code-specific procedures, store both a human instruction and an executable artifact reference (script path, OpenRewrite recipe, Gradle task, command template) with provenance and versioning.
 
 ---
 # Tier 3 — Quality-of-life & ops
 
-11. Local recall/usage analytics dashboard
+14. Local recall/usage analytics dashboard
 Phase: unassigned | Status: pending
 Who has it: Memori cloud. You already emit per-stage latency/token metrics to logs — a local read-only dashboard makes them usable. No telemetry leaves the machine, consistent with your design.
 
-12. Webhooks / change events
+15. Code-index freshness and watch mode
+Phase: unassigned | Status: pending
+Who has it: IDEs/LSP workspaces, Sourcegraph auto-indexing, file-watcher based code graph tools.
+What: Keep source-code indexes fresh without making every recall rebuild the project. Track git HEAD/tree hash, indexed file hashes, language-server readiness, and stale symbol counts. Optionally watch files and queue incremental re-indexing.
+Fit: Start simple: `pieria code status`, `pieria code index --changed`, and status fields surfaced through `/v1/status`. Later add a filesystem watcher and background index outbox. Do not block recall when the code index is stale; mark code candidates with freshness metadata.
+
+16. Webhooks / change events
 Phase: unassigned | Status: pending
 Who has it: Zep. Emit events on memory write/supersede so harnesses or tooling can react. More relevant once server mode exists.
 
-13. Pluggable vector backend / quantization
+17. Pluggable vector / graph backend / quantization
 Phase: unassigned | Status: pending
 Who has it: the substrate vendors; already your SPEC §17 (Qdrant). The VectorStore seam is in place — only relevant at server scale.
+What: Keep the embedded default simple, but define backend seams for vector and graph storage once code graph + memory graph are real. Candidates: SQLite/sqlite-vec for local default, Postgres/pgvector for server mode, Neo4j for graph+vector, Qdrant for vector scale, Kuzu for embedded graph experiments.
+Fit: Do not introduce new infrastructure for local mode until evaluation shows SQLite adjacency + sqlite-vec are insufficient. The main design work is keeping retrieval channels backend-neutral.
 
-14. Encryption at rest (SQLCipher)
+18. Encryption at rest (SQLCipher)
 Phase: unassigned | Status: pending
 Who has it: Supermemory Enterprise; your SPEC §17. Opt-in for the embedded DB.
 
-15. Auth / RBAC / audit logging
+19. Auth / RBAC / audit logging
 Phase: unassigned | Status: pending
 Who has it: Zep (SOC2/HIPAA/RBAC). Only meaningful for Phase 6 server mode — don't pull this into local-mode code paths.

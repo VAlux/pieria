@@ -11,7 +11,7 @@ import java.nio.file.Path;
 /**
  * Wires the MCP stdio gateway. The whole gateway context is gateway-only — it is a standalone
  * module/jar ({@code :gateway}, {@code pieria-gateway.jar}) that does not have the daemon's
- * JDBC/Flyway/Ollama on its classpath, so none of the daemon's stateful beans can ever be
+ * JDBC/Flyway/model-provider beans on its classpath, so none of the daemon's stateful beans can ever be
  * instantiated here. The gateway holds no state; each {@link MemoryTools} call forwards to the
  * daemon's REST surface via {@link DaemonClient}.
  */

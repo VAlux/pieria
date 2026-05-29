@@ -18,7 +18,7 @@ import java.util.function.Supplier;
  *
  * <p>This is the seam that runs the <em>real</em> {@link dev.alvo.pieria.ingestion.IngestionService}
  * and {@link dev.alvo.pieria.retrieval.RetrievalService} against a live {@link ModelGateway} (the
- * daemon's {@code OllamaModelGateway}, or any other gateway you wire — e.g. a hosted Anthropic/OpenAI
+ * daemon's {@code OpenAiModelGateway}, or any other gateway you wire — e.g. a hosted Anthropic/OpenAI
  * baseline for comparison) and an in-memory {@link MemoryStore}.
  *
  * <p>It is intentionally <strong>not</strong> exercised by CI: it requires a local dataset file and a
@@ -30,7 +30,7 @@ import java.util.function.Supplier;
  * <h2>How to run the live path</h2>
  * Wire a live gateway and invoke:
  * <pre>{@code
- *   ModelGateway gateway = ...;            // e.g. daemon OllamaModelGateway bean
+ *   ModelGateway gateway = ...;            // e.g. daemon OpenAiModelGateway bean
  *   PieriaProperties props = ...;          // extraction-model/synthesis-model, embedding model + dimension
  *   BenchmarkRunner runner = new BenchmarkRunner(props, () -> gateway);
  *
@@ -161,7 +161,7 @@ public final class BenchmarkRunner {
    *   java -cp <classpath> dev.alvo.pieria.evaluation.BenchmarkRunner \
    *       <locomo|longmemeval> <dataset.json> [runCount]
    * }</pre>
-   * Wires the live Ollama gateway via {@link LiveModelGatewayFactory#fromSpring(String...)} and writes the
+   * Wires the live model gateway via {@link LiveModelGatewayFactory#fromSpring(String...)} and writes the
    * averaged report to {@code pieria-eval-reports/}. Requires a running model provider and a local
    * dataset file; this method is never called in CI.
    */

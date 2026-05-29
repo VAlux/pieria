@@ -8,7 +8,7 @@ import java.util.Optional;
 /**
  * Locates the Pieria install root ({@code PIERIA_HOME}), the {@code pieria-gateway} executable, and
  * the harness-assets directory. Resolution mirrors the packaging conventions in
- * {@code packaging/install.sh} and {@code FirstRunService.resolveGatewayPath()}:
+ * {@code packaging/install.sh}:
  *
  * <ol>
  *   <li>{@code PIERIA_HOME} environment variable, if set;</li>

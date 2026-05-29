@@ -23,7 +23,7 @@ dependencies {
 	// daemon publishes a plain jar (jar.enabled = true) alongside its bootJar for this dependency.
 	implementation(project(":daemon"))
 	implementation("com.fasterxml.jackson.core:jackson-databind")
-	// The live benchmark entry point boots a Spring context to obtain the daemon's OllamaModelGateway.
+	// The live benchmark entry point boots a Spring context to obtain the daemon's OpenAiModelGateway.
 	implementation("org.springframework.boot:spring-boot")
 	implementation("org.springframework.boot:spring-boot-autoconfigure")
 	implementation("org.springframework:spring-context")

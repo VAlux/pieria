@@ -115,8 +115,8 @@ public interface ModelGateway {
   }
 
   /**
-   * Report the model names the provider currently has available locally (e.g. the names returned by
-   * Ollama's {@code /api/tags}). Used only for LOG-ONLY first-run guidance about which configured
+   * Report the model names the provider currently has available (e.g. the {@code data[].id} values
+   * returned by the OpenAI-compatible {@code /v1/models}). Used only for LOG-ONLY first-run guidance about which configured
    * models are missing; this method MUST NOT invoke a model, generate tokens, or trigger any
    * download. The default returns an empty set so existing stubs ({@code FakeModelGateway},
    * {@code StubModelGateway}) compile unchanged and callers degrade gracefully when the provider is

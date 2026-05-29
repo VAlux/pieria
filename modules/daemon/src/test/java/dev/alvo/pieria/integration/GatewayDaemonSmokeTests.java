@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * End-to-end smoke test: the gateway's real {@link DaemonClient} +
  * {@link MemoryTools} driven against a REAL daemon booted on a random local port. The embedded
  * SQLite store is the real throwaway DB (application-test.properties), so storage is exercised
- * end-to-end; only the {@link ModelGateway} is faked (no Ollama, no network egress).
+ * end-to-end; only the {@link ModelGateway} is faked (no model provider, no network egress).
  *
  * <p>This complements {@code MemoryToolsTests} (which uses a fake HttpServer): here the daemon's
  * actual REST stack + storage answer the gateway, proving the full round trip.

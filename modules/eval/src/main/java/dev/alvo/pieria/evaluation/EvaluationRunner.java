@@ -44,7 +44,7 @@ import static dev.alvo.pieria.evaluation.EvaluationFixture.normalizedContent;
  * <p>By default it uses a {@link PinnedEvaluationModelGateway} (deterministic, fixture-pinned) and a
  * fresh {@link InMemoryEvaluationMemoryStore} per fixture — this is the network-free path used by
  * CI and by {@link #run(List)}. Benchmark adapters that want to drive a live model (e.g. the
- * daemon's {@code OllamaModelGateway}) call {@link #run(List, Supplier, Supplier)} and supply their
+ * daemon's {@code OpenAiModelGateway}) call {@link #run(List, Supplier, Supplier)} and supply their
  * own gateway/store factories, which is the seam that also enables comparing a default local model
  * against a hosted baseline: wire a different {@link ModelGateway} and run twice.
  */
