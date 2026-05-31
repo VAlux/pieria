@@ -15,7 +15,7 @@ import org.springframework.context.annotation.ImportRuntimeHints;
  * tool calls to the local daemon's REST surface.
  *
  * <p>Running this jar IS the gateway: there is no launch flag and no Spring profile. The gateway
- * module simply does not have JDBC/Flyway/Ollama on its classpath, so none of the daemon's
+ * module simply does not have JDBC/Flyway/model-provider beans on its classpath, so none of the daemon's
  * infrastructure is ever instantiated. Web/banner/logging/MCP settings live in this module's
  * {@code application.properties}.
  */

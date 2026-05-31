@@ -12,7 +12,7 @@ Two run modes are supported:
 
 **Deterministic (CI default)** — uses `PinnedEvaluationModelGateway`, which replays expected answers from the fixture JSON instead of calling any model. No Ollama, no network, no randomness. This is the mode used by `./gradlew test`.
 
-**Live (explicit)** — uses the daemon's real `OllamaModelGateway` (or any other `ModelGateway` implementation). Activated by setting `PIERIA_LIVE_EVAL=1` and running `:eval:test`. Benchmark tests filtered by `*Benchmark*` are excluded from the normal test run and must be triggered explicitly.
+**Live (explicit)** — uses the daemon's real `OpenAiModelGateway` (or any other `ModelGateway` implementation). Activated by setting `PIERIA_LIVE_EVAL=1` and running `:eval:test`. Benchmark tests filtered by `*Benchmark*` are excluded from the normal test run and must be triggered explicitly.
 
 ## Key classes
 
@@ -25,7 +25,7 @@ Two run modes are supported:
 | `EvaluationReportWriter` | Writes a `EvaluationReport` to a JSON file or stdout |
 | `PinnedEvaluationModelGateway` | Deterministic gateway that replays fixture-expected answers for CI |
 | `InMemoryEvaluationMemoryStore` | Ephemeral in-memory `MemoryStore` (backed by `SqliteMemoryStore` on a `:memory:` database); a fresh instance is created per fixture so memories never leak between tests |
-| `LiveModelGatewayFactory` | Boots a minimal Spring context to obtain the daemon's `OllamaModelGateway` for live benchmark runs |
+| `LiveModelGatewayFactory` | Boots a minimal Spring context to obtain the daemon's `OpenAiModelGateway` for live benchmark runs |
 | `BenchmarkRunner` | Entry point for running a full benchmark dataset end-to-end with a live model |
 | `LoCoMoBenchmarkAdapter` | Converts LoCoMo dataset entries to `EvaluationFixture` objects |
 | `LongMemEvalBenchmarkAdapter` | Converts LongMemEval dataset entries to `EvaluationFixture` objects |

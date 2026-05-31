@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record PieriaProperties(
   Daemon daemon,
   Db db,
-  Ollama ollama,
+  Provider provider,
   Model model,
   Ingestion ingestion,
   Retrieval retrieval) {
@@ -23,7 +23,32 @@ public record PieriaProperties(
   public record Db(String path) {
   }
 
-  public record Ollama(@DefaultValue("http://localhost:11434") String baseUrl) {
+  /**
+   * LLM provider connection config. The provider must expose an OpenAI-compatible API
+   * ({@code /v1/chat/completions}, {@code /v1/embeddings}, {@code /v1/models}); this covers Ollama,
+   * LM Studio, llama.cpp's server, vLLM, OpenRouter, and OpenAI itself. {@code baseUrl} is the API
+   * root WITHOUT the {@code /v1} suffix (the client appends it). {@code apiKey} is forwarded as the
+   * bearer token — local providers ignore it, so any non-blank placeholder works. {@code name} is a
+   * display-only label surfaced on the status/health endpoints (it does not change behavior).
+   *
+   * <p>{@code type} selects the wire dialect: {@code openai} (default) for any vanilla
+   * OpenAI-compatible endpoint, or {@code azure} for Azure OpenAI / Microsoft Foundry. In
+   * {@code azure} mode {@link ProviderEnvironmentPostProcessor} flips the Spring AI Microsoft
+   * Foundry switches, {@code baseUrl} is the Azure resource endpoint
+   * ({@code https://<resource>.openai.azure.com}), and the {@code pieria.model.*} names are
+   * interpreted as Azure <em>deployment names</em>. {@code apiVersion} is the Azure REST API version
+   * and is used only when {@code type=azure}.
+   */
+  public record Provider(@DefaultValue("http://localhost:11434") String baseUrl,
+                         @DefaultValue("ollama") String apiKey,
+                         @DefaultValue("openai") String name,
+                         @DefaultValue("openai") String type,
+                         @DefaultValue("2024-10-21") String apiVersion) {
+
+    /** {@code true} when the provider is configured for Azure OpenAI / Microsoft Foundry. */
+    public boolean isAzure() {
+      return type != null && type.strip().equalsIgnoreCase("azure");
+    }
   }
 
   public record Model(String extractionModel,

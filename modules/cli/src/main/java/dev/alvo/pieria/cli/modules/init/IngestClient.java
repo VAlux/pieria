@@ -35,7 +35,7 @@ public interface IngestClient {
   }
 
   /**
-   * 503 — the daemon is up but its model provider (Ollama) is unavailable.
+   * 503 — the daemon is up but its model provider is unavailable.
    */
   record ModelUnavailable() implements IngestResult {
   }

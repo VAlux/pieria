@@ -11,22 +11,24 @@ import dev.alvo.pieria.domain.VerificationResult;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.tools.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import java.time.Instant;
 
 /**
  * Write path: normalize the transcript, store raw messages, chunk, run parallel
@@ -47,6 +49,24 @@ public class IngestionService {
   private final int maxExtractionConcurrency;
   private final int detailPassMinMessages;
 
+  /**
+   * Merged extraction output: the raw candidate count (for logging) and the de-duplicated list.
+   */
+  private record Extraction(int rawCount, List<ExtractedCandidate> merged) {
+  }
+
+  /**
+   * Verification output: contents that survived (passed or corrected) and the number dropped.
+   */
+  private record Verification(List<String> verifiedContents, int dropped) {
+  }
+
+  /**
+   * Store output: the persisted memories plus supersession and vectorization-enqueue counts.
+   */
+  private record StoreResult(List<Memory> stored, int superseded, int enqueued) {
+  }
+
   public IngestionService(MemoryStore store,
                           ModelGateway modelGateway,
                           TranscriptNormalizer normalizer,
@@ -56,22 +76,98 @@ public class IngestionService {
     this.modelGateway = modelGateway;
     this.normalizer = normalizer;
     this.chunker = chunker;
-    PieriaProperties.Ingestion ingestion = properties.ingestion();
-    this.maxExtractionConcurrency = Math.max(1, ingestion.maxExtractionConcurrency());
-    this.detailPassMinMessages = Math.max(1, ingestion.detailPassMinMessages());
+    this.maxExtractionConcurrency = Math.max(1, properties.ingestion().maxExtractionConcurrency());
+    this.detailPassMinMessages = Math.max(1, properties.ingestion().detailPassMinMessages());
   }
 
   /**
-   * Ingest a conversation through the full pipeline. Idempotent: re-ingesting the same transcript
-   * yields the same content-addressed messages and memories (insert-or-ignore).
+   * Ingest a conversation through the full pipeline: normalize → store raw messages → chunk →
+   * extract → verify → classify and store. Idempotent — re-ingesting the same transcript yields
+   * the same content-addressed messages and memories (insert-or-ignore). Each stage is timed and
+   * reported in the latency log line; vectorization is enqueued, not awaited.
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages) {
     long totalStart = System.nanoTime();
-    long stageStart = totalStart;
     Profile profile = store.getOrCreateProfile(profileName);
-    Instant requestTime = Instant.now();
 
-    // Stamp the session id onto messages that lack one, then validate/normalize.
+    Timed<List<Message>> normalize = Timed.measure(() -> normalizeMessages(messages, sessionId));
+    List<Message> normalized = normalize.value();
+
+    // Store raw messages first so ingest is inspectable even when nothing is extracted.
+    Timed<Void> messageStore =
+      Timed.measure(() -> store.insertMessages(profile.id(), sessionId, normalized));
+    if (normalized.isEmpty()) {
+      log.info("ingest profile={} session={} messages=0 normalizeMs={} messageStoreMs={} totalMs={} — nothing to extract",
+        profileName, sessionId, normalize.millis(), messageStore.millis(), Timed.elapsedMillis(totalStart));
+      return List.of();
+    }
+
+    boolean detailPass = normalized.size() >= detailPassMinMessages;
+    Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized));
+    List<Chunk> chunks = chunk.value();
+
+    Timed<Extraction> extract = Timed.measure(() -> extractCandidates(chunks, detailPass));
+    Extraction extraction = extract.value();
+
+    Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks));
+    Verification verification = verify.value();
+
+    Timed<StoreResult> classifyStore =
+      Timed.measure(() -> classifyAndStore(profile.id(), sessionId, verification.verifiedContents()));
+
+    StoreResult result = classifyStore.value();
+
+    log.info("""
+        ingest \
+        profile={} \
+        session={} \
+        messages={} \
+        chunks={} \
+        extracted={} \
+        merged={} \
+        dropped={} \
+        stored={} \
+        superseded={} \
+        vectorJobs={}""",
+      profileName,
+      sessionId,
+      normalized.size(),
+      chunks.size(),
+      extraction.rawCount(),
+      extraction.merged().size(),
+      verification.dropped(),
+      result.stored().size(),
+      result.superseded(),
+      result.enqueued());
+
+    log.info("""
+        ingest latency \
+        profile={} \
+        session={} \
+        normalizeMs={} \
+        messageStoreMs={} \
+        chunkMs={} \
+        extractionMs={} \
+        verificationMs={} \
+        classifyStoreMs={} \
+        totalMs={}""",
+      profileName,
+      sessionId,
+      normalize.millis(),
+      messageStore.millis(),
+      chunk.millis(),
+      extract.millis(),
+      verify.millis(),
+      classifyStore.millis(),
+      Timed.elapsedMillis(totalStart));
+
+    return result.stored();
+  }
+
+  /**
+   * Stamp the session id onto messages that lack one, then validate and normalize the transcript.
+   */
+  private List<Message> normalizeMessages(List<Message> messages, String sessionId) {
     List<Message> withSession = new ArrayList<>(messages == null ? 0 : messages.size());
     if (messages != null) {
       for (Message m : messages) {
@@ -80,29 +176,24 @@ public class IngestionService {
           : m);
       }
     }
-    List<Message> normalized = normalizer.normalize(withSession, requestTime);
-    long normalizeMs = elapsedMs(stageStart);
+    return normalizer.normalize(withSession, Instant.now());
+  }
 
-    // Store raw messages first so ingest is inspectable even when nothing is extracted.
-    stageStart = System.nanoTime();
-    store.insertMessages(profile.id(), sessionId, normalized);
-    long messageStoreMs = elapsedMs(stageStart);
-    if (normalized.isEmpty()) {
-      log.info("ingest profile={} session={} messages=0 normalizeMs={} messageStoreMs={} totalMs={} — nothing to extract",
-        profileName, sessionId, normalizeMs, messageStoreMs, elapsedMs(totalStart));
-      return List.of();
-    }
-
-    stageStart = System.nanoTime();
-    List<Chunk> chunks = chunker.chunk(normalized);
-    boolean detailPass = normalized.size() >= detailPassMinMessages;
-    long chunkMs = elapsedMs(stageStart);
-
-    stageStart = System.nanoTime();
+  /**
+   * Run extraction over the chunks (full pass, plus the detail pass when enabled) and merge the
+   * candidates, retaining the raw count for logging.
+   */
+  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass) {
     List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass);
     List<ExtractedCandidate> merged = mergeCandidates(extracted);
-    long extractionMs = elapsedMs(stageStart);
+    return new Extraction(extracted.size(), merged);
+  }
 
+  /**
+   * Verify each candidate against its source chunk: drop unsupported claims, pass verbatim ones,
+   * and substitute the model's correction when it returns one.
+   */
+  private Verification verifyCandidates(List<ExtractedCandidate> merged, List<Chunk> chunks) {
     Map<Integer, String> transcriptByChunk = new HashMap<>();
     for (Chunk c : chunks) {
       transcriptByChunk.put(c.index(), c.transcript());
@@ -110,7 +201,6 @@ public class IngestionService {
 
     int dropped = 0;
     List<String> verifiedContents = new ArrayList<>();
-    stageStart = System.nanoTime();
     for (ExtractedCandidate candidate : merged) {
       String transcript = transcriptByChunk.getOrDefault(candidate.chunkIndex(), "");
       VerificationResult result = modelGateway.verify(candidate, transcript);
@@ -125,12 +215,18 @@ public class IngestionService {
         }
       }
     }
-    long verificationMs = elapsedMs(stageStart);
 
+    return new Verification(verifiedContents, dropped);
+  }
+
+  /**
+   * Classify and enrich each verified content (topic key + interrogative queries → {@code
+   * embed_text}), then store it under the profile with supersession and vectorization enqueue.
+   */
+  private StoreResult classifyAndStore(String profileId, String sessionId, List<String> verifiedContents) {
     List<Memory> stored = new ArrayList<>(verifiedContents.size());
     int superseded = 0;
     int enqueued = 0;
-    stageStart = System.nanoTime();
     for (String content : verifiedContents) {
       if (content == null || content.isBlank()) {
         continue;
@@ -142,7 +238,7 @@ public class IngestionService {
         null, sessionId, classification.type(), content, classification.topicKey(),
         null, false, payload, embedText, null);
 
-      MemoryStore.StoreOutcome outcome = store.store(profile.id(), candidate);
+      MemoryStore.StoreOutcome outcome = store.store(profileId, candidate);
       stored.add(outcome.stored());
       if (outcome.supersededId() != null) {
         superseded++;
@@ -151,20 +247,8 @@ public class IngestionService {
         enqueued++;
       }
     }
-    long classifyStoreMs = elapsedMs(stageStart);
 
-    log.info("ingest profile={} session={} messages={} chunks={} extracted={} merged={} dropped={} stored={} superseded={} vectorJobs={}",
-      profileName, sessionId, normalized.size(), chunks.size(), extracted.size(), merged.size(),
-      dropped, stored.size(), superseded, enqueued);
-    log.info("ingest latency profile={} session={} normalizeMs={} messageStoreMs={} chunkMs={} extractionMs={} verificationMs={} classifyStoreMs={} totalMs={}",
-      profileName, sessionId, normalizeMs, messageStoreMs, chunkMs, extractionMs, verificationMs,
-      classifyStoreMs, elapsedMs(totalStart));
-
-    return stored;
-  }
-
-  private static long elapsedMs(long startNanos) {
-    return (System.nanoTime() - startNanos) / 1_000_000L;
+    return new StoreResult(stored, superseded, enqueued);
   }
 
   /**
@@ -193,9 +277,7 @@ public class IngestionService {
     return results;
   }
 
-  private static List<ExtractedCandidate> bounded(Semaphore gate,
-                                                  java.util.concurrent.Callable<List<ExtractedCandidate>> task)
-    throws Exception {
+  private static List<ExtractedCandidate> bounded(Semaphore gate, Callable<List<ExtractedCandidate>> task) throws Exception {
     gate.acquire();
     try {
       return task.call();
@@ -226,12 +308,12 @@ public class IngestionService {
    */
   private static List<ExtractedCandidate> mergeCandidates(List<ExtractedCandidate> candidates) {
     Map<String, ExtractedCandidate> byContent = new LinkedHashMap<>();
-    for (ExtractedCandidate c : candidates) {
-      if (c == null || c.content() == null || c.content().isBlank()) {
+    for (ExtractedCandidate candidate : candidates) {
+      if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
         continue;
       }
-      String key = c.content().strip().toLowerCase(Locale.ROOT);
-      byContent.putIfAbsent(key, c);
+      String key = candidate.content().strip().toLowerCase(Locale.ROOT);
+      byContent.putIfAbsent(key, candidate);
     }
     return new ArrayList<>(byContent.values());
   }

@@ -17,7 +17,7 @@ class ChunkerTests {
     PieriaProperties props = new PieriaProperties(
       new PieriaProperties.Daemon("127.0.0.1", 8077),
       new PieriaProperties.Db(":memory:"),
-      new PieriaProperties.Ollama("http://localhost:11434"),
+      new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
       new PieriaProperties.Model("small", "large", "embed", 1024),
       new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000),
       null);

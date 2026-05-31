@@ -1,0 +1,4 @@
+# Translates pieria.provider.type=azure into the Spring AI Microsoft Foundry switches
+# before the OpenAI autoconfiguration binds. See ProviderEnvironmentPostProcessor.
+org.springframework.boot.EnvironmentPostProcessor=\
+dev.alvo.pieria.config.ProviderEnvironmentPostProcessor

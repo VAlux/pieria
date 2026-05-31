@@ -1,9 +1,9 @@
 package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.response.StatusResponse;
-import dev.alvo.pieria.config.FirstRunService;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.StorageProperties;
+import dev.alvo.pieria.setup.BootstrapService;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,16 +19,16 @@ import java.util.OptionalLong;
 @RequestMapping("/pieria-status")
 public class StatusController {
 
-  private final FirstRunService firstRunService;
+  private final BootstrapService setupService;
   private final StorageProperties storage;
   private final PieriaProperties pieria;
   private final MemoryStore store;
 
-  public StatusController(FirstRunService firstRunService,
+  public StatusController(BootstrapService setupService,
                           StorageProperties storage,
                           PieriaProperties pieria,
                           MemoryStore store) {
-    this.firstRunService = firstRunService;
+    this.setupService = setupService;
     this.storage = storage;
     this.pieria = pieria;
     this.store = store;
@@ -36,7 +36,7 @@ public class StatusController {
 
   @GetMapping
   public StatusResponse status() {
-    FirstRunService.SetupState state = firstRunService.setupState();
+    BootstrapService.SetupState state = setupService.setupState();
     PieriaProperties.Model model = pieria.model();
     OptionalLong outboxDepth = outboxDepth();
 
@@ -44,7 +44,7 @@ public class StatusController {
       state.directoriesReady() && state.databaseParentReady() ? "ready" : "initializing",
       state.paths().databaseFile().toString(),
       storage.backend(),
-      "ollama",
+      pieria.provider().name(),
       model.extractionModel(),
       model.synthesisModel(),
       model.embedding(),

@@ -97,7 +97,7 @@ public final class InitCommand implements Callable<Integer> {
       }
       case IngestClient.ModelUnavailable ignored -> {
         System.err.println("The daemon is up but its model provider is unavailable.");
-        System.err.println("Start your local model runtime (e.g. Ollama) and re-run 'pieria init'.");
+        System.err.println("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria init'.");
         yield 4;
       }
       case IngestClient.DaemonDown ignored -> daemonDown(url);

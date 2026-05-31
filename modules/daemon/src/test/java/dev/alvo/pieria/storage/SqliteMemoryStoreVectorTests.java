@@ -122,7 +122,7 @@ class SqliteMemoryStoreVectorTests {
       return new PieriaProperties(
         new PieriaProperties.Daemon("127.0.0.1", 8077),
         new PieriaProperties.Db("ignored"),
-        new PieriaProperties.Ollama("http://localhost:11434"),
+        new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
         new PieriaProperties.Model("small", "large", "embed", dimension),
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, true, 5000),
         new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));

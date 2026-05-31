@@ -4,9 +4,9 @@ import dev.alvo.pieria.api.controller.StatusController;
 import dev.alvo.pieria.config.AppDataPathResolver;
 import dev.alvo.pieria.config.AppDataProperties;
 import dev.alvo.pieria.config.FirstRunProperties;
-import dev.alvo.pieria.config.FirstRunService;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.StorageProperties;
+import dev.alvo.pieria.setup.BootstrapService;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +41,7 @@ class StatusControllerTests {
       .andExpect(jsonPath("$.status", is("ready")))
       .andExpect(jsonPath("$.databasePath", endsWith("pieria.db")))
       .andExpect(jsonPath("$.backend", is("sqlite")))
-      .andExpect(jsonPath("$.modelProvider", is("ollama")))
+      .andExpect(jsonPath("$.modelProvider", is("test-provider")))
       .andExpect(jsonPath("$.extractionModel", is("small")))
       .andExpect(jsonPath("$.synthesisModel", is("large")))
       .andExpect(jsonPath("$.embeddingModel", is("embed")))
@@ -59,7 +59,7 @@ class StatusControllerTests {
     private final PieriaProperties pieria = new PieriaProperties(
       new PieriaProperties.Daemon("127.0.0.1", 8077),
       new PieriaProperties.Db(root.resolve("db").resolve("pieria.db").toString()),
-      new PieriaProperties.Ollama("http://localhost:11434"),
+      new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
       new PieriaProperties.Model("small", "large", "embed", 1024),
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
       new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));
@@ -80,13 +80,13 @@ class StatusControllerTests {
     }
 
     @Bean
-    FirstRunService firstRunService() {
+    BootstrapService localSetupService() {
       AppDataPathResolver resolver = new AppDataPathResolver(
         new AppDataProperties(root.toString(), root.resolve("db").toString(),
           root.resolve("config").toString(), root.resolve("logs").toString(),
           root.resolve("run").toString()),
         pieria);
-      FirstRunService service = new FirstRunService(resolver,
+      BootstrapService service = new BootstrapService(resolver,
         new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.NEVER),
         new StorageProperties("sqlite"), pieria, new StubModelGateway());
       service.initialize();

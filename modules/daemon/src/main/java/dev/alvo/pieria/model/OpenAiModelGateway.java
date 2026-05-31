@@ -42,22 +42,23 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Spring AI / Ollama implementation of {@link ModelGateway}. Uses the small chat client for
- * extraction (structured output) and the large chat client for synthesis. Any
- * failure reaching the provider is wrapped in {@link ModelUnavailableException} with a generic
- * message so provider hosts/secrets never leak to callers.
+ * Spring AI implementation of {@link ModelGateway} against any OpenAI-compatible provider
+ * (Ollama, LM Studio, llama.cpp, vLLM, OpenRouter, OpenAI, …) configured via {@code pieria.provider.*}.
+ * Uses the small chat client for extraction (structured output) and the large chat client for
+ * synthesis. Any failure reaching the provider is wrapped in {@link ModelUnavailableException} with a
+ * generic message so provider hosts/secrets never leak to callers.
  */
 @Component
-public class OllamaModelGateway implements ModelGateway {
+public class OpenAiModelGateway implements ModelGateway {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(OllamaModelGateway.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(OpenAiModelGateway.class);
 
   private final ChatClient extractionChatClient;
   private final ChatClient synthesisChatClient;
   private final EmbeddingModel embeddingModel;
   private final PieriaProperties properties;
 
-  public OllamaModelGateway(@Qualifier("extractionChatClient") ChatClient extractionChatClient,
+  public OpenAiModelGateway(@Qualifier("extractionChatClient") ChatClient extractionChatClient,
                             @Qualifier("synthesisChatClient") ChatClient synthesisChatClient,
                             EmbeddingModel embeddingModel,
                             PieriaProperties properties) {
@@ -636,8 +637,8 @@ public class OllamaModelGateway implements ModelGateway {
 
   /**
    * Log embedding token usage when the provider reports it; skip silently otherwise. Null-safe at
-   * every level. Some providers (Ollama included) do not surface embedding usage, so a zero/absent
-   * usage is expected and simply skipped.
+   * every level. Some providers (Ollama included) do not surface embedding usage over the
+   * OpenAI-compatible API, so a zero/absent usage is expected and simply skipped.
    */
   private static void logEmbeddingUsage(EmbeddingResponse response) {
     if (response == null) {
@@ -657,14 +658,14 @@ public class OllamaModelGateway implements ModelGateway {
   }
 
   /**
-   * Cheap reachability probe: HTTP GET to the Ollama base URL with a short timeout.
-   * Returns {@code true} on a 2xx/4xx response (server is up, regardless of model state);
+   * Cheap reachability probe: HTTP GET to the provider base URL with a short timeout.
+   * Returns {@code true} on any HTTP response (server is up, regardless of model state);
    * {@code false} on any IO failure. Never invokes a model or generates tokens.
    * The provider base URL is never echoed in the health response.
    */
   @Override
   public boolean isModelProviderReachable() {
-    String baseUrl = properties.ollama().baseUrl();
+    String baseUrl = properties.provider().baseUrl();
     if (baseUrl == null || baseUrl.isBlank()) {
       return false;
     }
@@ -684,22 +685,34 @@ public class OllamaModelGateway implements ModelGateway {
   }
 
   /**
-   * Query Ollama's {@code GET /api/tags} and return the set of locally-available model names.
-   * Read-only: never invokes a model or generates tokens. Returns an empty set on any IO/parse
-   * failure and never throws, so first-run guidance degrades gracefully when the provider is down.
-   * Model names are returned verbatim (e.g. {@code "llama3.2:3b"}).
+   * Query the provider's OpenAI-compatible {@code GET /v1/models} endpoint and return the set of
+   * available model names (the {@code data[].id} values). Read-only: never invokes a model or
+   * generates tokens. Returns an empty set on any IO/parse failure and never throws, so first-run
+   * guidance degrades gracefully when the provider is down. Model names are returned verbatim
+   * (e.g. {@code "llama3.2:3b"}, {@code "gpt-4o"}).
+   *
+   * <p>Azure OpenAI does not expose models at {@code /v1/models} (it lists <em>deployments</em> at a
+   * different, api-version'd path), so in {@code azure} mode this returns an empty set and skips the
+   * probe. First-run guidance is log-only, so an empty set degrades gracefully.
    */
   @Override
   public Set<String> availableModels() {
-    String baseUrl = properties.ollama().baseUrl();
+    if (properties.provider().isAzure()) {
+      return Set.of();
+    }
+    String baseUrl = properties.provider().baseUrl();
     if (baseUrl == null || baseUrl.isBlank()) {
       return Set.of();
     }
-    String tagsUrl = baseUrl.replaceAll("/+$", "") + "/api/tags";
+    String modelsUrl = baseUrl.replaceAll("/+$", "") + "/v1/models";
     HttpURLConnection conn = null;
     try {
-      conn = (HttpURLConnection) URI.create(tagsUrl).toURL().openConnection();
+      conn = (HttpURLConnection) URI.create(modelsUrl).toURL().openConnection();
       conn.setRequestMethod("GET");
+      String apiKey = properties.provider().apiKey();
+      if (apiKey != null && !apiKey.isBlank()) {
+        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+      }
       conn.setConnectTimeout(2000);
       conn.setReadTimeout(2000);
       conn.setInstanceFollowRedirects(false);
@@ -710,12 +723,12 @@ public class OllamaModelGateway implements ModelGateway {
       LinkedHashSet<String> names = new LinkedHashSet<>();
       try (InputStream in = conn.getInputStream()) {
         JsonNode root = objectMapper.readTree(in);
-        JsonNode models = root.get("models");
+        JsonNode models = root.get("data");
         if (models != null && models.isArray()) {
           for (JsonNode model : models) {
-            JsonNode name = model.get("name");
-            if (name != null && !name.asString().isBlank()) {
-              names.add(name.asString().strip());
+            JsonNode id = model.get("id");
+            if (id != null && !id.asString().isBlank()) {
+              names.add(id.asString().strip());
             }
           }
         }

@@ -3,6 +3,8 @@ package dev.alvo.pieria.cli.command.daemon;
 import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.cli.modules.daemon.StartupSummary;
+import dev.alvo.pieria.cli.modules.harness.PathResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -97,6 +99,7 @@ public final class DaemonStartCommand implements Callable<Integer> {
     while (System.nanoTime() < deadline) {
       if (client.ping() == DaemonClient.Reachability.OK) {
         System.out.printf("Pieria daemon is up at %s.%n", url);
+        System.out.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
         return 0;
       }
       try {

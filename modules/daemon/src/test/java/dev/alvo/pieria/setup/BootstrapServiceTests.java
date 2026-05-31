@@ -1,5 +1,10 @@
-package dev.alvo.pieria.config;
+package dev.alvo.pieria.setup;
 
+import dev.alvo.pieria.config.AppDataPathResolver;
+import dev.alvo.pieria.config.AppDataProperties;
+import dev.alvo.pieria.config.FirstRunProperties;
+import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.StorageProperties;
 import dev.alvo.pieria.domain.Memory;
 import dev.alvo.pieria.domain.Message;
 import dev.alvo.pieria.domain.RecallCandidate;
@@ -10,11 +15,10 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class FirstRunServiceTests {
+class BootstrapServiceTests {
 
   @TempDir
   Path tempDir;
@@ -28,12 +32,12 @@ class FirstRunServiceTests {
         root.resolve("config").toString(), root.resolve("logs").toString(),
         root.resolve("run").toString()),
       pieria);
-    FirstRunService service = new FirstRunService(resolver,
+    BootstrapService service = new BootstrapService(resolver,
       new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.NEVER),
       new StorageProperties("sqlite"), pieria, new NoopModelGateway());
 
-    FirstRunService.SetupState first = service.initialize();
-    FirstRunService.SetupState second = service.initialize();
+    BootstrapService.SetupState first = service.initialize();
+    BootstrapService.SetupState second = service.initialize();
 
     assertThat(first.directoriesReady()).isTrue();
     assertThat(first.databaseParentReady()).isTrue();
@@ -47,64 +51,7 @@ class FirstRunServiceTests {
   }
 
   @Test
-  void pullCommandsNeverPolicyProducesNoCommands() {
-    FirstRunService service = serviceWith(
-      new FirstRunProperties(true, true, FirstRunProperties.ModelPullPolicy.NEVER),
-      new NoopModelGateway());
-
-    assertThat(service.pullCommands(Set.of())).isEmpty();
-  }
-
-  @Test
-  void pullCommandsIfMissingListsOnlyMissingModels() {
-    FirstRunService service = serviceWith(
-      new FirstRunProperties(true, true, FirstRunProperties.ModelPullPolicy.IF_MISSING),
-      new NoopModelGateway());
-
-    // "small" is available; "large" and "embed" are missing.
-    List<String> commands = service.pullCommands(Set.of("small"));
-
-    assertThat(commands).containsExactly("ollama pull large", "ollama pull embed");
-  }
-
-  @Test
-  void pullCommandsAlwaysListsEveryConfiguredModel() {
-    FirstRunService service = serviceWith(
-      new FirstRunProperties(true, true, FirstRunProperties.ModelPullPolicy.ALWAYS),
-      new NoopModelGateway());
-
-    List<String> commands = service.pullCommands(Set.of("small", "large", "embed"));
-
-    assertThat(commands).containsExactly("ollama pull small", "ollama pull large", "ollama pull embed");
-  }
-
-  @Test
-  void pullCommandsEmptyWhenModelChecksDisabled() {
-    FirstRunService service = serviceWith(
-      new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.IF_MISSING),
-      new NoopModelGateway());
-
-    assertThat(service.pullCommands(Set.of())).isEmpty();
-  }
-
-  @Test
-  void startupSummaryIsIdempotentAndDescribesDaemonProfilesAndGateway() {
-    FirstRunService service = serviceWith(
-      new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.NEVER),
-      new NoopModelGateway());
-    FirstRunService.SetupState state = service.initialize();
-
-    String first = service.buildStartupSummary(state);
-    String second = service.buildStartupSummary(state);
-
-    assertThat(first).isEqualTo(second);
-    assertThat(first).contains("http://127.0.0.1:8077");
-    assertThat(first).contains("PIERIA_PROFILE");
-    assertThat(first).contains("pieria-gateway");
-    assertThat(first).contains("PIERIA_DAEMON_URL");
-  }
-
-  private FirstRunService serviceWith(FirstRunProperties firstRun, ModelGateway gateway) {
+  void setupStateReportsSkippedModelStatusWhenChecksDisabled() {
     Path root = tempDir.resolve("pieria");
     PieriaProperties pieria = properties(root.resolve("db").resolve("pieria.db"));
     AppDataPathResolver resolver = new AppDataPathResolver(
@@ -112,14 +59,20 @@ class FirstRunServiceTests {
         root.resolve("config").toString(), root.resolve("logs").toString(),
         root.resolve("run").toString()),
       pieria);
-    return new FirstRunService(resolver, firstRun, new StorageProperties("sqlite"), pieria, gateway);
+    BootstrapService service = new BootstrapService(resolver,
+      new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.NEVER),
+      new StorageProperties("sqlite"), pieria, new NoopModelGateway());
+
+    service.initialize();
+
+    assertThat(service.setupState().modelStatus()).isEqualTo("skipped");
   }
 
   private static PieriaProperties properties(Path dbPath) {
     return new PieriaProperties(
       new PieriaProperties.Daemon("127.0.0.1", 8077),
       new PieriaProperties.Db(dbPath.toString()),
-      new PieriaProperties.Ollama("http://localhost:11434"),
+      new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
       new PieriaProperties.Model("small", "large", "embed", 1024),
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
       new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));
