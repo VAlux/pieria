@@ -1,16 +1,16 @@
 package dev.alvo.pieria.evaluation;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.TemporalFact;
-import dev.alvo.pieria.domain.VerificationResult;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer;
 
@@ -68,7 +68,7 @@ final class DeterministicBenchmarkGateway implements ModelGateway {
 	public QueryAnalysis analyzeQuery(String query) {
 		QueryAnalysis fallback = analyzer.analyze(query);
 		String hyde = query == null || query.isBlank() ? null : "answer: " + query.strip();
-		return new QueryAnalysis(fallback.topicKeys(), fallback.ftsTerms(), hyde);
+		return new QueryAnalysis(fallback.topicKeys(), fallback.ftsTerms(), fallback.entities(), hyde);
 	}
 
 	@Override

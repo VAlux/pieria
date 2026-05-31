@@ -1,4 +1,6 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.ingestion.model;
+
+import dev.alvo.pieria.domain.memory.MemoryType;
 
 /**
  * A raw candidate memory emitted by an extraction pass, before verification and

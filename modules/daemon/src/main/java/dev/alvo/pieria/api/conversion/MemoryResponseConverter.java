@@ -1,7 +1,7 @@
 package dev.alvo.pieria.api.conversion;
 
 import dev.alvo.pieria.api.response.MemoryResponse;
-import dev.alvo.pieria.domain.Memory;
+import dev.alvo.pieria.domain.memory.Memory;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.stereotype.Component;
 

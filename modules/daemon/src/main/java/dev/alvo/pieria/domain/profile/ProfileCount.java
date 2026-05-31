@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.domain.profile;
 
 /**
  * A profile paired with the number of active (non-superseded) memories it holds.

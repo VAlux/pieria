@@ -1,4 +1,6 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.retrieval.model;
+
+import dev.alvo.pieria.domain.memory.Memory;
 
 /**
  * A retrieval hit handed to synthesis. {@code score} carries the channel/fusion strength.

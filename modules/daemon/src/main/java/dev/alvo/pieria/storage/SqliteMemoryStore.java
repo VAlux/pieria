@@ -3,15 +3,18 @@ package dev.alvo.pieria.storage;
 import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ContentId;
+import dev.alvo.pieria.domain.graph.Edge;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.OutboxEntry;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.ProfileCount;
-import dev.alvo.pieria.domain.ProfileStats;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
+import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +30,9 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -292,7 +297,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   @Transactional
-  public StoreOutcome store(String profileId, Memory memory) {
+  public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
     String supersededId = null;
 
     String id = memory.id() != null
@@ -341,6 +346,10 @@ public class SqliteMemoryStore implements MemoryStore {
       memory.createdAt());
 
     Memory stored = insertMemory(profileId, toInsert);
+
+    // Persist the extracted graph in the same transaction, tagging each edge with this memory's id
+    // as provenance. The fragment is empty for the two-arg store path and for TASK memories.
+    persistGraph(profileId, stored.id(), graph);
 
     boolean enqueuedVector = false;
     if (memory.type() != MemoryType.TASK) {
@@ -763,5 +772,243 @@ public class SqliteMemoryStore implements MemoryStore {
       count++;
     }
     return count;
+  }
+
+  // ---- entity-relation graph ----
+
+  private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
+
+  private static Entity mapEntity(ResultSet rs) throws SQLException {
+    return new Entity(
+      rs.getString("id"),
+      rs.getString("profile_id"),
+      rs.getString("type"),
+      rs.getString("name"),
+      rs.getString("payload"),
+      Instant.parse(rs.getString("created_at")));
+  }
+
+  /**
+   * Persist a fragment's entities and edges within the caller's ({@link #store}) transaction. Nodes
+   * are upserted first so every edge endpoint exists; edges are tagged with {@code memoryId}.
+   */
+  private void persistGraph(String profileId, String memoryId, GraphFragment graph) {
+    if (graph == null || graph.isEmpty()) {
+      return;
+    }
+    for (Entity e : graph.allEntities()) {
+      if (e.name() == null || e.name().isBlank() || e.type() == null || e.type().isBlank()) {
+        continue;
+      }
+      upsertEntity(profileId, Entity.of(e.type(), e.name(), e.payload()));
+    }
+    for (GraphFragment.EdgeTriple t : graph.triples()) {
+      if (t.relation() == null || t.relation().isBlank()
+        || t.sourceName() == null || t.sourceName().isBlank()
+        || t.targetName() == null || t.targetName().isBlank()) {
+        continue;
+      }
+      String sourceId = ContentId.forEntity(profileId, t.sourceType(), t.sourceName());
+      String targetId = ContentId.forEntity(profileId, t.targetType(), t.targetName());
+      upsertEdge(profileId, new Edge(null, profileId, sourceId, targetId, t.relation(), memoryId, null));
+    }
+  }
+
+  @Override
+  @Transactional
+  public Entity upsertEntity(String profileId, Entity entity) {
+    String id = entity.id() != null
+      ? entity.id()
+      : ContentId.forEntity(profileId, entity.type(), entity.name());
+    Instant createdAt = entity.createdAt() == null ? Instant.now() : entity.createdAt();
+    String payload = entity.payload() == null ? "{}" : entity.payload();
+
+    jdbc.sql("""
+        INSERT OR IGNORE INTO entities (id, profile_id, type, name, payload, created_at) \
+        VALUES (?, ?, ?, ?, ?, ?)""")
+      .params(id, profileId, entity.type(), entity.name(), payload, createdAt.toString())
+      .update();
+
+    return new Entity(id, profileId, entity.type(), entity.name(), payload, createdAt);
+  }
+
+  @Override
+  @Transactional
+  public Edge upsertEdge(String profileId, Edge edge) {
+    String id = edge.id() != null
+      ? edge.id()
+      : ContentId.forEdge(profileId, edge.sourceEntityId(), edge.relation(), edge.targetEntityId(), edge.memoryId());
+    Instant createdAt = edge.createdAt() == null ? Instant.now() : edge.createdAt();
+
+    jdbc.sql("""
+        INSERT OR IGNORE INTO edges \
+        (id, profile_id, source_entity_id, target_entity_id, relation, memory_id, created_at) \
+        VALUES (?, ?, ?, ?, ?, ?, ?)""")
+      .params(id, profileId, edge.sourceEntityId(), edge.targetEntityId(), edge.relation(),
+        edge.memoryId(), createdAt.toString())
+      .update();
+
+    return new Edge(id, profileId, edge.sourceEntityId(), edge.targetEntityId(), edge.relation(),
+      edge.memoryId(), createdAt);
+  }
+
+  @Override
+  public List<Entity> findEntitiesByName(String profileId, List<String> names, int limit) {
+    if (names == null || names.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<String> distinct = names.stream()
+      .filter(n -> n != null && !n.isBlank())
+      .distinct()
+      .toList();
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(limit);
+    return jdbc.sql("SELECT " + ENTITY_COLUMNS + " FROM entities "
+        + "WHERE profile_id = ? AND name IN (" + placeholders + ") ORDER BY name LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapEntity(rs))
+      .list();
+  }
+
+  @Override
+  public List<Entity> entitiesForMemories(String profileId, List<String> memoryIds, int limit) {
+    if (memoryIds == null || memoryIds.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<String> distinct = memoryIds.stream().filter(Objects::nonNull).distinct().toList();
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(limit);
+    // Entities on either end of an edge whose source memory is active and is one of memoryIds.
+    return jdbc.sql("SELECT DISTINCT en.id, en.profile_id, en.type, en.name, en.payload, en.created_at "
+        + "FROM entities en "
+        + "JOIN edges e ON (e.source_entity_id = en.id OR e.target_entity_id = en.id) "
+        + "JOIN memories m ON m.id = e.memory_id "
+        + "WHERE en.profile_id = ? AND m.superseded = 0 "
+        + "AND e.memory_id IN (" + placeholders + ") "
+        + "ORDER BY en.name LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapEntity(rs))
+      .list();
+  }
+
+  @Override
+  public List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
+    if (seedEntityIds == null || seedEntityIds.isEmpty()) {
+      return List.of();
+    }
+    LinkedHashSet<String> visited = new LinkedHashSet<>();
+    List<String> frontier = new ArrayList<>();
+    for (String s : seedEntityIds) {
+      if (s != null && !s.isBlank() && visited.add(s)) {
+        frontier.add(s);
+      }
+    }
+    int hops = Math.max(0, depth);
+    for (int d = 0; d < hops && !frontier.isEmpty(); d++) {
+      List<String> next = activeNeighbors(profileId, frontier, fanout);
+      List<String> newFrontier = new ArrayList<>();
+      for (String n : next) {
+        if (visited.add(n)) {
+          newFrontier.add(n);
+        }
+      }
+      frontier = newFrontier;
+    }
+    return List.copyOf(visited);
+  }
+
+  /**
+   * One hop out from {@code frontier} over active edges (both directions), most-recent first,
+   * bounded by {@code fanout}. Returns distinct neighbor entity ids in that order.
+   */
+  private List<String> activeNeighbors(String profileId, List<String> frontier, int fanout) {
+    if (frontier.isEmpty() || fanout <= 0) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", frontier.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(frontier);
+    params.add(profileId);
+    params.addAll(frontier);
+    params.add(fanout);
+    List<String> rows = jdbc.sql("SELECT neighbor FROM ( "
+        + "  SELECT e.target_entity_id AS neighbor, e.created_at AS ca FROM edges e "
+        + "    JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.source_entity_id IN (" + placeholders + ") "
+        + "  UNION ALL "
+        + "  SELECT e.source_entity_id AS neighbor, e.created_at AS ca FROM edges e "
+        + "    JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.target_entity_id IN (" + placeholders + ") "
+        + ") ORDER BY ca DESC, neighbor ASC LIMIT ?")
+      .params(params)
+      .query(String.class)
+      .list();
+    LinkedHashSet<String> distinct = new LinkedHashSet<>(rows);
+    return List.copyOf(distinct);
+  }
+
+  @Override
+  public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+    if (entityIds == null || entityIds.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<String> distinct = entityIds.stream()
+      .filter(e -> e != null && !e.isBlank())
+      .distinct()
+      .toList();
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(profileId);
+    params.addAll(distinct);
+    // Active memories touched by an edge incident to any of the entities, with the touching entity
+    // id so we can rank by proximity (earliest-listed entity) then recency in Java.
+    record Row(Memory memory, String entityId) {
+    }
+    List<Row> rows = jdbc.sql("SELECT m.id, m.session_id, m.type, m.content, m.topic_key, "
+        + "m.supersedes, m.superseded, m.payload, m.embed_text, m.created_at, x.eid AS eid FROM ( "
+        + "  SELECT e.memory_id AS mid, e.source_entity_id AS eid FROM edges e "
+        + "    WHERE e.profile_id = ? AND e.source_entity_id IN (" + placeholders + ") "
+        + "  UNION "
+        + "  SELECT e.memory_id AS mid, e.target_entity_id AS eid FROM edges e "
+        + "    WHERE e.profile_id = ? AND e.target_entity_id IN (" + placeholders + ") "
+        + ") x JOIN memories m ON m.id = x.mid WHERE m.superseded = 0")
+      .params(params)
+      .query((rs, _) -> new Row(mapMemory(rs), rs.getString("eid")))
+      .list();
+
+    Map<String, Memory> byId = new LinkedHashMap<>();
+    Map<String, Integer> bestIndex = new HashMap<>();
+    for (Row row : rows) {
+      int idx = distinct.indexOf(row.entityId());
+      int proximity = idx < 0 ? Integer.MAX_VALUE : idx;
+      byId.putIfAbsent(row.memory().id(), row.memory());
+      bestIndex.merge(row.memory().id(), proximity, Math::min);
+    }
+
+    List<Memory> ordered = new ArrayList<>(byId.values());
+    ordered.sort(Comparator
+      .comparingInt((Memory m) -> bestIndex.getOrDefault(m.id(), Integer.MAX_VALUE))
+      .thenComparing(Memory::createdAt, Comparator.reverseOrder())
+      .thenComparing(Memory::id));
+
+    return ordered.size() > limit ? new ArrayList<>(ordered.subList(0, limit)) : ordered;
   }
 }

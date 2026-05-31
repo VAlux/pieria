@@ -83,6 +83,11 @@ public record PieriaProperties(
    * @param weightHydeVector   fusion weight for the HyDE vector channel
    * @param weightDirectVector fusion weight for the direct vector channel
    * @param weightFtsMessage   fusion weight for the raw-message FTS safety-net channel (lowest)
+   * @param weightGraph        fusion weight for the graph channel (0 disables it); a primary-tier
+   *                           signal below exact-key, comparable to FTS/vector, tunable in eval
+   * @param graphDepth         graph neighborhood expansion depth in hops (second wave)
+   * @param graphFanout        max newly-discovered entities per hop during graph expansion
+   * @param graphSeedLimit     max seed entities taken from query entities and from wave-1 candidates
    * @param channelLimit       max hits each channel returns before fusion
    * @param channelTimeoutMs   per-channel timeout in milliseconds for the parallel fan-out
    */
@@ -93,6 +98,10 @@ public record PieriaProperties(
                           @DefaultValue("1.0") double weightHydeVector,
                           @DefaultValue("1.0") double weightDirectVector,
                           @DefaultValue("0.5") double weightFtsMessage,
+                          @DefaultValue("1.0") double weightGraph,
+                          @DefaultValue("2") int graphDepth,
+                          @DefaultValue("20") int graphFanout,
+                          @DefaultValue("8") int graphSeedLimit,
                           @DefaultValue("10") int channelLimit,
                           @DefaultValue("3000") long channelTimeoutMs) {
   }

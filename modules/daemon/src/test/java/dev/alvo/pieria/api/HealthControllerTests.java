@@ -2,9 +2,9 @@ package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.api.controller.HealthController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.model.ModelGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

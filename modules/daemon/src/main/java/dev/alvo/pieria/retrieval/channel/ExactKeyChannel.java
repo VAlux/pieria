@@ -1,14 +1,16 @@
 package dev.alvo.pieria.retrieval.channel;
 
-import dev.alvo.pieria.domain.RetrievalCandidate;
-import dev.alvo.pieria.domain.RetrievalChannelType;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.retrieval.RetrievalChannel;
 import dev.alvo.pieria.retrieval.RetrievalContext;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.util.List;
 
-/** Exact fact-key lookup: the query's ranked topic keys mapped to known {@code topic_key}s. */
+/**
+ * Exact fact-key lookup: the query's ranked topic keys mapped to known {@code topic_key}s.
+ */
 public final class ExactKeyChannel implements RetrievalChannel {
 
   private final MemoryStore store;

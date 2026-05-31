@@ -3,8 +3,8 @@ package dev.alvo.pieria.ingestion;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Ingestion;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.OutboxEntry;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.slf4j.Logger;

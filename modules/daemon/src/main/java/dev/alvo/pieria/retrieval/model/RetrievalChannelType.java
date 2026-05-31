@@ -1,7 +1,7 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.retrieval.model;
 
 /**
- * The five parallel retrieval channels fused by RRF. Channel identity is carried on
+ * The parallel retrieval channels fused by RRF. Channel identity is carried on
  * every {@link RetrievalCandidate} so fusion can apply per-channel weights and diagnostics can
  * report per-channel hits.
  */
@@ -15,5 +15,7 @@ public enum RetrievalChannelType {
   /** Vector similarity using the embedded raw query. */
   DIRECT_VECTOR,
   /** Vector similarity using the embedded HyDE hypothetical answer. */
-  HYDE_VECTOR
+  HYDE_VECTOR,
+  /** Entity-relation graph traversal seeded from query + wave-1 candidates (second wave). */
+  GRAPH
 }

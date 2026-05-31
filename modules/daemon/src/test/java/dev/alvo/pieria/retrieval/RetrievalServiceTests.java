@@ -1,14 +1,17 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.NotFoundException;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.graph.Entity;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
+import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
-import dev.alvo.pieria.domain.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +37,7 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000);
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000);
   }
 
   private static PieriaProperties props() {
@@ -154,10 +157,45 @@ class RetrievalServiceTests {
 
     RecallResult debug = service(store, new FakeModelGateway()).recall("p", "tea", 10, true);
     assertThat(debug.diagnostics()).isNotNull();
-    assertThat(debug.diagnostics().channels()).hasSize(5); // one per channel
+    assertThat(debug.diagnostics().channels()).hasSize(6); // five primary channels + graph wave
 
     RecallResult concise = service(store, new FakeModelGateway()).recall("p", "tea", 10, false);
     assertThat(concise.diagnostics()).isNull();
+  }
+
+  @Test
+  void graphWaveSurfacesConnectedMemoryThroughFusion() {
+    // FTS finds "we use redis"; the graph wave, seeded from the query entity "redis", surfaces a
+    // connected memory that no other channel matched.
+    Memory ftsHit = mem("m1", "we use redis", MemoryType.FACT, null, T0);
+    Memory graphHit = mem("g1", "redis runs on the staging cluster", MemoryType.FACT, null, T0.plusSeconds(5));
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(ftsHit);
+    store.graphSeedEntities = List.of(new Entity("e-redis", "prof-1", "concept", "redis", "{}", T0));
+    store.graphMemories = List.of(graphHit);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "redis", 10, false);
+
+    assertThat(result.candidates()).extracting(rc -> rc.memory().id()).contains("g1");
+    RecallCandidate g = result.candidates().stream()
+      .filter(c -> c.memory().id().equals("g1")).findFirst().orElseThrow();
+    assertThat(g.source()).contains("graph");
+  }
+
+  @Test
+  void graphWaveFailureYieldsPartialResultsWithoutFailingRecall() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(mem("m1", "a fact", MemoryType.FACT, null, T0));
+    store.graphError = new RuntimeException("graph store down");
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "tea", 10, true);
+
+    // The graph channel is non-critical: recall still returns the FTS hit; graph is marked failed.
+    assertThat(result.candidates()).extracting(rc -> rc.memory().id()).containsExactly("m1");
+    assertThat(result.diagnostics().channels()).anySatisfy(d -> {
+      assertThat(d.channel()).isEqualTo(RetrievalChannelType.GRAPH);
+      assertThat(d.failed()).isTrue();
+    });
   }
 
   @Test
@@ -180,6 +218,11 @@ class RetrievalServiceTests {
     RuntimeException vectorError;
     int vectorSearchCalls;
     int exactKeyCalls;
+    // Graph wave: empty by default so the graph channel runs cleanly (0 hits, not failed).
+    List<Entity> graphSeedEntities = List.of();
+    List<Memory> graphMemories = List.of();
+    RuntimeException graphError;
+    int graphCalls;
 
     @Override
     public Optional<Profile> findProfile(String name) {
@@ -219,9 +262,33 @@ class RetrievalServiceTests {
       return vectorHits;
     }
 
+    @Override
+    public List<Entity> findEntitiesByName(String profileId, List<String> names, int limit) {
+      graphCalls++;
+      if (graphError != null) {
+        throw graphError;
+      }
+      return graphSeedEntities;
+    }
+
+    @Override
+    public List<Entity> entitiesForMemories(String profileId, List<String> memoryIds, int limit) {
+      return List.of();
+    }
+
+    @Override
+    public List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
+      return seedEntityIds; // identity expansion: keep the test focused on fusion, not traversal
+    }
+
+    @Override
+    public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+      return graphMemories;
+    }
+
     // --- unused write/admin surface for the read-path tests ---
     @Override public Profile getOrCreateProfile(String name) { throw new UnsupportedOperationException(); }
-    @Override public void insertMessages(String p, String s, List<dev.alvo.pieria.domain.Message> m) { }
+    @Override public void insertMessages(String p, String s, List<Message> m) { }
     @Override public Memory insertMemory(String p, Memory m) { throw new UnsupportedOperationException(); }
     @Override public List<Memory> listMemories(String p, MemoryType t, String s) { return List.of(); }
     @Override public boolean forgetMemory(String p, String id) { return false; }

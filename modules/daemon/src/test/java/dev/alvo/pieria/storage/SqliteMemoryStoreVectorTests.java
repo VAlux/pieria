@@ -3,9 +3,9 @@ package dev.alvo.pieria.storage;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -125,7 +125,7 @@ class SqliteMemoryStoreVectorTests {
         new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
         new PieriaProperties.Model("small", "large", "embed", dimension),
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, true, 5000),
-        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));
+        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000));
     } catch (Throwable t) {
       throw new IllegalStateException("PieriaProperties shape changed; update this test", t);
     }

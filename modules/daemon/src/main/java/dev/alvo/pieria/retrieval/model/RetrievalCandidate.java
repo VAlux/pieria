@@ -1,4 +1,6 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.retrieval.model;
+
+import dev.alvo.pieria.domain.memory.Memory;
 
 /**
  * One hit produced by a single retrieval channel before fusion. Carries the

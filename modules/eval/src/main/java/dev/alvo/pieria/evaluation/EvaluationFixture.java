@@ -1,7 +1,7 @@
 package dev.alvo.pieria.evaluation;
 
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
 
 import java.util.List;
 import java.util.Locale;

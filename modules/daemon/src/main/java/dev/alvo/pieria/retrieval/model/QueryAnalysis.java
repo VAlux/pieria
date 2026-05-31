@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.retrieval.model;
 
 import java.util.List;
 
@@ -8,6 +8,7 @@ import java.util.List;
  * <ul>
  *   <li>{@code topicKeys} — ranked normalized keys for the exact fact-key channel.</li>
  *   <li>{@code ftsTerms} — keyword/synonym terms for the FTS channels (already expanded).</li>
+ *   <li>{@code entities} — entity names mentioned in the query, seeding the graph channel.</li>
  *   <li>{@code hydeStatement} — a hypothetical declarative answer for the HyDE vector channel.</li>
  * </ul>
  * Produced either by the model ({@code ModelGateway.analyzeQuery}) or, when the model is
@@ -15,15 +16,18 @@ import java.util.List;
  *
  * @param topicKeys     ranked candidate topic keys (may be empty)
  * @param ftsTerms      FTS keyword terms including synonyms (may be empty)
+ * @param entities      entity names named in the query for graph seeding (may be empty)
  * @param hydeStatement hypothetical declarative answer, or {@code null} when not generated
  */
 public record QueryAnalysis(
   List<String> topicKeys,
   List<String> ftsTerms,
+  List<String> entities,
   String hydeStatement) {
 
   public QueryAnalysis {
     topicKeys = topicKeys == null ? List.of() : List.copyOf(topicKeys);
     ftsTerms = ftsTerms == null ? List.of() : List.copyOf(ftsTerms);
+    entities = entities == null ? List.of() : List.copyOf(entities);
   }
 }

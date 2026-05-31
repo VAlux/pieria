@@ -3,21 +3,23 @@ package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.NotFoundException;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.RetrievalCandidate;
-import dev.alvo.pieria.domain.RetrievalChannelType;
-import dev.alvo.pieria.domain.TemporalFact;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.ChannelDiagnostics;
 import dev.alvo.pieria.retrieval.channel.DirectVectorChannel;
 import dev.alvo.pieria.retrieval.channel.ExactKeyChannel;
+import dev.alvo.pieria.retrieval.channel.GraphChannel;
 import dev.alvo.pieria.retrieval.channel.HydeVectorChannel;
 import dev.alvo.pieria.retrieval.channel.MemoryFtsChannel;
 import dev.alvo.pieria.retrieval.channel.MessageFtsChannel;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.tools.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -57,11 +59,10 @@ public class RetrievalService {
   private final TemporalExtractor temporalExtractor;
   private final ReciprocalRankFusion fusion;
   private final List<RetrievalChannel> channels;
+  private final RetrievalChannel graphChannel;
+  private final boolean graphEnabled;
   private final int channelLimit;
   private final long channelTimeoutMs;
-
-  private record ChannelResult(List<RetrievalCandidate> candidates, long elapsedMs) {
-  }
 
   public RetrievalService(MemoryStore store,
                           ModelGateway modelGateway,
@@ -87,16 +88,27 @@ public class RetrievalService {
       new MessageFtsChannel(store),
       new DirectVectorChannel(store),
       new HydeVectorChannel(store));
+
+    // The graph channel runs in a second wave seeded from the first wave's hits; see runChannels.
+    this.graphChannel = new GraphChannel(
+      store,
+      retrievalConfig.graphDepth(),
+      retrievalConfig.graphFanout(),
+      retrievalConfig.graphSeedLimit());
+
+    // A weight of 0 disables the channel entirely (no traversal, no fusion contribution).
+    this.graphEnabled = retrievalConfig.weightGraph() > 0.0;
   }
 
-  private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval cfg) {
+  private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
     Map<RetrievalChannelType, Double> weights = new EnumMap<>(RetrievalChannelType.class);
 
-    weights.put(RetrievalChannelType.EXACT_KEY, cfg.weightExactKey());
-    weights.put(RetrievalChannelType.FTS_MEMORY, cfg.weightFtsMemory());
-    weights.put(RetrievalChannelType.HYDE_VECTOR, cfg.weightHydeVector());
-    weights.put(RetrievalChannelType.DIRECT_VECTOR, cfg.weightDirectVector());
-    weights.put(RetrievalChannelType.FTS_MESSAGE, cfg.weightFtsMessage());
+    weights.put(RetrievalChannelType.EXACT_KEY, config.weightExactKey());
+    weights.put(RetrievalChannelType.FTS_MEMORY, config.weightFtsMemory());
+    weights.put(RetrievalChannelType.HYDE_VECTOR, config.weightHydeVector());
+    weights.put(RetrievalChannelType.DIRECT_VECTOR, config.weightDirectVector());
+    weights.put(RetrievalChannelType.FTS_MESSAGE, config.weightFtsMessage());
+    weights.put(RetrievalChannelType.GRAPH, config.weightGraph());
 
     return weights;
   }
@@ -110,54 +122,85 @@ public class RetrievalService {
    */
   public RecallResult recall(String profileName, String query, int limit, boolean debug) {
     long totalStart = System.nanoTime();
-    long stageStart = totalStart;
+
     var profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
 
-    QueryAnalysis analysis = analyze(query);
-    long analysisMs = elapsedMs(stageStart);
-    stageStart = System.nanoTime();
-    float[] queryEmbedding = embedQuietly(query);
-    float[] hydeEmbedding = analysis.hydeStatement() == null ? null : embedQuietly(analysis.hydeStatement());
-    long embeddingMs = elapsedMs(stageStart);
+    Timed<QueryAnalysis> analysis = Timed.measure(() -> analyze(query));
+    Timed<Embeddings> embeddings = Timed.measure(() -> embed(query, analysis.value()));
 
-    var retrievalContext =
-      new RetrievalContext(profile.id(), query, analysis, queryEmbedding, hydeEmbedding, channelLimit);
+    RetrievalContext context = new RetrievalContext(
+      profile.id(), query, analysis.value(),
+      embeddings.value().query(), embeddings.value().hyde(), channelLimit);
 
     List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
-    stageStart = System.nanoTime();
-    List<RetrievalCandidate> hits = runChannels(retrievalContext, channelDiagnostics);
-    long channelsMs = elapsedMs(stageStart);
+    Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(context, channelDiagnostics));
+    Timed<List<RecallCandidate>> fused = Timed.measure(() -> fuse(hits.value(), limit));
+    Timed<List<TemporalFact>> temporal = Timed.measure(() -> extractTemporalFacts(query, fused.value()));
+    Timed<String> answer = Timed.measure(() -> synthesize(query, fused.value(), temporal.value()));
 
-    stageStart = System.nanoTime();
-    List<RecallCandidate> fused = fusion.fuse(hits);
-    if (fused.size() > limit) {
-      fused = List.copyOf(fused.subList(0, limit));
-    }
-    long fusionMs = elapsedMs(stageStart);
-
-    stageStart = System.nanoTime();
-    List<Memory> evidence = fused.stream().map(RecallCandidate::memory).toList();
-    List<TemporalFact> temporalFacts = temporalExtractor.extract(query, Instant.now(), evidence);
-    long temporalMs = elapsedMs(stageStart);
-
-    // Synthesis uses the large model; a failure here is genuine (mapped to 503), not soft.
-    stageStart = System.nanoTime();
-    String answer = modelGateway.synthesizeRecall(query, fused, temporalFacts);
-    long synthesisMs = elapsedMs(stageStart);
-
-    RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis, channelDiagnostics) : null;
+    RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
     LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
-      profileName, hits.size(), fused.size(), analysisMs, embeddingMs, channelsMs, fusionMs, temporalMs,
-      synthesisMs, elapsedMs(totalStart));
-    return new RecallResult(answer, fused, temporalFacts, diagnostics);
-  }
-
-  private static long elapsedMs(long startNanos) {
-    return (System.nanoTime() - startNanos) / 1_000_000L;
+      profileName, hits.value().size(), fused.value().size(),
+      analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
+      temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
+    return new RecallResult(answer.value(), fused.value(), temporal.value(), diagnostics);
   }
 
   /**
-   * Model-driven analysis, falling back to the deterministic analyzer when the model is down.
+   * Embeddings for the vector channels: the raw query and the HyDE statement (either may be null).
+   */
+  private record Embeddings(float[] query, float[] hyde) {
+  }
+
+  /**
+   * Embed stage: embed the raw query and, when present, the HyDE statement. Best-effort — a null
+   * embedding simply disables the corresponding vector channel.
+   */
+  private Embeddings embed(String query, QueryAnalysis analysis) {
+    float[] queryEmbedding = embedQuietly(query);
+    float[] hydeEmbedding = analysis.hydeStatement() == null ? null : embedQuietly(analysis.hydeStatement());
+    return new Embeddings(queryEmbedding, hydeEmbedding);
+  }
+
+  /**
+   * Channel stage: wave 1 runs the primary channels in parallel; wave 2 runs the graph channel
+   * seeded from wave-1 hits + query entities. Both waves feed the same weighted RRF downstream.
+   */
+  private List<RetrievalCandidate> runWaves(RetrievalContext context, List<ChannelDiagnostics> diags) {
+    List<RetrievalCandidate> hits = new ArrayList<>(runChannels(channels, context, diags));
+    if (graphEnabled) {
+      hits.addAll(runChannels(List.of(graphChannel), context.withSeedCandidates(hits), diags));
+    }
+    return hits;
+  }
+
+  /**
+   * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
+   */
+  private List<RecallCandidate> fuse(List<RetrievalCandidate> hits, int limit) {
+    List<RecallCandidate> fused = fusion.fuse(hits);
+    return fused.size() > limit ? List.copyOf(fused.subList(0, limit)) : fused;
+  }
+
+  /**
+   * Temporal stage: deterministic temporal facts over the fused evidence (date math in Java).
+   */
+  private List<TemporalFact> extractTemporalFacts(String query, List<RecallCandidate> fused) {
+    List<Memory> evidence = fused.stream().map(RecallCandidate::memory).toList();
+    return temporalExtractor.extract(query, Instant.now(), evidence);
+  }
+
+  /**
+   * Synthesis stage: the large model composes the answer from the fused evidence and temporal facts.
+   * A failure here is genuine (mapped to 503), not soft.
+   */
+  private String synthesize(String query, List<RecallCandidate> fused, List<TemporalFact> temporalFacts) {
+    return modelGateway.synthesizeRecall(query, fused, temporalFacts);
+  }
+
+  /**
+   * Analysis stage: model-driven analysis, falling back to the deterministic analyzer when the
+   * model is down.
    */
   private QueryAnalysis analyze(String query) {
     try {
@@ -175,6 +218,7 @@ public class RetrievalService {
     if (text == null || text.isBlank() || !store.isVectorSearchAvailable()) {
       return null;
     }
+
     try {
       float[] embedding = modelGateway.embed(text);
       return (embedding == null || embedding.length == 0) ? null : embedding;
@@ -189,25 +233,23 @@ public class RetrievalService {
    * (local-storage) channel failures abort the recall; best-effort vector channels that fail or
    * time out are logged and contribute nothing.
    */
-  private List<RetrievalCandidate> runChannels(RetrievalContext ctx, List<ChannelDiagnostics> diags) {
+  private List<RetrievalCandidate> runChannels(List<RetrievalChannel> channelsToRun,
+                                               RetrievalContext ctx,
+                                               List<ChannelDiagnostics> diags) {
+
     List<RetrievalCandidate> all = new ArrayList<>();
 
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      Map<RetrievalChannel, Future<ChannelResult>> futures = new LinkedHashMap<>();
-      for (RetrievalChannel channel : channels) {
-        futures.put(channel, exec.submit(() -> {
-          long start = System.nanoTime();
-          List<RetrievalCandidate> candidates = channel.retrieve(ctx);
-          long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
-          return new ChannelResult(candidates, elapsedMs);
-        }));
+      Map<RetrievalChannel, Future<Timed<List<RetrievalCandidate>>>> futures = new LinkedHashMap<>();
+      for (RetrievalChannel channel : channelsToRun) {
+        futures.put(channel, exec.submit(() -> Timed.measure(() -> channel.retrieve(ctx))));
       }
 
       futures.forEach((channel, value) -> {
         try {
-          ChannelResult result = value.get(channelTimeoutMs, TimeUnit.MILLISECONDS);
-          all.addAll(result.candidates());
-          diags.add(new ChannelDiagnostics(channel.type(), result.elapsedMs(), result.candidates().size(), false));
+          Timed<List<RetrievalCandidate>> result = value.get(channelTimeoutMs, TimeUnit.MILLISECONDS);
+          all.addAll(result.value());
+          diags.add(new ChannelDiagnostics(channel.type(), result.millis(), result.value().size(), false));
         } catch (TimeoutException | ExecutionException | InterruptedException e) {
           if (e instanceof InterruptedException) {
             Thread.currentThread().interrupt();
@@ -217,6 +259,7 @@ public class RetrievalService {
         }
       });
     }
+
     return all;
   }
 

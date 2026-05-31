@@ -1,9 +1,10 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.RetrievalCandidate;
-import dev.alvo.pieria.domain.RetrievalChannelType;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
+import org.jspecify.annotations.NonNull;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -98,20 +99,6 @@ public final class ReciprocalRankFusion {
   }
 
   /**
-   * @return the configured rank-smoothing constant.
-   */
-  public int k() {
-    return k;
-  }
-
-  /**
-   * @return the weight configured for {@code channel}, or {@code 0.0} if none.
-   */
-  public double weightOf(RetrievalChannelType channel) {
-    return weights.getOrDefault(channel, 0.0);
-  }
-
-  /**
    * Fuse per-channel hits into a ranked, synthesis-facing list.
    *
    * @param candidates per-channel pre-fusion hits (may be {@code null} or empty)
@@ -123,27 +110,11 @@ public final class ReciprocalRankFusion {
       return List.of();
     }
 
-    // memory id -> accumulator. LinkedHashMap only for stable iteration; final order comes from the sort.
-    Map<String, Accumulator> byMemory = new LinkedHashMap<>();
-
-    for (RetrievalCandidate candidate : candidates) {
-      if (candidate == null) {
-        continue;
-      }
-      Memory memory = candidate.memory();
-      if (memory == null || memory.id() == null) {
-        continue;
-      }
-      RetrievalChannelType channel = candidate.channel();
-      if (channel == null) {
-        continue;
-      }
-      Accumulator acc = byMemory.computeIfAbsent(memory.id(), _ -> new Accumulator(memory));
-      acc.observe(channel, candidate.rankInChannel());
-    }
+    // memory id -> accumulator
+    Map<String, FusionAccumulator> byMemory = getAccumulatorMap(candidates);
 
     List<RecallCandidate> fused = new ArrayList<>(byMemory.size());
-    for (Accumulator acc : byMemory.values()) {
+    for (FusionAccumulator acc : byMemory.values()) {
       double score = acc.score(k, weights);
       fused.add(new RecallCandidate(acc.memory, score, acc.source(k, weights)));
     }
@@ -152,15 +123,40 @@ public final class ReciprocalRankFusion {
     return fused;
   }
 
+  private static @NonNull Map<String, FusionAccumulator> getAccumulatorMap(List<RetrievalCandidate> candidates) {
+    Map<String, FusionAccumulator> byMemory = new LinkedHashMap<>();
+
+    for (RetrievalCandidate candidate : candidates) {
+      if (candidate == null) {
+        continue;
+      }
+
+      Memory memory = candidate.memory();
+      if (memory == null || memory.id() == null) {
+        continue;
+      }
+
+      RetrievalChannelType channel = candidate.channel();
+      if (channel == null) {
+        continue;
+      }
+
+      FusionAccumulator accumulator = byMemory.computeIfAbsent(memory.id(), _ -> new FusionAccumulator(memory));
+      accumulator.observe(channel, candidate.rankInChannel());
+    }
+
+    return byMemory;
+  }
+
   /**
    * Per-memory fusion accumulator: best rank seen per channel.
    */
-  private static final class Accumulator {
+  private static final class FusionAccumulator {
     private final Memory memory;
     // best (lowest) rank seen per channel
     private final Map<RetrievalChannelType, Integer> bestRank = new EnumMap<>(RetrievalChannelType.class);
 
-    Accumulator(Memory memory) {
+    FusionAccumulator(Memory memory) {
       this.memory = memory;
     }
 

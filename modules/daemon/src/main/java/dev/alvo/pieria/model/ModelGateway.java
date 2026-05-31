@@ -1,14 +1,15 @@
 package dev.alvo.pieria.model;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.TemporalFact;
-import dev.alvo.pieria.domain.VerificationResult;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
 
 import java.util.List;
 
@@ -56,6 +57,18 @@ public interface ModelGateway {
    */
   default Classification classify(String content) {
     throw new UnsupportedOperationException("classify(...) not implemented");
+  }
+
+  /**
+   * Graph extraction: from one verified memory's content, extract entities and
+   * {@code (source, relation, target)} triples grounded in that content, for the relationship graph.
+   * Runs on the small/fast model. This pass is additive and degradable — implementations should
+   * return {@link GraphFragment#empty()} on empty/parse failure rather than throwing, and callers
+   * must treat any failure as "store the memory without a graph". The default returns an empty
+   * fragment so stubs/gateways without graph support keep working.
+   */
+  default GraphFragment extractGraph(String content) {
+    return GraphFragment.empty();
   }
 
   /**

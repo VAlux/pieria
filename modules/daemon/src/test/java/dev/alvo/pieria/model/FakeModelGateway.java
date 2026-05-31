@@ -1,15 +1,18 @@
 package dev.alvo.pieria.model;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.VerificationResult;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.domain.graph.Entity;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 
 import java.util.List;
 import java.util.Locale;
@@ -150,11 +153,42 @@ public class FakeModelGateway implements ModelGateway {
     return new Classification(type, topicKey, queries, "{}");
   }
 
+  /**
+   * Deterministic graph extraction for ingestion tests. Sentinels (case-insensitive):
+   * {@code FAILGRAPH} throws (to verify degradability), {@code NOGRAPH} yields an empty fragment.
+   * Otherwise the first two whitespace tokens become two {@code concept} entities joined by a
+   * {@code "relates to"} edge, so callers can assert exact graph rows.
+   */
+  @Override
+  public GraphFragment extractGraph(String content) {
+    failIfUnavailable();
+    if (content == null || content.isBlank()) {
+      return GraphFragment.empty();
+    }
+    String upper = content.toUpperCase(Locale.ROOT);
+    if (upper.contains("FAILGRAPH")) {
+      throw new ModelUnavailableException("fake graph extraction failure");
+    }
+    if (upper.contains("NOGRAPH")) {
+      return GraphFragment.empty();
+    }
+    String[] words = content.strip().split("\\s+");
+    String a = words.length > 0 ? words[0].toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "") : "";
+    String b = words.length > 1 ? words[1].toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "") : "";
+    if (a.isEmpty() || b.isEmpty()) {
+      return GraphFragment.empty();
+    }
+    List<Entity> entities = List.of(Entity.of("concept", a, "{}"), Entity.of("concept", b, "{}"));
+    List<GraphFragment.EdgeTriple> triples =
+      List.of(new GraphFragment.EdgeTriple(a, "concept", "relates to", b, "concept"));
+    return new GraphFragment(entities, triples);
+  }
+
   @Override
   public QueryAnalysis analyzeQuery(String query) {
     failIfUnavailable();
     if (query == null || query.isBlank()) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
     List<String> terms = new java.util.ArrayList<>();
     for (String token : query.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
@@ -163,7 +197,7 @@ public class FakeModelGateway implements ModelGateway {
       }
     }
     List<String> topicKeys = terms.isEmpty() ? List.of() : List.of("topic." + terms.get(0));
-    return new QueryAnalysis(topicKeys, terms, "answer: " + query.strip());
+    return new QueryAnalysis(topicKeys, terms, terms, "answer: " + query.strip());
   }
 
   @Override
@@ -180,7 +214,7 @@ public class FakeModelGateway implements ModelGateway {
    */
   @Override
   public String synthesizeRecall(String query, List<RecallCandidate> candidates,
-                                 List<dev.alvo.pieria.domain.TemporalFact> temporalFacts) {
+                                 List<TemporalFact> temporalFacts) {
     failIfUnavailable();
     int count = candidates == null ? 0 : candidates.size();
     int temporal = temporalFacts == null ? 0 : temporalFacts.size();

@@ -1,4 +1,6 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.domain.memory;
+
+import dev.alvo.pieria.domain.ContentId;
 
 import java.time.Instant;
 

@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.ingestion.model;
 
 import java.util.Locale;
 

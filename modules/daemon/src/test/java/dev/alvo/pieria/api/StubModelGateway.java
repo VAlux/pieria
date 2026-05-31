@@ -1,15 +1,15 @@
 package dev.alvo.pieria.api;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.VerificationResult;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 
@@ -115,7 +115,7 @@ class StubModelGateway implements ModelGateway {
       throw new ModelUnavailableException("model down");
     }
     if (query == null || query.isBlank()) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
     List<String> terms = new java.util.ArrayList<>();
     for (String token : query.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
@@ -124,7 +124,7 @@ class StubModelGateway implements ModelGateway {
       }
     }
     List<String> topicKeys = terms.isEmpty() ? List.of() : List.of("topic." + terms.get(0));
-    return new QueryAnalysis(topicKeys, terms, "answer: " + query.strip());
+    return new QueryAnalysis(topicKeys, terms, terms, "answer: " + query.strip());
   }
 
   @Override

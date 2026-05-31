@@ -1,7 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RetrievalChannelType;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 
 import java.util.List;
 

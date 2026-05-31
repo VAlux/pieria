@@ -36,62 +36,69 @@ These choices are intentional and constrain the scope below.
 ## Implementation Sequence
 
 1. Generalize the model gateway seam for multiple chat providers.
-   - Keep `ModelGateway` as the single contract; ingestion and retrieval must not change.
-   - Make `ModelGatewayConfig` provider-conditional so the small/large `ChatClient` beans and the
-     `EmbeddingModel` bean are built from the selected provider's Spring AI model.
-   - Confirm each provider implementation still wraps provider failures in
-     `ModelUnavailableException` with a generic message so hosts/secrets never leak.
-   - Implement provider-appropriate `isModelProviderReachable()` and `availableModels()`; for hosted
-     providers these may be a cheap auth/probe call or a static capability list, never a token-
-     generating request.
+
+- Keep `ModelGateway` as the single contract; ingestion and retrieval must not change.
+- Make `ModelGatewayConfig` provider-conditional so the small/large `ChatClient` beans and the
+  `EmbeddingModel` bean are built from the selected provider's Spring AI model.
+- Confirm each provider implementation still wraps provider failures in
+  `ModelUnavailableException` with a generic message so hosts/secrets never leak.
+- Implement provider-appropriate `isModelProviderReachable()` and `availableModels()`; for hosted
+  providers these may be a cheap auth/probe call or a static capability list, never a token-
+  generating request.
 
 2. Add provider configuration to `PieriaProperties`.
-   - Add `pieria.model.chat-provider` (`ollama` | `anthropic` | `openai`, default `ollama`).
-   - Add `pieria.model.embedding-provider` (`ollama` | `openai`, default `ollama`).
-   - Allow chat and embedding providers to differ (the hybrid case).
-   - Keep existing `pieria.model.chat-small`, `chat-large`, `embedding`, and `embedding-dimension`
-     properties, interpreted per the selected provider.
-   - Validate at startup that the selected providers and model names are coherent (e.g. reject
-     `embedding-provider=anthropic`).
+
+- Add `pieria.model.chat-provider` (`ollama` | `anthropic` | `openai`, default `ollama`).
+- Add `pieria.model.embedding-provider` (`ollama` | `openai`, default `ollama`).
+- Allow chat and embedding providers to differ (the hybrid case).
+- Keep existing `pieria.model.chat-small`, `chat-large`, `embedding`, and `embedding-dimension`
+  properties, interpreted per the selected provider.
+- Validate at startup that the selected providers and model names are coherent (e.g. reject
+  `embedding-provider=anthropic`).
 
 3. Add Spring AI provider starters and wiring.
-   - Add the `spring-ai-anthropic` and `spring-ai-openai` starters to the daemon module.
-   - Wire base URLs, model names, and API-key sourcing from Pieria properties / stored credentials
-     rather than relying solely on Spring AI's default environment-variable resolution.
-   - Ensure remote starters do not change behavior when the provider is `ollama` (no key required,
-     no network calls at startup).
+
+- Add the `spring-ai-anthropic` and `spring-ai-openai` starters to the daemon module.
+- Wire base URLs, model names, and API-key sourcing from Pieria properties / stored credentials
+  rather than relying solely on Spring AI's default environment-variable resolution.
+- Ensure remote starters do not change behavior when the provider is `ollama` (no key required,
+  no network calls at startup).
 
 4. Implement credential storage.
-   - Define a credential store abstraction that reads/writes a per-provider API key.
-   - Prefer the OS keychain (macOS Keychain, libsecret, Windows Credential Manager); fall back to a
-     restricted-permission file under the resolved app-data config dir.
-   - Never log keys; never echo them in health, status, or error output.
-   - The daemon resolves the active provider's key from this store at startup and on demand.
+
+- Define a credential store abstraction that reads/writes a per-provider API key.
+- Prefer the OS keychain (macOS Keychain, libsecret, Windows Credential Manager); fall back to a
+  restricted-permission file under the resolved app-data config dir.
+- Never log keys; never echo them in health, status, or error output.
+- The daemon resolves the active provider's key from this store at startup and on demand.
 
 5. Implement the `pieria login <provider>` CLI command.
-   - Add the command alongside the existing daemon CLI commands.
-   - Capture the API key via a non-echoing prompt (or `--key`/stdin for scripted use).
-   - Validate the key with a single cheap authenticated call before storing.
-   - Store via the credential store; print masked confirmation and the resulting provider config
-     hint, never the key itself.
-   - Add `pieria logout <provider>` to remove a stored key.
-   - Reflect provider/login state in first-run guidance and status output.
+
+- Add the command alongside the existing daemon CLI commands.
+- Capture the API key via a non-echoing prompt (or `--key`/stdin for scripted use).
+- Validate the key with a single cheap authenticated call before storing.
+- Store via the credential store; print masked confirmation and the resulting provider config
+  hint, never the key itself.
+- Add `pieria logout <provider>` to remove a stored key.
+- Reflect provider/login state in first-run guidance and status output.
 
 6. Update first-run and observability.
-   - First-run model checks branch on the configured chat/embedding providers: check Ollama
-     reachability/models only for Ollama tiers; for hosted tiers, check that a key is present and
-     valid without generating tokens.
-   - Status/health output reports the active chat provider, embedding provider, and model names
-     (no secrets), consistent with Phase 5 observability rules.
+
+- First-run model checks branch on the configured chat/embedding providers: check Ollama
+  reachability/models only for Ollama tiers; for hosted tiers, check that a key is present and
+  valid without generating tokens.
+- Status/health output reports the active chat provider, embedding provider, and model names
+  (no secrets), consistent with Phase 5 observability rules.
 
 7. Documentation.
-   - Document the three setups: local-only (default), remote chat + local embeddings (recommended
-     remote), and full OpenAI (chat + embeddings).
-   - Document `pieria login` / `pieria logout`, where credentials are stored, and how to rotate a
-     key.
-   - State explicitly that subscriptions are not supported and only metered API keys are used.
-   - Warn that changing the embedding provider/model changes the embedding dimension and requires a
-     full re-embed of the store.
+
+- Document the three setups: local-only (default), remote chat + local embeddings (recommended
+  remote), and full OpenAI (chat + embeddings).
+- Document `pieria login` / `pieria logout`, where credentials are stored, and how to rotate a
+  key.
+- State explicitly that subscriptions are not supported and only metered API keys are used.
+- Warn that changing the embedding provider/model changes the embedding dimension and requires a
+  full re-embed of the store.
 
 ## Tests
 

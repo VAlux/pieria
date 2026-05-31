@@ -24,7 +24,7 @@ dev.alvo.pieria
 ├── ingestion/           IngestionService, Chunker, TranscriptNormalizer, VectorizationWorker
 ├── model/               ModelGateway interface, OpenAiModelGateway
 ├── retrieval/
-│   ├── channel/         Five retrieval channels: FTS memory, FTS message, exact key, direct vector, HyDE vector
+│   ├── channel/         Retrieval channels: FTS memory, FTS message, exact key, direct vector, HyDE vector, graph
 │   ├── RetrievalService.java
 │   ├── ReciprocalRankFusion.java
 │   ├── DeterministicQueryAnalyzer.java
@@ -40,7 +40,7 @@ dev.alvo.pieria
 
 **`IngestionService`** — the write path. Given a list of messages and a session ID: generates content-addressed IDs → runs full + detail extraction in parallel (structured concurrency) → verifies each candidate → classifies and keys → handles supersession → stores → enqueues vectorization.
 
-**`RetrievalService`** — the read path. Given a recall query: analyses the query and embeds it in parallel → fans out to five channels in parallel (structured concurrency) → fuses with RRF → synthesizes a natural-language answer.
+**`RetrievalService`** — the read path. Given a recall query: analyses the query and embeds it in parallel → fans out to the five primary channels in parallel (structured concurrency) → runs the graph channel as a second wave seeded from the first wave's hits → fuses everything with RRF → synthesizes a natural-language answer.
 
 ## REST API
 
@@ -77,6 +77,23 @@ All properties are in `src/main/resources/application.properties`. Key ones:
 | `pieria.first-run.enabled` | `true` | Run first-run setup on startup |
 
 Override any property with an environment variable using Spring's `UPPER_SNAKE_CASE` convention, e.g. `PIERIA_DAEMON_PORT=9000`.
+
+### Graph retrieval channel
+
+The entity-relation graph adds a **second retrieval wave**. The five primary channels run first; the graph channel then traverses the relationship graph — seeded from the entities named in the query **and** the entities attached to the top candidates the primary channels surfaced — and its hits are fused into the same weighted Reciprocal Rank Fusion. Graph traversal at recall time is indexed SQL only (the entity/relation extraction happens at ingest), so the second wave adds little latency beyond not overlapping the first wave.
+
+All graph parameters live under `pieria.retrieval.*` in `application.properties`:
+
+| Property | Default | Description |
+|---|---|---|
+| `pieria.retrieval.weight-graph` | `1.0` | RRF fusion weight for the graph channel. **`0` disables the channel entirely** — the second wave is skipped, so there is no traversal cost (use this to A/B the graph's contribution). A primary-tier signal: below `weight-exact-key` (`3.0`), comparable to the FTS/vector channels (`1.0`). |
+| `pieria.retrieval.graph-depth` | `2` | Neighborhood expansion depth, in hops, from the seed entities. `1` = only entities directly linked to a seed; `2` = also their neighbors. Higher values widen recall of indirectly-connected memories but risk topic drift; keep small. |
+| `pieria.retrieval.graph-fanout` | `20` | Maximum number of *newly-discovered* entities followed per hop (most-recent edges first). Bounds the combinatorial blow-up of expansion on densely-connected nodes. |
+| `pieria.retrieval.graph-seed-limit` | `8` | Maximum seed entities taken from each source — the query entities, and the wave-1 candidate memories — before expansion. Caps how wide the traversal starts. |
+
+Two shared retrieval properties also bound the graph channel: `pieria.retrieval.channel-limit` caps how many memories the graph channel returns before fusion, and `pieria.retrieval.channel-timeout-ms` bounds the graph wave like any other channel. The graph channel is **non-critical** — if it times out or errors it is logged and contributes nothing, and recall still succeeds on the primary channels.
+
+**Tuning guidance.** The defaults are deliberate placeholders; `weight-graph` in particular is best set from Phase 5 evaluation data rather than assumed. The graph helps most on relational / multi-hop queries ("what depends on the auth service?") and on sparse-but-connected facts, and less on simple lookups already covered by FTS/vector. Start by confirming the contribution with `weight-graph=0` vs `1.0`; raise `graph-depth` to `2`+ only if recall of indirectly-related memories is lacking and precision holds.
 
 ### Switching providers
 

@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.retrieval.model;
 
 /**
  * A pre-computed temporal fact injected into the synthesis prompt.

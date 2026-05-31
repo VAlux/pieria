@@ -1,13 +1,13 @@
 package dev.alvo.pieria.model;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

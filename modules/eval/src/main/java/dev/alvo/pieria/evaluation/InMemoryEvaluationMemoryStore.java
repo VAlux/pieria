@@ -2,11 +2,12 @@ package dev.alvo.pieria.evaluation;
 
 import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.time.Instant;
@@ -68,7 +69,7 @@ final class InMemoryEvaluationMemoryStore implements MemoryStore {
 	}
 
 	@Override
-	public StoreOutcome store(String profileId, Memory memory) {
+	public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
 		String supersededId = null;
 		if (memory.topicKey() != null && (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)) {
 			for (String id : memoryIdsByProfile.getOrDefault(profileId, List.of())) {

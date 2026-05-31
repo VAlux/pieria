@@ -5,7 +5,7 @@ import dev.alvo.pieria.config.PieriaProperties.Ingestion;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import dev.alvo.pieria.domain.Memory;
+import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.evaluation.EvaluationFixture.ExpectedMemory;
 import dev.alvo.pieria.evaluation.EvaluationFixture.RecallExpectation;
 import dev.alvo.pieria.evaluation.EvaluationReport.ExtractionReport;
@@ -253,6 +253,10 @@ public final class EvaluationRunner {
       1.0,
       1.0,
       0.5,
+      1.0,
+      2,
+      20,
+      8,
       10,
       3000);
 

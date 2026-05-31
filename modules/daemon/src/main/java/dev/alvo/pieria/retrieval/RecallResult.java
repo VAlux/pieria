@@ -1,8 +1,8 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.TemporalFact;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 
 import java.util.List;
 

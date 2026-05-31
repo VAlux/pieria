@@ -1,10 +1,10 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.RetrievalCandidate;
-import dev.alvo.pieria.domain.RetrievalChannelType;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

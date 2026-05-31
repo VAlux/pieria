@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.domain.error;
 
 /**
  * A profile- or memory-scoped resource was not found. Mapped to HTTP 404 by the API layer.

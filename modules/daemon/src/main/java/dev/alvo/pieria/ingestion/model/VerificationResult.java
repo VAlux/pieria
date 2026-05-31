@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.ingestion.model;
 
 /**
  * Result of verifying one {@link ExtractedCandidate} against the source transcript.

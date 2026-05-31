@@ -1,8 +1,8 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.RetrievalCandidate;
-import dev.alvo.pieria.domain.RetrievalChannelType;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 
 import java.util.ArrayList;
 import java.util.List;

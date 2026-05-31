@@ -2,7 +2,7 @@ package dev.alvo.pieria.api.error;
 
 
 import dev.alvo.pieria.api.response.ErrorResponse;
-import dev.alvo.pieria.domain.NotFoundException;
+import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;

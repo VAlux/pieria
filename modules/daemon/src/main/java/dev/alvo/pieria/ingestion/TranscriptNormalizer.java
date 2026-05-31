@@ -1,7 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
 
-import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.memory.Message;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;

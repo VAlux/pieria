@@ -1,7 +1,8 @@
 package dev.alvo.pieria.retrieval;
 
 
-import dev.alvo.pieria.domain.QueryAnalysis;
+import dev.alvo.pieria.domain.graph.EntityNormalizer;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -51,7 +52,7 @@ public class DeterministicQueryAnalyzer {
    */
   public QueryAnalysis analyze(String query) {
     if (query == null || query.isBlank()) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
 
     String[] rawTokens = query.toLowerCase(Locale.ROOT).split("[^a-z0-9]+");
@@ -67,10 +68,19 @@ public class DeterministicQueryAnalyzer {
     }
 
     if (tokens.isEmpty()) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
 
     List<String> ftsTerms = List.copyOf(tokens);
+
+    // Graph seeding: the surviving tokens, normalized to match stored entity names.
+    LinkedHashSet<String> entities = new LinkedHashSet<>();
+    for (String token : tokens) {
+      String normalized = EntityNormalizer.normalizeName(token);
+      if (!normalized.isEmpty()) {
+        entities.add(normalized);
+      }
+    }
 
     List<String> topicKeys = new ArrayList<>();
     LinkedHashSet<String> seenKeys = new LinkedHashSet<>();
@@ -80,7 +90,7 @@ public class DeterministicQueryAnalyzer {
       addKey(topicKeys, seenKeys, tokens.get(i) + "." + tokens.get(i + 1));
     }
 
-    return new QueryAnalysis(topicKeys, ftsTerms, null);
+    return new QueryAnalysis(topicKeys, ftsTerms, List.copyOf(entities), null);
   }
 
   private static void addKey(List<String> keys, Set<String> seen, String key) {

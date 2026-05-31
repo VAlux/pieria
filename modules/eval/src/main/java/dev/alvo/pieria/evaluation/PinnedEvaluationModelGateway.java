@@ -1,14 +1,15 @@
 package dev.alvo.pieria.evaluation;
 
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.TemporalFact;
-import dev.alvo.pieria.domain.VerificationResult;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
+import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer;
 
@@ -45,7 +46,7 @@ final class PinnedEvaluationModelGateway implements ModelGateway {
 	}
 
 	@Override
-	public List<Memory> extractMemories(List<dev.alvo.pieria.domain.Message> messages) {
+	public List<Memory> extractMemories(List<Message> messages) {
 		throw new UnsupportedOperationException("fixture evaluation uses chunk extraction");
 	}
 
@@ -117,7 +118,7 @@ final class PinnedEvaluationModelGateway implements ModelGateway {
 		}
 		String hyde = query == null || query.isBlank() ? null : "answer: " + query.strip();
 		tokenUsage.record("analyzeQuery", query, String.join(" ", topicKeys));
-		return new QueryAnalysis(topicKeys, fallback.ftsTerms(), hyde);
+		return new QueryAnalysis(topicKeys, fallback.ftsTerms(), fallback.entities(), hyde);
 	}
 
 	@Override

@@ -1,14 +1,17 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.domain.graph.Edge;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.OutboxEntry;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.ProfileCount;
-import dev.alvo.pieria.domain.ProfileStats;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
+import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 
 import java.util.List;
 import java.util.Optional;
@@ -68,6 +71,18 @@ public interface MemoryStore {
    * Returns the outcome describing the stored row and any superseded predecessor.
    */
   default StoreOutcome store(String profileId, Memory memory) {
+    return store(profileId, memory, GraphFragment.empty());
+  }
+
+  /**
+   * Ingestion write with an attached graph fragment, all in one transaction: the same memory
+   * insert/supersession/outbox steps as {@link #store(String, Memory)}, plus persisting the
+   * fragment's entities and edges (each edge tagged with the stored memory's id as provenance).
+   * The graph extraction model call must happen <em>before</em> this method so no model I/O occurs
+   * inside the transaction. An {@link GraphFragment#empty()} fragment makes this equivalent to the
+   * two-arg form.
+   */
+  default StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
     throw new UnsupportedOperationException("store(...) not implemented");
   }
 
@@ -226,4 +241,54 @@ public interface MemoryStore {
    * Shaped so additional channels can be added without changing callers.
    */
   List<RecallCandidate> findRecallCandidates(String profileId, String query, int limit);
+
+  /**
+   * Upsert a graph entity (insert-or-ignore on its content-addressed id). The id and createdAt are
+   * computed when null. Returns the stored entity with its assigned id/timestamp.
+   */
+  default Entity upsertEntity(String profileId, Entity entity) {
+    throw new UnsupportedOperationException("upsertEntity(...) not implemented");
+  }
+
+  /**
+   * Upsert a graph edge (insert-or-ignore on its content-addressed id). The id and createdAt are
+   * computed when null. Returns the stored edge with its assigned id/timestamp.
+   */
+  default Edge upsertEdge(String profileId, Edge edge) {
+    throw new UnsupportedOperationException("upsertEdge(...) not implemented");
+  }
+
+  /**
+   * Seed entities by normalized name: entities in {@code profileId} whose {@code name} is in
+   * {@code names}, capped at {@code limit}. Used to seed the graph channel from query entities.
+   */
+  default List<Entity> findEntitiesByName(String profileId, List<String> names, int limit) {
+    throw new UnsupportedOperationException("findEntitiesByName(...) not implemented");
+  }
+
+  /**
+   * Entities appearing on edges whose {@code memory_id} is in {@code memoryIds} and whose source
+   * memory is active. Used to seed the graph channel from wave-1 candidate memories.
+   */
+  default List<Entity> entitiesForMemories(String profileId, List<String> memoryIds, int limit) {
+    throw new UnsupportedOperationException("entitiesForMemories(...) not implemented");
+  }
+
+  /**
+   * Expand the active-edge neighborhood of {@code seedEntityIds} up to {@code depth} hops, bounded
+   * by {@code fanout} newly-discovered entities per hop. Returns the reachable entity ids in BFS
+   * order (seeds first), deduped. Only edges off active (non-superseded) memories are traversed.
+   */
+  default List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
+    throw new UnsupportedOperationException("neighborhood(...) not implemented");
+  }
+
+  /**
+   * Active memories reachable from {@code entityIds} via provenance edges (an edge touches an
+   * entity as source or target), ranked by proximity (earliest-listed touching entity wins) then
+   * recency, deduped, capped at {@code limit}. Superseded memories never surface.
+   */
+  default List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+    throw new UnsupportedOperationException("findMemoriesByEntities(...) not implemented");
+  }
 }

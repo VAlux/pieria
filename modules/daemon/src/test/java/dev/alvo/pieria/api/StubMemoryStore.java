@@ -1,15 +1,17 @@
 package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.domain.ContentId;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.OutboxEntry;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.ProfileCount;
-import dev.alvo.pieria.domain.ProfileStats;
-import dev.alvo.pieria.domain.RecallCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
+import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.time.Instant;
@@ -111,7 +113,7 @@ class StubMemoryStore implements MemoryStore {
   }
 
   @Override
-  public StoreOutcome store(String profileId, Memory memory) {
+  public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
     String supersededId = null;
 
     String id = memory.id() != null
@@ -152,6 +154,27 @@ class StubMemoryStore implements MemoryStore {
     }
 
     return new StoreOutcome(stored, supersededId, enqueuedVector);
+  }
+
+  // Graph surface: empty so the second-wave graph channel runs cleanly (0 hits) in API slice tests.
+  @Override
+  public List<Entity> findEntitiesByName(String profileId, List<String> names, int limit) {
+    return List.of();
+  }
+
+  @Override
+  public List<Entity> entitiesForMemories(String profileId, List<String> memoryIds, int limit) {
+    return List.of();
+  }
+
+  @Override
+  public List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
+    return List.of();
+  }
+
+  @Override
+  public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+    return List.of();
   }
 
   @Override

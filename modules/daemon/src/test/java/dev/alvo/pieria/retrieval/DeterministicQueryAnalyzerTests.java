@@ -1,6 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.domain.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

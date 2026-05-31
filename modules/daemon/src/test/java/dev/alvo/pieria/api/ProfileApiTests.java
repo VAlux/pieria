@@ -153,7 +153,7 @@ class ProfileApiTests {
       .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")))
       .andExpect(jsonPath("$.debug.candidates[0].source", containsString("fts_memory")))
       .andExpect(jsonPath("$.debug.candidates[0].id", is(org.hamcrest.Matchers.notNullValue())))
-      .andExpect(jsonPath("$.debug.channels", org.hamcrest.Matchers.hasSize(5)));
+      .andExpect(jsonPath("$.debug.channels", org.hamcrest.Matchers.hasSize(6)));
   }
 
   @Test
@@ -249,7 +249,7 @@ class ProfileApiTests {
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
-        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 10, 3000));
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000));
     }
 
     @Bean("profileApiObjectMapper")

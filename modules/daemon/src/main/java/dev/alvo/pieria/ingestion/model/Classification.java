@@ -1,4 +1,6 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.ingestion.model;
+
+import dev.alvo.pieria.domain.memory.MemoryType;
 
 import java.util.List;
 

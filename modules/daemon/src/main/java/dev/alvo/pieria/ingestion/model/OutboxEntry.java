@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.ingestion.model;
 
 /**
  * A row drained from the vectorization outbox: the id of a memory awaiting embedding

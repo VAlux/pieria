@@ -2,8 +2,8 @@ package dev.alvo.pieria.ingestion;
 
 
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.domain.memory.Message;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;

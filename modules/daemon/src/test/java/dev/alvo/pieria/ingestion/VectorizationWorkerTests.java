@@ -2,9 +2,8 @@ package dev.alvo.pieria.ingestion;
 
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import org.flywaydb.core.Flyway;

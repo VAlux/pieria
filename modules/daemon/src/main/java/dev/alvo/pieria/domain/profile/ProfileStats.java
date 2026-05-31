@@ -1,4 +1,4 @@
-package dev.alvo.pieria.domain;
+package dev.alvo.pieria.domain.profile;
 
 import java.time.Instant;
 import java.util.Map;

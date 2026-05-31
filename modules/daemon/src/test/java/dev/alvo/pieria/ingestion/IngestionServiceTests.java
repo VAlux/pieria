@@ -2,11 +2,11 @@ package dev.alvo.pieria.ingestion;
 
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.OutboxEntry;
-import dev.alvo.pieria.domain.Profile;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
+import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import org.flywaydb.core.Flyway;
@@ -34,6 +34,7 @@ class IngestionServiceTests {
 
   private Path dbFile;
   private HikariDataSource dataSource;
+  private JdbcClient jdbc;
   private SqliteMemoryStore store;
   private IngestionService service;
 
@@ -59,7 +60,8 @@ class IngestionServiceTests {
     dataSource.setConnectionInitSql("PRAGMA journal_mode=WAL");
     Flyway.configure().dataSource(dataSource).load().migrate();
 
-    store = new SqliteMemoryStore(JdbcClient.create(dataSource));
+    jdbc = JdbcClient.create(dataSource);
+    store = new SqliteMemoryStore(jdbc);
     PieriaProperties properties = props();
     TranscriptNormalizer normalizer = new TranscriptNormalizer();
     Chunker chunker = new Chunker(normalizer, properties);
@@ -132,6 +134,39 @@ class IngestionServiceTests {
     List<Memory> stored = service.ingest("proj", "s1",
       List.of(msg("user", "   "), msg("", "x")));
     assertTrue(stored.isEmpty());
+  }
+
+  @Test
+  void ingestPersistsGraphEntitiesAndEdges() {
+    // FakeModelGateway.extractGraph turns the first two tokens of the verified content into two
+    // entities joined by one edge.
+    service.ingest("proj", "s1", List.of(msg("user", "redis powers sessions")));
+
+    long entities = jdbc.sql("SELECT COUNT(*) FROM entities").query(Long.class).single();
+    long edges = jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single();
+    assertTrue(entities >= 2, "graph entities should be persisted during ingestion");
+    assertTrue(edges >= 1, "a graph edge should be persisted during ingestion");
+  }
+
+  @Test
+  void graphExtractionFailureStillCommitsTheMemory() {
+    // The FAILGRAPH sentinel makes extractGraph throw; the memory write must still commit, with no
+    // graph rows (degradable: graph extraction never fails ingestion).
+    List<Memory> stored = service.ingest("proj", "s1",
+      List.of(msg("user", "FAILGRAPH should not break ingestion")));
+
+    assertEquals(1, stored.size());
+    long edges = jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single();
+    assertEquals(0L, edges, "a graph extraction failure must leave no edges but keep the memory");
+  }
+
+  @Test
+  void taskMemoriesAreNotGraphExtracted() {
+    // Tasks are excluded from the graph (as from the vector index): no edges even though the content
+    // has two tokens the extractor would otherwise link.
+    service.ingest("proj", "s1", List.of(msg("user", "TASK ship redis upgrade")));
+    long edges = jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single();
+    assertEquals(0L, edges);
   }
 
   @Test

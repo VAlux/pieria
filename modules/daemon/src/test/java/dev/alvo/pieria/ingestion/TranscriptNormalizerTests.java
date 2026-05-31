@@ -2,7 +2,7 @@ package dev.alvo.pieria.ingestion;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.alvo.pieria.domain.Message;
+import dev.alvo.pieria.domain.memory.Message;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;

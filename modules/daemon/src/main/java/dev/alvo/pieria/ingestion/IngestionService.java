@@ -1,13 +1,15 @@
 package dev.alvo.pieria.ingestion;
 
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.Profile;
-import dev.alvo.pieria.domain.VerificationResult;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -238,7 +240,19 @@ public class IngestionService {
         null, sessionId, classification.type(), content, classification.topicKey(),
         null, false, payload, embedText, null);
 
-      MemoryStore.StoreOutcome outcome = store.store(profileId, candidate);
+      // Graph extraction is additive and degradable: a failure here must never roll back or fail the
+      // memory write. Tasks are excluded from the graph (as from the vector index). The model call
+      // happens here, outside the store transaction.
+      GraphFragment graph = GraphFragment.empty();
+      if (classification.type() != MemoryType.TASK) {
+        try {
+          graph = modelGateway.extractGraph(content);
+        } catch (RuntimeException e) {
+          log.warn("graph extraction failed; storing memory without graph: {}", e.toString());
+        }
+      }
+
+      MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph);
       stored.add(outcome.stored());
       if (outcome.supersededId() != null) {
         superseded++;

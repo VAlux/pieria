@@ -2,17 +2,20 @@ package dev.alvo.pieria.model;
 
 
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.domain.Chunk;
-import dev.alvo.pieria.domain.Classification;
-import dev.alvo.pieria.domain.ExtractedCandidate;
-import dev.alvo.pieria.domain.Memory;
-import dev.alvo.pieria.domain.MemoryType;
-import dev.alvo.pieria.domain.Message;
-import dev.alvo.pieria.domain.QueryAnalysis;
-import dev.alvo.pieria.domain.RecallCandidate;
-import dev.alvo.pieria.domain.TemporalFact;
-import dev.alvo.pieria.domain.VerificationResult;
-import dev.alvo.pieria.domain.VerificationVerdict;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.domain.graph.Entity;
+import dev.alvo.pieria.domain.graph.EntityNormalizer;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -27,9 +30,6 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -38,7 +38,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -191,11 +192,11 @@ public class OpenAiModelGateway implements ModelGateway {
       
       Do not invent information not present in the chunk. If nothing is worth remembering,
       return an empty array.
-
+      
       Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
       Format: [{"content": "...", "suggestedType": "..."}]
       Empty result: []
-
+      
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -218,11 +219,11 @@ public class OpenAiModelGateway implements ModelGateway {
       
       Do not invent information not present in the chunk. If there are no concrete values worth
       capturing, return an empty array.
-
+      
       Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
       Format: [{"content": "...", "suggestedType": "..."}]
       Empty result: []
-
+      
       Chunk transcript:
       %s
       """.formatted(chunk.transcript());
@@ -279,12 +280,15 @@ public class OpenAiModelGateway implements ModelGateway {
       if (wrapped != null && wrapped.candidates() != null) {
         return wrapped.candidates();
       }
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+    }
 
     // Try bare array [...]
     try {
-      return objectMapper.readValue(json, new TypeReference<List<RawCandidate>>() {});
-    } catch (Exception ignored) {}
+      return objectMapper.readValue(json, new TypeReference<List<RawCandidate>>() {
+      });
+    } catch (Exception ignored) {
+    }
 
     // Fallback: parse markdown bullet/numbered output the model emits when it ignores JSON instructions
     List<RawCandidate> markdown = parseMarkdownCandidates(rawText);
@@ -313,9 +317,9 @@ public class OpenAiModelGateway implements ModelGateway {
           // normalize "instruction/preference" → "instruction", etc.
           String type = rawType.contains("instruction") ? "instruction"
             : rawType.contains("event") ? "event"
-            : rawType.contains("task") ? "task"
-            : rawType.contains("fact") ? "fact"
-            : rawType;
+              : rawType.contains("task") ? "task"
+                : rawType.contains("fact") ? "fact"
+                  : rawType;
           candidates.add(new RawCandidate(pendingContent, type));
           pendingContent = null;
         }
@@ -430,6 +434,81 @@ public class OpenAiModelGateway implements ModelGateway {
     return new Classification(type, topicKey, List.copyOf(queries), payload);
   }
 
+  @Override
+  public GraphFragment extractGraph(String content) {
+    if (content == null || content.isBlank()) {
+      return GraphFragment.empty();
+    }
+    String prompt = """
+      You are the GRAPH EXTRACTOR of a memory pipeline. From the verified memory below, extract:
+      - entities: the distinct named entities it mentions. For each: name, and type (one of
+        person, project, tool, file, concept).
+      - triples: the explicit relationships among those entities, as
+        (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase
+        verb phrase, e.g. "uses", "depends on", "runs on", "owns".
+
+      Ground everything strictly in the memory content; do not invent entities or relations. If
+      nothing is worth extracting, return empty arrays.
+
+      Memory content:
+      %s
+      """.formatted(content);
+
+    GraphDto dto;
+    try {
+      dto = callExtractionEntity(prompt, "extractGraph", GraphDto.class);
+    } catch (RuntimeException e) {
+      // Graph extraction is degradable: never escalate. Ingestion stores the memory without a graph.
+      LOGGER.warn("graph extraction call failed; returning empty fragment: {}", e.toString());
+      return GraphFragment.empty();
+    }
+    if (dto == null) {
+      return GraphFragment.empty();
+    }
+
+    List<Entity> entities = new ArrayList<>();
+    LinkedHashSet<String> seenEntities = new LinkedHashSet<>();
+    if (dto.entities() != null) {
+      for (EntityDto e : dto.entities()) {
+        if (e == null) {
+          continue;
+        }
+        String name = EntityNormalizer.normalizeName(e.name());
+        if (name.isEmpty()) {
+          continue;
+        }
+        String type = EntityNormalizer.normalizeType(e.type());
+        if (seenEntities.add(type + " " + name)) {
+          entities.add(Entity.of(type, name, "{}"));
+        }
+      }
+    }
+
+    // Deduplicate triples by normalized (source, relation, target).
+    List<GraphFragment.EdgeTriple> triples = new ArrayList<>();
+    LinkedHashSet<String> seenTriples = new LinkedHashSet<>();
+    if (dto.triples() != null) {
+      for (TripleDto t : dto.triples()) {
+        if (t == null) {
+          continue;
+        }
+        String sourceName = EntityNormalizer.normalizeName(t.sourceName());
+        String targetName = EntityNormalizer.normalizeName(t.targetName());
+        String relation = EntityNormalizer.normalizeRelation(t.relation());
+        if (sourceName.isEmpty() || targetName.isEmpty() || relation.isEmpty()) {
+          continue;
+        }
+        String sourceType = EntityNormalizer.normalizeType(t.sourceType());
+        String targetType = EntityNormalizer.normalizeType(t.targetType());
+        if (seenTriples.add(sourceName + "|" + relation + "|" + targetName)) {
+          triples.add(new GraphFragment.EdgeTriple(sourceName, sourceType, relation, targetName, targetType));
+        }
+      }
+    }
+
+    return new GraphFragment(entities, triples);
+  }
+
   private static MemoryType parseTypeOrNull(String wire) {
     if (wire == null || wire.isBlank()) {
       return null;
@@ -457,7 +536,7 @@ public class OpenAiModelGateway implements ModelGateway {
   @Override
   public QueryAnalysis analyzeQuery(String query) {
     if (query == null || query.isBlank()) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
     String prompt = """
       You are the QUERY ANALYZER of a memory retrieval pipeline. Given a recall query,
@@ -466,11 +545,13 @@ public class OpenAiModelGateway implements ModelGateway {
         normalized key (lowercase, words joined by '.', e.g. "user.editor", "db.engine").
       - ftsTerms: the salient keyword terms from the query EXPANDED with close synonyms and
         common alternate spellings, for full-text search. Single words, lowercase.
+      - entities: the named entities (people, projects, tools, files, concepts) referenced in the
+        query, as short names, for relationship-graph lookup. Empty if none are named.
       - hydeStatement: one plausible declarative sentence that would directly ANSWER the query
         (a hypothetical answer), used for HyDE vector search.
-      
+
       Do not answer the question for real; just produce a plausible hypothetical answer sentence.
-      
+
       Query:
       %s
       """.formatted(query);
@@ -482,7 +563,7 @@ public class OpenAiModelGateway implements ModelGateway {
       throw new ModelUnavailableException("model query analysis failed", e);
     }
     if (dto == null) {
-      return new QueryAnalysis(List.of(), List.of(), null);
+      return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
 
     List<String> topicKeys = new ArrayList<>();
@@ -510,7 +591,19 @@ public class OpenAiModelGateway implements ModelGateway {
       }
     }
 
-    return new QueryAnalysis(topicKeys, ftsTerms, blankToNull(dto.hydeStatement()));
+    // Normalize entity names to match the stored graph (lowercased, collapsed, aliased), deduped.
+    List<String> entities = new ArrayList<>();
+    LinkedHashSet<String> seenEntities = new LinkedHashSet<>();
+    if (dto.entities() != null) {
+      for (String raw : dto.entities()) {
+        String name = EntityNormalizer.normalizeName(raw);
+        if (!name.isEmpty() && seenEntities.add(name)) {
+          entities.add(name);
+        }
+      }
+    }
+
+    return new QueryAnalysis(topicKeys, ftsTerms, entities, blankToNull(dto.hydeStatement()));
   }
 
   @Override
@@ -547,13 +640,13 @@ public class OpenAiModelGateway implements ModelGateway {
       brevity or vagueness of the query is never itself a reason to refuse.
       The pre-computed temporal facts are authoritative: use them verbatim and never perform your
       own date or duration arithmetic.
-
+      
       Query:
       %s
-
+      
       Pre-computed temporal facts:
       %s
-
+      
       Remembered memories:
       %s
       """.formatted(query, temporalBlock, context);
@@ -564,9 +657,10 @@ public class OpenAiModelGateway implements ModelGateway {
         .call()
         .chatResponse();
       logTokenUsage("synthesizeRecall", chatResponse);
-      if (chatResponse == null || chatResponse.getResult() == null
-        || chatResponse.getResult().getOutput() == null) {
+      if (chatResponse == null || chatResponse.getResult() == null) {
         return "";
+      } else {
+        chatResponse.getResult();
       }
       return chatResponse.getResult().getOutput().getText();
     } catch (RuntimeException e) {
@@ -579,38 +673,46 @@ public class OpenAiModelGateway implements ModelGateway {
     String prompt = """
       You are a strict answer equivalence judge. Decide whether the ACTUAL answer conveys the same
       information as the EXPECTED answer for the given question.
-
+      
       Rules:
       - Respond "true" if the actual answer contains the expected answer or is semantically equivalent.
       - Respond "false" if the actual answer is wrong, incomplete, or claims insufficient evidence
         when the expected answer exists.
       - Ignore differences in phrasing, capitalization, or minor wording.
-
+      
       Question: %s
       Expected: %s
       Actual: %s
-
+      
       Respond with only "true" or "false".
       """.formatted(
-        question == null ? "" : question,
-        expectedAnswer == null ? "" : expectedAnswer,
-        actualAnswer == null ? "" : actualAnswer);
+      question == null ? "" : question,
+      expectedAnswer == null ? "" : expectedAnswer,
+      actualAnswer == null ? "" : actualAnswer);
+
     LOGGER.info("judge question='{}' expected='{}'", truncate(question, 80), truncate(expectedAnswer, 80));
     LOGGER.info("judge actual='{}'", truncate(actualAnswer, 120));
+
     try {
       String response = synthesisChatClient.prompt()
         .user(prompt)
         .call()
         .content();
+
       boolean verdict = response != null && response.strip().toLowerCase(Locale.ROOT).startsWith("true");
+
       LOGGER.info("judge verdict={} raw='{}'", verdict, truncate(response, 40));
+
       return verdict;
     } catch (RuntimeException e) {
       LOGGER.warn("judge call failed ({}); falling back to exact match", e.getMessage());
+
       String normExpected = expectedAnswer == null ? "" : expectedAnswer.strip().toLowerCase(Locale.ROOT);
       String normActual = actualAnswer == null ? "" : actualAnswer.strip().toLowerCase(Locale.ROOT);
       boolean verdict = normExpected.equals(normActual);
+
       LOGGER.info("judge verdict={} (exact-match fallback)", verdict);
+
       return verdict;
     }
   }
@@ -626,9 +728,7 @@ public class OpenAiModelGateway implements ModelGateway {
     try {
       EmbeddingResponse response = embeddingModel.embedForResponse(List.of(text == null ? "" : text));
       logEmbeddingUsage(response);
-      if (response == null || response.getResult() == null) {
-        return new float[0];
-      }
+      response.getResult();
       return response.getResult().getOutput();
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("Model embedding failed: " + e.getMessage(), e);
@@ -645,15 +745,10 @@ public class OpenAiModelGateway implements ModelGateway {
       return;
     }
     EmbeddingResponseMetadata metadata = response.getMetadata();
-    if (metadata == null) {
-      return;
-    }
     Usage usage = metadata.getUsage();
-    if (usage == null) {
-      return;
-    }
     LOGGER.info("model stage=embed promptTokens={} completionTokens={} totalTokens={}",
-      nullToZero(usage.getPromptTokens()), nullToZero(usage.getCompletionTokens()),
+      nullToZero(usage.getPromptTokens()),
+      nullToZero(usage.getCompletionTokens()),
       nullToZero(usage.getTotalTokens()));
   }
 
@@ -781,8 +876,28 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Structured-output target for {@link #analyzeQuery}. Shape v1.
+   * Structured-output target for {@link #analyzeQuery}. Shape v1 (+ entities).
    */
-  private record QueryAnalysisDto(List<String> topicKeys, List<String> ftsTerms, String hydeStatement) {
+  private record QueryAnalysisDto(
+    List<String> topicKeys, List<String> ftsTerms, List<String> entities, String hydeStatement) {
+  }
+
+  /**
+   * Structured-output target for one extracted relationship triple. Shape v1.
+   */
+  private record TripleDto(
+    String sourceName, String sourceType, String relation, String targetName, String targetType) {
+  }
+
+  /**
+   * Structured-output target for {@link #extractGraph}. Shape v1.
+   */
+  private record GraphDto(List<EntityDto> entities, List<TripleDto> triples) {
+  }
+
+  /**
+   * Structured-output target for one extracted entity. Shape v1.
+   */
+  private record EntityDto(String name, String type) {
   }
 }
