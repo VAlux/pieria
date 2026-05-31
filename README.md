@@ -2,6 +2,8 @@
 
 **A local-first, persistent memory layer for AI agents.**
 
+[![release](https://github.com/VAlux/pieria/actions/workflows/release.yml/badge.svg)](https://github.com/VAlux/pieria/actions/workflows/release.yml)
+
 > *Pieria* — the region at the foot of Mount Olympus that was the mythic home of the
 > Muses and the site of the Pierian spring, the classical metaphor for the source of
 > knowledge and memory.
