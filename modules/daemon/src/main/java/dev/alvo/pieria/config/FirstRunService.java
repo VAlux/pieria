@@ -95,8 +95,8 @@ public class FirstRunService implements ApplicationRunner {
     // Configured models, de-duplicated and order-preserving (small, large, embedding).
     PieriaProperties.Model model = pieria.model();
     LinkedHashSet<String> configured = new LinkedHashSet<>();
-    addIfPresent(configured, model.chatSmall());
-    addIfPresent(configured, model.chatLarge());
+    addIfPresent(configured, model.extractionModel());
+    addIfPresent(configured, model.synthesisModel());
     addIfPresent(configured, model.embedding());
 
     List<String> commands = new ArrayList<>();
@@ -173,11 +173,11 @@ public class FirstRunService implements ApplicationRunner {
     PieriaProperties.Model model = pieria.model();
     log.info(
       "pieria startup host={} port={} backend={} databasePath={} configDir={} logsDir={} runtimeDir={} "
-        + "modelProvider=ollama chatSmall={} chatLarge={} embedding={} firstRunEnabled={} "
+        + "modelProvider=ollama extractionModel={} synthesisModel={} embedding={} firstRunEnabled={} "
         + "modelCheck={} modelStatus={} modelPullPolicy={}",
       pieria.daemon().host(), pieria.daemon().port(), storage.backend(), paths.databaseFile(),
       paths.configDir(), paths.logsDir(), paths.runtimeDir(),
-      model.chatSmall(), model.chatLarge(), model.embedding(),
+      model.extractionModel(), model.synthesisModel(), model.embedding(),
       state.enabled(), firstRun.checkModels(), state.modelStatus(), state.modelPullPolicy());
   }
 

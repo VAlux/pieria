@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  * Wire a live gateway and invoke:
  * <pre>{@code
  *   ModelGateway gateway = ...;            // e.g. daemon OllamaModelGateway bean
- *   PieriaProperties props = ...;          // chat-small/large, embedding model + dimension
+ *   PieriaProperties props = ...;          // extraction-model/synthesis-model, embedding model + dimension
  *   BenchmarkRunner runner = new BenchmarkRunner(props, () -> gateway);
  *
  *   // LoCoMo

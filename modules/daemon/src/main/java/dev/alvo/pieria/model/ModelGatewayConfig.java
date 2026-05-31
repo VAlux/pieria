@@ -26,11 +26,11 @@ public class ModelGatewayConfig {
 
   @Bean("extractionChatClient")
   public ChatClient extractionChatClient(OllamaChatModel chatModel, PieriaProperties properties) {
-    return chatClientForModel(chatModel, properties.model().chatSmall());
+    return chatClientForModel(chatModel, properties.model().extractionModel());
   }
 
   @Bean("synthesisChatClient")
   public ChatClient synthesisChatClient(OllamaChatModel chatModel, PieriaProperties properties) {
-    return chatClientForModel(chatModel, properties.model().chatLarge());
+    return chatClientForModel(chatModel, properties.model().synthesisModel());
   }
 }
