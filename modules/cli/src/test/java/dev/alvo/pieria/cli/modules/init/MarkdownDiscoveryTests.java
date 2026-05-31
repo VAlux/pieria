@@ -1,6 +1,5 @@
-package dev.alvo.pieria.cli.init;
+package dev.alvo.pieria.cli.modules.init;
 
-import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

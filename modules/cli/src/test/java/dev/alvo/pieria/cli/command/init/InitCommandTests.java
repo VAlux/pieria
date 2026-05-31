@@ -1,7 +1,6 @@
-package dev.alvo.pieria.cli.command;
+package dev.alvo.pieria.cli.command.init;
 
 import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.cli.command.init.InitCommand;
 import dev.alvo.pieria.cli.modules.init.IngestClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

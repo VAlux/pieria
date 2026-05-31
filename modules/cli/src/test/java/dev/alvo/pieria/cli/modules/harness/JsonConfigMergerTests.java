@@ -1,6 +1,5 @@
-package dev.alvo.pieria.cli.harness;
+package dev.alvo.pieria.cli.modules.harness;
 
-import dev.alvo.pieria.cli.modules.harness.JsonConfigMerger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.node.ArrayNode;

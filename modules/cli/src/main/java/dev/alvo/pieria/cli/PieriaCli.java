@@ -16,7 +16,7 @@ import picocli.CommandLine.Command;
   name = "pieria",
   mixinStandardHelpOptions = true,
   version = "pieria 0.0.1-SNAPSHOT",
-  description = "Local-first persistent memory layer for AI agents.",
+  description = "Persistent memory layer for AI agents.",
   subcommands = {HarnessCommand.class, ProfileCommand.class, InitCommand.class, DaemonCommand.class}
 )
 public final class PieriaCli implements Runnable {
