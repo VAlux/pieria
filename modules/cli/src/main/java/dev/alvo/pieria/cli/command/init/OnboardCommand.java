@@ -25,11 +25,11 @@ import java.util.concurrent.Callable;
  * duplicate memories.
  */
 @Command(
-  name = "init",
-  description = "Seed a Pieria memory profile from the project's markdown documentation.",
+  name = "onboard",
+  description = "Seed a Pieria memory profile",
   mixinStandardHelpOptions = true
 )
-public final class InitCommand implements Callable<Integer> {
+public final class OnboardCommand implements Callable<Integer> {
 
   private static final String DEFAULT_DAEMON_URL = "http://127.0.0.1:8077";
 

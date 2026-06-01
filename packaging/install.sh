@@ -97,6 +97,7 @@ fetch() {  # fetch <url> <dest>
 		# Pin to https for remote downloads; relax for http/file used in local testing.
 		local proto_opt=()
 		[[ "$url" == https://* ]] && proto_opt=(--proto '=https')
+		log "download $url -> $dest"
 		curl -fSL "${proto_opt[@]+"${proto_opt[@]}"}" --retry 3 -o "$dest" "$url"
 	else
 		wget -q -O "$dest" "$url"

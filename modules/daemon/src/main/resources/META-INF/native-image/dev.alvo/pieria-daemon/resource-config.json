@@ -5,6 +5,9 @@
         "pattern": "application.*"
       },
       {
+        "pattern": "config/pieria-default\\.properties"
+      },
+      {
         "pattern": "db/migration/.*\\.sql"
       },
       {

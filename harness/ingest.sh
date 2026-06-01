@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# ingest.sh — harness ingestion hook client for Pieria (SPEC §10, §10.3, phase-4 step 5).
+# ingest.sh — harness ingestion hook client for Pieria
 #
 # Reads a transcript payload (JSON) from stdin or a file argument, derives the profile
 # slug via profile-name.sh, and POSTs to the daemon's /ingest endpoint.

@@ -51,6 +51,51 @@ class BootstrapServiceTests {
   }
 
   @Test
+  void initializeWritesDefaultConfigWhenAbsentAndPreservesUserEdits() throws Exception {
+    Path root = tempDir.resolve("pieria");
+    Path configDir = root.resolve("config");
+    PieriaProperties pieria = properties(root.resolve("db").resolve("pieria.db"));
+    AppDataPathResolver resolver = new AppDataPathResolver(
+      new AppDataProperties(root.toString(), root.resolve("db").toString(),
+        configDir.toString(), root.resolve("logs").toString(),
+        root.resolve("run").toString()),
+      pieria);
+    BootstrapService service = new BootstrapService(resolver,
+      new FirstRunProperties(true, false, FirstRunProperties.ModelPullPolicy.NEVER),
+      new StorageProperties("sqlite"), pieria, new NoopModelGateway());
+
+    service.initialize();
+
+    Path configFile = configDir.resolve("pieria.properties");
+    assertThat(configFile).exists();
+    assertThat(Files.readString(configFile)).contains("pieria.provider.base-url");
+
+    // A second run must not clobber user edits.
+    Files.writeString(configFile, "pieria.provider.name=edited\n");
+    service.initialize();
+    assertThat(Files.readString(configFile)).isEqualTo("pieria.provider.name=edited\n");
+  }
+
+  @Test
+  void initializeSkipsDefaultConfigWhenFirstRunDisabled() {
+    Path root = tempDir.resolve("pieria");
+    Path configDir = root.resolve("config");
+    PieriaProperties pieria = properties(root.resolve("db").resolve("pieria.db"));
+    AppDataPathResolver resolver = new AppDataPathResolver(
+      new AppDataProperties(root.toString(), root.resolve("db").toString(),
+        configDir.toString(), root.resolve("logs").toString(),
+        root.resolve("run").toString()),
+      pieria);
+    BootstrapService service = new BootstrapService(resolver,
+      new FirstRunProperties(false, false, FirstRunProperties.ModelPullPolicy.NEVER),
+      new StorageProperties("sqlite"), pieria, new NoopModelGateway());
+
+    service.initialize();
+
+    assertThat(configDir.resolve("pieria.properties")).doesNotExist();
+  }
+
+  @Test
   void setupStateReportsSkippedModelStatusWhenChecksDisabled() {
     Path root = tempDir.resolve("pieria");
     PieriaProperties pieria = properties(root.resolve("db").resolve("pieria.db"));

@@ -43,14 +43,14 @@ jobs:
             platform: macos-aarch64
             vec_lib: vec0.dylib
             archive: tar
-          - os: ubuntu-latest
-            platform: linux-x86_64
-            vec_lib: vec0.so
-            archive: tar
-          - os: windows-latest
-            platform: windows-x86_64
-            vec_lib: vec0.dll
-            archive: zip
+#          - os: ubuntu-latest
+#            platform: linux-x86_64
+#            vec_lib: vec0.so
+#            archive: tar
+#          - os: windows-latest
+#            platform: windows-x86_64
+#            vec_lib: vec0.dll
+#            archive: zip
     steps:
       - uses: actions/checkout@v4
 

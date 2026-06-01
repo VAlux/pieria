@@ -14,7 +14,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class InitCommandTests {
+class OnboardCommandTests {
 
   private static void writeReadme(Path proj) throws IOException {
     Files.writeString(proj.resolve("README.md"), "# Project\nSome durable knowledge.");
@@ -23,7 +23,7 @@ class InitCommandTests {
   /**
    * Run InitCommand with a fake client and captured stdout/stderr.
    */
-  private static Result run(InitCommand cmd, FakeClient fake) {
+  private static Result run(OnboardCommand cmd, FakeClient fake) {
     cmd.clientOverride = fake;
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -43,7 +43,7 @@ class InitCommandTests {
   @Test
   void dryRunReportsDocsAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    InitCommand cmd = new InitCommand();
+    OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
     cmd.dryRun = true;
     FakeClient fake = new FakeClient();
@@ -58,7 +58,7 @@ class InitCommandTests {
 
   @Test
   void emptyDirSucceedsWithoutContactingDaemon(@TempDir Path proj) {
-    InitCommand cmd = new InitCommand();
+    OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
     FakeClient fake = new FakeClient();
 
@@ -72,7 +72,7 @@ class InitCommandTests {
   @Test
   void successReportsStoredCount(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    InitCommand cmd = new InitCommand();
+    OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
     FakeClient fake = new FakeClient();
     fake.result = new IngestClient.Success(5);
@@ -86,7 +86,7 @@ class InitCommandTests {
   @Test
   void daemonDownOnPingReturnsExit3(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    InitCommand cmd = new InitCommand();
+    OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
     FakeClient fake = new FakeClient();
     fake.reachability = IngestClient.Reachability.DAEMON_DOWN;
@@ -101,7 +101,7 @@ class InitCommandTests {
   @Test
   void modelUnavailableReturnsExit4(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    InitCommand cmd = new InitCommand();
+    OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
     FakeClient fake = new FakeClient();
     fake.result = new IngestClient.ModelUnavailable();

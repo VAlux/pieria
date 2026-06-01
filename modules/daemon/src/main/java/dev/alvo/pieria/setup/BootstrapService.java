@@ -10,9 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +29,11 @@ import java.util.List;
 public class BootstrapService implements ApplicationRunner {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BootstrapService.class);
+
+  /** Bundled template dumped to {@link AppDataPaths#configDir()} so users have a config to edit. */
+  static final String DEFAULT_CONFIG_RESOURCE = "config/pieria-default.properties";
+  /** Filename of the dumped config; matches the {@code spring.config.import} location in application.properties. */
+  static final String CONFIG_FILE_NAME = "pieria.properties";
 
   private final AppDataPathResolver pathResolver;
   private final FirstRunProperties firstRun;
@@ -75,12 +82,32 @@ public class BootstrapService implements ApplicationRunner {
           throw new UncheckedIOException("Cannot create Pieria app-data directory: " + dir, e);
         }
       }
+      materializeDefaultConfig(paths.configDir());
     }
 
     lastModelStatus = modelStatus();
     SetupState state = setupState(lastModelStatus);
     logStartupConfig(state);
     return state;
+  }
+
+  /**
+   * Writes the bundled default config to {@code configDir/pieria.properties} when it does not yet
+   * exist, giving users an editable starting point. The daemon imports this file on the next start
+   * (see {@code spring.config.import} in application.properties). Existing files are never touched, so
+   * user edits survive restarts. Best-effort: a write failure is logged, not fatal.
+   */
+  private void materializeDefaultConfig(Path configDir) {
+    Path target = configDir.resolve(CONFIG_FILE_NAME);
+    if (Files.exists(target)) {
+      return;
+    }
+    try (InputStream template = new ClassPathResource(DEFAULT_CONFIG_RESOURCE).getInputStream()) {
+      Files.copy(template, target);
+      LOGGER.info("wrote default config to {}", target);
+    } catch (IOException e) {
+      LOGGER.warn("could not write default config to {}: {}", target, e.getMessage());
+    }
   }
 
   public SetupState setupState() {

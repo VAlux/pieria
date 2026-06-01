@@ -47,3 +47,4 @@ packaging/native/*/*.dll
 ### Local-only daemon rebuild helper (not for commit) ###
 .mcp.json
 .claude
+.codex
