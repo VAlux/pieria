@@ -40,7 +40,7 @@ public final class ProfileRememberCommand extends AbstractProfileCommand {
   protected int run(ProfileApiClient client) {
     MemoryResponse stored = client.remember(name,
       new RememberRequest(type, content, session, topicKey, payload));
-    System.out.printf("Stored %s [%s]%n", stored.id(), stored.type());
+    log.info("Stored {} [{}]", stored.id(), stored.type());
     return 0;
   }
 }

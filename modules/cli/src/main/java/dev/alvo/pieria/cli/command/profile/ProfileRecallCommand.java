@@ -34,13 +34,14 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
   protected int run(ProfileApiClient client) {
     RecallResponse response = client.recall(name, new RecallRequest(query, limit, false));
 
-    System.out.println(response.answer() == null ? "(no answer)" : response.answer());
+    log.info(response.answer() == null ? "(no answer)" : response.answer());
 
     List<MemoryResponse> memories = response.memories();
     if (memories != null && !memories.isEmpty()) {
-      System.out.printf("%nEvidence:%n");
+      log.info("");
+      log.info("Evidence:");
       for (MemoryResponse m : memories) {
-        System.out.printf("  - [%s] %s%n", m.type(), m.content());
+        log.info("  - [{}] {}", m.type(), m.content());
       }
     }
     return 0;

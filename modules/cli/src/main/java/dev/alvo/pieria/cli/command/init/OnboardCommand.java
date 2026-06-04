@@ -6,6 +6,7 @@ import dev.alvo.pieria.cli.modules.init.IngestClient;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery.Doc;
 import dev.alvo.pieria.cli.modules.init.TranscriptBuilder;
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -33,6 +34,8 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private static final String DEFAULT_DAEMON_URL = "http://127.0.0.1:8077";
 
+  private final Logger log = new Logger();
+
   @Option(names = "--project-dir", description = "Project directory to scan (default: current directory).")
   public Path projectDir = Path.of("");
   /**
@@ -55,7 +58,7 @@ public final class OnboardCommand implements Callable<Integer> {
 
     List<Doc> docs = MarkdownDiscovery.create(dir).discover(includeAgentDocs);
     if (docs.isEmpty()) {
-      System.out.printf("No markdown docs found under %s — nothing to seed.%n", dir);
+      log.info("No markdown docs found under {} — nothing to seed.", dir);
       return 0;
     }
 
@@ -63,21 +66,21 @@ public final class OnboardCommand implements Callable<Integer> {
     try {
       body = new TranscriptBuilder().build(docs);
     } catch (IOException e) {
-      System.err.printf("Failed to read project docs: %s%n", e.getMessage());
+      log.error("Failed to read project docs: {}", e.getMessage());
       return 1;
     }
     if (body.messages().isEmpty()) {
-      System.out.printf("Found %d markdown file(s) but no extractable content — nothing to seed.%n", docs.size());
+      log.info("Found {} markdown file(s) but no extractable content — nothing to seed.", docs.size());
       return 0;
     }
 
     String url = resolveDaemonUrl();
 
     if (dryRun) {
-      System.out.printf("Would seed profile '%s' at %s from %d markdown file(s) → %d message(s):%n",
+      log.info("Would seed profile '{}' at {} from {} markdown file(s) → {} message(s):",
         resolvedProfile, url, docs.size(), body.messages().size());
       for (Doc doc : docs) {
-        System.out.printf("  %s%n", doc.relative());
+        log.info("  {}", doc.relative());
       }
       return 0;
     }
@@ -87,30 +90,30 @@ public final class OnboardCommand implements Callable<Integer> {
       return daemonDown(url);
     }
 
-    System.out.printf("Seeding profile '%s' from %d markdown file(s) → %d message(s)…%n",
+    log.info("Seeding profile '{}' from {} markdown file(s) → {} message(s)…",
       resolvedProfile, docs.size(), body.messages().size());
     return switch (client.ingest(resolvedProfile, body)) {
       case IngestClient.Success s -> {
-        System.out.printf("Done. Stored %d memor%s (vectorization runs asynchronously).%n",
+        log.info("Done. Stored {} memor{} (vectorization runs asynchronously).",
           s.count(), s.count() == 1 ? "y" : "ies");
         yield 0;
       }
       case IngestClient.ModelUnavailable ignored -> {
-        System.err.println("The daemon is up but its model provider is unavailable.");
-        System.err.println("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria init'.");
+        log.error("The daemon is up but its model provider is unavailable.");
+        log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria init'.");
         yield 4;
       }
       case IngestClient.DaemonDown ignored -> daemonDown(url);
       case IngestClient.Failure f -> {
-        System.err.printf("Ingest failed (HTTP %d): %s%n", f.status(), f.body());
+        log.error("Ingest failed (HTTP {}): {}", f.status(), f.body());
         yield 1;
       }
     };
   }
 
   private int daemonDown(String url) {
-    System.err.printf("Pieria daemon is not reachable at %s.%n", url);
-    System.err.println("Start it with 'pieria daemon start' and re-run 'pieria init'.");
+    log.error("Pieria daemon is not reachable at {}.", url);
+    log.error("Start it with 'pieria daemon start' and re-run 'pieria init'.");
     return 3;
   }
 

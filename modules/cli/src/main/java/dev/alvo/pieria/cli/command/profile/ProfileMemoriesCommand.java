@@ -35,16 +35,17 @@ public final class ProfileMemoriesCommand extends AbstractProfileCommand {
     List<MemoryResponse> memories = response.memories();
 
     if (memories == null || memories.isEmpty()) {
-      System.out.println("No memories.");
+      log.info("No memories.");
       return 0;
     }
 
     for (MemoryResponse m : memories) {
-      System.out.printf("%s  [%s]%s%n", m.id(), m.type(),
+      log.info("{}  [{}]{}", m.id(), m.type(),
         m.topicKey() == null || m.topicKey().isBlank() ? "" : " {" + m.topicKey() + "}");
-      System.out.printf("    %s%n", m.content());
+      log.info("    {}", m.content());
     }
-    System.out.printf("%n%d memor%s.%n", memories.size(), memories.size() == 1 ? "y" : "ies");
+    log.info("");
+    log.info("{} memor{}.", memories.size(), memories.size() == 1 ? "y" : "ies");
     return 0;
   }
 }

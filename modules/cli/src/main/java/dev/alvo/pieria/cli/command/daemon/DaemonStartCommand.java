@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.daemon;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
@@ -40,6 +41,8 @@ public final class DaemonStartCommand implements Callable<Integer> {
   @Option(names = "--dry-run", description = "Print the start command without executing it.")
   boolean dryRun;
 
+  private final Logger log = new Logger();
+
   private static String host(String url) {
     String host = URI.create(url).getHost();
     return host == null ? "127.0.0.1" : host;
@@ -56,7 +59,7 @@ public final class DaemonStartCommand implements Callable<Integer> {
     DaemonClient client = new DaemonClient(url);
 
     if (!dryRun && client.ping() == DaemonClient.Reachability.OK) {
-      System.out.printf("Pieria daemon is already running at %s.%n", url);
+      log.info("Pieria daemon is already running at {}.", url);
       return 0;
     }
 
@@ -66,26 +69,26 @@ public final class DaemonStartCommand implements Callable<Integer> {
 
     return switch (process.start(opts)) {
       case DaemonProcess.AlreadyRunning ignored -> {
-        System.out.printf("Pieria daemon is already running at %s.%n", url);
+        log.info("Pieria daemon is already running at {}.", url);
         yield 0;
       }
       case DaemonProcess.StartedViaService s -> {
-        System.out.printf("Started Pieria daemon via %s.%n", s.detail());
+        log.info("Started Pieria daemon via {}.", s.detail());
         yield dryRun ? 0 : awaitHealthy(client, url);
       }
       case DaemonProcess.Spawned s -> {
         if (dryRun) {
           yield 0;
         }
-        System.out.printf("Spawned Pieria daemon (pid %d).%n", s.pid());
+        log.info("Spawned Pieria daemon (pid {}).", s.pid());
         yield awaitHealthy(client, url);
       }
       case DaemonProcess.NoMechanism n -> {
-        System.err.println(n.guidance());
+        log.error(n.guidance());
         yield 3;
       }
       case DaemonProcess.Failed f -> {
-        System.err.printf("Failed to start daemon: %s%n", f.detail());
+        log.error("Failed to start daemon: {}", f.detail());
         yield 1;
       }
     };
@@ -98,8 +101,8 @@ public final class DaemonStartCommand implements Callable<Integer> {
     long deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L;
     while (System.nanoTime() < deadline) {
       if (client.ping() == DaemonClient.Reachability.OK) {
-        System.out.printf("Pieria daemon is up at %s.%n", url);
-        System.out.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
+        log.info("Pieria daemon is up at {}.", url);
+        log.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
         return 0;
       }
       try {
@@ -109,7 +112,7 @@ public final class DaemonStartCommand implements Callable<Integer> {
         break;
       }
     }
-    System.err.printf("Daemon did not become healthy within %ds. Check the daemon logs.%n", timeoutSeconds);
+    log.error("Daemon did not become healthy within {}s. Check the daemon logs.", timeoutSeconds);
     return 1;
   }
 }
