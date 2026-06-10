@@ -1011,4 +1011,33 @@ public class SqliteMemoryStore implements MemoryStore {
 
     return ordered.size() > limit ? new ArrayList<>(ordered.subList(0, limit)) : ordered;
   }
+
+  @Override
+  public List<Memory> findCodeMemoriesBySymbolIds(String profileId, List<String> symbolIds, int limit) {
+    if (symbolIds == null || symbolIds.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<String> distinct = symbolIds.stream()
+      .filter(s -> s != null && !s.isBlank())
+      .distinct()
+      .toList();
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(limit);
+    // json_each over payload.$.symbolIds; payload defaults to '{}', so files without the key match
+    // zero rows rather than erroring. GROUP BY collapses a memory matched by several symbol ids.
+    return jdbc.sql("SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, "
+        + "m.superseded, m.payload, m.embed_text, m.created_at "
+        + "FROM memories m, json_each(m.payload, '$.symbolIds') je "
+        + "WHERE m.profile_id = ? AND m.superseded = 0 AND je.value IN (" + placeholders + ") "
+        + "GROUP BY m.id ORDER BY m.created_at DESC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
 }

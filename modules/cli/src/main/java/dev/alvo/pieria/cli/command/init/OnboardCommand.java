@@ -1,6 +1,12 @@
 package dev.alvo.pieria.cli.command.init;
 
+import dev.alvo.pieria.api.request.CodeIndexRequest;
+import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.response.CodeIndexResponse;
+import dev.alvo.pieria.cli.modules.init.CodeDiscovery;
+import dev.alvo.pieria.cli.modules.init.CodeIndexClient;
+import dev.alvo.pieria.cli.modules.init.HttpCodeIndexClient;
 import dev.alvo.pieria.cli.modules.init.HttpIngestClient;
 import dev.alvo.pieria.cli.modules.init.IngestClient;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
@@ -42,6 +48,10 @@ public final class OnboardCommand implements Callable<Integer> {
    * Test seam: when set, used instead of constructing an {@link HttpIngestClient}.
    */
   public IngestClient clientOverride;
+  /**
+   * Test seam: when set, used instead of constructing an {@link HttpCodeIndexClient}.
+   */
+  public CodeIndexClient codeClientOverride;
   @Option(names = "--profile", description = "Explicit profile slug; omit to auto-derive per directory.")
   String profile;
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
@@ -50,12 +60,25 @@ public final class OnboardCommand implements Callable<Integer> {
   boolean dryRun;
   @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
   boolean includeAgentDocs;
+  @Option(names = "--source-code", description = "Also build a source-code intelligence index from the repo's tracked source files.")
+  boolean sourceCode;
 
   @Override
   public Integer call() {
     Path dir = projectDir.toAbsolutePath().normalize();
     String resolvedProfile = resolveProfile(dir);
+    String url = resolveDaemonUrl();
 
+    int markdownRc = seedMarkdown(dir, resolvedProfile, url);
+    if (!sourceCode) {
+      return markdownRc;
+    }
+    int codeRc = seedSourceCode(dir, resolvedProfile, url);
+    return markdownRc != 0 ? markdownRc : codeRc;
+  }
+
+  /** Seed the profile from project markdown (the default behavior). */
+  private int seedMarkdown(Path dir, String resolvedProfile, String url) {
     List<Doc> docs = MarkdownDiscovery.create(dir).discover(includeAgentDocs);
     if (docs.isEmpty()) {
       log.info("No markdown docs found under {} — nothing to seed.", dir);
@@ -73,8 +96,6 @@ public final class OnboardCommand implements Callable<Integer> {
       log.info("Found {} markdown file(s) but no extractable content — nothing to seed.", docs.size());
       return 0;
     }
-
-    String url = resolveDaemonUrl();
 
     if (dryRun) {
       log.info("Would seed profile '{}' at {} from {} markdown file(s) → {} message(s):",
@@ -106,6 +127,44 @@ public final class OnboardCommand implements Callable<Integer> {
       case IngestClient.DaemonDown ignored -> daemonDown(url);
       case IngestClient.Failure f -> {
         log.error("Ingest failed (HTTP {}): {}", f.status(), f.body());
+        yield 1;
+      }
+    };
+  }
+
+  /** Build the source-code intelligence index from the repo's tracked source files. */
+  private int seedSourceCode(Path dir, String resolvedProfile, String url) {
+    List<FileDto> files = CodeDiscovery.create(dir).discover();
+    if (files.isEmpty()) {
+      log.info("No source files found under {} — skipping code index.", dir);
+      return 0;
+    }
+
+    if (dryRun) {
+      log.info("Would index {} source file(s) into profile '{}' at {}:", files.size(), resolvedProfile, url);
+      for (FileDto file : files) {
+        log.info("  {}", file.repoRelPath());
+      }
+      return 0;
+    }
+
+    CodeIndexClient client = (codeClientOverride != null) ? codeClientOverride : new HttpCodeIndexClient(url);
+    if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
+      return daemonDown(url);
+    }
+
+    log.info("Indexing {} source file(s) into profile '{}'…", files.size(), resolvedProfile);
+    return switch (client.index(resolvedProfile, new CodeIndexRequest(null, files))) {
+      case CodeIndexClient.Success s -> {
+        CodeIndexResponse r = s.response();
+        log.info("Done. Parsed {} file(s) ({} unchanged), {} symbol(s), {} edge(s); stored {} memor{}.",
+          r.filesParsed(), r.filesSkippedUnchanged(), r.symbols(), r.resolvedEdges() + r.heuristicEdges(),
+          r.memoriesStored(), r.memoriesStored() == 1 ? "y" : "ies");
+        yield 0;
+      }
+      case CodeIndexClient.DaemonDown ignored -> daemonDown(url);
+      case CodeIndexClient.Failure f -> {
+        log.error("Code index failed (HTTP {}): {}", f.status(), f.body());
         yield 1;
       }
     };

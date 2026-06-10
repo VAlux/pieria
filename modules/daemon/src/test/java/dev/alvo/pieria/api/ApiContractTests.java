@@ -8,7 +8,9 @@ import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.RetrievalService;
+import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.storage.NoOpCodeIndexStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -214,11 +216,16 @@ class ApiContractTests {
       return model;
     }
 
+    @Bean("apiContractCodeIndexStore")
+    CodeIndexStore codeIndexStore() {
+      return new NoOpCodeIndexStore();
+    }
+
     @Bean("apiContractPieriaProperties")
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
-        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000));
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"));
     }
 
     @Bean("apiContractObjectMapper")

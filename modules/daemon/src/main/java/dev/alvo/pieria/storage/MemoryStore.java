@@ -291,4 +291,13 @@ public interface MemoryStore {
   default List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
     throw new UnsupportedOperationException("findMemoriesByEntities(...) not implemented");
   }
+
+  /**
+   * Active code-derived memories whose {@code payload.symbolIds} array intersects {@code symbolIds}.
+   * This is the provenance link the Phase 13 code channels use to resolve a symbol/edge hit back to
+   * the {@code Memory} retrieval unit. Ordered most-recent first, deduped, capped at {@code limit}.
+   */
+  default List<Memory> findCodeMemoriesBySymbolIds(String profileId, List<String> symbolIds, int limit) {
+    throw new UnsupportedOperationException("findCodeMemoriesBySymbolIds(...) not implemented");
+  }
 }

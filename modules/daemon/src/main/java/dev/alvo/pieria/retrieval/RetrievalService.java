@@ -3,6 +3,7 @@ package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
+import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
@@ -18,6 +19,9 @@ import dev.alvo.pieria.retrieval.channel.GraphChannel;
 import dev.alvo.pieria.retrieval.channel.HydeVectorChannel;
 import dev.alvo.pieria.retrieval.channel.MemoryFtsChannel;
 import dev.alvo.pieria.retrieval.channel.MessageFtsChannel;
+import dev.alvo.pieria.retrieval.channel.SymbolFtsChannel;
+import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
+import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Timed;
 import org.slf4j.Logger;
@@ -59,45 +63,51 @@ public class RetrievalService {
   private final TemporalExtractor temporalExtractor;
   private final ReciprocalRankFusion fusion;
   private final List<RetrievalChannel> channels;
-  private final RetrievalChannel graphChannel;
-  private final boolean graphEnabled;
+  private final List<RetrievalChannel> secondWaveChannels;
   private final int channelLimit;
   private final long channelTimeoutMs;
 
   public RetrievalService(MemoryStore store,
                           ModelGateway modelGateway,
                           DeterministicQueryAnalyzer fallbackAnalyzer,
+                          CodeIndexStore codeStore,
                           PieriaProperties properties) {
     this.store = store;
     this.modelGateway = modelGateway;
     this.fallbackAnalyzer = fallbackAnalyzer;
     this.temporalExtractor = new TemporalExtractor();
 
-    Retrieval retrievalConfig = properties.retrieval();
+    Retrieval cfg = properties.retrieval();
 
-    this.channelLimit = retrievalConfig.channelLimit();
-    this.channelTimeoutMs = retrievalConfig.channelTimeoutMs();
+    this.channelLimit = cfg.channelLimit();
+    this.channelTimeoutMs = cfg.channelTimeoutMs();
 
-    Map<RetrievalChannelType, Double> weights = getWeightsForRetrievalChannels(retrievalConfig);
-    this.fusion = new ReciprocalRankFusion(retrievalConfig.rrfK(), weights);
+    this.fusion = new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg));
 
-    // Channel order is the fixed fan-out order; fusion + tie-breaking make results deterministic.
-    this.channels = List.of(
+    // Wave 1: the primary channels run in a fixed fan-out order; fusion + tie-breaking make results
+    // deterministic. The code SymbolFtsChannel joins wave 1 when enabled (weight > 0).
+    List<RetrievalChannel> wave1 = new ArrayList<>(List.of(
       new ExactKeyChannel(store),
       new MemoryFtsChannel(store),
       new MessageFtsChannel(store),
       new DirectVectorChannel(store),
-      new HydeVectorChannel(store));
+      new HydeVectorChannel(store)));
+    if (cfg.weightSymbolFts() > 0.0) {
+      wave1.add(new SymbolFtsChannel(store, codeStore));
+    }
+    this.channels = List.copyOf(wave1);
 
-    // The graph channel runs in a second wave seeded from the first wave's hits; see runChannels.
-    this.graphChannel = new GraphChannel(
-      store,
-      retrievalConfig.graphDepth(),
-      retrievalConfig.graphFanout(),
-      retrievalConfig.graphSeedLimit());
-
-    // A weight of 0 disables the channel entirely (no traversal, no fusion contribution).
-    this.graphEnabled = retrievalConfig.weightGraph() > 0.0;
+    // Wave 2: graph channels seeded from wave-1 hits. A weight of 0 disables a channel entirely
+    // (no traversal, no fusion contribution).
+    List<RetrievalChannel> wave2 = new ArrayList<>();
+    if (cfg.weightGraph() > 0.0) {
+      wave2.add(new GraphChannel(store, cfg.graphDepth(), cfg.graphFanout(), cfg.graphSeedLimit()));
+    }
+    if (cfg.weightCodeGraph() > 0.0) {
+      wave2.add(new CodeGraphChannel(store, codeStore, cfg.codeGraphDepth(), cfg.codeGraphFanout(),
+        cfg.codeGraphSeedLimit(), EdgeConfidence.fromWire(cfg.codeGraphMinConfidence())));
+    }
+    this.secondWaveChannels = List.copyOf(wave2);
   }
 
   private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
@@ -109,6 +119,8 @@ public class RetrievalService {
     weights.put(RetrievalChannelType.DIRECT_VECTOR, config.weightDirectVector());
     weights.put(RetrievalChannelType.FTS_MESSAGE, config.weightFtsMessage());
     weights.put(RetrievalChannelType.GRAPH, config.weightGraph());
+    weights.put(RetrievalChannelType.SYMBOL_FTS, config.weightSymbolFts());
+    weights.put(RetrievalChannelType.CODE_GRAPH, config.weightCodeGraph());
 
     return weights;
   }
@@ -168,8 +180,8 @@ public class RetrievalService {
    */
   private List<RetrievalCandidate> runWaves(RetrievalContext context, List<ChannelDiagnostics> diags) {
     List<RetrievalCandidate> hits = new ArrayList<>(runChannels(channels, context, diags));
-    if (graphEnabled) {
-      hits.addAll(runChannels(List.of(graphChannel), context.withSeedCandidates(hits), diags));
+    if (!secondWaveChannels.isEmpty()) {
+      hits.addAll(runChannels(secondWaveChannels, context.withSeedCandidates(hits), diags));
     }
     return hits;
   }
