@@ -36,6 +36,12 @@ component writes to and reads from the same profile.
 | `harness/codex/README.md` | Codex CLI setup guide (MCP, stop hook, session-start hook) |
 | `harness/README.md` | Top-level overview: surfaces, profile contract, security, sharing |
 
+The hook scripts are embedded as classpath resources inside the `pieria` CLI binary and extracted
+to the on-disk harness dir by `pieria harness install`. They are also re-extracted automatically by
+`pieria update` wherever a harness is already wired, so a rebuilt CLI ships updated scripts without
+re-running `harness install` in every project. Because the hooks are referenced by absolute path,
+their location does not change across an update — no project `settings.json` is rewritten.
+
 ---
 
 ## Profile-name resolution

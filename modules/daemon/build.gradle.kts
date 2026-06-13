@@ -87,6 +87,22 @@ val embedVecExtensions by tasks.registering(Sync::class) {
 // Adding the task as a resource srcDir wires processResources (and nativeCompile) to depend on it.
 sourceSets["main"].resources.srcDir(embedVecExtensions)
 
+// Version stamp shipped next to the binaries (bin/version.txt) so `pieria update` can read the
+// installed and incoming versions without executing anything.
+val generateVersionStamp by tasks.registering {
+	description = "Write the project version to bin/version.txt for the distributions."
+	val outDir = layout.buildDirectory.dir("generated/version")
+	val projectVersion = project.version.toString()
+	inputs.property("version", projectVersion)
+	outputs.dir(outDir)
+	doLast {
+		outDir.get().file("version.txt").asFile.apply {
+			parentFile.mkdirs()
+			writeText(projectVersion)
+		}
+	}
+}
+
 val jvmDist by tasks.registering(Sync::class) {
 	group = "distribution"
 	description = "Assemble a local JVM distribution with daemon, gateway, cli, command wrappers, and harness assets."
@@ -119,6 +135,9 @@ val jvmDist by tasks.registering(Sync::class) {
 	from(rootProject.layout.projectDirectory.dir("harness")) {
 		into("harness/examples")
 	}
+	from(generateVersionStamp) {
+		into("bin")
+	}
 }
 
 val nativeDist by tasks.registering(Sync::class) {
@@ -149,5 +168,33 @@ val nativeDist by tasks.registering(Sync::class) {
 	}
 	from(rootProject.layout.projectDirectory.dir("harness")) {
 		into("harness/examples")
+	}
+	from(generateVersionStamp) {
+		into("bin")
+	}
+}
+
+// --- Local dev redeploy: build a dist and update the installed Pieria from it in one step. ---
+// Runs the freshly built `pieria` so the new update logic is exercised end-to-end. `pieria update`
+// stops the daemon, atomically swaps the binaries, refreshes hook scripts, and restarts the daemon.
+val deployLocal by tasks.registering(Exec::class) {
+	group = "distribution"
+	description = "Build the native distribution and update the local install from it."
+	dependsOn(nativeDist)
+	val distDir = layout.buildDirectory.dir("distributions/pieria-native")
+	doFirst {
+		val dir = distDir.get().asFile
+		commandLine(dir.resolve("bin/pieria").absolutePath, "update", "--from", dir.absolutePath)
+	}
+}
+
+val deployLocalJar by tasks.registering(Exec::class) {
+	group = "distribution"
+	description = "Build the JVM distribution and update a JVM-style local install from it (skips nativeCompile)."
+	dependsOn(jvmDist)
+	val distDir = layout.buildDirectory.dir("distributions/pieria-jvm")
+	doFirst {
+		val dir = distDir.get().asFile
+		commandLine(dir.resolve("bin/pieria").absolutePath, "update", "--from", dir.absolutePath, "--jar")
 	}
 }

@@ -48,6 +48,28 @@ public final class DaemonClient {
   }
 
   /**
+   * Poll {@code /pieria-health} until the daemon answers or {@code timeoutSeconds} elapses. Shared
+   * by {@code daemon start} and {@code update} so both wait the same way.
+   *
+   * @return {@code true} if the daemon became reachable within the budget
+   */
+  public boolean awaitHealthy(int timeoutSeconds) {
+    long deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L;
+    while (System.nanoTime() < deadline) {
+      if (ping() == Reachability.OK) {
+        return true;
+      }
+      try {
+        Thread.sleep(500);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Fetch the combined health + status snapshot.
    */
   public StatusResult status() {

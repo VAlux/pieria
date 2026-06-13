@@ -4,6 +4,7 @@ import dev.alvo.pieria.cli.command.daemon.DaemonCommand;
 import dev.alvo.pieria.cli.command.harness.HarnessCommand;
 import dev.alvo.pieria.cli.command.init.OnboardCommand;
 import dev.alvo.pieria.cli.command.profile.ProfileCommand;
+import dev.alvo.pieria.cli.command.update.UpdateCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
@@ -15,9 +16,9 @@ import picocli.CommandLine.Command;
 @Command(
   name = "pieria",
   mixinStandardHelpOptions = true,
-  version = "pieria 0.0.1-SNAPSHOT",
+  versionProvider = VersionProvider.class,
   description = "Persistent memory layer for AI agents.",
-  subcommands = {HarnessCommand.class, ProfileCommand.class, OnboardCommand.class, DaemonCommand.class}
+  subcommands = {HarnessCommand.class, ProfileCommand.class, OnboardCommand.class, DaemonCommand.class, UpdateCommand.class}
 )
 public final class PieriaCli implements Runnable {
 

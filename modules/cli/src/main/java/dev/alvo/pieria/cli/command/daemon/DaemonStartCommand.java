@@ -92,22 +92,13 @@ public final class DaemonStartCommand implements Callable<Integer> {
   }
 
   /**
-   * Poll {@code /pieria-health} until the daemon answers or the timeout elapses.
+   * Wait for the daemon to answer {@code /pieria-health}, then print the readiness banner.
    */
   private int awaitHealthy(DaemonClient client, String url) {
-    long deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L;
-    while (System.nanoTime() < deadline) {
-      if (client.ping() == DaemonClient.Reachability.OK) {
-        System.out.printf("Pieria daemon is up at %s.%n", url);
-        System.out.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
-        return 0;
-      }
-      try {
-        Thread.sleep(500);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
-      }
+    if (client.awaitHealthy(timeoutSeconds)) {
+      System.out.printf("Pieria daemon is up at %s.%n", url);
+      System.out.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
+      return 0;
     }
     System.err.printf("Daemon did not become healthy within %ds. Check the daemon logs.%n", timeoutSeconds);
     return 1;

@@ -49,6 +49,25 @@ val stageHarnessAssets by tasks.registering(Sync::class) {
 
 sourceSets["main"].resources.srcDir(stageHarnessAssets)
 
+// --- Embed the build version as a classpath resource ---
+// BuildInfo.current() (and `pieria --version`) read /version.txt; the dist tasks copy the same stamp
+// next to the binaries so `pieria update` can report old -> new.
+val stageVersion by tasks.registering {
+	description = "Write the project version to a classpath resource (version.txt)."
+	val outDir = layout.buildDirectory.dir("generated/version")
+	val projectVersion = project.version.toString()
+	inputs.property("version", projectVersion)
+	outputs.dir(outDir)
+	doLast {
+		outDir.get().file("version.txt").asFile.apply {
+			parentFile.mkdirs()
+			writeText(projectVersion)
+		}
+	}
+}
+
+sourceSets["main"].resources.srcDir(stageVersion)
+
 val runnableJar by tasks.registering(Jar::class) {
 	group = "distribution"
 	description = "Plain runnable jar fallback for the pieria CLI (native binary is the primary artifact)."

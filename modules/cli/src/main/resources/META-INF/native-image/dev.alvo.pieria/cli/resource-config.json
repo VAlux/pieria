@@ -3,6 +3,9 @@
     "includes": [
       {
         "pattern": "harness/.*"
+      },
+      {
+        "pattern": "version.txt"
       }
     ]
   }

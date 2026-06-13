@@ -164,6 +164,25 @@ idempotent: unchanged docs add no duplicate memories.
 > Requires the daemon to be running (and a model provider reachable). Useful flags:
 > `--profile <slug>`, `--daemon-url <url>`.
 
+### Update
+
+One command replaces the installed binaries and restarts the daemon — no manual copying, service
+juggling, or Gatekeeper workarounds:
+
+```bash
+pieria update                 # download the latest release for this platform, swap, restart
+pieria update --version vX.Y.Z   # pin a release tag
+pieria update --dry-run       # show exactly what would happen, change nothing
+```
+
+It acquires the new distribution first (so a failed download never leaves you serviceless), stops
+the daemon, atomically swaps the binaries, re-extracts the lifecycle hook scripts if a harness is
+wired, restarts the daemon, and waits for it to come healthy. On macOS it clears the quarantine
+attribute and ad-hoc-signs the binaries so they aren't blocked by Gatekeeper. A daemon restart is
+transparent to a running Claude Code session (the gateway reconnects over HTTP) — you only need to
+relaunch the harness if the **gateway binary or a hook script** changed. (Currently macOS-only; on
+other platforms re-run the installer.)
+
 ### Build from source
 
 Requires JDK 25 (and GraalVM 25+ for native images).
@@ -177,6 +196,10 @@ Requires JDK 25 (and GraalVM 25+ for native images).
 ./gradlew :daemon:nativeCompile # GraalVM daemon executable
 ./gradlew :gateway:nativeCompile
 ```
+
+For the local dev loop, `./gradlew deployLocal` builds the native distribution and updates your
+installed Pieria from it in one step (`deployLocalJar` uses the JVM distribution to skip the slow
+native compile, for a JVM-style install).
 
 ---
 
