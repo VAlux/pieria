@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli.modules.init;
 
 import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
+import dev.alvo.pieria.config.model.DiscoveryConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -21,12 +22,13 @@ class CodeDiscoveryTests {
 
   @Test
   void isCandidateAcceptsSourceAndBuildFilesOnly() {
-    assertThat(CodeDiscovery.isCandidate("src/Main.java")).isTrue();
-    assertThat(CodeDiscovery.isCandidate("build.gradle.kts")).isTrue();
-    assertThat(CodeDiscovery.isCandidate("modules/daemon/pom.xml")).isTrue();
-    assertThat(CodeDiscovery.isCandidate("README.md")).isFalse();
-    assertThat(CodeDiscovery.isCandidate("logo.png")).isFalse();
-    assertThat(CodeDiscovery.isCandidate("Makefile")).isFalse();
+    CodeDiscovery discovery = new CodeDiscovery(Path.of(""), _ -> Optional.empty());
+    assertThat(discovery.isCandidate("src/Main.java")).isTrue();
+    assertThat(discovery.isCandidate("build.gradle.kts")).isTrue();
+    assertThat(discovery.isCandidate("modules/daemon/pom.xml")).isTrue();
+    assertThat(discovery.isCandidate("README.md")).isFalse();
+    assertThat(discovery.isCandidate("logo.png")).isFalse();
+    assertThat(discovery.isCandidate("Makefile")).isFalse();
   }
 
   @Test
@@ -50,7 +52,7 @@ class CodeDiscoveryTests {
 
   @Test
   void discoverSkipsOversizedFiles(@TempDir Path proj) throws IOException {
-    byte[] big = new byte[(int) CodeDiscovery.MAX_FILE_BYTES + 1];
+    byte[] big = new byte[(int) DiscoveryConfig.DEFAULT_MAX_FILE_BYTES + 1];
     java.util.Arrays.fill(big, (byte) 'x');
     Files.write(proj.resolve("Big.java"), big);
     Files.writeString(proj.resolve("Small.java"), "class Small {}");
@@ -70,5 +72,39 @@ class CodeDiscoveryTests {
     CodeDiscovery discovery = new CodeDiscovery(proj, _ -> Optional.empty()); // git unavailable
 
     assertThat(discovery.discover()).extracting(FileDto::repoRelPath).containsExactly("Kept.java");
+  }
+
+  @Test
+  void configOverridesExtensionsMarkersAndSizeCap(@TempDir Path proj) throws IOException {
+    Files.writeString(proj.resolve("query.sql"), "SELECT 1;");
+    Files.writeString(proj.resolve("Main.java"), "class Main {}");
+    Files.writeString(proj.resolve("Justfile"), "build:");
+    Files.writeString(proj.resolve("Tiny.sql"), "SELECT 22;"); // 10 bytes > 9-byte cap below
+
+    DiscoveryConfig config = new DiscoveryConfig(
+      java.util.Set.of("sql"), java.util.Set.of("Justfile"), null, 9L);
+    CodeDiscovery discovery = new CodeDiscovery(proj,
+      _ -> Optional.of(List.of("query.sql", "Main.java", "Justfile", "Tiny.sql")), config);
+
+    // Only the configured extension and marker survive; the java default no longer applies and
+    // the lowered size cap drops the larger sql file.
+    assertThat(discovery.discover()).extracting(FileDto::repoRelPath)
+      .containsExactly("Justfile", "query.sql");
+  }
+
+  @Test
+  void configOverridesSkipDirsForFilesystemWalk(@TempDir Path proj) throws IOException {
+    Files.createDirectories(proj.resolve("vendor"));
+    Files.writeString(proj.resolve("vendor/Dep.java"), "class Dep {}");
+    Files.createDirectories(proj.resolve("build"));
+    Files.writeString(proj.resolve("build/Generated.java"), "class Generated {}");
+    Files.writeString(proj.resolve("Kept.java"), "class Kept {}");
+
+    // Replacing skip-dirs wholesale: vendor is now skipped, the default build no longer is.
+    DiscoveryConfig config = new DiscoveryConfig(null, null, java.util.Set.of("vendor"), null);
+    CodeDiscovery discovery = new CodeDiscovery(proj, _ -> Optional.empty(), config);
+
+    assertThat(discovery.discover()).extracting(FileDto::repoRelPath)
+      .containsExactly("Kept.java", "build/Generated.java".replace('/', java.io.File.separatorChar));
   }
 }

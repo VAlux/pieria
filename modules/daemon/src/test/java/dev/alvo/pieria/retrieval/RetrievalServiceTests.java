@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -47,7 +48,8 @@ class RetrievalServiceTests {
   }
 
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
-    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(), props());
+    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(),
+      EffectiveConfigResolver.withoutOverrides(props()));
   }
 
   @Test

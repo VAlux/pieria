@@ -4,6 +4,9 @@ import dev.alvo.pieria.api.request.CodeIndexRequest;
 import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.response.CodeIndexResponse;
+import dev.alvo.pieria.cli.modules.config.ConfigClient;
+import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
+import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
 import dev.alvo.pieria.cli.modules.init.CodeDiscovery;
 import dev.alvo.pieria.cli.modules.init.CodeIndexClient;
 import dev.alvo.pieria.cli.modules.init.HttpCodeIndexClient;
@@ -13,6 +16,8 @@ import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery.Doc;
 import dev.alvo.pieria.cli.modules.init.TranscriptBuilder;
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.config.model.PieriaConfigFile;
+import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -52,6 +57,15 @@ public final class OnboardCommand implements Callable<Integer> {
    * Test seam: when set, used instead of constructing an {@link HttpCodeIndexClient}.
    */
   public CodeIndexClient codeClientOverride;
+  /**
+   * Test seam: when set, used instead of constructing an {@link HttpConfigClient}.
+   */
+  public ConfigClient configClientOverride;
+  /**
+   * Test seam: when set, used instead of {@link ProjectConfigLoader#create} (keeps tests off the
+   * real OS config dir).
+   */
+  public ProjectConfigLoader loaderOverride;
   @Option(names = "--profile", description = "Explicit profile slug; omit to auto-derive per directory.")
   String profile;
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
@@ -69,12 +83,40 @@ public final class OnboardCommand implements Callable<Integer> {
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
 
-    int markdownRc = seedMarkdown(dir, resolvedProfile, url);
-    if (!sourceCode) {
-      return markdownRc;
+    ProjectConfigLoader loader = (loaderOverride != null) ? loaderOverride : ProjectConfigLoader.create(dir);
+    PieriaConfigFile config;
+    try {
+      config = loader.load();
+    } catch (Exception e) {
+      log.error("Failed to load config ({} / {}): {}",
+        loader.globalConfigFile(), loader.projectConfigFile(), e.getMessage());
+      return 2;
     }
-    int codeRc = seedSourceCode(dir, resolvedProfile, url);
+
+    int markdownRc = seedMarkdown(dir, resolvedProfile, url);
+    int codeRc = sourceCode ? seedSourceCode(dir, resolvedProfile, url, config) : 0;
+    pushConfigOverrides(resolvedProfile, url, config);
     return markdownRc != 0 ? markdownRc : codeRc;
+  }
+
+  /**
+   * Push the merged {@code [pieria]} overrides so the profile's daemon-side tuning follows the
+   * project config from day one. Best-effort: onboarding succeeds even when the push fails
+   * ({@code pieria config sync} can redo it), and nothing is pushed when no override is set.
+   */
+  private void pushConfigOverrides(String resolvedProfile, String url, PieriaConfigFile config) {
+    if (dryRun || config.pieria().isEmpty()) {
+      return;
+    }
+    ConfigClient client = (configClientOverride != null) ? configClientOverride : new HttpConfigClient(url);
+    switch (client.put(resolvedProfile, ConfigCodec.toJson(config.pieria()))) {
+      case ConfigClient.Success ignored ->
+        log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
+      case ConfigClient.DaemonDown ignored ->
+        log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");
+      case ConfigClient.Failure f ->
+        log.error("Could not push config overrides (HTTP {}): {}", f.status(), f.body());
+    }
   }
 
   /** Seed the profile from project markdown (the default behavior). */
@@ -133,8 +175,8 @@ public final class OnboardCommand implements Callable<Integer> {
   }
 
   /** Build the source-code intelligence index from the repo's tracked source files. */
-  private int seedSourceCode(Path dir, String resolvedProfile, String url) {
-    List<FileDto> files = CodeDiscovery.create(dir).discover();
+  private int seedSourceCode(Path dir, String resolvedProfile, String url, PieriaConfigFile config) {
+    List<FileDto> files = CodeDiscovery.create(dir, config.discovery()).discover();
     if (files.isEmpty()) {
       log.info("No source files found under {} — skipping code index.", dir);
       return 0;

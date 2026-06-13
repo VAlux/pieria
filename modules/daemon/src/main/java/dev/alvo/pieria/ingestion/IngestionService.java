@@ -1,5 +1,6 @@
 package dev.alvo.pieria.ingestion;
 
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
@@ -48,8 +49,7 @@ public class IngestionService {
   private final ModelGateway modelGateway;
   private final TranscriptNormalizer normalizer;
   private final Chunker chunker;
-  private final int maxExtractionConcurrency;
-  private final int detailPassMinMessages;
+  private final EffectiveConfigResolver configResolver;
 
   /**
    * Merged extraction output: the raw candidate count (for logging) and the de-duplicated list.
@@ -73,13 +73,12 @@ public class IngestionService {
                           ModelGateway modelGateway,
                           TranscriptNormalizer normalizer,
                           Chunker chunker,
-                          PieriaProperties properties) {
+                          EffectiveConfigResolver configResolver) {
     this.store = store;
     this.modelGateway = modelGateway;
     this.normalizer = normalizer;
     this.chunker = chunker;
-    this.maxExtractionConcurrency = Math.max(1, properties.ingestion().maxExtractionConcurrency());
-    this.detailPassMinMessages = Math.max(1, properties.ingestion().detailPassMinMessages());
+    this.configResolver = configResolver;
   }
 
   /**
@@ -104,11 +103,15 @@ public class IngestionService {
       return List.of();
     }
 
-    boolean detailPass = normalized.size() >= detailPassMinMessages;
-    Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized));
+    // Per-profile effective tuning: global properties overlaid with any pushed overrides.
+    PieriaProperties.Ingestion tuning = configResolver.resolve(profile.id()).ingestion();
+
+    boolean detailPass = normalized.size() >= Math.max(1, tuning.detailPassMinMessages());
+    Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized, tuning));
     List<Chunk> chunks = chunk.value();
 
-    Timed<Extraction> extract = Timed.measure(() -> extractCandidates(chunks, detailPass));
+    Timed<Extraction> extract = Timed.measure(
+      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency())));
     Extraction extraction = extract.value();
 
     Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks));
@@ -185,8 +188,8 @@ public class IngestionService {
    * Run extraction over the chunks (full pass, plus the detail pass when enabled) and merge the
    * candidates, retaining the raw count for logging.
    */
-  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass) {
-    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass);
+  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency) {
+    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency);
     List<ExtractedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -269,7 +272,7 @@ public class IngestionService {
    * Run the full pass over all chunks, plus the detail pass when enabled, with parallelism bounded
    * by {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
    */
-  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass) {
+  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency) {
     if (chunks.isEmpty()) {
       return List.of();
     }

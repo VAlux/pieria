@@ -236,6 +236,31 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public void putProfileConfig(String profileId, String configJson) {
+    jdbc.sql("""
+        INSERT INTO profile_config (profile_id, config_json, updated_at) VALUES (?, ?, ?) \
+        ON CONFLICT (profile_id) DO UPDATE SET config_json = excluded.config_json, \
+        updated_at = excluded.updated_at""")
+      .params(profileId, configJson, Instant.now().toString())
+      .update();
+  }
+
+  @Override
+  public Optional<String> getProfileConfig(String profileId) {
+    return jdbc.sql("SELECT config_json FROM profile_config WHERE profile_id = ?")
+      .param(profileId)
+      .query(String.class)
+      .optional();
+  }
+
+  @Override
+  public void clearProfileConfig(String profileId) {
+    jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?")
+      .param(profileId)
+      .update();
+  }
+
+  @Override
   @Transactional
   public void insertMessages(String profileId, String sessionId, List<Message> messages) {
     if (messages == null || messages.isEmpty()) {

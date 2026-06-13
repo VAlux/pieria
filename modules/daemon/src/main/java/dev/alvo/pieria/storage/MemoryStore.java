@@ -220,6 +220,28 @@ public interface MemoryStore {
   }
 
   /**
+   * Upsert the per-profile config overrides as canonical JSON (one row per profile, replaced
+   * wholesale on each push from the CLI).
+   */
+  default void putProfileConfig(String profileId, String configJson) {
+    throw new UnsupportedOperationException("putProfileConfig(...) not implemented");
+  }
+
+  /**
+   * The stored per-profile config overrides JSON, or empty when the profile has none.
+   */
+  default Optional<String> getProfileConfig(String profileId) {
+    throw new UnsupportedOperationException("getProfileConfig(...) not implemented");
+  }
+
+  /**
+   * Remove the per-profile config overrides (the profile falls back to the global config).
+   */
+  default void clearProfileConfig(String profileId) {
+    throw new UnsupportedOperationException("clearProfileConfig(...) not implemented");
+  }
+
+  /**
    * List active (non-superseded) memories, optionally filtered by type and/or session.
    * Null filters mean "no filter on that dimension".
    */

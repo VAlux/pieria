@@ -13,6 +13,10 @@ dependencyManagement {
 dependencies {
 	api("jakarta.validation:jakarta.validation-api")
 	api("com.fasterxml.jackson.core:jackson-annotations")
+	// Config loading/merging (dev.alvo.pieria.config.*) is shared by the CLI and the daemon,
+	// so the tree-model + TOML parser are exported as api.
+	api("tools.jackson.core:jackson-databind")
+	api("tools.jackson.dataformat:jackson-dataformat-toml")
 
 	testImplementation("org.junit.jupiter:junit-jupiter")
 	testImplementation("org.assertj:assertj-core")

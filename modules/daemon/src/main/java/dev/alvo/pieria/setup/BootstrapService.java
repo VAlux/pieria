@@ -30,10 +30,22 @@ public class BootstrapService implements ApplicationRunner {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BootstrapService.class);
 
-  /** Bundled template dumped to {@link AppDataPaths#configDir()} so users have a config to edit. */
+  /**
+   * Bundled template dumped to {@link AppDataPaths#configDir()} so users have a config to edit.
+   */
   static final String DEFAULT_CONFIG_RESOURCE = "config/pieria-default.properties";
-  /** Filename of the dumped config; matches the {@code spring.config.import} location in application.properties. */
+  /**
+   * Filename of the dumped config; matches the {@code spring.config.import} location in application.properties.
+   */
   static final String CONFIG_FILE_NAME = "pieria.properties";
+  /**
+   * Bundled template of the layered TOML config read by the CLI (global layer of `.pieria/config.toml`).
+   */
+  static final String DEFAULT_TOML_RESOURCE = "config/pieria-default-config.toml";
+  /**
+   * Filename of the dumped TOML config; the CLI's ProjectConfigLoader reads it from the config dir.
+   */
+  static final String TOML_FILE_NAME = "config.toml";
 
   private final AppDataPathResolver pathResolver;
   private final FirstRunProperties firstRun;
@@ -92,17 +104,22 @@ public class BootstrapService implements ApplicationRunner {
   }
 
   /**
-   * Writes the bundled default config to {@code configDir/pieria.properties} when it does not yet
-   * exist, giving users an editable starting point. The daemon imports this file on the next start
-   * (see {@code spring.config.import} in application.properties). Existing files are never touched, so
-   * user edits survive restarts. Best-effort: a write failure is logged, not fatal.
+   * Writes the bundled default configs to {@code configDir} when they do not yet exist, giving
+   * users an editable starting point: {@code pieria.properties} (imported by the daemon on the
+   * next start via {@code spring.config.import}) and {@code config.toml} (the global layer of the
+   * CLI's project-overridable config). Existing files are never touched, so user edits survive
+   * restarts. Best-effort: a write failure is logged, not fatal.
    */
   private void materializeDefaultConfig(Path configDir) {
-    Path target = configDir.resolve(CONFIG_FILE_NAME);
+    materializeTemplate(configDir.resolve(CONFIG_FILE_NAME), DEFAULT_CONFIG_RESOURCE);
+    materializeTemplate(configDir.resolve(TOML_FILE_NAME), DEFAULT_TOML_RESOURCE);
+  }
+
+  private static void materializeTemplate(Path target, String resource) {
     if (Files.exists(target)) {
       return;
     }
-    try (InputStream template = new ClassPathResource(DEFAULT_CONFIG_RESOURCE).getInputStream()) {
+    try (InputStream template = new ClassPathResource(resource).getInputStream()) {
       Files.copy(template, target);
       LOGGER.info("wrote default config to {}", target);
     } catch (IOException e) {

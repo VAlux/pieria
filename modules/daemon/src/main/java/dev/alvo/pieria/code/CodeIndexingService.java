@@ -46,10 +46,14 @@ public class CodeIndexingService {
 
   private static final Logger log = LoggerFactory.getLogger(CodeIndexingService.class);
 
-  /** Stable session id so unchanged code yields identical, content-addressed derived memories. */
+  /**
+   * Stable session id so unchanged code yields identical, content-addressed derived memories.
+   */
   static final String CODE_SESSION = "pieria:code-index";
 
-  /** Build-file names used to locate module roots within a batch. */
+  /**
+   * Build-file names used to locate module roots within a batch.
+   */
   private static final Set<String> BUILD_MARKERS = Set.of(
     "build.gradle.kts", "build.gradle", "pom.xml", "package.json", "go.mod", "Cargo.toml");
 
@@ -73,11 +77,15 @@ public class CodeIndexingService {
     this.tx = new TransactionTemplate(txManager);
   }
 
-  /** One source file to index. {@code language}/{@code contentHash} may be blank (auto-derived). */
+  /**
+   * One source file to index. {@code language}/{@code contentHash} may be blank (auto-derived).
+   */
   public record SourceFile(String repoRelPath, String language, String contentHash, String content) {
   }
 
-  /** Per-run observability counts. */
+  /**
+   * Per-run observability counts.
+   */
   public record CodeIndexSummary(
     int filesReceived, int filesSkippedUnchanged, int filesParsed, int filesFailed,
     int symbols, int resolvedEdges, int heuristicEdges,
@@ -177,7 +185,9 @@ public class CodeIndexingService {
     return r;
   }
 
-  /** Derive the per-file fact (with symbol-id provenance) and project curated relations. */
+  /**
+   * Derive the per-file fact (with symbol-id provenance) and project curated relations.
+   */
   private void deriveAndProject(String profileId, String path, String language, String contentHash,
                                 String fileId, List<CodeSymbol> symbols, List<ParsedEdge> parsedEdges,
                                 FileResult r) {
@@ -294,7 +304,9 @@ public class CodeIndexingService {
     };
   }
 
-  /** Stable, deterministic JSON payload (fixed key order helps content-addressing). */
+  /**
+   * Stable, deterministic JSON payload (fixed key order helps content-addressing).
+   */
   private static String codePayload(String language, String path, String fileId, String contentHash,
                                     List<String> symbolIds) {
     StringBuilder sb = new StringBuilder();
@@ -351,7 +363,9 @@ public class CodeIndexingService {
     return dirs;
   }
 
-  /** The module root for a path: the longest marker dir that is its ancestor, else its top dir. */
+  /**
+   * The module root for a path: the longest marker dir that is its ancestor, else its top dir.
+   */
   private static Optional<String> moduleDir(String path, Set<String> markerDirs) {
     String best = null;
     for (String d : markerDirs) {

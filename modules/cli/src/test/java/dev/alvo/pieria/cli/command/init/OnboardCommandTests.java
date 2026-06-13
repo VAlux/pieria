@@ -20,6 +20,12 @@ class OnboardCommandTests {
     Files.writeString(proj.resolve("README.md"), "# Project\nSome durable knowledge.");
   }
 
+  /** Confine config loading to the temp project so tests never read the real OS config dir. */
+  private static dev.alvo.pieria.cli.modules.config.ProjectConfigLoader hermeticLoader(Path proj) {
+    return new dev.alvo.pieria.cli.modules.config.ProjectConfigLoader(
+      proj.resolve("global-config.toml"), proj.resolve(".pieria").resolve("config.toml"));
+  }
+
   /**
    * Run InitCommand with a fake client and captured stdout/stderr.
    */
@@ -45,6 +51,7 @@ class OnboardCommandTests {
     writeReadme(proj);
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
+    cmd.loaderOverride = hermeticLoader(proj);
     cmd.dryRun = true;
     FakeClient fake = new FakeClient();
 
@@ -60,6 +67,7 @@ class OnboardCommandTests {
   void emptyDirSucceedsWithoutContactingDaemon(@TempDir Path proj) {
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
+    cmd.loaderOverride = hermeticLoader(proj);
     FakeClient fake = new FakeClient();
 
     Result r = run(cmd, fake);
@@ -74,6 +82,7 @@ class OnboardCommandTests {
     writeReadme(proj);
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
+    cmd.loaderOverride = hermeticLoader(proj);
     FakeClient fake = new FakeClient();
     fake.result = new IngestClient.Success(5);
 
@@ -88,6 +97,7 @@ class OnboardCommandTests {
     writeReadme(proj);
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
+    cmd.loaderOverride = hermeticLoader(proj);
     FakeClient fake = new FakeClient();
     fake.reachability = IngestClient.Reachability.DAEMON_DOWN;
 
@@ -103,6 +113,7 @@ class OnboardCommandTests {
     writeReadme(proj);
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
+    cmd.loaderOverride = hermeticLoader(proj);
     FakeClient fake = new FakeClient();
     fake.result = new IngestClient.ModelUnavailable();
 

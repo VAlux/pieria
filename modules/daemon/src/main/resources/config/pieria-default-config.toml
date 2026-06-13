@@ -1,0 +1,58 @@
+# Pieria layered configuration (TOML).
+#
+# This file is the GLOBAL layer. A project can override any of it with a
+# `.pieria/config.toml` at its root — precedence: project > global > built-in defaults.
+# Every key is optional; an absent key inherits the next layer down. Lists replace the
+# inherited value wholesale (they do not append).
+#
+# How each section is applied:
+#   [discovery]  is read by the CLI (`pieria onboard --source-code`) to decide which files
+#                are sent to the daemon's code index.
+#   [pieria.*]   is the daemon-overridable tuning subset. The CLI pushes the merged values
+#                per profile (`pieria onboard` / `pieria config sync`); the daemon stores them
+#                and applies them per request. Inspect with `pieria config show`.
+#
+# Process-global daemon settings (provider/model connection, embedding model and dimension,
+# database path, daemon host/port, vectorization worker) live in pieria.properties next to
+# this file and CANNOT be set per project — the daemon rejects them in a config push.
+
+# [discovery]
+# source-extensions = [
+#   "java", "kt", "kts", "scala", "sc",
+#   "ts", "tsx", "js", "jsx", "mjs", "cjs",
+#   "py", "go", "rs", "rb", "php", "cs",
+#   "c", "h", "cpp", "cc", "hpp", "swift"
+# ]
+# build-markers = [
+#   "build.gradle.kts", "build.gradle", "settings.gradle.kts", "settings.gradle",
+#   "pom.xml", "package.json", "go.mod", "Cargo.toml"
+# ]
+# skip-dirs = [".git", "node_modules", "build", ".gradle", ".idea", "target", "dist"]
+# max-file-bytes = 1048576
+
+# [pieria.ingestion]
+# chunk-size-chars = 10000
+# chunk-overlap-messages = 2
+# max-extraction-concurrency = 4
+# detail-pass-min-messages = 9
+
+# [pieria.retrieval]
+# vector-enabled = true
+# rrf-k = 60
+# weight-exact-key = 3.0
+# weight-fts-memory = 1.0
+# weight-hyde-vector = 1.0
+# weight-direct-vector = 1.0
+# weight-fts-message = 0.5
+# weight-graph = 1.0
+# graph-depth = 2
+# graph-fanout = 20
+# graph-seed-limit = 8
+# channel-limit = 10
+# channel-timeout-ms = 3000
+# weight-symbol-fts = 1.0
+# weight-code-graph = 1.0
+# code-graph-depth = 2
+# code-graph-fanout = 20
+# code-graph-seed-limit = 8
+# code-graph-min-confidence = "heuristic"

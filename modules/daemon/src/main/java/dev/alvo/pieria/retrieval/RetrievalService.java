@@ -1,7 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 
-import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -58,31 +58,39 @@ public class RetrievalService {
   private static final Logger LOGGER = LoggerFactory.getLogger(RetrievalService.class);
 
   private final MemoryStore store;
+  private final CodeIndexStore codeStore;
   private final ModelGateway modelGateway;
   private final DeterministicQueryAnalyzer fallbackAnalyzer;
   private final TemporalExtractor temporalExtractor;
-  private final ReciprocalRankFusion fusion;
-  private final List<RetrievalChannel> channels;
-  private final List<RetrievalChannel> secondWaveChannels;
-  private final int channelLimit;
-  private final long channelTimeoutMs;
+  private final EffectiveConfigResolver configResolver;
 
   public RetrievalService(MemoryStore store,
                           ModelGateway modelGateway,
                           DeterministicQueryAnalyzer fallbackAnalyzer,
                           CodeIndexStore codeStore,
-                          PieriaProperties properties) {
+                          EffectiveConfigResolver configResolver) {
     this.store = store;
+    this.codeStore = codeStore;
     this.modelGateway = modelGateway;
     this.fallbackAnalyzer = fallbackAnalyzer;
     this.temporalExtractor = new TemporalExtractor();
+    this.configResolver = configResolver;
+  }
 
-    Retrieval cfg = properties.retrieval();
+  /**
+   * The retrieval machinery for one recall, built from the profile's effective config. Channels
+   * are cheap stateless wrappers over the stores, so per-recall construction lets each profile
+   * tune weights, waves, and limits independently.
+   */
+  private record Pipeline(ReciprocalRankFusion fusion,
+                          List<RetrievalChannel> channels,
+                          List<RetrievalChannel> secondWaveChannels,
+                          int channelLimit,
+                          long channelTimeoutMs) {
+  }
 
-    this.channelLimit = cfg.channelLimit();
-    this.channelTimeoutMs = cfg.channelTimeoutMs();
-
-    this.fusion = new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg));
+  private Pipeline buildPipeline(Retrieval cfg) {
+    ReciprocalRankFusion fusion = new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg));
 
     // Wave 1: the primary channels run in a fixed fan-out order; fusion + tie-breaking make results
     // deterministic. The code SymbolFtsChannel joins wave 1 when enabled (weight > 0).
@@ -95,7 +103,6 @@ public class RetrievalService {
     if (cfg.weightSymbolFts() > 0.0) {
       wave1.add(new SymbolFtsChannel(store, codeStore));
     }
-    this.channels = List.copyOf(wave1);
 
     // Wave 2: graph channels seeded from wave-1 hits. A weight of 0 disables a channel entirely
     // (no traversal, no fusion contribution).
@@ -107,7 +114,9 @@ public class RetrievalService {
       wave2.add(new CodeGraphChannel(store, codeStore, cfg.codeGraphDepth(), cfg.codeGraphFanout(),
         cfg.codeGraphSeedLimit(), EdgeConfidence.fromWire(cfg.codeGraphMinConfidence())));
     }
-    this.secondWaveChannels = List.copyOf(wave2);
+
+    return new Pipeline(fusion, List.copyOf(wave1), List.copyOf(wave2),
+      cfg.channelLimit(), cfg.channelTimeoutMs());
   }
 
   private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
@@ -137,16 +146,19 @@ public class RetrievalService {
 
     var profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
 
+    // Per-profile effective config: global properties overlaid with any pushed overrides.
+    Pipeline pipeline = buildPipeline(configResolver.resolve(profile.id()).retrieval());
+
     Timed<QueryAnalysis> analysis = Timed.measure(() -> analyze(query));
     Timed<Embeddings> embeddings = Timed.measure(() -> embed(query, analysis.value()));
 
     RetrievalContext context = new RetrievalContext(
       profile.id(), query, analysis.value(),
-      embeddings.value().query(), embeddings.value().hyde(), channelLimit);
+      embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit());
 
     List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
-    Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(context, channelDiagnostics));
-    Timed<List<RecallCandidate>> fused = Timed.measure(() -> fuse(hits.value(), limit));
+    Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics));
+    Timed<List<RecallCandidate>> fused = Timed.measure(() -> fuse(pipeline, hits.value(), limit));
     Timed<List<TemporalFact>> temporal = Timed.measure(() -> extractTemporalFacts(query, fused.value()));
     Timed<String> answer = Timed.measure(() -> synthesize(query, fused.value(), temporal.value()));
 
@@ -178,10 +190,10 @@ public class RetrievalService {
    * Channel stage: wave 1 runs the primary channels in parallel; wave 2 runs the graph channel
    * seeded from wave-1 hits + query entities. Both waves feed the same weighted RRF downstream.
    */
-  private List<RetrievalCandidate> runWaves(RetrievalContext context, List<ChannelDiagnostics> diags) {
-    List<RetrievalCandidate> hits = new ArrayList<>(runChannels(channels, context, diags));
-    if (!secondWaveChannels.isEmpty()) {
-      hits.addAll(runChannels(secondWaveChannels, context.withSeedCandidates(hits), diags));
+  private List<RetrievalCandidate> runWaves(Pipeline pipeline, RetrievalContext context, List<ChannelDiagnostics> diags) {
+    List<RetrievalCandidate> hits = new ArrayList<>(runChannels(pipeline, pipeline.channels(), context, diags));
+    if (!pipeline.secondWaveChannels().isEmpty()) {
+      hits.addAll(runChannels(pipeline, pipeline.secondWaveChannels(), context.withSeedCandidates(hits), diags));
     }
     return hits;
   }
@@ -189,8 +201,8 @@ public class RetrievalService {
   /**
    * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
    */
-  private List<RecallCandidate> fuse(List<RetrievalCandidate> hits, int limit) {
-    List<RecallCandidate> fused = fusion.fuse(hits);
+  private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit) {
+    List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
     return fused.size() > limit ? List.copyOf(fused.subList(0, limit)) : fused;
   }
 
@@ -245,7 +257,8 @@ public class RetrievalService {
    * (local-storage) channel failures abort the recall; best-effort vector channels that fail or
    * time out are logged and contribute nothing.
    */
-  private List<RetrievalCandidate> runChannels(List<RetrievalChannel> channelsToRun,
+  private List<RetrievalCandidate> runChannels(Pipeline pipeline,
+                                               List<RetrievalChannel> channelsToRun,
                                                RetrievalContext ctx,
                                                List<ChannelDiagnostics> diags) {
 
@@ -259,7 +272,7 @@ public class RetrievalService {
 
       futures.forEach((channel, value) -> {
         try {
-          Timed<List<RetrievalCandidate>> result = value.get(channelTimeoutMs, TimeUnit.MILLISECONDS);
+          Timed<List<RetrievalCandidate>> result = value.get(pipeline.channelTimeoutMs(), TimeUnit.MILLISECONDS);
           all.addAll(result.value());
           diags.add(new ChannelDiagnostics(channel.type(), result.millis(), result.value().size(), false));
         } catch (TimeoutException | ExecutionException | InterruptedException e) {
@@ -267,7 +280,7 @@ public class RetrievalService {
             Thread.currentThread().interrupt();
           }
 
-          handleChannelFailure(channel, e, diags);
+          handleChannelFailure(channel, e, diags, pipeline.channelTimeoutMs());
         }
       });
     }
@@ -275,7 +288,8 @@ public class RetrievalService {
     return all;
   }
 
-  private void handleChannelFailure(RetrievalChannel channel, Exception e, List<ChannelDiagnostics> diags) {
+  private void handleChannelFailure(RetrievalChannel channel, Exception e, List<ChannelDiagnostics> diags,
+                                    long channelTimeoutMs) {
     Throwable cause = (e instanceof ExecutionException && e.getCause() != null) ? e.getCause() : e;
 
     if (channel.critical()) {

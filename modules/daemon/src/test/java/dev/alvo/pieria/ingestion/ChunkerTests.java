@@ -13,15 +13,16 @@ class ChunkerTests {
 
   private final TranscriptNormalizer normalizer = new TranscriptNormalizer();
 
-  private Chunker chunker(int chunkSizeChars, int overlapMessages) {
-    PieriaProperties props = new PieriaProperties(
-      new PieriaProperties.Daemon("127.0.0.1", 8077),
-      new PieriaProperties.Db(":memory:"),
-      new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
-      new PieriaProperties.Model("small", "large", "embed", 1024),
-      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000),
-      null);
-    return new Chunker(normalizer, props);
+  /** Test fixture binding a Chunker to fixed ingestion tuning (chunk(...) now takes it per call). */
+  private interface Chunks {
+    List<Chunk> chunk(List<Message> messages);
+  }
+
+  private Chunks chunker(int chunkSizeChars, int overlapMessages) {
+    PieriaProperties.Ingestion ingestion =
+      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000);
+    Chunker chunker = new Chunker(normalizer);
+    return messages -> chunker.chunk(messages, ingestion);
   }
 
   private Message msg(String role, String content) {
@@ -30,7 +31,7 @@ class ChunkerTests {
 
   @Test
   void smallConversationYieldsSingleChunk() {
-    Chunker chunker = chunker(10_000, 2);
+    Chunks chunker = chunker(10_000, 2);
     List<Message> messages = List.of(
       msg("user", "hello"),
       msg("assistant", "hi"),
@@ -55,7 +56,7 @@ class ChunkerTests {
   @Test
   void splitsAtSizeTargetAlignedToMessageBoundaries() {
     // Each message ~100 chars; small target forces multiple chunks but never splits a message.
-    Chunker chunker = chunker(150, 0);
+    Chunks chunker = chunker(150, 0);
     String body = "x".repeat(100);
     List<Message> messages = List.of(
       msg("user", body),
@@ -78,7 +79,7 @@ class ChunkerTests {
   void twoMessageOverlapBetweenAdjacentChunks() {
     // ~50-char messages with a 200-char target => 3 messages per chunk, leaving room for a genuine
     // two-message overlap (overlap only manifests when a chunk holds more than `overlap` messages).
-    Chunker chunker = chunker(200, 2);
+    Chunks chunker = chunker(200, 2);
     String body = "x".repeat(50);
     List<Message> messages = new ArrayList<>();
     for (int i = 0; i < 8; i++) {
@@ -99,7 +100,7 @@ class ChunkerTests {
 
   @Test
   void oversizedSingleMessageStillFormsOwnChunkNeverSplit() {
-    Chunker chunker = chunker(50, 2);
+    Chunks chunker = chunker(50, 2);
     String huge = "y".repeat(500);
     List<Message> messages = List.of(msg("user", huge), msg("assistant", "ok"));
 
@@ -112,7 +113,7 @@ class ChunkerTests {
 
   @Test
   void transcriptUsesAbsoluteIndicesForProvenance() {
-    Chunker chunker = chunker(150, 2);
+    Chunks chunker = chunker(150, 2);
     String body = "x".repeat(100);
     List<Message> messages = new ArrayList<>();
     for (int i = 0; i < 5; i++) {

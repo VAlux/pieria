@@ -259,6 +259,11 @@ class ProfileApiTests {
         new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"));
     }
 
+    @Bean("profileApiEffectiveConfigResolver")
+    dev.alvo.pieria.config.EffectiveConfigResolver effectiveConfigResolver() {
+      return dev.alvo.pieria.config.EffectiveConfigResolver.withoutOverrides(pieriaProperties());
+    }
+
     @Bean("profileApiObjectMapper")
     com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
       return new com.fasterxml.jackson.databind.ObjectMapper()

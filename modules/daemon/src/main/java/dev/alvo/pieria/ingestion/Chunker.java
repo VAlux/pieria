@@ -31,20 +31,19 @@ import org.springframework.stereotype.Component;
 public class Chunker {
 
   private final TranscriptNormalizer normalizer;
-  private final int targetChars;
-  private final int overlapMessages;
 
-  public Chunker(TranscriptNormalizer normalizer, PieriaProperties properties) {
+  public Chunker(TranscriptNormalizer normalizer) {
     this.normalizer = normalizer;
-    PieriaProperties.Ingestion ingestion = properties.ingestion();
-    this.targetChars = Math.max(1, ingestion.chunkSizeChars());
-    this.overlapMessages = Math.max(0, ingestion.chunkOverlapMessages());
   }
 
   /**
-   * Chunk the given (already normalized) messages. Returns an empty list for empty input.
+   * Chunk the given (already normalized) messages with the caller's (per-profile effective)
+   * ingestion tuning. Returns an empty list for empty input.
    */
-  public List<Chunk> chunk(List<Message> messages) {
+  public List<Chunk> chunk(List<Message> messages, PieriaProperties.Ingestion ingestion) {
+    int targetChars = Math.max(1, ingestion.chunkSizeChars());
+    int overlapMessages = Math.max(0, ingestion.chunkOverlapMessages());
+
     List<Chunk> chunks = new ArrayList<>();
     if (messages == null || messages.isEmpty()) {
       return chunks;
