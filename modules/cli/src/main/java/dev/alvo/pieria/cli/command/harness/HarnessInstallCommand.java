@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.harness;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.harness.HarnessInstaller;
 import dev.alvo.pieria.cli.modules.harness.HarnessRegistry;
 import dev.alvo.pieria.cli.modules.harness.Scope;
@@ -25,6 +26,7 @@ import java.util.concurrent.Callable;
 public final class HarnessInstallCommand implements Callable<Integer> {
 
   private final HarnessRegistry registry = new HarnessRegistry();
+  private final Logger log = new Logger();
   @Parameters(index = "0", paramLabel = "HARNESS", description = "Harness id: claude-code, codex")
   String harness;
   @Option(names = "--user", description = "Wire user-level config (~) instead of the current project.")
@@ -42,24 +44,24 @@ public final class HarnessInstallCommand implements Callable<Integer> {
   public Integer call() {
     HarnessInstaller installer = registry.find(harness).orElse(null);
     if (installer == null) {
-      System.err.printf("Unknown harness '%s'. Known harnesses: %s%n", harness, String.join(", ", registry.ids()));
+      log.error("Unknown harness '{}'. Known harnesses: {}", harness, String.join(", ", registry.ids()));
       return 2;
     }
 
     Scope scope = user ? Scope.USER : Scope.PROJECT;
     WiringContext ctx = WiringContextFactory.from(scope, projectDir, profile, daemonUrl, dryRun, System.out);
 
-    System.out.printf("%s Pieria into %s (%s scope)%s%n",
+    log.info("{} Pieria into {} ({} scope){}",
       dryRun ? "Would wire" : "Wiring", installer.id(), scope.name().toLowerCase(java.util.Locale.ROOT),
       dryRun ? " [dry-run]" : "");
     try {
       installer.install(ctx);
     } catch (IOException e) {
-      System.err.printf("Failed to wire %s: %s%n", installer.id(), e.getMessage());
+      log.error("Failed to wire {}: {}", installer.id(), e.getMessage());
       return 1;
     }
     if (!dryRun) {
-      System.out.printf("Done. %s is wired to the Pieria daemon at %s.%n", installer.id(), ctx.daemonUrl());
+      log.info("Done. {} is wired to the Pieria daemon at {}.", installer.id(), ctx.daemonUrl());
     }
     return 0;
   }

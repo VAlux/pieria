@@ -90,6 +90,13 @@ public record PieriaProperties(
    * @param graphSeedLimit     max seed entities taken from query entities and from wave-1 candidates
    * @param channelLimit       max hits each channel returns before fusion
    * @param channelTimeoutMs   per-channel timeout in milliseconds for the parallel fan-out
+   * @param weightSymbolFts    fusion weight for the code symbol-FTS channel (0 disables it)
+   * @param weightCodeGraph    fusion weight for the precise code-graph channel (0 disables it); a
+   *                           primary-tier signal comparable to {@code weightGraph}, tunable in eval
+   * @param codeGraphDepth     code-graph neighborhood expansion depth in hops (second wave)
+   * @param codeGraphFanout    max newly-discovered symbols per hop during code-graph expansion
+   * @param codeGraphSeedLimit max seed symbols taken from query terms and wave-1 candidates
+   * @param codeGraphMinConfidence minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,
@@ -103,6 +110,12 @@ public record PieriaProperties(
                           @DefaultValue("20") int graphFanout,
                           @DefaultValue("8") int graphSeedLimit,
                           @DefaultValue("10") int channelLimit,
-                          @DefaultValue("3000") long channelTimeoutMs) {
+                          @DefaultValue("3000") long channelTimeoutMs,
+                          @DefaultValue("1.0") double weightSymbolFts,
+                          @DefaultValue("1.0") double weightCodeGraph,
+                          @DefaultValue("2") int codeGraphDepth,
+                          @DefaultValue("20") int codeGraphFanout,
+                          @DefaultValue("8") int codeGraphSeedLimit,
+                          @DefaultValue("heuristic") String codeGraphMinConfidence) {
   }
 }

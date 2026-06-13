@@ -220,6 +220,28 @@ public interface MemoryStore {
   }
 
   /**
+   * Upsert the per-profile config overrides as canonical JSON (one row per profile, replaced
+   * wholesale on each push from the CLI).
+   */
+  default void putProfileConfig(String profileId, String configJson) {
+    throw new UnsupportedOperationException("putProfileConfig(...) not implemented");
+  }
+
+  /**
+   * The stored per-profile config overrides JSON, or empty when the profile has none.
+   */
+  default Optional<String> getProfileConfig(String profileId) {
+    throw new UnsupportedOperationException("getProfileConfig(...) not implemented");
+  }
+
+  /**
+   * Remove the per-profile config overrides (the profile falls back to the global config).
+   */
+  default void clearProfileConfig(String profileId) {
+    throw new UnsupportedOperationException("clearProfileConfig(...) not implemented");
+  }
+
+  /**
    * List active (non-superseded) memories, optionally filtered by type and/or session.
    * Null filters mean "no filter on that dimension".
    */
@@ -290,5 +312,14 @@ public interface MemoryStore {
    */
   default List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
     throw new UnsupportedOperationException("findMemoriesByEntities(...) not implemented");
+  }
+
+  /**
+   * Active code-derived memories whose {@code payload.symbolIds} array intersects {@code symbolIds}.
+   * This is the provenance link the Phase 13 code channels use to resolve a symbol/edge hit back to
+   * the {@code Memory} retrieval unit. Ordered most-recent first, deduped, capped at {@code limit}.
+   */
+  default List<Memory> findCodeMemoriesBySymbolIds(String profileId, List<String> symbolIds, int limit) {
+    throw new UnsupportedOperationException("findCodeMemoriesBySymbolIds(...) not implemented");
   }
 }

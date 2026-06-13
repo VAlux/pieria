@@ -236,6 +236,31 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public void putProfileConfig(String profileId, String configJson) {
+    jdbc.sql("""
+        INSERT INTO profile_config (profile_id, config_json, updated_at) VALUES (?, ?, ?) \
+        ON CONFLICT (profile_id) DO UPDATE SET config_json = excluded.config_json, \
+        updated_at = excluded.updated_at""")
+      .params(profileId, configJson, Instant.now().toString())
+      .update();
+  }
+
+  @Override
+  public Optional<String> getProfileConfig(String profileId) {
+    return jdbc.sql("SELECT config_json FROM profile_config WHERE profile_id = ?")
+      .param(profileId)
+      .query(String.class)
+      .optional();
+  }
+
+  @Override
+  public void clearProfileConfig(String profileId) {
+    jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?")
+      .param(profileId)
+      .update();
+  }
+
+  @Override
   @Transactional
   public void insertMessages(String profileId, String sessionId, List<Message> messages) {
     if (messages == null || messages.isEmpty()) {
@@ -1010,5 +1035,34 @@ public class SqliteMemoryStore implements MemoryStore {
       .thenComparing(Memory::id));
 
     return ordered.size() > limit ? new ArrayList<>(ordered.subList(0, limit)) : ordered;
+  }
+
+  @Override
+  public List<Memory> findCodeMemoriesBySymbolIds(String profileId, List<String> symbolIds, int limit) {
+    if (symbolIds == null || symbolIds.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    List<String> distinct = symbolIds.stream()
+      .filter(s -> s != null && !s.isBlank())
+      .distinct()
+      .toList();
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(limit);
+    // json_each over payload.$.symbolIds; payload defaults to '{}', so files without the key match
+    // zero rows rather than erroring. GROUP BY collapses a memory matched by several symbol ids.
+    return jdbc.sql("SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, "
+        + "m.superseded, m.payload, m.embed_text, m.created_at "
+        + "FROM memories m, json_each(m.payload, '$.symbolIds') je "
+        + "WHERE m.profile_id = ? AND m.superseded = 0 AND je.value IN (" + placeholders + ") "
+        + "GROUP BY m.id ORDER BY m.created_at DESC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
   }
 }

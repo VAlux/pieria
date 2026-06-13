@@ -22,15 +22,15 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
   @Parameters(index = "0", paramLabel = "<name>", description = "Profile name.")
   String name;
 
-  private static void line(String label, String value) {
-    System.out.printf("  %-22s %s%n", label + ":", value);
+  private void line(String label, String value) {
+    log.info(String.format("  %-22s %s", label + ":", value));
   }
 
   @Override
   protected int run(ProfileApiClient client) {
     ProfileStatsResponse s = client.stats(name);
 
-    System.out.printf("Profile: %s%n", s.name());
+    log.info("Profile: {}", s.name());
     line("Created", s.createdAt() == null ? "—" : s.createdAt().toString());
     line("Active memories", Long.toString(s.totalActive()));
     Map<String, Long> byType = s.byType();

@@ -17,5 +17,9 @@ public enum RetrievalChannelType {
   /** Vector similarity using the embedded HyDE hypothetical answer. */
   HYDE_VECTOR,
   /** Entity-relation graph traversal seeded from query + wave-1 candidates (second wave). */
-  GRAPH
+  GRAPH,
+  /** FTS over the code-symbol index, resolved to derived code memories (first wave). */
+  SYMBOL_FTS,
+  /** Precise code-graph traversal over {@code code_edges}, resolved to code memories (second wave). */
+  CODE_GRAPH
 }

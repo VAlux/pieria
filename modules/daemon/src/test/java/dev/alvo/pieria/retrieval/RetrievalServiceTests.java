@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -13,6 +14,7 @@ import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.storage.NoOpCodeIndexStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -37,7 +39,7 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000);
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic");
   }
 
   private static PieriaProperties props() {
@@ -46,7 +48,8 @@ class RetrievalServiceTests {
   }
 
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
-    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), props());
+    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(),
+      EffectiveConfigResolver.withoutOverrides(props()));
   }
 
   @Test

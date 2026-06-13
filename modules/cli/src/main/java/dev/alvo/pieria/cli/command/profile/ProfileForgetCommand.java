@@ -23,7 +23,7 @@ public final class ProfileForgetCommand extends AbstractProfileCommand {
   @Override
   protected int run(ProfileApiClient client) {
     client.forget(name, id);
-    System.out.printf("Forgot %s%n", id);
+    log.info("Forgot {}", id);
     return 0;
   }
 }

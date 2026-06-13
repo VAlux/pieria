@@ -1,5 +1,6 @@
 package dev.alvo.pieria.evaluation;
 
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Ingestion;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
@@ -22,6 +23,7 @@ import dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer;
 import dev.alvo.pieria.retrieval.RecallResult;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.storage.NoOpCodeIndexStore;
 
 import java.util.function.Supplier;
 
@@ -109,9 +111,12 @@ public final class EvaluationRunner {
                                    int index,
                                    int total) {
     TranscriptNormalizer normalizer = new TranscriptNormalizer();
-    Chunker chunker = new Chunker(normalizer, properties);
-    IngestionService ingestion = new IngestionService(store, modelGateway, normalizer, chunker, properties);
-    RetrievalService retrieval = new RetrievalService(store, modelGateway, new DeterministicQueryAnalyzer(), properties);
+    // Eval runs against the global config only — no per-profile overrides in the harness.
+    EffectiveConfigResolver configResolver = EffectiveConfigResolver.withoutOverrides(properties);
+    Chunker chunker = new Chunker(normalizer);
+    IngestionService ingestion = new IngestionService(store, modelGateway, normalizer, chunker, configResolver);
+    RetrievalService retrieval = new RetrievalService(store, modelGateway, new DeterministicQueryAnalyzer(),
+      new NoOpCodeIndexStore(), configResolver);
 
     log.info("[{}/{}] {} — ingesting {} messages", index, total, fixture.name(), fixture.transcript().size());
     long ingestStart = System.nanoTime();
@@ -258,7 +263,13 @@ public final class EvaluationRunner {
       20,
       8,
       10,
-      3000);
+      3000,
+      0.0,
+      0.0,
+      2,
+      20,
+      8,
+      "heuristic");
 
     var ingestion = new Ingestion(10000,
       2,

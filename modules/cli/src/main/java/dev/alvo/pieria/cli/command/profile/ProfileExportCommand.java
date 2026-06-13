@@ -31,12 +31,12 @@ public final class ProfileExportCommand extends AbstractProfileCommand {
     String ndjson = client.export(name);
 
     if (out == null) {
-      System.out.print(ndjson);
+      log.print(ndjson);
       return 0;
     }
 
     Files.writeString(out, ndjson, StandardCharsets.UTF_8);
-    System.err.printf("Wrote export to %s%n", out.toAbsolutePath());
+    log.error("Wrote export to {}", out.toAbsolutePath());
     return 0;
   }
 }

@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.profile;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -22,10 +23,12 @@ public final class ProfileResolveCommand implements Callable<Integer> {
   @Option(names = "--project-dir", description = "Directory to resolve the profile for (default: current directory).")
   Path projectDir = Path.of("");
 
+  private final Logger log = new Logger();
+
   @Override
   public Integer call() {
     Path dir = projectDir.toAbsolutePath().normalize();
-    System.out.println(ProfileResolver.create(dir).resolve());
+    log.info(ProfileResolver.create(dir).resolve());
     return 0;
   }
 }

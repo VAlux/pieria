@@ -2,6 +2,7 @@ package dev.alvo.pieria.cli.command.daemon;
 
 import dev.alvo.pieria.api.response.HealthResponse;
 import dev.alvo.pieria.api.response.StatusResponse;
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import picocli.CommandLine.Command;
@@ -27,8 +28,10 @@ public final class DaemonStatusCommand implements Callable<Integer> {
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
 
-  private static void line(String label, String value) {
-    System.out.printf("  %-22s %s%n", label + ":", value == null ? "—" : value);
+  private final Logger log = new Logger();
+
+  private void line(String label, String value) {
+    log.info(String.format("  %-22s %s", label + ":", value == null ? "—" : value));
   }
 
   @Override
@@ -38,18 +41,18 @@ public final class DaemonStatusCommand implements Callable<Integer> {
 
     return switch (client.status()) {
       case DaemonClient.Reachable r -> {
-        System.out.printf("Pieria daemon: UP (%s)%n", url);
+        log.info("Pieria daemon: UP ({})", url);
         printReport(r.health(), r.status());
         yield 0;
       }
       case DaemonClient.Degraded d -> {
-        System.out.printf("Pieria daemon: DEGRADED (%s)%n", url);
+        log.info("Pieria daemon: DEGRADED ({})", url);
         printReport(d.health(), d.status());
         yield 5;
       }
       case DaemonClient.Down ignored -> {
-        System.err.printf("Pieria daemon is not reachable at %s.%n", url);
-        System.err.println("Start it with 'pieria daemon start'.");
+        log.error("Pieria daemon is not reachable at {}.", url);
+        log.error("Start it with 'pieria daemon start'.");
         yield 3;
       }
     };
@@ -62,7 +65,7 @@ public final class DaemonStatusCommand implements Callable<Integer> {
       line("Model provider", health.modelProvider());
     }
     if (status == null) {
-      System.out.println("  (status detail unavailable)");
+      log.info("  (status detail unavailable)");
       return;
     }
     line("Setup", status.status());

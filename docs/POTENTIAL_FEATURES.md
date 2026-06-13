@@ -8,10 +8,10 @@ Fit: New GraphChannel alongside the existing five in RetrievalService's Structur
 infra needed. Later server/large-local modes can evaluate Neo4j (graph + vector indexes), Kuzu (embedded graph + Cypher/vector/FTS), or TinkerPop/Gremlin as optional graph backends, but the first implementation should stay SQLite-native.
 
 2. Source-code ingestion / persistent code intelligence index
-Phase: unassigned | Status: pending
+Phase: 13 | Status: planned
 Who has it: Sourcegraph SCIP/LSIF, CodeGraphContext/codebase-memory-style MCP servers, Serena memories partially.
-What: `pieria init` only seeds markdown today. Add source-code ingestion that builds a persistent semantic index from the actual repo: symbols, definitions, references, implementations, imports, ownership boundaries, API endpoints, config keys, tests, and module dependencies. Do not store full source as ordinary memories; store structured code-index rows and derive compact durable memories from them.
-Fit: New `pieria code index` or `pieria init --source-code` path. For Java/Kotlin/Scala, start with `scip-java` because it supports Gradle/Maven/sbt and emits precise symbol occurrences. Use Tree-sitter as a lower-confidence fallback when the build cannot resolve or for polyglot files. Add `CodeIndexStore` methods under/alongside MemoryStore, then add SymbolFts/CodeGraph retrieval channels that feed the existing RRF pipeline.
+What: `pieria onboard` only seeds markdown today. Add source-code ingestion that builds a persistent semantic index from the actual repo: symbols, definitions, references, implementations, imports, ownership boundaries, API endpoints, config keys, tests, and module dependencies. Do not store full source as ordinary memories; store structured code-index rows and derive compact durable memories from them.
+Fit: New `pieria onboard --source-code` path. For Java/Kotlin/Scala, start with `scip-java` because it supports Gradle/Maven/sbt and emits precise symbol occurrences. Use Tree-sitter as a lower-confidence fallback when the build cannot resolve or for polyglot files. Add `CodeIndexStore` methods under/alongside MemoryStore, then add SymbolFts/CodeGraph retrieval channels that feed the existing RRF pipeline.
 
 3. Reranker stage between fusion and synthesis
 Phase: 9 | Status: pending

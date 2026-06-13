@@ -23,14 +23,14 @@ public final class ProfileListCommand extends AbstractProfileCommand {
     List<ProfileSummary> profiles = response.profiles();
 
     if (profiles == null || profiles.isEmpty()) {
-      System.out.println("No profiles yet.");
+      log.info("No profiles yet.");
       return 0;
     }
 
-    System.out.printf("%-32s %10s  %s%n", "PROFILE", "MEMORIES", "CREATED");
+    log.info(String.format("%-32s %10s  %s", "PROFILE", "MEMORIES", "CREATED"));
     for (ProfileSummary p : profiles) {
-      System.out.printf("%-32s %10d  %s%n",
-        p.name(), p.memoryCount(), p.createdAt() == null ? "—" : p.createdAt());
+      log.info(String.format("%-32s %10d  %s",
+        p.name(), p.memoryCount(), p.createdAt() == null ? "—" : p.createdAt()));
     }
     return 0;
   }

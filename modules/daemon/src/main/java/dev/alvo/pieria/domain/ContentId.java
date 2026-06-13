@@ -73,4 +73,52 @@ public final class ContentId {
       nullToEmpty(targetEntityId),
       nullToEmpty(memoryId));
   }
+
+  /**
+   * Id for a code module: hashes profile and the repo-relative module path. Path-stable so a module
+   * collapses to one row across re-index.
+   */
+  public static String forCodeModule(String profileId, String path) {
+    return hash128(nullToEmpty(profileId), nullToEmpty(path));
+  }
+
+  /**
+   * Id for a code file: hashes profile and the repo-relative path only — deliberately
+   * <em>path-stable</em> (not content-versioned), so the file keeps one id across edits and its
+   * symbols/edges can foreign-key it while {@code replaceFileIndex} re-indexes contents in place.
+   * The content version is tracked in the {@code content_hash} column, not the id.
+   */
+  public static String forCodeFile(String profileId, String repoRelPath) {
+    return hash128(nullToEmpty(profileId), nullToEmpty(repoRelPath));
+  }
+
+  /**
+   * Id for a code symbol: hashes profile, owning file id, kind, qualified name, and signature. A
+   * changed signature yields a new id (and overloads stay distinct), while an unchanged declaration
+   * keeps its id across re-index.
+   */
+  public static String forCodeSymbol(
+    String profileId, String fileId, String kind, String qualifiedName, String signature) {
+    return hash128(
+      nullToEmpty(profileId),
+      nullToEmpty(fileId),
+      nullToEmpty(kind),
+      nullToEmpty(qualifiedName),
+      nullToEmpty(signature));
+  }
+
+  /**
+   * Id for a code edge: hashes profile, source symbol id, relation, target reference (name), and
+   * confidence. Identical edges from the same file collapse to one row; the same target reached at
+   * different confidence stays distinct.
+   */
+  public static String forCodeEdge(
+    String profileId, String srcSymbolId, String relation, String dstRef, String confidence) {
+    return hash128(
+      nullToEmpty(profileId),
+      nullToEmpty(srcSymbolId),
+      nullToEmpty(relation),
+      nullToEmpty(dstRef),
+      nullToEmpty(confidence));
+  }
 }

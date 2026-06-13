@@ -1,6 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -62,10 +63,10 @@ class IngestionServiceTests {
 
     jdbc = JdbcClient.create(dataSource);
     store = new SqliteMemoryStore(jdbc);
-    PieriaProperties properties = props();
     TranscriptNormalizer normalizer = new TranscriptNormalizer();
-    Chunker chunker = new Chunker(normalizer, properties);
-    service = new IngestionService(store, new FakeModelGateway(), normalizer, chunker, properties);
+    Chunker chunker = new Chunker(normalizer);
+    service = new IngestionService(store, new FakeModelGateway(), normalizer, chunker,
+      EffectiveConfigResolver.withoutOverrides(props()));
   }
 
   @AfterEach

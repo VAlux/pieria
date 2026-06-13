@@ -19,8 +19,7 @@ dependencies {
 	implementation("info.picocli:picocli:$picocliVersion")
 	// Generates META-INF/native-image reflect-config for the @Command tree at compile time.
 	annotationProcessor("info.picocli:picocli-codegen:$picocliVersion")
-	implementation("tools.jackson.core:jackson-databind")
-	implementation("tools.jackson.dataformat:jackson-dataformat-toml")
+	// Jackson databind + TOML come transitively from :shared (api).
 
 	testImplementation("org.junit.jupiter:junit-jupiter")
 	testImplementation("org.assertj:assertj-core")

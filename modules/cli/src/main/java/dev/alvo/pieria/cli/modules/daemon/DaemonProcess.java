@@ -1,5 +1,7 @@
 package dev.alvo.pieria.cli.modules.daemon;
 
+import dev.alvo.pieria.cli.log.Logger;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +23,8 @@ public final class DaemonProcess {
 
   private static final String LAUNCHD_LABEL = "dev.alvo.pieria.daemon";
   private static final String SYSTEMD_UNIT = "pieria-daemon";
+
+  private final Logger log = new Logger();
 
   private static String launchdTarget() {
     return "gui/" + uid() + "/" + LAUNCHD_LABEL;
@@ -237,7 +241,7 @@ public final class DaemonProcess {
     List<String> kickstart = List.of("launchctl", "kickstart", "-k", target);
 
     if (dryRun) {
-      Stream.of(bootstrap, enable, kickstart).forEach(c -> System.out.println(String.join(" ", c)));
+      Stream.of(bootstrap, enable, kickstart).forEach(c -> log.info(String.join(" ", c)));
       return new StartedViaService("launchd (dry-run)");
     }
     if (!launchdLoaded()) {
@@ -267,7 +271,7 @@ public final class DaemonProcess {
     List<String> bootout = List.of("launchctl", "bootout", target);
 
     if (dryRun) {
-      System.out.println(String.join(" ", bootout));
+      log.info(String.join(" ", bootout));
       return new StoppedViaService("launchd (dry-run)");
     }
     if (!launchdLoaded()) {
@@ -284,7 +288,7 @@ public final class DaemonProcess {
     String name, boolean dryRun, List<List<String>> commands,
     java.util.function.Function<String, T> onSuccess, java.util.function.Function<String, T> onFailure) {
     if (dryRun) {
-      commands.forEach(c -> System.out.println(String.join(" ", c)));
+      commands.forEach(c -> log.info(String.join(" ", c)));
       return onSuccess.apply(name + " (dry-run)");
     }
     for (List<String> command : commands) {
@@ -310,9 +314,9 @@ public final class DaemonProcess {
     List<String> command = buildSpawnCommand(daemon, opts);
 
     if (opts.dryRun()) {
-      System.out.println(String.join(" ", command));
-      System.out.println("# logs → " + paths.logsDir().resolve("pieria-daemon.out.log"));
-      System.out.println("# pid  → " + paths.pidFile());
+      log.info(String.join(" ", command));
+      log.info("# logs → {}", paths.logsDir().resolve("pieria-daemon.out.log"));
+      log.info("# pid  → {}", paths.pidFile());
       return new Spawned(-1);
     }
 
@@ -351,7 +355,7 @@ public final class DaemonProcess {
     }
 
     if (opts.dryRun()) {
-      System.out.println("kill -TERM " + pid);
+      log.info("kill -TERM {}", pid);
       return new StoppedPid(pid);
     }
 

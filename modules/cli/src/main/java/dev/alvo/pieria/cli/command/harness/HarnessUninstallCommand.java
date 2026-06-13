@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.harness;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.harness.HarnessInstaller;
 import dev.alvo.pieria.cli.modules.harness.HarnessRegistry;
 import dev.alvo.pieria.cli.modules.harness.Scope;
@@ -25,6 +26,7 @@ import java.util.concurrent.Callable;
 public final class HarnessUninstallCommand implements Callable<Integer> {
 
   private final HarnessRegistry registry = new HarnessRegistry();
+  private final Logger log = new Logger();
   @Parameters(index = "0", paramLabel = "HARNESS", description = "Harness id: claude-code, codex")
   String harness;
   @Option(names = "--user", description = "Target user-level config (~) instead of the current project.")
@@ -38,20 +40,20 @@ public final class HarnessUninstallCommand implements Callable<Integer> {
   public Integer call() {
     HarnessInstaller installer = registry.find(harness).orElse(null);
     if (installer == null) {
-      System.err.printf("Unknown harness '%s'. Known harnesses: %s%n", harness, String.join(", ", registry.ids()));
+      log.error("Unknown harness '{}'. Known harnesses: {}", harness, String.join(", ", registry.ids()));
       return 2;
     }
 
     Scope scope = user ? Scope.USER : Scope.PROJECT;
     WiringContext ctx = WiringContextFactory.from(scope, projectDir, null, null, dryRun, System.out);
 
-    System.out.printf("%s Pieria from %s (%s scope)%s%n",
+    log.info("{} Pieria from {} ({} scope){}",
       dryRun ? "Would unwire" : "Unwiring", installer.id(), scope.name().toLowerCase(java.util.Locale.ROOT),
       dryRun ? " [dry-run]" : "");
     try {
       installer.uninstall(ctx);
     } catch (IOException e) {
-      System.err.printf("Failed to unwire %s: %s%n", installer.id(), e.getMessage());
+      log.error("Failed to unwire {}: {}", installer.id(), e.getMessage());
       return 1;
     }
     return 0;
