@@ -143,12 +143,12 @@ memory across tools.
 ### Seed the profile from project docs
 
 A fresh profile starts empty, so `recall` returns nothing until a few sessions have
-accumulated. `pieria init` solves this cold start by seeding the profile from the project's
+accumulated. `pieria onboard` solves this cold start by seeding the profile from the project's
 existing markdown documentation:
 
 ```bash
-pieria init             # seed from every .md in the repo (except CLAUDE.md / AGENTS.md)
-pieria init --dry-run   # list the docs and messages that would be sent, contact nothing
+pieria onboard             # seed from every .md in the repo (except CLAUDE.md / AGENTS.md)
+pieria onboard --dry-run   # list the docs and messages that would be sent, contact nothing
 ```
 
 It enumerates docs via `git ls-files` (so build output and gitignored files are skipped),

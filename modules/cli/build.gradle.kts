@@ -73,7 +73,10 @@ graalvmNative {
 			imageName.set("pieria")
 			mainClass.set("dev.alvo.pieria.cli.PieriaCli")
 			buildArgs.addAll(
-				"-H:+ReportExceptionStackTraces"
+				"-H:+ReportExceptionStackTraces",
+				// Auto-register api.request/response DTOs for reflection (see :shared ApiContractFeature).
+				// Replaces the hand-maintained api.* entries that used to live in reflect-config.json.
+				"--features=dev.alvo.pieria.api.ApiContractFeature"
 			)
 		}
 	}

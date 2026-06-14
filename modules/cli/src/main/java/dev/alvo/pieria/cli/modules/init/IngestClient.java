@@ -3,7 +3,7 @@ package dev.alvo.pieria.cli.modules.init;
 import dev.alvo.pieria.api.request.IngestRequest;
 
 /**
- * Seam between {@code pieria init} and the daemon's ingest endpoint.
+ * Seam between {@code pieria onboard} and the daemon's ingest endpoint.
  */
 public interface IngestClient {
 

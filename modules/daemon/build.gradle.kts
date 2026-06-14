@@ -48,7 +48,9 @@ graalvmNative {
 			mainClass.set("dev.alvo.pieria.PieriaApplication")
 			buildArgs.addAll(
 				"--enable-url-protocols=http,https",
-				"-H:+ReportExceptionStackTraces"
+				"-H:+ReportExceptionStackTraces",
+				// Auto-register api.request/response DTOs for reflection (see :shared ApiContractFeature).
+				"--features=dev.alvo.pieria.api.ApiContractFeature"
 			)
 		}
 	}

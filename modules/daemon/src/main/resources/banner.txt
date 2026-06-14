@@ -1,0 +1,9 @@
+${AnsiColor.BRIGHT_CYAN}
+   ____  _           _
+  |  _ \(_) ___ _ __(_) __ _
+  | |_) | |/ _ \ '__| |/ _` |
+  |  __/| |  __/ |  | | (_| |
+  |_|   |_|\___|_|  |_|\__,_|
+${AnsiColor.BRIGHT_BLACK}
+  local-first persistent memory for AI agents
+${AnsiColor.DEFAULT}  :: Pieria daemon :: ${spring.application.name} (v${application.version:dev})

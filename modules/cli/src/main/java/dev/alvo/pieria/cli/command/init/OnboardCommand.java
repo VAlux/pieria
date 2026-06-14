@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria init} — seed a Pieria memory profile from the project's markdown documentation.
+ * {@code pieria obboard} — seed a Pieria memory profile from the project's markdown documentation.
  *
  * <p>Scans the repo for {@code .md} files (excluding the always-in-context {@code CLAUDE.md} /
  * {@code AGENTS.md}), packages them as a synthetic transcript, and POSTs them to the daemon's
@@ -148,7 +148,7 @@ public final class OnboardCommand implements Callable<Integer> {
       }
       case IngestClient.ModelUnavailable ignored -> {
         log.error("The daemon is up but its model provider is unavailable.");
-        log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria init'.");
+        log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
         yield 4;
       }
       case IngestClient.DaemonDown ignored -> daemonDown(url);
@@ -199,7 +199,7 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private int daemonDown(String url) {
     log.error("Pieria daemon is not reachable at {}.", url);
-    log.error("Start it with 'pieria daemon start' and re-run 'pieria init'.");
+    log.error("Start it with 'pieria daemon start' and re-run 'pieria onboard'.");
     return 3;
   }
 

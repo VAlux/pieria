@@ -1,15 +1,5 @@
 package dev.alvo.pieria.config;
 
-import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.api.request.RecallRequest;
-import dev.alvo.pieria.api.request.RememberRequest;
-import dev.alvo.pieria.api.response.ErrorResponse;
-import dev.alvo.pieria.api.response.HealthResponse;
-import dev.alvo.pieria.api.response.IngestResponse;
-import dev.alvo.pieria.api.response.MemoryListResponse;
-import dev.alvo.pieria.api.response.MemoryResponse;
-import dev.alvo.pieria.api.response.RecallResponse;
-import dev.alvo.pieria.api.response.StatusResponse;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import org.springframework.aot.hint.MemberCategory;
@@ -18,13 +8,18 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.aot.hint.TypeReference;
 
 /**
- * Native-image reflection hints for shared API records used by Spring MVC and manual Jackson calls.
+ * Native-image reflection hints for daemon-specific reflective types: the TOML-bound config model,
+ * Spring AI structured-output DTOs, and the Azure provider types.
+ *
+ * <p>The shared {@code api.request}/{@code api.response} DTOs are <em>not</em> registered here — they
+ * are auto-discovered for every native binary by {@code dev.alvo.pieria.api.ApiContractFeature}
+ * (wired via {@code --features=} in each module's build), so they need no hand-maintained list.
  */
 public class DaemonNativeHints implements RuntimeHintsRegistrar {
 
   @Override
   public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
-    for (Class<?> type : contractTypes()) {
+    for (Class<?> type : configModelTypes()) {
       hints.reflection().registerType(type,
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
         MemberCategory.INVOKE_PUBLIC_METHODS);
@@ -73,23 +68,8 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
     };
   }
 
-  private static Class<?>[] contractTypes() {
+  private static Class<?>[] configModelTypes() {
     return new Class<?>[] {
-      IngestRequest.class,
-      IngestRequest.MessageDto.class,
-      RecallRequest.class,
-      RememberRequest.class,
-      ErrorResponse.class,
-      HealthResponse.class,
-      IngestResponse.class,
-      MemoryListResponse.class,
-      MemoryResponse.class,
-      RecallResponse.class,
-      RecallResponse.RecallDebug.class,
-      RecallResponse.RecallDebug.Provenance.class,
-      RecallResponse.RecallDebug.ChannelDiagnostic.class,
-      StatusResponse.class,
-      StatusResponse.Setup.class,
       DaemonOverrides.class,
       DaemonOverrides.Ingestion.class,
       DaemonOverrides.Retrieval.class,

@@ -34,7 +34,9 @@ graalvmNative {
 				"--enable-url-protocols=http,https",
 				"-H:+ReportExceptionStackTraces",
 				"-H:+UnlockExperimentalVMOptions",
-				"-H:Optimize=2"
+				"-H:Optimize=2",
+				// Auto-register api.request/response DTOs for reflection (see :shared ApiContractFeature).
+				"--features=dev.alvo.pieria.api.ApiContractFeature"
 			)
 		}
 	}

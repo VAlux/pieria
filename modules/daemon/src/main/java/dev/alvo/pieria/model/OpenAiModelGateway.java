@@ -86,6 +86,7 @@ public class OpenAiModelGateway implements ModelGateway {
       .user(prompt)
       .call()
       .responseEntity(type);
+
     logTokenUsage(stage, response.getResponse());
     return response.getEntity();
   }
@@ -98,13 +99,11 @@ public class OpenAiModelGateway implements ModelGateway {
     int prompt = 0;
     int completion = 0;
     int total = 0;
-    if (chatResponse != null && chatResponse.getMetadata() != null) {
+    if (chatResponse != null) {
       Usage usage = chatResponse.getMetadata().getUsage();
-      if (usage != null) {
-        prompt = nullToZero(usage.getPromptTokens());
-        completion = nullToZero(usage.getCompletionTokens());
-        total = nullToZero(usage.getTotalTokens());
-      }
+      prompt = nullToZero(usage.getPromptTokens());
+      completion = nullToZero(usage.getCompletionTokens());
+      total = nullToZero(usage.getTotalTokens());
     }
     LOGGER.info("model stage={} promptTokens={} completionTokens={} totalTokens={}",
       stage, prompt, completion, total);

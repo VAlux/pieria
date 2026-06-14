@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  * has to re-split a single message.
  *
  * <p>The {@code sessionId} is fixed ({@value #SESSION_ID}): combined with the daemon's
- * content-addressed ids, re-running {@code pieria init} on unchanged docs produces no duplicate
+ * content-addressed ids, re-running {@code pieria onboard} on unchanged docs produces no duplicate
  * memories.
  */
 public final class TranscriptBuilder {
