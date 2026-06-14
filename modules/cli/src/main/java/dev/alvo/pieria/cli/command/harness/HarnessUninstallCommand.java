@@ -45,7 +45,7 @@ public final class HarnessUninstallCommand implements Callable<Integer> {
     }
 
     Scope scope = user ? Scope.USER : Scope.PROJECT;
-    WiringContext ctx = WiringContextFactory.from(scope, projectDir, null, null, dryRun, System.out);
+    WiringContext ctx = WiringContextFactory.from(scope, projectDir, null, null, dryRun, log);
 
     log.info("{} Pieria from {} ({} scope){}",
       dryRun ? "Would unwire" : "Unwiring", installer.id(), scope.name().toLowerCase(java.util.Locale.ROOT),

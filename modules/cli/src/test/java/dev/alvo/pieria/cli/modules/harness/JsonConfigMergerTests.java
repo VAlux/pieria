@@ -5,9 +5,8 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.ByteArrayOutputStream;
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -17,8 +16,8 @@ class JsonConfigMergerTests {
 
   private final JsonConfigMerger merger = new JsonConfigMerger();
 
-  private PrintStream nullOut() {
-    return new PrintStream(new ByteArrayOutputStream());
+  private Logger nullLog() {
+    return new Logger();
   }
 
   @Test
@@ -33,7 +32,7 @@ class JsonConfigMergerTests {
     ObjectNode root = merger.load(file);
     root.put("untouched", 42);
     merger.childObject(root, "mcpServers").put("pieria", "x");
-    merger.save(file, root, false, nullOut());
+    merger.save(file, root, false, nullLog());
 
     ObjectNode reloaded = merger.load(file);
     assertThat(reloaded.path("untouched").asInt()).isEqualTo(42);
@@ -57,7 +56,7 @@ class JsonConfigMergerTests {
     Path file = dir.resolve("d.json");
     ObjectNode root = merger.newObject();
     root.put("x", 1);
-    merger.save(file, root, true, nullOut());
+    merger.save(file, root, true, nullLog());
     assertThat(Files.exists(file)).isFalse();
   }
 }

@@ -67,9 +67,6 @@ The daemon runs two pipelines over a pluggable storage backend:
 - **Read path (recall):** query analysis + embedding → five parallel retrieval channels →
   RRF fusion → synthesis.
 
-See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
-[`docs/PLAN.md`](docs/PLAN.md) for the phased implementation plan.
-
 ## Stack
 
 - **Java 25**, **Spring Boot 4.0.6**, Gradle (Kotlin DSL)

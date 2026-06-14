@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.cli.log.Logger;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -10,6 +11,8 @@ import java.util.List;
  * the {@link Platform} seam so a pure-Java reader can replace it later without touching callers.
  */
 public final class MacOsPlatform implements Platform {
+
+  private static final Logger log = new Logger();
 
   private final String arch;
   private final CommandRunner runner;
@@ -34,13 +37,13 @@ public final class MacOsPlatform implements Platform {
     runner.run(List.of("xattr", "-dr", "com.apple.quarantine", binary.toString()));
     CommandRunner.Result sign = runner.run(List.of("codesign", "--force", "--sign", "-", binary.toString()));
     if (!sign.ok()) {
-      System.err.printf("warning: codesign of %s failed (%s); it may be blocked by Gatekeeper.%n",
+      log.error("warning: codesign of {} failed ({}); it may be blocked by Gatekeeper.",
         binary.getFileName(), sign.output() == null || sign.output().isBlank() ? "no output" : sign.output().strip());
     }
   }
 
   @Override
-  public void extractTarGz(Path archive, Path destDir) {
+  public void extractDistributionArchive(Path archive, Path destDir) {
     CommandRunner.Result result = runner.run(List.of("tar", "-xzf", archive.toString(), "-C", destDir.toString()));
     if (!result.ok()) {
       throw new UpdateException("failed to extract " + archive.getFileName() + ": "

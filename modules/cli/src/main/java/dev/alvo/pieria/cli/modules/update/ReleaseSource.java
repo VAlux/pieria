@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -19,6 +20,8 @@ import java.util.function.UnaryOperator;
  * installer.
  */
 public final class ReleaseSource implements BinarySource {
+
+  private static final Logger log = new Logger();
 
   static final String DEFAULT_REPO = "VAlux/pieria";
 
@@ -83,7 +86,7 @@ public final class ReleaseSource implements BinarySource {
     } catch (IOException e) {
       throw new UpdateException("could not stage extraction dir: " + e.getMessage(), e);
     }
-    platform.extractTarGz(tarball, extracted);
+    platform.extractDistributionArchive(tarball, extracted);
     return new StagedDist(extracted, false);
   }
 
@@ -95,12 +98,12 @@ public final class ReleaseSource implements BinarySource {
     Path checksums = work.resolve("checksums.txt");
     int status = fetcher.fetch(base + "/checksums.txt", checksums);
     if (status < 200 || status >= 300 || !Files.isRegularFile(checksums)) {
-      System.err.println("warning: no checksums.txt published; skipping integrity verification.");
+      log.error("warning: no checksums.txt published; skipping integrity verification.");
       return;
     }
     String expected = lookup(checksums, asset);
     if (expected == null) {
-      System.err.println("warning: no checksum entry for " + asset + "; skipping verification.");
+      log.error("warning: no checksum entry for {}; skipping verification.", asset);
       return;
     }
     String actual = sha256(tarball);

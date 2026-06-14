@@ -36,7 +36,7 @@ public final class WindowsPlatform implements Platform {
   }
 
   @Override
-  public void extractTarGz(Path archive, Path destDir) {
+  public void extractDistributionArchive(Path archive, Path destDir) {
     throw new UnsupportedOperationException("pieria update does not support Windows yet");
   }
 }

@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.update;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
@@ -42,6 +43,8 @@ import java.util.concurrent.Callable;
   mixinStandardHelpOptions = true
 )
 public final class UpdateCommand implements Callable<Integer> {
+
+  private final Logger log = new Logger();
 
   @Option(names = "--version", description = "Release tag to install (default: latest). Ignored with --from/--from-build.")
   String version;
@@ -90,8 +93,8 @@ public final class UpdateCommand implements Callable<Integer> {
   public Integer call() {
     Platform platform = PlatformSupport.detect();
     if (!platform.supported()) {
-      System.err.printf("`pieria update` does not support %s yet. Re-run the installer to update:%n", platform.slug());
-      System.err.println("  curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash");
+      log.error("`pieria update` does not support {} yet. Re-run the installer to update:", platform.slug());
+      log.error("  curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash");
       return 2;
     }
 
@@ -99,7 +102,7 @@ public final class UpdateCommand implements Callable<Integer> {
     try {
       source = chooseSource(platform);
     } catch (UpdateException e) {
-      System.err.println("error: " + e.getMessage());
+      log.error("error: {}", e.getMessage());
       return 64;
     }
 
@@ -120,7 +123,7 @@ public final class UpdateCommand implements Callable<Integer> {
     try {
       dist = source.resolve();
     } catch (UpdateException e) {
-      System.err.println("error: " + e.getMessage());
+      log.error("error: {}", e.getMessage());
       return 1;
     }
 
@@ -129,7 +132,7 @@ public final class UpdateCommand implements Callable<Integer> {
 
     // 2. Skip a redundant release update (local sources always swap — the user explicitly built them).
     if (releaseSource && !force && BuildInfo.isKnown(oldVersion) && oldVersion.equals(newVersion)) {
-      System.out.printf("Already up to date (%s). Use --force to reinstall.%n", oldVersion);
+      log.info("Already up to date ({}). Use --force to reinstall.", oldVersion);
       return 0;
     }
 
@@ -146,9 +149,9 @@ public final class UpdateCommand implements Callable<Integer> {
     // 4. Swap binaries (atomic; rolls back internally on failure).
     try {
       new BinarySwapper(platform).swap(dist, install);
-      System.out.printf("Swapped binaries in %s.%n", install.binDir());
+      log.info("Swapped binaries in {}.", install.binDir());
     } catch (UpdateException e) {
-      System.err.println("error: " + e.getMessage());
+      log.error("error: {}", e.getMessage());
       if (restart) {
         startDaemon(daemon, client, url); // bring the previous version back up
       }
@@ -194,47 +197,47 @@ public final class UpdateCommand implements Callable<Integer> {
   }
 
   private int printPlan(BinarySource source, InstallLayout install, boolean releaseSource) {
-    System.out.println("Plan (dry-run, nothing changed):");
-    System.out.println("  source:   " + source.describe());
-    System.out.println("  install:  " + install.binDir());
+    log.info("Plan (dry-run, nothing changed):");
+    log.info("  source:   {}", source.describe());
+    log.info("  install:  {}", install.binDir());
     if (!noRestart) {
-      System.out.println("  daemon:   stop, swap, start, wait for /pieria-health");
+      log.info("  daemon:   stop, swap, start, wait for /pieria-health");
     } else {
-      System.out.println("  daemon:   left running (--no-restart)");
+      log.info("  daemon:   left running (--no-restart)");
     }
-    System.out.println("  binaries: " + BinarySource.BINARIES);
+    log.info("  binaries: {}", BinarySource.BINARIES);
     if (!noHarnessRefresh) {
       List<Path> harness = install.existingHarnessDirs();
-      System.out.println("  hooks:    " + (harness.isEmpty() ? "none wired; skip" : "refresh " + harness));
+      log.info("  hooks:    {}", harness.isEmpty() ? "none wired; skip" : "refresh " + harness);
     }
     if (releaseSource) {
-      System.out.println("  note:     would skip if installed version already matches (unless --force)");
+      log.info("  note:     would skip if installed version already matches (unless --force)");
     }
     return 0;
   }
 
   private void stopDaemon(DaemonProcess daemon) {
     switch (daemon.stop(new DaemonProcess.StopOptions(null, false))) {
-      case DaemonProcess.StoppedViaService s -> System.out.printf("Stopped daemon via %s.%n", s.detail());
-      case DaemonProcess.StoppedPid s -> System.out.printf("Stopped daemon (pid %d).%n", s.pid());
-      case DaemonProcess.NotRunning ignored -> System.out.println("Daemon was not running.");
-      case DaemonProcess.Failed f -> System.err.printf("warning: could not stop daemon (%s); continuing.%n", f.detail());
+      case DaemonProcess.StoppedViaService s -> log.info("Stopped daemon via {}.", s.detail());
+      case DaemonProcess.StoppedPid s -> log.info("Stopped daemon (pid {}).", s.pid());
+      case DaemonProcess.NotRunning ignored -> log.info("Daemon was not running.");
+      case DaemonProcess.Failed f -> log.error("warning: could not stop daemon ({}); continuing.", f.detail());
     }
   }
 
   private void startDaemon(DaemonProcess daemon, DaemonClient client, String url) {
     DaemonProcess.StartOptions opts = new DaemonProcess.StartOptions(null, null, host(url), port(url), false);
     switch (daemon.start(opts)) {
-      case DaemonProcess.StartedViaService s -> System.out.printf("Started daemon via %s.%n", s.detail());
-      case DaemonProcess.Spawned s -> System.out.printf("Spawned daemon (pid %d).%n", s.pid());
-      case DaemonProcess.AlreadyRunning ignored -> System.out.println("Daemon already running.");
-      case DaemonProcess.NoMechanism n -> System.err.println("warning: " + n.guidance());
-      case DaemonProcess.Failed f -> System.err.printf("warning: could not start daemon: %s%n", f.detail());
+      case DaemonProcess.StartedViaService s -> log.info("Started daemon via {}.", s.detail());
+      case DaemonProcess.Spawned s -> log.info("Spawned daemon (pid {}).", s.pid());
+      case DaemonProcess.AlreadyRunning ignored -> log.info("Daemon already running.");
+      case DaemonProcess.NoMechanism n -> log.error("warning: {}", n.guidance());
+      case DaemonProcess.Failed f -> log.error("warning: could not start daemon: {}", f.detail());
     }
     if (client.awaitHealthy(timeoutSeconds)) {
-      System.out.printf("Daemon healthy at %s.%n", url);
+      log.info("Daemon healthy at {}.", url);
     } else {
-      System.err.printf("warning: daemon did not become healthy within %ds; check its logs.%n", timeoutSeconds);
+      log.error("warning: daemon did not become healthy within {}s; check its logs.", timeoutSeconds);
     }
   }
 
@@ -251,21 +254,21 @@ public final class UpdateCommand implements Callable<Integer> {
     HookAssetWriter writer = new HookAssetWriter();
     for (Path dir : dirs) {
       try {
-        writer.extract(dir, resources, dryRun, System.out);
+        writer.extract(dir, resources, dryRun, log);
       } catch (IOException e) {
-        System.err.printf("warning: could not refresh hook scripts in %s: %s%n", dir, e.getMessage());
+        log.error("warning: could not refresh hook scripts in {}: {}", dir, e.getMessage());
       }
     }
   }
 
   private void report(String oldVersion, String newVersion, boolean releaseSource) {
     if (releaseSource && BuildInfo.isKnown(oldVersion) && BuildInfo.isKnown(newVersion)) {
-      System.out.printf("Updated %s → %s.%n", oldVersion, newVersion);
+      log.info("Updated {} → {}.", oldVersion, newVersion);
     } else if (BuildInfo.isKnown(newVersion)) {
-      System.out.printf("Deployed %s.%n", newVersion);
+      log.info("Deployed {}.", newVersion);
     } else {
-      System.out.println("Update complete.");
+      log.info("Update complete.");
     }
-    System.out.println("Restart Claude Code only if the gateway binary or hook scripts changed.");
+    log.info("Restart Claude Code only if the gateway binary or hook scripts changed.");
   }
 }

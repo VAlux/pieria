@@ -33,7 +33,7 @@ public final class HarnessListCommand implements Callable<Integer> {
   @Override
   public Integer call() {
     Scope scope = user ? Scope.USER : Scope.PROJECT;
-    WiringContext ctx = WiringContextFactory.from(scope, projectDir, null, null, false, System.out);
+    WiringContext ctx = WiringContextFactory.from(scope, projectDir, null, null, false, log);
     log.info("Harness wiring ({} scope):", scope.name().toLowerCase(java.util.Locale.ROOT));
     for (HarnessInstaller installer : registry.all()) {
       boolean wired;

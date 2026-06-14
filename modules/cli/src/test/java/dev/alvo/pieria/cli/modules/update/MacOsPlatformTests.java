@@ -48,7 +48,7 @@ class MacOsPlatformTests {
   void extractFailurePropagatesAsUpdateException() {
     CommandRunner runner = command -> new CommandRunner.Result(1, "tar: bad archive");
     assertThatThrownBy(() -> new MacOsPlatform("aarch64", runner)
-      .extractTarGz(Path.of("/tmp/a.tar.gz"), Path.of("/tmp/dest")))
+      .extractDistributionArchive(Path.of("/tmp/a.tar.gz"), Path.of("/tmp/dest")))
       .isInstanceOf(UpdateException.class)
       .hasMessageContaining("bad archive");
   }

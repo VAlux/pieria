@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.modules.harness;
 
-import java.io.PrintStream;
+import dev.alvo.pieria.cli.log.Logger;
 import java.nio.file.Path;
 
 /**
@@ -14,7 +14,7 @@ public final class WiringContextFactory {
   }
 
   public static WiringContext from(Scope scope, Path projectDir, String profile, String daemonUrl,
-                                   boolean dryRun, PrintStream out) {
+                                   boolean dryRun, Logger log) {
     PathResolver paths = PathResolver.create();
     String resolvedDaemon = (daemonUrl != null && !daemonUrl.isBlank())
       ? daemonUrl
@@ -28,7 +28,7 @@ public final class WiringContextFactory {
       profile,
       resolvedDaemon,
       dryRun,
-      out
+      log
     );
   }
 }

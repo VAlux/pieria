@@ -1,8 +1,8 @@
 package dev.alvo.pieria.cli.modules.harness;
 
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -49,7 +49,7 @@ public final class HookAssetWriter {
    * Write the shared scripts plus {@code extraResources} under {@code harnessDir}, preserving the
    * path below the {@code harness/} prefix. Makes {@code .sh} files executable on POSIX systems.
    */
-  public void extract(Path harnessDir, List<String> extraResources, boolean dryRun, PrintStream out)
+  public void extract(Path harnessDir, List<String> extraResources, boolean dryRun, Logger log)
     throws IOException {
     Set<String> resources = new LinkedHashSet<>(SHARED_SCRIPTS);
     resources.addAll(extraResources);
@@ -57,7 +57,7 @@ public final class HookAssetWriter {
       String relative = resource.startsWith("harness/") ? resource.substring("harness/".length()) : resource;
       Path target = harnessDir.resolve(relative);
       if (dryRun) {
-        out.printf("  would extract %s -> %s%n", resource, target);
+        log.info("  would extract {} -> {}", resource, target);
         continue;
       }
       try (InputStream in = classLoader.getResourceAsStream(resource)) {
@@ -70,7 +70,7 @@ public final class HookAssetWriter {
       makeExecutable(target);
     }
     if (!dryRun) {
-      out.printf("  extracted hook scripts to %s%n", harnessDir);
+      log.info("  extracted hook scripts to {}", harnessDir);
     }
   }
 }

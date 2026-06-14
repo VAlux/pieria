@@ -73,7 +73,7 @@ public final class CodexInstaller implements HarnessInstaller {
 
   @Override
   public void install(WiringContext ctx) throws IOException {
-    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.out());
+    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
 
     Path config = configFile(ctx);
     ObjectNode root = toml.load(config);
@@ -87,7 +87,7 @@ public final class CodexInstaller implements HarnessInstaller {
     removePieriaEntries(hooks);
     HOOK_SCRIPTS.forEach((event, script) -> hooks.add(hookEntry(ctx, event, script)));
 
-    toml.save(config, root, ctx.dryRun(), ctx.out());
+    toml.save(config, root, ctx.dryRun(), ctx.log());
   }
 
   @Override
@@ -110,7 +110,7 @@ public final class CodexInstaller implements HarnessInstaller {
     }
 
     if (changed) {
-      toml.save(config, root, ctx.dryRun(), ctx.out());
+      toml.save(config, root, ctx.dryRun(), ctx.log());
     }
   }
 

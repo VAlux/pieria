@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.daemon;
 
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
@@ -20,6 +21,8 @@ import java.util.concurrent.Callable;
   mixinStandardHelpOptions = true
 )
 public final class DaemonRestartCommand implements Callable<Integer> {
+
+  private final Logger log = new Logger();
 
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
@@ -58,23 +61,23 @@ public final class DaemonRestartCommand implements Callable<Integer> {
       case DaemonProcess.Spawned s -> awaitHealthy(url, "Spawned daemon (pid " + s.pid() + ").");
       case DaemonProcess.AlreadyRunning ignored -> awaitHealthy(url, "Daemon already running.");
       case DaemonProcess.NoMechanism n -> {
-        System.err.println(n.guidance());
+        log.error(n.guidance());
         yield 3;
       }
       case DaemonProcess.Failed f -> {
-        System.err.printf("Failed to restart daemon: %s%n", f.detail());
+        log.error("Failed to restart daemon: {}", f.detail());
         yield 1;
       }
     };
   }
 
   private int awaitHealthy(String url, String startedMessage) {
-    System.out.println(startedMessage);
+    log.info(startedMessage);
     if (new DaemonClient(url).awaitHealthy(timeoutSeconds)) {
-      System.out.printf("Pieria daemon is up at %s.%n", url);
+      log.info("Pieria daemon is up at {}.", url);
       return 0;
     }
-    System.err.printf("Daemon did not become healthy within %ds. Check the daemon logs.%n", timeoutSeconds);
+    log.error("Daemon did not become healthy within {}s. Check the daemon logs.", timeoutSeconds);
     return 1;
   }
 }

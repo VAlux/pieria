@@ -99,14 +99,14 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   @Override
   public void install(WiringContext ctx) throws IOException {
-    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.out());
+    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
 
     // 1. MCP server registration.
     Path mcp = mcpFile(ctx);
     ObjectNode mcpRoot = json.load(mcp);
     ObjectNode servers = json.childObject(mcpRoot, "mcpServers");
     servers.set("pieria", mcpServerNode(ctx));
-    json.save(mcp, mcpRoot, ctx.dryRun(), ctx.out());
+    json.save(mcp, mcpRoot, ctx.dryRun(), ctx.log());
 
     // 2. Lifecycle hooks.
     Path settings = settingsFile(ctx);
@@ -117,7 +117,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
       removePieriaEntries(eventArray);
       eventArray.add(hookGroup(ctx, script));
     });
-    json.save(settings, settingsRoot, ctx.dryRun(), ctx.out());
+    json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
   }
 
   @Override
@@ -127,7 +127,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     JsonNode servers = mcpRoot.get("mcpServers");
     if (servers instanceof ObjectNode serversObject && serversObject.has("pieria")) {
       serversObject.remove("pieria");
-      json.save(mcp, mcpRoot, ctx.dryRun(), ctx.out());
+      json.save(mcp, mcpRoot, ctx.dryRun(), ctx.log());
     }
 
     Path settings = settingsFile(ctx);
@@ -143,7 +143,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
           }
         }
       }
-      json.save(settings, settingsRoot, ctx.dryRun(), ctx.out());
+      json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
     }
   }
 

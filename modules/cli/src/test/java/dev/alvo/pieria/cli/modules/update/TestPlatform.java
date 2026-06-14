@@ -33,7 +33,7 @@ final class TestPlatform implements Platform {
   }
 
   @Override
-  public void extractTarGz(Path archive, Path destDir) {
+  public void extractDistributionArchive(Path archive, Path destDir) {
     extracted.add(archive);
   }
 }

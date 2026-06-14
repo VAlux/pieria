@@ -16,8 +16,7 @@ public final class Logger {
   }
 
   /**
-   * Write an interpolated message to stdout with no trailing newline. Use for pre-rendered blocks
-   * (e.g. NDJSON export) that already control their own line breaks.
+   * Write an interpolated message to stdout with no trailing newline.
    */
   public void print(String message, Object... values) {
     System.out.print(interpolate(message, values));

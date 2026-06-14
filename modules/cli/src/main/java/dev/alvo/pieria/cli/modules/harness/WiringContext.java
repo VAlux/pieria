@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.modules.harness;
 
-import java.io.PrintStream;
+import dev.alvo.pieria.cli.log.Logger;
 import java.nio.file.Path;
 
 /**
@@ -14,7 +14,7 @@ import java.nio.file.Path;
  * @param profile        explicit profile slug, or null/blank to leave empty for auto-derivation
  * @param daemonUrl      daemon base URL injected into the MCP server env
  * @param dryRun         when true, print intended changes without writing
- * @param out            stream for human-readable output
+ * @param log            logger for human-readable output
  */
 public record WiringContext(
   Scope scope,
@@ -25,7 +25,7 @@ public record WiringContext(
   String profile,
   String daemonUrl,
   boolean dryRun,
-  PrintStream out
+  Logger log
 ) {
 
   /**

@@ -42,5 +42,5 @@ public interface Platform {
    * Extract a {@code .tar.gz} release archive into {@code destDir}, preserving its internal layout
    * (the archive's top level is {@code bin/}).
    */
-  void extractTarGz(Path archive, Path destDir);
+  void extractDistributionArchive(Path archive, Path destDir);
 }

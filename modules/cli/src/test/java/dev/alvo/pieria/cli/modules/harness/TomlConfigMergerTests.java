@@ -4,9 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.ByteArrayOutputStream;
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -16,8 +15,8 @@ class TomlConfigMergerTests {
 
   private final TomlConfigMerger merger = new TomlConfigMerger();
 
-  private PrintStream nullOut() {
-    return new PrintStream(new ByteArrayOutputStream());
+  private Logger nullLog() {
+    return new Logger();
   }
 
   @Test
@@ -32,7 +31,7 @@ class TomlConfigMergerTests {
     ObjectNode pieria = merger.newObject();
     pieria.put("command", "/opt/pieria/bin/pieria-gateway");
     servers.set("pieria", pieria);
-    merger.save(file, root, false, nullOut());
+    merger.save(file, root, false, nullLog());
 
     ObjectNode reloaded = merger.load(file);
     assertThat(reloaded.path("model").asString()).isEqualTo("gpt-5");
@@ -46,7 +45,7 @@ class TomlConfigMergerTests {
     Path file = dir.resolve("config.toml");
     ObjectNode root = merger.newObject();
     root.put("x", 1);
-    merger.save(file, root, true, nullOut());
+    merger.save(file, root, true, nullLog());
     assertThat(Files.exists(file)).isFalse();
   }
 }

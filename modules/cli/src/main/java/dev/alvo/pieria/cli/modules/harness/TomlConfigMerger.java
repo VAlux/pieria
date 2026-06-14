@@ -5,8 +5,8 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.dataformat.toml.TomlMapper;
 
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -35,15 +35,15 @@ public final class TomlConfigMerger {
   /**
    * Serialize to TOML and write (creating parent dirs), or print the intended target on dry-run.
    */
-  public void save(Path file, ObjectNode root, boolean dryRun, PrintStream out) throws IOException {
+  public void save(Path file, ObjectNode root, boolean dryRun, Logger log) throws IOException {
     String content = mapper.writeValueAsString(root);
     if (dryRun) {
-      out.printf("  would write %s%n", file);
+      log.info("  would write {}", file);
       return;
     }
     Files.createDirectories(file.getParent());
     Files.writeString(file, content);
-    out.printf("  wrote %s%n", file);
+    log.info("  wrote {}", file);
   }
 
   public ObjectNode childObject(ObjectNode parent, String field) {

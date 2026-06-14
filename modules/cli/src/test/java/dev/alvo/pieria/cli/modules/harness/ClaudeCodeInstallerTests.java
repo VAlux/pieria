@@ -6,9 +6,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.io.ByteArrayOutputStream;
+import dev.alvo.pieria.cli.log.Logger;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -29,7 +28,7 @@ class ClaudeCodeInstallerTests {
       profile,
       "http://127.0.0.1:8077",
       false,
-      new PrintStream(new ByteArrayOutputStream())
+      new Logger()
     );
   }
 

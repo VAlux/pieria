@@ -49,7 +49,7 @@ public final class HarnessInstallCommand implements Callable<Integer> {
     }
 
     Scope scope = user ? Scope.USER : Scope.PROJECT;
-    WiringContext ctx = WiringContextFactory.from(scope, projectDir, profile, daemonUrl, dryRun, System.out);
+    WiringContext ctx = WiringContextFactory.from(scope, projectDir, profile, daemonUrl, dryRun, log);
 
     log.info("{} Pieria into {} ({} scope){}",
       dryRun ? "Would wire" : "Wiring", installer.id(), scope.name().toLowerCase(java.util.Locale.ROOT),
