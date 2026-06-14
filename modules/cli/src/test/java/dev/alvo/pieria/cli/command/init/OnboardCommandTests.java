@@ -1,7 +1,6 @@
 package dev.alvo.pieria.cli.command.init;
 
-import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.cli.modules.init.IngestClient;
+import dev.alvo.pieria.cli.testsupport.StubDaemon;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,23 +13,27 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Tests for {@code pieria onboard}: the markdown seeding path. The command talks to a
+ * {@link StubDaemon} over HTTP via {@code --daemon-url}, exercising the real {@code HttpIngestClient};
+ * {@code --config-dir} pins the global config dir to the temp project so tests never read the real
+ * OS config dir.
+ */
 class OnboardCommandTests {
 
   private static void writeReadme(Path proj) throws IOException {
     Files.writeString(proj.resolve("README.md"), "# Project\nSome durable knowledge.");
   }
 
-  /** Confine config loading to the temp project so tests never read the real OS config dir. */
-  private static dev.alvo.pieria.cli.modules.config.ProjectConfigLoader hermeticLoader(Path proj) {
-    return new dev.alvo.pieria.cli.modules.config.ProjectConfigLoader(
-      proj.resolve("global-config.toml"), proj.resolve(".pieria").resolve("config.toml"));
+  private static OnboardCommand command(Path proj, String daemonUrl) {
+    OnboardCommand cmd = new OnboardCommand();
+    cmd.projectDir = proj;
+    cmd.daemonUrl = daemonUrl;
+    cmd.configDir = proj;
+    return cmd;
   }
 
-  /**
-   * Run InitCommand with a fake client and captured stdout/stderr.
-   */
-  private static Result run(OnboardCommand cmd, FakeClient fake) {
-    cmd.clientOverride = fake;
+  private static Result run(OnboardCommand cmd) {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     ByteArrayOutputStream err = new ByteArrayOutputStream();
     PrintStream origOut = System.out;
@@ -49,99 +52,61 @@ class OnboardCommandTests {
   @Test
   void dryRunReportsDocsAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    OnboardCommand cmd = new OnboardCommand();
-    cmd.projectDir = proj;
-    cmd.loaderOverride = hermeticLoader(proj);
-    cmd.dryRun = true;
-    FakeClient fake = new FakeClient();
+    try (StubDaemon daemon = StubDaemon.start()) {
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.dryRun = true;
 
-    Result r = run(cmd, fake);
+      Result r = run(cmd);
 
-    assertThat(r.code()).isZero();
-    assertThat(r.out()).contains("Would seed").contains("README.md");
-    assertThat(fake.pinged).isFalse();
-    assertThat(fake.ingested).isFalse();
+      assertThat(r.code()).isZero();
+      assertThat(r.out()).contains("Would seed").contains("README.md");
+      assertThat(daemon.requests()).isEmpty();
+    }
   }
 
   @Test
   void emptyDirSucceedsWithoutContactingDaemon(@TempDir Path proj) {
-    OnboardCommand cmd = new OnboardCommand();
-    cmd.projectDir = proj;
-    cmd.loaderOverride = hermeticLoader(proj);
-    FakeClient fake = new FakeClient();
+    try (StubDaemon daemon = StubDaemon.start()) {
+      Result r = run(command(proj, daemon.baseUrl()));
 
-    Result r = run(cmd, fake);
-
-    assertThat(r.code()).isZero();
-    assertThat(r.out()).contains("nothing to seed");
-    assertThat(fake.ingested).isFalse();
+      assertThat(r.code()).isZero();
+      assertThat(r.out()).contains("nothing to seed");
+      assertThat(daemon.requests()).isEmpty();
+    }
   }
 
   @Test
   void successReportsStoredCount(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    OnboardCommand cmd = new OnboardCommand();
-    cmd.projectDir = proj;
-    cmd.loaderOverride = hermeticLoader(proj);
-    FakeClient fake = new FakeClient();
-    fake.result = new IngestClient.Success(5);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/ingest", 200, "{\"count\":5}");
 
-    Result r = run(cmd, fake);
+      Result r = run(command(proj, daemon.baseUrl()));
 
-    assertThat(r.code()).isZero();
-    assertThat(r.out()).contains("Stored 5 memories");
+      assertThat(r.code()).isZero();
+      assertThat(r.out()).contains("Stored 5 memories");
+    }
   }
 
   @Test
   void daemonDownOnPingReturnsExit3(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    OnboardCommand cmd = new OnboardCommand();
-    cmd.projectDir = proj;
-    cmd.loaderOverride = hermeticLoader(proj);
-    FakeClient fake = new FakeClient();
-    fake.reachability = IngestClient.Reachability.DAEMON_DOWN;
-
-    Result r = run(cmd, fake);
+    Result r = run(command(proj, StubDaemon.unreachableUrl()));
 
     assertThat(r.code()).isEqualTo(3);
     assertThat(r.err()).contains("not reachable");
-    assertThat(fake.ingested).isFalse();
   }
 
   @Test
   void modelUnavailableReturnsExit4(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    OnboardCommand cmd = new OnboardCommand();
-    cmd.projectDir = proj;
-    cmd.loaderOverride = hermeticLoader(proj);
-    FakeClient fake = new FakeClient();
-    fake.result = new IngestClient.ModelUnavailable();
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/ingest", 503, "");
 
-    Result r = run(cmd, fake);
+      Result r = run(command(proj, daemon.baseUrl()));
 
-    assertThat(r.code()).isEqualTo(4);
-    assertThat(r.err()).contains("model provider");
-  }
-
-  /**
-   * Fake client with scripted reachability + ingest results; records whether it was contacted.
-   */
-  private static final class FakeClient implements IngestClient {
-    Reachability reachability = Reachability.OK;
-    IngestResult result = new Success(0);
-    boolean pinged = false;
-    boolean ingested = false;
-
-    @Override
-    public Reachability ping() {
-      pinged = true;
-      return reachability;
-    }
-
-    @Override
-    public IngestResult ingest(String profile, IngestRequest body) {
-      ingested = true;
-      return result;
+      assertThat(r.code()).isEqualTo(4);
+      assertThat(r.err()).contains("model provider");
     }
   }
 

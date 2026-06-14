@@ -31,7 +31,7 @@ public final class ProjectConfigLoader {
   private final Path projectConfigFile;
   private final PieriaTomlLoader loader = new PieriaTomlLoader();
 
-  /** Explicit file locations (also the test seam — keeps tests off the real OS config dir). */
+  /** Explicit file locations, used by {@link #create}. */
   public ProjectConfigLoader(Path globalConfigFile, Path projectConfigFile) {
     this.globalConfigFile = globalConfigFile;
     this.projectConfigFile = projectConfigFile;
@@ -42,8 +42,17 @@ public final class ProjectConfigLoader {
    * {@code PIERIA_CONFIG_DIR}), project file from {@code <projectDir>/.pieria/config.toml}.
    */
   public static ProjectConfigLoader create(Path projectDir) {
+    return create(projectDir, null);
+  }
+
+  /**
+   * As {@link #create(Path)}, but with an explicit config dir holding the global {@code config.toml}.
+   * A {@code null} {@code configDir} falls back to {@code PIERIA_CONFIG_DIR} / the OS config dir.
+   */
+  public static ProjectConfigLoader create(Path projectDir, Path configDir) {
+    Path globalDir = (configDir != null) ? configDir : defaultConfigDir();
     return new ProjectConfigLoader(
-      defaultConfigDir().resolve(CONFIG_FILE_NAME),
+      globalDir.resolve(CONFIG_FILE_NAME),
       projectDir.resolve(PROJECT_CONFIG_DIR).resolve(CONFIG_FILE_NAME));
   }
 

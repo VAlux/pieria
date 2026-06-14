@@ -2,6 +2,9 @@ package dev.alvo.pieria.cli.command.config;
 
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.config.ConfigClient;
+import dev.alvo.pieria.cli.modules.config.ConfigClient.DaemonDown;
+import dev.alvo.pieria.cli.modules.config.ConfigClient.Failure;
+import dev.alvo.pieria.cli.modules.config.ConfigClient.Success;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.init.IngestClient;
 import dev.alvo.pieria.mapping.ProfileResolver;
@@ -28,14 +31,12 @@ public final class ConfigShowCommand implements Callable<Integer> {
 
   @Option(names = "--project-dir", description = "Project directory (default: current directory).")
   public Path projectDir = Path.of("");
+
   @Option(names = "--profile", description = "Explicit profile slug; omit to auto-derive per directory.")
   String profile;
+
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
-  /**
-   * Test seam: when set, used instead of constructing an {@link HttpConfigClient}.
-   */
-  public ConfigClient clientOverride;
 
   @Override
   public Integer call() {
@@ -43,20 +44,20 @@ public final class ConfigShowCommand implements Callable<Integer> {
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
 
-    ConfigClient client = (clientOverride != null) ? clientOverride : new HttpConfigClient(url);
+    ConfigClient client = new HttpConfigClient(url);
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }
 
     return switch (client.get(resolvedProfile)) {
-      case ConfigClient.Success s -> {
+      case Success success -> {
         log.info("Effective config for profile '{}':", resolvedProfile);
-        log.info("{}", s.body());
+        log.info("{}", success.body());
         yield 0;
       }
-      case ConfigClient.DaemonDown ignored -> daemonDown(url);
-      case ConfigClient.Failure f -> {
-        log.error("Config fetch failed (HTTP {}): {}", f.status(), f.body());
+      case DaemonDown ignored -> daemonDown(url);
+      case Failure failure -> {
+        log.error("Config fetch failed (HTTP {}): {}", failure.status(), failure.body());
         yield 1;
       }
     };

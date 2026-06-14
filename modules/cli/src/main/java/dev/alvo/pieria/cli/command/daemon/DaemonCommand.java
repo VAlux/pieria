@@ -8,9 +8,9 @@ import picocli.CommandLine.Command;
  */
 @Command(
   name = "daemon",
-  description = "Report status, start, stop, or restart the local Pieria daemon.",
+  description = "Report status, start, stop, restart, or tail logs for the local Pieria daemon.",
   mixinStandardHelpOptions = true,
-  subcommands = {DaemonStatusCommand.class, DaemonStartCommand.class, DaemonStopCommand.class, DaemonRestartCommand.class}
+  subcommands = {DaemonStatusCommand.class, DaemonStartCommand.class, DaemonStopCommand.class, DaemonRestartCommand.class, DaemonLogsCommand.class}
 )
 public final class DaemonCommand implements Runnable {
 

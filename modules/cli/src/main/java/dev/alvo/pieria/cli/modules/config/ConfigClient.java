@@ -9,28 +9,42 @@ import dev.alvo.pieria.cli.modules.init.IngestClient;
  */
 public interface ConfigClient {
 
-  /** Cheap pre-flight check ({@code GET /pieria-health}). */
+  /**
+   * Cheap pre-flight check ({@code GET /pieria-health}).
+   */
   IngestClient.Reachability ping();
 
-  /** PUT the merged overrides JSON; the response body is the resulting effective config. */
+  /**
+   * PUT the merged overrides JSON; the response body is the resulting effective config.
+   */
   ConfigResult put(String profile, String overridesJson);
 
-  /** GET the profile's effective config JSON. */
+  /**
+   * GET the profile's effective config JSON.
+   */
   ConfigResult get(String profile);
 
-  /** Discriminated outcome so commands map cleanly to exit codes. */
+  /**
+   * Discriminated outcome so commands map cleanly to exit codes.
+   */
   sealed interface ConfigResult permits Success, DaemonDown, Failure {
   }
 
-  /** 2xx — the effective config JSON. */
+  /**
+   * 2xx — the effective config JSON.
+   */
   record Success(String body) implements ConfigResult {
   }
 
-  /** The daemon could not be reached (connection refused / timeout). */
+  /**
+   * The daemon could not be reached (connection refused / timeout).
+   */
   record DaemonDown(String detail) implements ConfigResult {
   }
 
-  /** Any other non-success HTTP response. */
+  /**
+   * Any other non-success HTTP response.
+   */
   record Failure(int status, String body) implements ConfigResult {
   }
 }

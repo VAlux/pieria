@@ -49,27 +49,12 @@ public final class OnboardCommand implements Callable<Integer> {
 
   @Option(names = "--project-dir", description = "Project directory to scan (default: current directory).")
   public Path projectDir = Path.of("");
-  /**
-   * Test seam: when set, used instead of constructing an {@link HttpIngestClient}.
-   */
-  public IngestClient clientOverride;
-  /**
-   * Test seam: when set, used instead of constructing an {@link HttpCodeIndexClient}.
-   */
-  public CodeIndexClient codeClientOverride;
-  /**
-   * Test seam: when set, used instead of constructing an {@link HttpConfigClient}.
-   */
-  public ConfigClient configClientOverride;
-  /**
-   * Test seam: when set, used instead of {@link ProjectConfigLoader#create} (keeps tests off the
-   * real OS config dir).
-   */
-  public ProjectConfigLoader loaderOverride;
   @Option(names = "--profile", description = "Explicit profile slug; omit to auto-derive per directory.")
   String profile;
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
+  @Option(names = "--config-dir", description = "Directory holding the global config.toml (default: $PIERIA_CONFIG_DIR or the OS config dir).")
+  Path configDir;
   @Option(names = "--dry-run", description = "List the docs and messages that would be sent, without contacting the daemon.")
   boolean dryRun;
   @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
@@ -83,7 +68,7 @@ public final class OnboardCommand implements Callable<Integer> {
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
 
-    ProjectConfigLoader loader = (loaderOverride != null) ? loaderOverride : ProjectConfigLoader.create(dir);
+    ProjectConfigLoader loader = ProjectConfigLoader.create(dir, configDir);
     PieriaConfigFile config;
     try {
       config = loader.load();
@@ -108,7 +93,7 @@ public final class OnboardCommand implements Callable<Integer> {
     if (dryRun || config.pieria().isEmpty()) {
       return;
     }
-    ConfigClient client = (configClientOverride != null) ? configClientOverride : new HttpConfigClient(url);
+    ConfigClient client = new HttpConfigClient(url);
     switch (client.put(resolvedProfile, ConfigCodec.toJson(config.pieria()))) {
       case ConfigClient.Success ignored ->
         log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
@@ -148,7 +133,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    IngestClient client = (clientOverride != null) ? clientOverride : new HttpIngestClient(url);
+    IngestClient client = new HttpIngestClient(url);
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }
@@ -190,7 +175,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    CodeIndexClient client = (codeClientOverride != null) ? codeClientOverride : new HttpCodeIndexClient(url);
+    CodeIndexClient client = new HttpCodeIndexClient(url);
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }

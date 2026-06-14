@@ -38,22 +38,15 @@ public final class ConfigSyncCommand implements Callable<Integer> {
   String daemonUrl;
   @Option(names = "--dry-run", description = "Print the overrides that would be pushed, without contacting the daemon.")
   boolean dryRun;
-  /**
-   * Test seam: when set, used instead of constructing an {@link HttpConfigClient}.
-   */
-  public ConfigClient clientOverride;
-  /**
-   * Test seam: when set, used instead of {@link ProjectConfigLoader#create} (keeps tests off the
-   * real OS config dir).
-   */
-  public ProjectConfigLoader loaderOverride;
+  @Option(names = "--config-dir", description = "Directory holding the global config.toml (default: $PIERIA_CONFIG_DIR or the OS config dir).")
+  Path configDir;
 
   @Override
   public Integer call() {
     Path dir = projectDir.toAbsolutePath().normalize();
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
-    ProjectConfigLoader loader = (loaderOverride != null) ? loaderOverride : ProjectConfigLoader.create(dir);
+    ProjectConfigLoader loader = ProjectConfigLoader.create(dir, configDir);
 
     PieriaConfigFile config;
     try {
@@ -75,7 +68,7 @@ public final class ConfigSyncCommand implements Callable<Integer> {
       return 0;
     }
 
-    ConfigClient client = (clientOverride != null) ? clientOverride : new HttpConfigClient(url);
+    ConfigClient client = new HttpConfigClient(url);
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }

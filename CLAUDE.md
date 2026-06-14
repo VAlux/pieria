@@ -75,6 +75,7 @@ All modules live under `modules/`:
 - Test class names use `*Tests` suffix (e.g. `PieriaApplicationTests`).
 - Use `@SpringBootTest` only when a full context is needed; prefer narrower slice or unit tests.
 - Model gateway dependencies must use fakes/stubs in tests — CI does not require Ollama or network access.
+- Don't add test seams to production code (e.g. public/injectable fields or `null`-fallback overrides that exist only so a test can swap an implementation). Test through the real public surface instead — for CLI commands, point `--daemon-url` (or similar) at a throwaway localhost HTTP stub rather than injecting a fake client.
 - Postgres integration tests use Testcontainers and belong in Phase 6 only.
 - `./gradlew test` must pass before every commit.
 

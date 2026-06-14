@@ -11,6 +11,7 @@ import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.StatusResponse;
 import dev.alvo.pieria.config.model.DaemonOverrides;
+import dev.alvo.pieria.config.model.PieriaConfigFile;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -91,7 +92,8 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       StatusResponse.Setup.class,
       DaemonOverrides.class,
       DaemonOverrides.Ingestion.class,
-      DaemonOverrides.Retrieval.class
+      DaemonOverrides.Retrieval.class,
+      PieriaConfigFile.class
     };
   }
 }
