@@ -7,6 +7,7 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.tools.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,13 @@ public class VectorizationWorker {
   private final int batchSize;
   private final int maxAttempts;
 
+  private enum VectorizationOutcome {
+    SUCCEEDED,
+    FAILED,
+    ABANDONED,
+    ORPHANED
+  }
+
   public VectorizationWorker(MemoryStore store, ModelGateway modelGateway, PieriaProperties properties) {
     this.store = store;
     this.modelGateway = modelGateway;
@@ -51,40 +59,53 @@ public class VectorizationWorker {
    * Blocking embedding calls run on virtual threads; the method returns once the batch settles.
    */
   public int drainOnce() {
+    long start = System.nanoTime();
     List<OutboxEntry> batch = store.drainOutbox(batchSize);
     if (batch.isEmpty()) {
+      log.trace("vectorization batch empty batchSize={}", batchSize);
       return 0;
     }
+    log.debug("vectorization batch start entries={} batchSize={} maxAttempts={}",
+      batch.size(), batchSize, maxAttempts);
 
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<Boolean>> futures = new ArrayList<>(batch.size());
+      List<Future<VectorizationOutcome>> futures = new ArrayList<>(batch.size());
       for (OutboxEntry entry : batch) {
         futures.add(exec.submit(() -> process(entry)));
       }
       int succeeded = 0;
-      for (Future<Boolean> f : futures) {
+      int failed = 0;
+      int abandoned = 0;
+      int orphaned = 0;
+      for (Future<VectorizationOutcome> f : futures) {
         try {
-          if (f.get()) {
-            succeeded++;
+          switch (f.get()) {
+            case SUCCEEDED -> succeeded++;
+            case FAILED -> failed++;
+            case ABANDONED -> abandoned++;
+            case ORPHANED -> orphaned++;
           }
         } catch (ExecutionException e) {
+          failed++;
           log.warn("vectorization task failed unexpectedly", e.getCause());
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           break;
         }
       }
+      log.info("vectorization batch entries={} succeeded={} failed={} abandoned={} orphaned={} totalMs={}",
+        batch.size(), succeeded, failed, abandoned, orphaned, Timed.elapsedMillis(start));
       return succeeded;
     }
   }
 
-  private boolean process(OutboxEntry entry) {
+  private VectorizationOutcome process(OutboxEntry entry) {
     if (entry.attempts() >= maxAttempts) {
       // Poison message: drop the outbox row so it stops being drained. The memory stays
       // un-embedded; a later re-ingest can re-enqueue it.
       log.error("abandoning vectorization for memory {} after {} attempts", entry.memoryId(), entry.attempts());
       store.deleteOutboxRow(entry.memoryId());
-      return false;
+      return VectorizationOutcome.ABANDONED;
     }
 
     Memory memory = store.findMemoryById(entry.memoryId()).orElse(null);
@@ -92,21 +113,25 @@ public class VectorizationWorker {
       // The memory was superseded/removed after enqueue; nothing to embed.
       log.debug("outbox memory {} no longer present; dropping", entry.memoryId());
       store.deleteOutboxRow(entry.memoryId());
-      return false;
+      return VectorizationOutcome.ORPHANED;
     }
 
     String text = memory.embedText() != null && !memory.embedText().isBlank()
       ? memory.embedText()
       : memory.content();
+    log.debug("vectorization embedding start memoryId={} type={} attempt={} textChars={}",
+      entry.memoryId(), memory.type(), entry.attempts() + 1, text == null ? 0 : text.length());
     try {
       float[] embedding = modelGateway.embed(text);
       store.completeVectorization(entry.memoryId(), embedding);
-      return true;
+      log.debug("vectorization embedding stored memoryId={} dimensions={}",
+        entry.memoryId(), embedding == null ? 0 : embedding.length);
+      return VectorizationOutcome.SUCCEEDED;
     } catch (RuntimeException e) {
       log.warn("embedding failed for memory {} (attempt {}): {}",
         entry.memoryId(), entry.attempts() + 1, e.getMessage());
       store.recordOutboxFailure(entry.memoryId(), e.getMessage());
-      return false;
+      return VectorizationOutcome.FAILED;
     }
   }
 }

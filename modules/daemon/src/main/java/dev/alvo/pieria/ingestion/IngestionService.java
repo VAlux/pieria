@@ -60,13 +60,20 @@ public class IngestionService {
   /**
    * Verification output: contents that survived (passed or corrected) and the number dropped.
    */
-  private record Verification(List<String> verifiedContents, int dropped) {
+  private record Verification(List<String> verifiedContents, int passed, int corrected, int dropped) {
   }
 
   /**
    * Store output: the persisted memories plus supersession and vectorization-enqueue counts.
    */
-  private record StoreResult(List<Memory> stored, int superseded, int enqueued) {
+  private record StoreResult(List<Memory> stored, int superseded, int enqueued,
+                             int graphExtracted, int graphSkipped, int graphFailed) {
+  }
+
+  /**
+   * Result of one extraction model call, keeping pass/chunk metadata for detailed logging.
+   */
+  private record ExtractionPassResult(String pass, int chunkIndex, List<ExtractedCandidate> candidates, long millis) {
   }
 
   public IngestionService(MemoryStore store,
@@ -89,14 +96,22 @@ public class IngestionService {
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages) {
     long totalStart = System.nanoTime();
+    int inputMessages = messages == null ? 0 : messages.size();
+    log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
+
     Profile profile = store.getOrCreateProfile(profileName);
+    log.debug("ingest resolved profile name={} id={}", profileName, profile.id());
 
     Timed<List<Message>> normalize = Timed.measure(() -> normalizeMessages(messages, sessionId));
     List<Message> normalized = normalize.value();
+    log.debug("ingest normalized profile={} session={} inputMessages={} normalizedMessages={} normalizeMs={}",
+      profileName, sessionId, inputMessages, normalized.size(), normalize.millis());
 
     // Store raw messages first so ingest is inspectable even when nothing is extracted.
     Timed<Void> messageStore =
       Timed.measure(() -> store.insertMessages(profile.id(), sessionId, normalized));
+    log.debug("ingest stored raw messages profile={} session={} messages={} messageStoreMs={}",
+      profileName, sessionId, normalized.size(), messageStore.millis());
     if (normalized.isEmpty()) {
       log.info("ingest profile={} session={} messages=0 normalizeMs={} messageStoreMs={} totalMs={} — nothing to extract",
         profileName, sessionId, normalize.millis(), messageStore.millis(), Timed.elapsedMillis(totalStart));
@@ -109,13 +124,23 @@ public class IngestionService {
     boolean detailPass = normalized.size() >= Math.max(1, tuning.detailPassMinMessages());
     Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized, tuning));
     List<Chunk> chunks = chunk.value();
+    log.debug(
+      "ingest chunked profile={} session={} chunks={} detailPass={} detailPassMinMessages={} maxExtractionConcurrency={} chunkMs={}",
+      profileName, sessionId, chunks.size(), detailPass, tuning.detailPassMinMessages(),
+      Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
     Timed<Extraction> extract = Timed.measure(
       () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency())));
     Extraction extraction = extract.value();
+    log.debug("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
+      profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
+      Math.max(0, extraction.rawCount() - extraction.merged().size()), extract.millis());
 
     Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks));
     Verification verification = verify.value();
+    log.debug("ingest verified profile={} session={} passed={} corrected={} dropped={} verified={} verificationMs={}",
+      profileName, sessionId, verification.passed(), verification.corrected(), verification.dropped(),
+      verification.verifiedContents().size(), verify.millis());
 
     Timed<StoreResult> classifyStore =
       Timed.measure(() -> classifyAndStore(profile.id(), sessionId, verification.verifiedContents()));
@@ -133,7 +158,10 @@ public class IngestionService {
         dropped={} \
         stored={} \
         superseded={} \
-        vectorJobs={}""",
+        vectorJobs={} \
+        graphExtracted={} \
+        graphSkipped={} \
+        graphFailed={}""",
       profileName,
       sessionId,
       normalized.size(),
@@ -143,7 +171,10 @@ public class IngestionService {
       verification.dropped(),
       result.stored().size(),
       result.superseded(),
-      result.enqueued());
+      result.enqueued(),
+      result.graphExtracted(),
+      result.graphSkipped(),
+      result.graphFailed());
 
     log.info("""
         ingest latency \
@@ -205,23 +236,33 @@ public class IngestionService {
     }
 
     int dropped = 0;
+    int passed = 0;
+    int corrected = 0;
     List<String> verifiedContents = new ArrayList<>();
+    int candidateIndex = 0;
     for (ExtractedCandidate candidate : merged) {
+      candidateIndex++;
       String transcript = transcriptByChunk.getOrDefault(candidate.chunkIndex(), "");
       VerificationResult result = modelGateway.verify(candidate, transcript);
       switch (result.verdict()) {
         case DROP -> dropped++;
-        case PASS -> verifiedContents.add(candidate.content());
+        case PASS -> {
+          passed++;
+          verifiedContents.add(candidate.content());
+        }
         case CORRECT -> {
-          String corrected = result.content() != null && !result.content().isBlank()
+          corrected++;
+          String correctedContent = result.content() != null && !result.content().isBlank()
             ? result.content()
             : candidate.content();
-          verifiedContents.add(corrected);
+          verifiedContents.add(correctedContent);
         }
       }
+      log.debug("ingest verification candidate={} chunk={} verdict={}",
+        candidateIndex, candidate.chunkIndex(), result.verdict());
     }
 
-    return new Verification(verifiedContents, dropped);
+    return new Verification(verifiedContents, passed, corrected, dropped);
   }
 
   /**
@@ -232,11 +273,21 @@ public class IngestionService {
     List<Memory> stored = new ArrayList<>(verifiedContents.size());
     int superseded = 0;
     int enqueued = 0;
+    int graphExtracted = 0;
+    int graphSkipped = 0;
+    int graphFailed = 0;
+    int candidateIndex = 0;
     for (String content : verifiedContents) {
+      candidateIndex++;
       if (content == null || content.isBlank()) {
+        log.debug("ingest store candidate={} skipped blank content", candidateIndex);
         continue;
       }
       Classification classification = modelGateway.classify(content);
+      log.debug("ingest classified candidate={} type={} hasTopicKey={} interrogativeQueries={}",
+        candidateIndex, classification.type(), classification.topicKey() != null,
+        classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size());
+
       String embedText = buildEmbedText(classification.interrogativeQueries(), content);
       String payload = classification.payload() == null ? "{}" : classification.payload();
       Memory candidate = new Memory(
@@ -250,9 +301,16 @@ public class IngestionService {
       if (classification.type() != MemoryType.TASK) {
         try {
           graph = modelGateway.extractGraph(content);
+          graphExtracted++;
+          log.debug("ingest graph extracted candidate={} entities={} triples={}",
+            candidateIndex, graph.allEntities().size(), graph.triples().size());
         } catch (RuntimeException e) {
+          graphFailed++;
           log.warn("graph extraction failed; storing memory without graph: {}", e.toString());
         }
+      } else {
+        graphSkipped++;
+        log.debug("ingest graph skipped candidate={} type={}", candidateIndex, classification.type());
       }
 
       MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph);
@@ -263,9 +321,12 @@ public class IngestionService {
       if (outcome.enqueuedVector()) {
         enqueued++;
       }
+      log.debug("ingest stored candidate={} memoryId={} type={} supersededId={} vectorEnqueued={}",
+        candidateIndex, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
+        outcome.enqueuedVector());
     }
 
-    return new StoreResult(stored, superseded, enqueued);
+    return new StoreResult(stored, superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
   }
 
   /**
@@ -274,27 +335,47 @@ public class IngestionService {
    */
   private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency) {
     if (chunks.isEmpty()) {
+      log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
     }
+    log.debug("ingest extraction start chunks={} detailPass={} maxConcurrency={} modelCalls={}",
+      chunks.size(), detailPass, maxExtractionConcurrency, detailPass ? chunks.size() * 2 : chunks.size());
+
     Semaphore gate = new Semaphore(maxExtractionConcurrency);
     List<ExtractedCandidate> results = new ArrayList<>();
 
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<List<ExtractedCandidate>>> futures = new ArrayList<>();
+      List<Future<ExtractionPassResult>> futures = new ArrayList<>();
       for (Chunk chunk : chunks) {
-        futures.add(exec.submit(() -> bounded(gate, () -> modelGateway.extract(chunk))));
+        futures.add(exec.submit(() -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk))));
         if (detailPass) {
-          futures.add(exec.submit(() -> bounded(gate, () -> modelGateway.extractDetail(chunk))));
+          futures.add(exec.submit(() -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk))));
         }
       }
-      for (Future<List<ExtractedCandidate>> f : futures) {
-        results.addAll(awaitCandidates(f));
+      for (Future<ExtractionPassResult> f : futures) {
+        ExtractionPassResult result = awaitExtraction(f);
+        log.debug("ingest extraction pass={} chunk={} candidates={} ms={}",
+          result.pass(), result.chunkIndex(), result.candidates().size(), result.millis());
+        results.addAll(result.candidates());
       }
     }
     return results;
   }
 
-  private static List<ExtractedCandidate> bounded(Semaphore gate, Callable<List<ExtractedCandidate>> task) throws Exception {
+  private static ExtractionPassResult extractWithTiming(Semaphore gate, String pass, Chunk chunk,
+                                                        Callable<List<ExtractedCandidate>> task) throws Exception {
+    Timed<List<ExtractedCandidate>> timed = Timed.measure(() -> {
+      try {
+        return bounded(gate, task);
+      } catch (Exception e) {
+        throw new ExtractionCallException(e);
+      }
+    });
+    List<ExtractedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
+    return new ExtractionPassResult(pass, chunk.index(), candidates, timed.millis());
+  }
+
+  private static <T> T bounded(Semaphore gate, Callable<T> task) throws Exception {
     gate.acquire();
     try {
       return task.call();
@@ -303,19 +384,32 @@ public class IngestionService {
     }
   }
 
-  private static List<ExtractedCandidate> awaitCandidates(Future<List<ExtractedCandidate>> future) {
+  private static ExtractionPassResult awaitExtraction(Future<ExtractionPassResult> future) {
     try {
-      List<ExtractedCandidate> value = future.get();
-      return value == null ? List.of() : value;
+      return future.get();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ModelUnavailableException("extraction interrupted", e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
+      if (cause instanceof ExtractionCallException && cause.getCause() != null) {
+        cause = cause.getCause();
+      }
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw new ModelUnavailableException("extraction interrupted", cause);
+      }
       if (cause instanceof ModelUnavailableException mue) {
         throw mue;
       }
       throw new ModelUnavailableException("extraction failed", cause);
+    }
+  }
+
+  private static class ExtractionCallException extends RuntimeException {
+
+    private ExtractionCallException(Throwable cause) {
+      super(cause);
     }
   }
 
@@ -359,6 +453,10 @@ public class IngestionService {
    */
   public Memory remember(String profileName, Memory memory) {
     Profile profile = store.getOrCreateProfile(profileName);
-    return store.store(profile.id(), memory).stored();
+    MemoryStore.StoreOutcome outcome = store.store(profile.id(), memory);
+    log.info("remember profile={} memoryId={} type={} supersededId={} vectorEnqueued={}",
+      profileName, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
+      outcome.enqueuedVector());
+    return outcome.stored();
   }
 }

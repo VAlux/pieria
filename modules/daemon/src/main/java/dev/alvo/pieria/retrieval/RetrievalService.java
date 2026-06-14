@@ -143,14 +143,27 @@ public class RetrievalService {
    */
   public RecallResult recall(String profileName, String query, int limit, boolean debug) {
     long totalStart = System.nanoTime();
+    LOGGER.info("recall start profile={} limit={} debug={} queryChars={}",
+      profileName, limit, debug, query == null ? 0 : query.length());
 
     var profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
+    LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
 
     // Per-profile effective config: global properties overlaid with any pushed overrides.
     Pipeline pipeline = buildPipeline(configResolver.resolve(profile.id()).retrieval());
+    LOGGER.debug("recall pipeline profile={} wave1Channels={} wave2Channels={} channelLimit={} channelTimeoutMs={}",
+      profileName, channelTypes(pipeline.channels()), channelTypes(pipeline.secondWaveChannels()),
+      pipeline.channelLimit(), pipeline.channelTimeoutMs());
 
     Timed<QueryAnalysis> analysis = Timed.measure(() -> analyze(query));
+    LOGGER.debug("recall analysis profile={} topicKeys={} ftsTerms={} entities={} hasHyde={} analysisMs={}",
+      profileName, analysis.value().topicKeys().size(), analysis.value().ftsTerms().size(),
+      analysis.value().entities().size(), analysis.value().hydeStatement() != null, analysis.millis());
+
     Timed<Embeddings> embeddings = Timed.measure(() -> embed(query, analysis.value()));
+    LOGGER.debug("recall embeddings profile={} queryEmbedding={} hydeEmbedding={} embeddingMs={}",
+      profileName, embeddingDimensions(embeddings.value().query()), embeddingDimensions(embeddings.value().hyde()),
+      embeddings.millis());
 
     RetrievalContext context = new RetrievalContext(
       profile.id(), query, analysis.value(),
@@ -159,8 +172,16 @@ public class RetrievalService {
     List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
     Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics));
     Timed<List<RecallCandidate>> fused = Timed.measure(() -> fuse(pipeline, hits.value(), limit));
+    LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
+      profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
+
     Timed<List<TemporalFact>> temporal = Timed.measure(() -> extractTemporalFacts(query, fused.value()));
+    LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
+      profileName, temporal.value().size(), temporal.millis());
+
     Timed<String> answer = Timed.measure(() -> synthesize(query, fused.value(), temporal.value()));
+    LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
+      profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
     RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
     LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
@@ -181,8 +202,16 @@ public class RetrievalService {
    * embedding simply disables the corresponding vector channel.
    */
   private Embeddings embed(String query, QueryAnalysis analysis) {
-    float[] queryEmbedding = embedQuietly(query);
-    float[] hydeEmbedding = analysis.hydeStatement() == null ? null : embedQuietly(analysis.hydeStatement());
+    if (!store.isVectorSearchAvailable()) {
+      LOGGER.debug("recall embeddings skipped because vector search is unavailable");
+      return new Embeddings(null, null);
+    }
+
+    float[] queryEmbedding = embedQuietly("query", query);
+    float[] hydeEmbedding = analysis.hydeStatement() == null ? null : embedQuietly("hyde", analysis.hydeStatement());
+    if (analysis.hydeStatement() == null) {
+      LOGGER.debug("recall hyde embedding skipped because analysis did not produce a HyDE statement");
+    }
     return new Embeddings(queryEmbedding, hydeEmbedding);
   }
 
@@ -191,9 +220,17 @@ public class RetrievalService {
    * seeded from wave-1 hits + query entities. Both waves feed the same weighted RRF downstream.
    */
   private List<RetrievalCandidate> runWaves(Pipeline pipeline, RetrievalContext context, List<ChannelDiagnostics> diags) {
+    LOGGER.debug("recall wave=1 start channels={} seedCandidates=0", channelTypes(pipeline.channels()));
     List<RetrievalCandidate> hits = new ArrayList<>(runChannels(pipeline, pipeline.channels(), context, diags));
+    LOGGER.debug("recall wave=1 completed hits={}", hits.size());
     if (!pipeline.secondWaveChannels().isEmpty()) {
-      hits.addAll(runChannels(pipeline, pipeline.secondWaveChannels(), context.withSeedCandidates(hits), diags));
+      int firstWaveHits = hits.size();
+      LOGGER.debug("recall wave=2 start channels={} seedCandidates={}",
+        channelTypes(pipeline.secondWaveChannels()), firstWaveHits);
+      List<RetrievalCandidate> secondWaveHits =
+        runChannels(pipeline, pipeline.secondWaveChannels(), context.withSeedCandidates(hits), diags);
+      hits.addAll(secondWaveHits);
+      LOGGER.debug("recall wave=2 completed hits={} totalHits={}", secondWaveHits.size(), hits.size());
     }
     return hits;
   }
@@ -238,16 +275,20 @@ public class RetrievalService {
   /**
    * Embed best-effort: skip entirely when vector search is off; never fail recall on embed error.
    */
-  private float[] embedQuietly(String text) {
-    if (text == null || text.isBlank() || !store.isVectorSearchAvailable()) {
+  private float[] embedQuietly(String label, String text) {
+    if (text == null || text.isBlank()) {
+      LOGGER.debug("recall {} embedding skipped because text is blank", label);
       return null;
     }
 
     try {
       float[] embedding = modelGateway.embed(text);
+      LOGGER.debug("recall {} embedding completed dimensions={} textChars={}",
+        label, embeddingDimensions(embedding), text.length());
       return (embedding == null || embedding.length == 0) ? null : embedding;
     } catch (RuntimeException e) {
-      LOGGER.warn("embedding failed ({}); vector channels will be skipped", e.toString());
+      LOGGER.warn("recall {} embedding failed ({}); corresponding vector channel will be skipped",
+        label, e.toString());
       return null;
     }
   }
@@ -267,13 +308,20 @@ public class RetrievalService {
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       Map<RetrievalChannel, Future<Timed<List<RetrievalCandidate>>>> futures = new LinkedHashMap<>();
       for (RetrievalChannel channel : channelsToRun) {
-        futures.put(channel, exec.submit(() -> Timed.measure(() -> channel.retrieve(ctx))));
+        LOGGER.debug("retrieval channel {} scheduled critical={} limit={} seedCandidates={}",
+          channel.type(), channel.critical(), ctx.limit(), ctx.seedCandidates().size());
+        futures.put(channel, exec.submit(() -> {
+          LOGGER.debug("retrieval channel {} started", channel.type());
+          return Timed.measure(() -> channel.retrieve(ctx));
+        }));
       }
 
       futures.forEach((channel, value) -> {
         try {
           Timed<List<RetrievalCandidate>> result = value.get(pipeline.channelTimeoutMs(), TimeUnit.MILLISECONDS);
           all.addAll(result.value());
+          LOGGER.debug("retrieval channel {} completed hits={} ms={}",
+            channel.type(), result.value().size(), result.millis());
           diags.add(new ChannelDiagnostics(channel.type(), result.millis(), result.value().size(), false));
         } catch (TimeoutException | ExecutionException | InterruptedException e) {
           if (e instanceof InterruptedException) {
@@ -302,5 +350,21 @@ public class RetrievalService {
 
     LOGGER.warn("retrieval channel {} failed/timed out ({}); skipping", channel.type(), cause.toString());
     diags.add(new ChannelDiagnostics(channel.type(), channelTimeoutMs, 0, true));
+  }
+
+  private static int embeddingDimensions(float[] embedding) {
+    return embedding == null ? 0 : embedding.length;
+  }
+
+  private static List<RetrievalChannelType> channelTypes(List<RetrievalChannel> channels) {
+    return channels.stream().map(RetrievalChannel::type).toList();
+  }
+
+  private static Map<String, Long> sourceCounts(List<RecallCandidate> candidates) {
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (RecallCandidate candidate : candidates) {
+      counts.merge(candidate.source(), 1L, Long::sum);
+    }
+    return counts;
   }
 }

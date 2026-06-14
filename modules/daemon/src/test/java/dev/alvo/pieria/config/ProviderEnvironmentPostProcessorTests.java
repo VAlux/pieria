@@ -7,13 +7,47 @@ import org.springframework.mock.env.MockEnvironment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies the {@code pieria.provider.type=azure} → Spring AI Microsoft Foundry translation. Pure
+ * Verifies the {@code pieria.provider.*} → {@code spring.ai.openai.*} translation: the {@code /v1}
+ * base-url normalization for the openai dialect and the Microsoft Foundry switches for azure. Pure
  * unit test over a {@link MockEnvironment}; no Spring context, no network.
  */
 class ProviderEnvironmentPostProcessorTests {
 
   private final ProviderEnvironmentPostProcessor processor = new ProviderEnvironmentPostProcessor();
   private final SpringApplication application = new SpringApplication();
+
+  @Test
+  void openAiBaseUrlGetsV1Appended() {
+    MockEnvironment env = new MockEnvironment()
+      .withProperty("pieria.provider.type", "openai")
+      .withProperty("pieria.provider.base-url", "http://localhost:11434");
+
+    processor.postProcessEnvironment(env, application);
+
+    assertThat(env.getProperty("spring.ai.openai.base-url")).isEqualTo("http://localhost:11434/v1");
+  }
+
+  @Test
+  void openAiBaseUrlV1IsNotDoubledAndTrailingSlashTrimmed() {
+    MockEnvironment env = new MockEnvironment()
+      .withProperty("pieria.provider.base-url", "http://localhost:11434/v1/");
+
+    processor.postProcessEnvironment(env, application);
+
+    assertThat(env.getProperty("spring.ai.openai.base-url")).isEqualTo("http://localhost:11434/v1");
+  }
+
+  @Test
+  void azureBaseUrlIsPassedThroughWithoutV1() {
+    MockEnvironment env = new MockEnvironment()
+      .withProperty("pieria.provider.type", "azure")
+      .withProperty("pieria.provider.base-url", "https://my-resource.openai.azure.com");
+
+    processor.postProcessEnvironment(env, application);
+
+    assertThat(env.getProperty("spring.ai.openai.base-url")).isEqualTo("https://my-resource.openai.azure.com");
+    assertThat(env.getProperty("spring.ai.openai.microsoft-foundry")).isEqualTo("true");
+  }
 
   @Test
   void azureTypeContributesFoundrySwitches() {

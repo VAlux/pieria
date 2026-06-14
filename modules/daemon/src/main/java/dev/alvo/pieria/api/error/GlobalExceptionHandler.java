@@ -5,6 +5,8 @@ import dev.alvo.pieria.api.response.ErrorResponse;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<ErrorResponse> handleInvalidBody(MethodArgumentNotValidException ex) {
@@ -45,6 +49,9 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(ModelUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleModelUnavailable(ModelUnavailableException ex) {
+    // The client response is sanitized, but log the full cause chain server-side so a model-stage
+    // failure (provider down, response-binding/reflection error, etc.) is diagnosable from the log.
+    LOGGER.warn("model_unavailable: {}", ex.getMessage(), ex);
     // Do not echo the provider's message; it may carry hosts/secrets.
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
       .body(new ErrorResponse("model_unavailable", "The model provider is currently unavailable"));

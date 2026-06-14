@@ -1,5 +1,6 @@
 package dev.alvo.pieria.ingestion;
 
+import dev.alvo.pieria.tools.Timed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -30,10 +31,15 @@ public class VectorizationScheduler {
 
   @Scheduled(fixedDelayString = "${pieria.ingestion.vectorization-interval-ms:5000}")
   public void drain() {
+    long start = System.nanoTime();
+    log.trace("vectorization drain tick start");
     try {
       int processed = worker.drainOnce();
       if (processed > 0) {
-        log.debug("vectorized {} memories", processed);
+        log.debug("vectorization drain tick completed processed={} totalMs={}",
+          processed, Timed.elapsedMillis(start));
+      } else {
+        log.trace("vectorization drain tick completed processed=0 totalMs={}", Timed.elapsedMillis(start));
       }
     } catch (RuntimeException e) {
       // Never let a batch failure kill the scheduler thread; the next tick retries pending rows.

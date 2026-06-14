@@ -4,6 +4,7 @@ import dev.alvo.pieria.api.request.CodeIndexRequest;
 import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.response.CodeIndexResponse;
+import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.config.ConfigClient;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
@@ -15,7 +16,6 @@ import dev.alvo.pieria.cli.modules.init.IngestClient;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
 import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery.Doc;
 import dev.alvo.pieria.cli.modules.init.TranscriptBuilder;
-import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
@@ -49,16 +49,22 @@ public final class OnboardCommand implements Callable<Integer> {
 
   @Option(names = "--project-dir", description = "Project directory to scan (default: current directory).")
   public Path projectDir = Path.of("");
+
   @Option(names = "--profile", description = "Explicit profile slug; omit to auto-derive per directory.")
   String profile;
+
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
+
   @Option(names = "--config-dir", description = "Directory holding the global config.toml (default: $PIERIA_CONFIG_DIR or the OS config dir).")
   Path configDir;
+
   @Option(names = "--dry-run", description = "List the docs and messages that would be sent, without contacting the daemon.")
   boolean dryRun;
+
   @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
   boolean includeAgentDocs;
+
   @Option(names = "--source-code", description = "Also build a source-code intelligence index from the repo's tracked source files.")
   boolean sourceCode;
 
@@ -99,12 +105,13 @@ public final class OnboardCommand implements Callable<Integer> {
         log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
       case ConfigClient.DaemonDown ignored ->
         log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");
-      case ConfigClient.Failure f ->
-        log.error("Could not push config overrides (HTTP {}): {}", f.status(), f.body());
+      case ConfigClient.Failure f -> log.error("Could not push config overrides (HTTP {}): {}", f.status(), f.body());
     }
   }
 
-  /** Seed the profile from project markdown (the default behavior). */
+  /**
+   * Seed the profile from project markdown (the default behavior).
+   */
   private int seedMarkdown(Path dir, String resolvedProfile, String url) {
     List<Doc> docs = MarkdownDiscovery.create(dir).discover(includeAgentDocs);
     if (docs.isEmpty()) {
@@ -159,7 +166,9 @@ public final class OnboardCommand implements Callable<Integer> {
     };
   }
 
-  /** Build the source-code intelligence index from the repo's tracked source files. */
+  /**
+   * Build the source-code intelligence index from the repo's tracked source files.
+   */
   private int seedSourceCode(Path dir, String resolvedProfile, String url, PieriaConfigFile config) {
     List<FileDto> files = CodeDiscovery.create(dir, config.discovery()).discover();
     if (files.isEmpty()) {

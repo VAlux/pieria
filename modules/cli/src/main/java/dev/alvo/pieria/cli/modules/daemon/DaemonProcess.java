@@ -231,13 +231,33 @@ public final class DaemonProcess {
         return new Failed("launchd start failed: " + r.errorSummary(bootstrap));
       }
     }
-    for (List<String> command : List.of(enable, kickstart)) {
-      Result r = run(command);
-      if (r.exitCode() != 0) {
-        return new Failed("launchd start failed: " + r.errorSummary(command));
-      }
+    Result enableResult = run(enable);
+    if (enableResult.exitCode() != 0) {
+      return new Failed("launchd start failed: " + enableResult.errorSummary(enable));
+    }
+    // kickstart can transiently fail with EALREADY (errno 37) when a just-issued `stop` (bootout) is
+    // still tearing the previous instance down; retry briefly so `restart` is reliable on the first try.
+    Result kickResult = kickstartWithRetry(kickstart);
+    if (kickResult.exitCode() != 0) {
+      return new Failed("launchd start failed: " + kickResult.errorSummary(kickstart));
     }
     return new StartedViaService("launchd");
+  }
+
+  /** BSD/macOS {@code errno} 37 (EALREADY): launchd reports "operation already in progress". */
+  private static final int LAUNCHCTL_EALREADY = 37;
+
+  /**
+   * Run {@code launchctl kickstart}, retrying for a few seconds while it returns {@link #LAUNCHCTL_EALREADY}
+   * — the transient state where the previous instance booted out by {@code stop} has not fully exited yet.
+   */
+  private static Result kickstartWithRetry(List<String> kickstart) {
+    Result r = run(kickstart);
+    for (int attempt = 0; attempt < 15 && r.exitCode() == LAUNCHCTL_EALREADY; attempt++) {
+      sleepQuietly(200);
+      r = run(kickstart);
+    }
+    return r;
   }
 
   /**
@@ -262,7 +282,26 @@ public final class DaemonProcess {
     if (r.exitCode() != 0) {
       return new Failed("launchd stop failed: " + r.errorSummary(bootout));
     }
+    // bootout is asynchronous: it returns before launchd finishes tearing the job down. Wait for the
+    // job to actually leave the domain so a following start re-bootstraps cleanly instead of racing
+    // the teardown (which makes `kickstart -k` fail with EALREADY).
+    awaitLaunchdUnloaded();
     return new StoppedViaService("launchd");
+  }
+
+  /** Poll until the launchd job has left the gui domain, bounded so a stuck teardown cannot hang stop. */
+  private static void awaitLaunchdUnloaded() {
+    for (int attempt = 0; attempt < 50 && launchdLoaded(); attempt++) {
+      sleepQuietly(100);
+    }
+  }
+
+  private static void sleepQuietly(long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private <T> T runServiceCommands(
