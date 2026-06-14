@@ -43,13 +43,7 @@ public final class DaemonProcess {
 
   private static List<String> buildSpawnCommand(Path daemon, StartOptions opts) {
     List<String> command = new ArrayList<>();
-    if (daemon.getFileName().toString().endsWith(".jar")) {
-      command.add(javaExecutable());
-      command.add("-jar");
-      command.add(daemon.toString());
-    } else {
-      command.add(daemon.toString());
-    }
+    command.add(daemon.toString());
     command.add("--pieria.daemon.host=" + opts.host());
     command.add("--pieria.daemon.port=" + opts.port());
     if (opts.runtimeDir() != null && !opts.runtimeDir().isBlank()) {
@@ -84,9 +78,7 @@ public final class DaemonProcess {
     }
 
     String home = System.getProperty("user.home", ".");
-    List<Path> wellKnown = List.of(
-      Path.of(home, ".local", "bin", exeName),
-      Path.of(home, ".local", "bin", "pieria.jar"));
+    List<Path> wellKnown = List.of(Path.of(home, ".local", "bin", exeName));
     for (Path p : wellKnown) {
       if (Files.isRegularFile(p)) {
         return Optional.of(p.toAbsolutePath());
@@ -146,17 +138,6 @@ public final class DaemonProcess {
     Result r = run(List.of("id", "-u"));
     String value = r.output() == null ? "" : r.output().strip();
     return value.isEmpty() ? "0" : value;
-  }
-
-  private static String javaExecutable() {
-    String javaHome = System.getProperty("java.home");
-    if (javaHome != null && !javaHome.isBlank()) {
-      Path candidate = Path.of(javaHome, "bin", os().contains("win") ? "java.exe" : "java");
-      if (Files.isRegularFile(candidate)) {
-        return candidate.toString();
-      }
-    }
-    return "java";
   }
 
   private static void deleteQuietly(Path path) {
@@ -388,7 +369,7 @@ public final class DaemonProcess {
   /**
    * Inputs for {@link #start(StartOptions)}.
    *
-   * @param daemonBinary explicit daemon executable/jar path ({@code --daemon}); {@code null} ⇒ auto-locate
+   * @param daemonBinary explicit daemon binary path ({@code --daemon}); {@code null} ⇒ auto-locate
    * @param runtimeDir   explicit runtime dir ({@code --runtime-dir}); {@code null} ⇒ OS default
    * @param host         daemon bind host, forwarded to a spawned process
    * @param port         daemon bind port, forwarded to a spawned process

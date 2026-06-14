@@ -22,7 +22,7 @@ class BinarySwapperTests {
     for (String name : BinarySource.BINARIES) {
       writeFile(root.resolve("bin").resolve(name), name + "-" + suffix);
     }
-    return new StagedDist(root, false);
+    return new StagedDist(root);
   }
 
   @Test
@@ -57,7 +57,7 @@ class BinarySwapperTests {
     Path staging = tmp.resolve("staging");
     writeFile(staging.resolve("bin").resolve("pieria"), "pieria-new");
     writeFile(staging.resolve("bin").resolve("pieria-daemon"), "pieria-daemon-new");
-    StagedDist dist = new StagedDist(staging, false);
+    StagedDist dist = new StagedDist(staging);
 
     Path installBin = tmp.resolve("install").resolve("bin");
     for (String name : BinarySource.BINARIES) {
@@ -78,15 +78,4 @@ class BinarySwapperTests {
     }
   }
 
-  @Test
-  void jarSwapRequiresLibDir(@TempDir Path tmp) throws IOException {
-    Path staging = tmp.resolve("staging");
-    writeFile(staging.resolve("lib").resolve("pieria.jar"), "x");
-    StagedDist dist = new StagedDist(staging, true);
-    InstallLayout install = new InstallLayout(tmp.resolve("install").resolve("bin"), List.of());
-
-    assertThatThrownBy(() -> new BinarySwapper(new TestPlatform()).swap(dist, install))
-      .isInstanceOf(UpdateException.class)
-      .hasMessageContaining("JVM-style install");
-  }
 }

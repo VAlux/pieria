@@ -93,11 +93,6 @@ public final class InstallLayout {
     return binDir;
   }
 
-  public Path libDir() {
-    Path parent = binDir.getParent();
-    return (parent == null ? binDir : parent).resolve("lib");
-  }
-
   /**
    * Harness dirs that actually exist on disk (a harness was wired). Hook-script refresh targets
    * these; if empty, refresh is skipped.

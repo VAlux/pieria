@@ -80,7 +80,6 @@ class ReleaseSourceTests {
   void resolvesAndExtractsWhenChecksumMatches() throws Exception {
     String checksums = sha256(TARBALL) + "  pieria-test-arch.tar.gz\n";
     StagedDist dist = new ReleaseSource(platform, "latest", env(Map.of()), fetcher(checksums)).resolve();
-    assertThat(dist.jar()).isFalse();
     assertThat(platform.extracted).hasSize(1);
   }
 

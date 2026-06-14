@@ -33,10 +33,10 @@ dependencies {
 }
 
 tasks.bootJar {
-	archiveFileName.set("pieria.jar")
+	enabled = false
 }
 
-// Publish a plain jar alongside bootJar so :eval can depend on daemon's classes directly.
+// Publish a plain jar so :eval can depend on daemon's classes directly.
 tasks.jar {
 	enabled = true
 }
@@ -87,8 +87,7 @@ val embedVecExtensions by tasks.registering(Sync::class) {
 // Adding the task as a resource srcDir wires processResources (and nativeCompile) to depend on it.
 sourceSets["main"].resources.srcDir(embedVecExtensions)
 
-// Version stamp shipped next to the binaries (bin/version.txt) so `pieria update` can read the
-// installed and incoming versions without executing anything.
+// Version stamp shipped next to the native binaries (bin/version.txt) for version reporting.
 val generateVersionStamp by tasks.registering {
 	description = "Write the project version to bin/version.txt for the distributions."
 	val outDir = layout.buildDirectory.dir("generated/version")
@@ -100,43 +99,6 @@ val generateVersionStamp by tasks.registering {
 			parentFile.mkdirs()
 			writeText(projectVersion)
 		}
-	}
-}
-
-val jvmDist by tasks.registering(Sync::class) {
-	group = "distribution"
-	description = "Assemble a local JVM distribution with daemon, gateway, cli, command wrappers, and harness assets."
-	dependsOn(
-		tasks.named("bootJar"),
-		project(":gateway").tasks.named("bootJar"),
-		project(":cli").tasks.named("runnableJar")
-	)
-
-	into(layout.buildDirectory.dir("distributions/pieria-jvm"))
-	from(tasks.named("bootJar")) {
-		into("lib")
-	}
-	from(project(":gateway").tasks.named("bootJar")) {
-		into("lib")
-	}
-	// Fat jar so the `pieria` wrapper (packaging/bin/pieria) can `java -jar` it on the JVM fallback path.
-	from(project(":cli").tasks.named("runnableJar")) {
-		into("lib")
-	}
-	from(rootProject.layout.projectDirectory.dir("packaging/bin")) {
-		into("bin")
-		filePermissions {
-			unix("rwxr-xr-x")
-		}
-	}
-	from(rootProject.layout.projectDirectory.dir("packaging/harness")) {
-		into("harness")
-	}
-	from(rootProject.layout.projectDirectory.dir("harness")) {
-		into("harness/examples")
-	}
-	from(generateVersionStamp) {
-		into("bin")
 	}
 }
 
@@ -174,27 +136,13 @@ val nativeDist by tasks.registering(Sync::class) {
 	}
 }
 
-// --- Local dev redeploy: build a dist and update the installed Pieria from it in one step. ---
-// Runs the freshly built `pieria` so the new update logic is exercised end-to-end. `pieria update`
-// stops the daemon, atomically swaps the binaries, refreshes hook scripts, and restarts the daemon.
-val deployLocal by tasks.registering(Exec::class) {
+// Build the native dist and copy it into the local install directory in one step.
+val deployLocal by tasks.registering(Sync::class) {
 	group = "distribution"
-	description = "Build the native distribution and update the local install from it."
+	description = "Build the native distribution and sync it into ~/.local/share/pieria."
 	dependsOn(nativeDist)
-	val distDir = layout.buildDirectory.dir("distributions/pieria-native")
-	doFirst {
-		val dir = distDir.get().asFile
-		commandLine(dir.resolve("bin/pieria").absolutePath, "update", "--from", dir.absolutePath)
-	}
-}
-
-val deployLocalJar by tasks.registering(Exec::class) {
-	group = "distribution"
-	description = "Build the JVM distribution and update a JVM-style local install from it (skips nativeCompile)."
-	dependsOn(jvmDist)
-	val distDir = layout.buildDirectory.dir("distributions/pieria-jvm")
-	doFirst {
-		val dir = distDir.get().asFile
-		commandLine(dir.resolve("bin/pieria").absolutePath, "update", "--from", dir.absolutePath, "--jar")
-	}
+	from(layout.buildDirectory.dir("distributions/pieria-native"))
+	into(providers.environmentVariable("PIERIA_HOME").orElse(
+		providers.systemProperty("user.home").map { "$it/.local/share/pieria" }
+	))
 }

@@ -87,7 +87,7 @@ public final class ReleaseSource implements BinarySource {
       throw new UpdateException("could not stage extraction dir: " + e.getMessage(), e);
     }
     platform.extractDistributionArchive(tarball, extracted);
-    return new StagedDist(extracted, false);
+    return new StagedDist(extracted);
   }
 
   /**

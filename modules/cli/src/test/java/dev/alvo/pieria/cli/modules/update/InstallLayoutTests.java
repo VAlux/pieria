@@ -23,7 +23,6 @@ class InstallLayoutTests {
   void explicitInstallRootWins(@TempDir Path tmp) {
     InstallLayout layout = InstallLayout.resolve(env(Map.of()), tmp, platform, tmp.resolve("root"));
     assertThat(layout.binDir()).isEqualTo(tmp.resolve("root").resolve("bin"));
-    assertThat(layout.libDir()).isEqualTo(tmp.resolve("root").resolve("lib"));
   }
 
   @Test

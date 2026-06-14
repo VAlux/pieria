@@ -55,9 +55,6 @@ public final class UpdateCommand implements Callable<Integer> {
   @Option(names = "--from", description = "Install from an explicit distribution directory (containing bin/...).")
   String from;
 
-  @Option(names = "--jar", description = "Use the JVM distribution (lib/*.jar) instead of native binaries. Local sources only.")
-  boolean jar;
-
   @Option(names = "--force", description = "Swap even if the installed version already matches the release.")
   boolean force;
 
@@ -180,20 +177,13 @@ public final class UpdateCommand implements Callable<Integer> {
     if (version != null && local) {
       throw new UpdateException("--version applies to release downloads, not --from/--from-build.");
     }
-    if (jar && !local) {
-      throw new UpdateException("--jar applies to local sources only; releases ship native binaries.");
-    }
     if (from != null) {
-      return new LocalDistSource(Path.of(from), jar, platform);
+      return new LocalDistSource(Path.of(from), platform);
     }
     if (fromBuild) {
-      return new LocalDistSource(defaultBuildDir(jar), jar, platform);
+      return new LocalDistSource(Path.of("modules", "daemon", "build", "distributions", "pieria-native"), platform);
     }
     return new ReleaseSource(platform, version);
-  }
-
-  private Path defaultBuildDir(boolean jar) {
-    return Path.of("modules", "daemon", "build", "distributions", jar ? "pieria-jvm" : "pieria-native");
   }
 
   private int printPlan(BinarySource source, InstallLayout install, boolean releaseSource) {

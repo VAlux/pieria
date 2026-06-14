@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Swaps the staged binaries (or jars) into the install dir. Each replacement is a single
+ * Swaps the staged native binaries into the install dir. Each replacement is a single
  * {@code ATOMIC_MOVE} of a fully-prepared file over the target, so there is never a window where the
  * target is missing and a live Claude Code session's memory-mapped {@code pieria-gateway} keeps
  * running on its old inode. Originals are backed up first; any mid-swap failure rolls every
@@ -49,11 +49,7 @@ public final class BinarySwapper {
    * Swap all artifacts of {@code dist} into the install layout. Rolls back on failure.
    */
   public void swap(StagedDist dist, InstallLayout install) {
-    if (dist.jar()) {
-      swapJars(dist, install);
-    } else {
-      swapNative(dist, install.binDir());
-    }
+    swapNative(dist, install.binDir());
   }
 
   private void swapNative(StagedDist dist, Path binDir) {
@@ -77,33 +73,6 @@ public final class BinarySwapper {
       rollback(done);
       throw failure instanceof UpdateException ue ? ue
         : new UpdateException("binary swap failed: " + failure.getMessage(), failure);
-    }
-    done.forEach(s -> deleteQuietly(s.backup()));
-  }
-
-  private void swapJars(StagedDist dist, InstallLayout install) {
-    Path libDir = install.libDir();
-    if (!Files.isDirectory(libDir)) {
-      throw new UpdateException("--jar requires a JVM-style install (missing " + libDir + ").\n"
-        + "This looks like a native install; use `--from-build`/`nativeDist` instead.");
-    }
-    List<Swapped> done = new ArrayList<>();
-    try {
-      for (String jar : List.of("pieria.jar", "pieria-gateway.jar", "pieria-cli.jar")) {
-        done.add(swapOne(dist.libDir().resolve(jar), libDir.resolve(jar), false));
-      }
-      // Refresh the bin/ wrapper scripts that launch the jars.
-      if (Files.isDirectory(dist.binDir())) {
-        try (var entries = Files.list(dist.binDir())) {
-          for (Path wrapper : entries.toList()) {
-            done.add(swapOne(wrapper, install.binDir().resolve(wrapper.getFileName()), true));
-          }
-        }
-      }
-    } catch (RuntimeException | IOException failure) {
-      rollback(done);
-      throw failure instanceof UpdateException ue ? ue
-        : new UpdateException("jar swap failed: " + failure.getMessage(), failure);
     }
     done.forEach(s -> deleteQuietly(s.backup()));
   }

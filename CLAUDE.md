@@ -11,15 +11,16 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 ## Build and test commands
 
 ```bash
-./gradlew test          # run the full test suite (required before any commit)
-./gradlew build         # compile + test + assemble
-./gradlew :daemon:bootRun     # run the daemon locally
-./gradlew :daemon:bootJar     # build modules/daemon/build/libs/pieria.jar
-./gradlew :gateway:bootJar       # build modules/gateway/build/libs/pieria-gateway.jar
-./gradlew :daemon:bootBuildImage  # build a daemon container image
+./gradlew test                    # run the full test suite (required before any commit)
+./gradlew build                   # compile + test + assemble
 ./gradlew :daemon:nativeCompile   # GraalVM daemon executable (requires GraalVM 25+)
-./gradlew :gateway:nativeCompile     # GraalVM gateway executable (requires GraalVM 25+)
+./gradlew :gateway:nativeCompile  # GraalVM gateway executable (requires GraalVM 25+)
+./gradlew :cli:nativeCompile      # GraalVM CLI executable (requires GraalVM 25+)
+./gradlew :daemon:nativeDist      # assemble full native distribution (daemon + gateway + cli + harness)
+./gradlew :daemon:deployLocal     # build native dist and sync into $PIERIA_HOME
 ```
+
+**Never run `nativeCompile`, `nativeDist`, or `deployLocal` on your own.** They are slow and `deployLocal` overwrites the user's installed binaries. Always ask the user to run them, or for explicit permission first. Verify code changes with `./gradlew test` and plain `compileJava` instead.
 
 ## Stack
 

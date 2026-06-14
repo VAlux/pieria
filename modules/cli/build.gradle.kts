@@ -50,7 +50,7 @@ sourceSets["main"].resources.srcDir(stageHarnessAssets)
 
 // --- Embed the build version as a classpath resource ---
 // BuildInfo.current() (and `pieria --version`) read /version.txt; the dist tasks copy the same stamp
-// next to the binaries so `pieria update` can report old -> new.
+// next to the binaries for version reporting.
 val stageVersion by tasks.registering {
 	description = "Write the project version to a classpath resource (version.txt)."
 	val outDir = layout.buildDirectory.dir("generated/version")
@@ -66,16 +66,6 @@ val stageVersion by tasks.registering {
 }
 
 sourceSets["main"].resources.srcDir(stageVersion)
-
-val runnableJar by tasks.registering(Jar::class) {
-	group = "distribution"
-	description = "Plain runnable jar fallback for the pieria CLI (native binary is the primary artifact)."
-	archiveFileName.set("pieria-cli.jar")
-	manifest { attributes["Main-Class"] = "dev.alvo.pieria.cli.PieriaCli" }
-	from(sourceSets["main"].output)
-	from({ configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) } })
-	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
 
 graalvmNative {
 	binaries {

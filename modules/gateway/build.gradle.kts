@@ -22,7 +22,7 @@ dependencies {
 }
 
 tasks.bootJar {
-	archiveFileName.set("pieria-gateway.jar")
+	enabled = false
 }
 
 graalvmNative {
