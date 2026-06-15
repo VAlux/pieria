@@ -16,4 +16,8 @@ public class NotFoundException extends RuntimeException {
   public static NotFoundException memory(String id) {
     return new NotFoundException("No memory with id '" + id + "'");
   }
+
+  public static NotFoundException task(String id) {
+    return new NotFoundException("No task with id '" + id + "'");
+  }
 }

@@ -1,12 +1,13 @@
 package dev.alvo.pieria.ingestion;
 
 
-import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.config.PieriaProperties.Ingestion;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import org.springframework.stereotype.Component;
+
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.stereotype.Component;
 
 /**
  * Splits a normalized message list into message-boundary-aligned {@link Chunk}s around a
@@ -40,7 +41,7 @@ public class Chunker {
    * Chunk the given (already normalized) messages with the caller's (per-profile effective)
    * ingestion tuning. Returns an empty list for empty input.
    */
-  public List<Chunk> chunk(List<Message> messages, PieriaProperties.Ingestion ingestion) {
+  public List<Chunk> chunk(List<Message> messages, Ingestion ingestion) {
     int targetChars = Math.max(1, ingestion.chunkSizeChars());
     int overlapMessages = Math.max(0, ingestion.chunkOverlapMessages());
 

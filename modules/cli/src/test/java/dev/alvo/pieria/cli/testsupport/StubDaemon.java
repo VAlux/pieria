@@ -32,9 +32,13 @@ public final class StubDaemon implements AutoCloseable {
   private record Response(int status, String body) {
   }
 
+  private record Seq(List<Response> responses, java.util.concurrent.atomic.AtomicInteger index) {
+  }
+
   private final HttpServer server;
   private final List<Recorded> requests = new CopyOnWriteArrayList<>();
   private final Map<String, Response> routes = new ConcurrentHashMap<>();
+  private final Map<String, Seq> sequences = new ConcurrentHashMap<>();
 
   private StubDaemon(HttpServer server) {
     this.server = server;
@@ -55,6 +59,20 @@ public final class StubDaemon implements AutoCloseable {
   /** Register a canned response for any request whose path ends with {@code pathSuffix}. */
   public StubDaemon stub(String pathSuffix, int status, String body) {
     routes.put(pathSuffix, new Response(status, body));
+    return this;
+  }
+
+  /**
+   * Register a sequence of {@code 200} response bodies for {@code pathSuffix}: successive matching
+   * requests get successive bodies, sticking on the last once exhausted. Useful for polling a task
+   * through RUNNING → terminal. Sequences take precedence over {@link #stub} for the same suffix.
+   */
+  public StubDaemon stubSequence(String pathSuffix, String... bodies) {
+    List<Response> responses = new ArrayList<>();
+    for (String body : bodies) {
+      responses.add(new Response(200, body));
+    }
+    sequences.put(pathSuffix, new Seq(responses, new java.util.concurrent.atomic.AtomicInteger(0)));
     return this;
   }
 
@@ -103,6 +121,13 @@ public final class StubDaemon implements AutoCloseable {
   }
 
   private Response resolve(String path) {
+    for (Map.Entry<String, Seq> seq : sequences.entrySet()) {
+      if (path.endsWith(seq.getKey())) {
+        List<Response> responses = seq.getValue().responses();
+        int i = seq.getValue().index().getAndUpdate(n -> Math.min(n + 1, responses.size() - 1));
+        return responses.get(i);
+      }
+    }
     for (Map.Entry<String, Response> route : routes.entrySet()) {
       if (path.endsWith(route.getKey())) {
         return route.getValue();

@@ -12,6 +12,7 @@ import dev.alvo.pieria.code.FakeCodeParser;
 import dev.alvo.pieria.domain.code.CodeSymbolKind;
 import dev.alvo.pieria.storage.SqliteCodeIndexStore;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
+import dev.alvo.pieria.task.TaskRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,7 +61,8 @@ class CodeControllerTests {
 
     CodeIndexingService service = new CodeIndexingService(memoryStore, codeStore, List.of(parser),
       new DataSourceTransactionManager(dataSource));
-    controller = new CodeController(service, codeStore, memoryStore);
+    controller = new CodeController(service, codeStore, memoryStore,
+      JsonMapper.builder().build(), new TaskRegistry());
   }
 
   @AfterEach

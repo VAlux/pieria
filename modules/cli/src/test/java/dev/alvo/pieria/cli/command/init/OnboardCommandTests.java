@@ -79,7 +79,8 @@ class OnboardCommandTests {
   void successReportsStoredCount(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest", 200, "{\"count\":5}");
+      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, "{\"status\":\"SUCCEEDED\",\"result\":{\"count\":5}}");
 
       Result r = run(command(proj, daemon.baseUrl()));
 
@@ -101,7 +102,8 @@ class OnboardCommandTests {
   void modelUnavailableReturnsExit4(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest", 503, "");
+      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\"}");
 
       Result r = run(command(proj, daemon.baseUrl()));
 

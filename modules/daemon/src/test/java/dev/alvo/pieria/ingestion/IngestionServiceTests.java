@@ -171,6 +171,24 @@ class IngestionServiceTests {
   }
 
   @Test
+  void ingestReportsPerPhaseProgress() {
+    record Tick(String phase, int done, int total) {
+    }
+    List<Tick> ticks = new ArrayList<>();
+    service.ingest("proj", "s1",
+      List.of(msg("user", "I love coffee"), msg("assistant", "noted")),
+      (phase, done, total) -> ticks.add(new Tick(phase, done, total)));
+
+    // The pipeline reports the three phases in order, each finishing fully complete (done == total).
+    for (String phase : List.of("extract", "verify", "store")) {
+      Tick last = ticks.stream().filter(t -> t.phase().equals(phase)).reduce((a, b) -> b)
+        .orElseThrow(() -> new AssertionError("no progress reported for phase " + phase));
+      assertTrue(last.total() >= 1, phase + " total should be positive");
+      assertEquals(last.total(), last.done(), phase + " should finish fully complete");
+    }
+  }
+
+  @Test
   void longConversationTriggersDetailPassWithoutError() {
     List<Message> many = new ArrayList<>();
     for (int i = 0; i < 9; i++) {

@@ -15,6 +15,7 @@ import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Hash;
@@ -97,6 +98,15 @@ public class CodeIndexingService {
    * not otherwise used here.
    */
   public CodeIndexSummary index(String profileName, String treeHash, List<SourceFile> files) {
+    return index(profileName, treeHash, files, IngestProgressListener.noop());
+  }
+
+  /**
+   * As {@link #index(String, String, List)}, reporting per-file progress through {@code progress} so
+   * a long-running index can be observed while it runs.
+   */
+  public CodeIndexSummary index(String profileName, String treeHash, List<SourceFile> files,
+                                IngestProgressListener progress) {
     Profile profile = store.getOrCreateProfile(profileName);
     String profileId = profile.id();
     List<SourceFile> batch = files == null ? List.of() : files;
@@ -104,6 +114,8 @@ public class CodeIndexingService {
 
     Acc acc = new Acc();
     acc.filesReceived = batch.size();
+    int total = batch.size();
+    int done = 0;
     for (SourceFile file : batch) {
       try {
         FileResult r = tx.execute(_ -> indexOne(profileId, file, markerDirs));
@@ -112,6 +124,7 @@ public class CodeIndexingService {
         acc.filesFailed++;
         log.warn("code index: failed to index {} ({}); continuing", file.repoRelPath(), e.toString());
       }
+      progress.onPhase("index", ++done, total);
     }
     log.info("code index profile={} tree={} received={} skipped={} parsed={} failed={} symbols={} "
         + "edges(resolved/heuristic)={}/{} memories(stored/superseded)={}/{} graph(entities/edges)={}/{}",

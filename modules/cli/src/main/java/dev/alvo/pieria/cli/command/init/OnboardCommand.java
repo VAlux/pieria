@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.response.CodeIndexResponse;
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.cli.log.ProgressReporter;
 import dev.alvo.pieria.cli.modules.config.ConfigClient;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
@@ -147,7 +148,10 @@ public final class OnboardCommand implements Callable<Integer> {
 
     log.info("Seeding profile '{}' from {} markdown file(s) → {} message(s)…",
       resolvedProfile, docs.size(), body.messages().size());
-    return switch (client.ingest(resolvedProfile, body)) {
+    ProgressReporter reporter = new ProgressReporter();
+    IngestClient.IngestResult result = client.ingest(resolvedProfile, body, reporter);
+    reporter.finish();
+    return switch (result) {
       case IngestClient.Success s -> {
         log.info("Done. Stored {} memor{} (vectorization runs asynchronously).",
           s.count(), s.count() == 1 ? "y" : "ies");
@@ -190,7 +194,10 @@ public final class OnboardCommand implements Callable<Integer> {
     }
 
     log.info("Indexing {} source file(s) into profile '{}'…", files.size(), resolvedProfile);
-    return switch (client.index(resolvedProfile, new CodeIndexRequest(null, files))) {
+    ProgressReporter reporter = new ProgressReporter();
+    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile, new CodeIndexRequest(null, files), reporter);
+    reporter.finish();
+    return switch (result) {
       case CodeIndexClient.Success s -> {
         CodeIndexResponse r = s.response();
         log.info("Done. Parsed {} file(s) ({} unchanged), {} symbol(s), {} edge(s); stored {} memor{}.",

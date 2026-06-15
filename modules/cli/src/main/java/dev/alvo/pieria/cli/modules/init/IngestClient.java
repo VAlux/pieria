@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli.modules.init;
 
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.cli.log.ProgressListener;
 
 /**
  * Seam between {@code pieria onboard} and the daemon's ingest endpoint.
@@ -13,9 +14,10 @@ public interface IngestClient {
   Reachability ping();
 
   /**
-   * POST the transcript to {@code /v1/profiles/{profile}/ingest}.
+   * Submit the transcript to {@code /v1/profiles/{profile}/ingest/async}, then poll the task until it
+   * finishes, forwarding per-phase progress to {@code progress}.
    */
-  IngestResult ingest(String profile, IngestRequest body);
+  IngestResult ingest(String profile, IngestRequest body, ProgressListener progress);
 
   /**
    * Result of a reachability check against the daemon.

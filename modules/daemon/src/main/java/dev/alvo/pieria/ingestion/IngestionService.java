@@ -95,6 +95,15 @@ public class IngestionService {
    * reported in the latency log line; vectorization is enqueued, not awaited.
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages) {
+    return ingest(profileName, sessionId, messages, IngestProgressListener.noop());
+  }
+
+  /**
+   * As {@link #ingest(String, String, List)}, reporting coarse per-phase progress through
+   * {@code progress} so a long-running ingest can be observed while it runs.
+   */
+  public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
+                             IngestProgressListener progress) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
     log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
@@ -130,20 +139,20 @@ public class IngestionService {
       Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency())));
+      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency()), progress));
     Extraction extraction = extract.value();
     log.debug("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
       Math.max(0, extraction.rawCount() - extraction.merged().size()), extract.millis());
 
-    Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks));
+    Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks, progress));
     Verification verification = verify.value();
     log.debug("ingest verified profile={} session={} passed={} corrected={} dropped={} verified={} verificationMs={}",
       profileName, sessionId, verification.passed(), verification.corrected(), verification.dropped(),
       verification.verifiedContents().size(), verify.millis());
 
     Timed<StoreResult> classifyStore =
-      Timed.measure(() -> classifyAndStore(profile.id(), sessionId, verification.verifiedContents()));
+      Timed.measure(() -> classifyAndStore(profile.id(), sessionId, verification.verifiedContents(), progress));
 
     StoreResult result = classifyStore.value();
 
@@ -219,8 +228,9 @@ public class IngestionService {
    * Run extraction over the chunks (full pass, plus the detail pass when enabled) and merge the
    * candidates, retaining the raw count for logging.
    */
-  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency) {
-    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency);
+  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
+                                       IngestProgressListener progress) {
+    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency, progress);
     List<ExtractedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -229,7 +239,8 @@ public class IngestionService {
    * Verify each candidate against its source chunk: drop unsupported claims, pass verbatim ones,
    * and substitute the model's correction when it returns one.
    */
-  private Verification verifyCandidates(List<ExtractedCandidate> merged, List<Chunk> chunks) {
+  private Verification verifyCandidates(List<ExtractedCandidate> merged, List<Chunk> chunks,
+                                        IngestProgressListener progress) {
     Map<Integer, String> transcriptByChunk = new HashMap<>();
     for (Chunk c : chunks) {
       transcriptByChunk.put(c.index(), c.transcript());
@@ -238,6 +249,7 @@ public class IngestionService {
     int dropped = 0;
     int passed = 0;
     int corrected = 0;
+    int total = merged.size();
     List<String> verifiedContents = new ArrayList<>();
     int candidateIndex = 0;
     for (ExtractedCandidate candidate : merged) {
@@ -260,6 +272,7 @@ public class IngestionService {
       }
       log.debug("ingest verification candidate={} chunk={} verdict={}",
         candidateIndex, candidate.chunkIndex(), result.verdict());
+      progress.onPhase("verify", candidateIndex, total);
     }
 
     return new Verification(verifiedContents, passed, corrected, dropped);
@@ -269,18 +282,21 @@ public class IngestionService {
    * Classify and enrich each verified content (topic key + interrogative queries → {@code
    * embed_text}), then store it under the profile with supersession and vectorization enqueue.
    */
-  private StoreResult classifyAndStore(String profileId, String sessionId, List<String> verifiedContents) {
+  private StoreResult classifyAndStore(String profileId, String sessionId, List<String> verifiedContents,
+                                       IngestProgressListener progress) {
     List<Memory> stored = new ArrayList<>(verifiedContents.size());
     int superseded = 0;
     int enqueued = 0;
     int graphExtracted = 0;
     int graphSkipped = 0;
     int graphFailed = 0;
+    int total = verifiedContents.size();
     int candidateIndex = 0;
     for (String content : verifiedContents) {
       candidateIndex++;
       if (content == null || content.isBlank()) {
         log.debug("ingest store candidate={} skipped blank content", candidateIndex);
+        progress.onPhase("store", candidateIndex, total);
         continue;
       }
       Classification classification = modelGateway.classify(content);
@@ -324,6 +340,7 @@ public class IngestionService {
       log.debug("ingest stored candidate={} memoryId={} type={} supersededId={} vectorEnqueued={}",
         candidateIndex, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
         outcome.enqueuedVector());
+      progress.onPhase("store", candidateIndex, total);
     }
 
     return new StoreResult(stored, superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
@@ -333,7 +350,8 @@ public class IngestionService {
    * Run the full pass over all chunks, plus the detail pass when enabled, with parallelism bounded
    * by {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
    */
-  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency) {
+  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
+                                                 IngestProgressListener progress) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
@@ -352,11 +370,14 @@ public class IngestionService {
           futures.add(exec.submit(() -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk))));
         }
       }
+      int total = futures.size();
+      int done = 0;
       for (Future<ExtractionPassResult> f : futures) {
         ExtractionPassResult result = awaitExtraction(f);
         log.debug("ingest extraction pass={} chunk={} candidates={} ms={}",
           result.pass(), result.chunkIndex(), result.candidates().size(), result.millis());
         results.addAll(result.candidates());
+        progress.onPhase("extract", ++done, total);
       }
     }
     return results;

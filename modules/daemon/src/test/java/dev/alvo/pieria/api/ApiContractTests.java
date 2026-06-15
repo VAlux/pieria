@@ -233,6 +233,11 @@ class ApiContractTests {
       return dev.alvo.pieria.config.EffectiveConfigResolver.withoutOverrides(pieriaProperties());
     }
 
+    @Bean("apiContractTaskRegistry")
+    dev.alvo.pieria.task.TaskRegistry taskRegistry() {
+      return new dev.alvo.pieria.task.TaskRegistry();
+    }
+
     @Bean("apiContractObjectMapper")
     com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
       return new com.fasterxml.jackson.databind.ObjectMapper()

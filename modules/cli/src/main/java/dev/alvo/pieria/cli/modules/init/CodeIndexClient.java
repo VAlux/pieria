@@ -2,6 +2,7 @@ package dev.alvo.pieria.cli.modules.init;
 
 import dev.alvo.pieria.api.request.CodeIndexRequest;
 import dev.alvo.pieria.api.response.CodeIndexResponse;
+import dev.alvo.pieria.cli.log.ProgressListener;
 
 /**
  * Seam between {@code pieria onboard --source-code} and the daemon's code-index endpoint. Reuses
@@ -12,8 +13,11 @@ public interface CodeIndexClient {
   /** Cheap pre-flight check ({@code GET /pieria-health}). */
   IngestClient.Reachability ping();
 
-  /** POST the batch to {@code /v1/profiles/{profile}/code}. */
-  CodeIndexResult index(String profile, CodeIndexRequest body);
+  /**
+   * Submit the batch to {@code /v1/profiles/{profile}/code/async}, then poll the task until it
+   * finishes, forwarding per-phase progress to {@code progress}.
+   */
+  CodeIndexResult index(String profile, CodeIndexRequest body, ProgressListener progress);
 
   /** Discriminated outcome so the command maps cleanly to exit codes. */
   sealed interface CodeIndexResult permits Success, DaemonDown, Failure {

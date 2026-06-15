@@ -32,6 +32,11 @@ class OnboardSourceCodeTests {
     return MAPPER.writeValueAsString(response);
   }
 
+  /** Wrap a code-index summary as the terminal payload of a SUCCEEDED task. */
+  private static String succeededTask(CodeIndexResponse response) {
+    return "{\"status\":\"SUCCEEDED\",\"result\":" + responseJson(response) + "}";
+  }
+
   private static CodeIndexRequest parseCodeRequest(String body) {
     return MAPPER.readValue(body, CodeIndexRequest.class);
   }
@@ -62,12 +67,13 @@ class OnboardSourceCodeTests {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code", 200, responseJson(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0)));
+      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0)));
 
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
-      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code").body());
+      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
       assertThat(sent.files()).extracting(CodeIndexRequest.FileDto::repoRelPath).contains("Main.java");
       assertThat(r.out()).contains("Parsed 1 file");
     }
@@ -103,14 +109,15 @@ class OnboardSourceCodeTests {
       """);
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code", 200, responseJson(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
+      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
       daemon.stub("/config", 200, "{}");
 
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
       // The project [discovery] override replaces the defaults: sql in, java out.
-      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code").body());
+      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
       assertThat(sent.files()).extracting(CodeIndexRequest.FileDto::repoRelPath).containsExactly("query.sql");
       // The [pieria] overrides were pushed to the profile.
       assertThat(daemon.lastRequestTo("/config").body()).contains("\"weight-graph\":0.0");
@@ -123,7 +130,8 @@ class OnboardSourceCodeTests {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code", 200, responseJson(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
+      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
 
       Result r = run(command(proj, daemon.baseUrl()));
 

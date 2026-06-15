@@ -11,6 +11,7 @@ import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
+import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -22,6 +23,7 @@ import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.retrieval.RecallResult;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpStatus;
@@ -39,6 +41,8 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * REST surface for a single profile. All paths are scoped to
@@ -55,17 +59,20 @@ public class ProfileController {
   private final RetrievalService retrievalService;
   private final MemoryStore store;
   private final ObjectMapper objectMapper;
+  private final TaskRegistry tasks;
   private final Converter<Memory, MemoryResponse> memoryResponseConverter;
 
   public ProfileController(IngestionService ingestionService,
                            RetrievalService retrievalService,
                            MemoryStore store,
                            ObjectMapper objectMapper,
+                           TaskRegistry tasks,
                            Converter<Memory, MemoryResponse> memoryResponseConverter) {
     this.ingestionService = ingestionService;
     this.retrievalService = retrievalService;
     this.store = store;
     this.objectMapper = objectMapper;
+    this.tasks = tasks;
     this.memoryResponseConverter = memoryResponseConverter;
   }
 
@@ -79,6 +86,26 @@ public class ProfileController {
     List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages);
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
+  }
+
+  /**
+   * Async variant of {@link #ingest}: start extraction on a background task and return its id
+   * immediately so the client can poll {@code GET /v1/tasks/{taskId}} and render progress. The
+   * terminal result carries the stored-memory {@code count}.
+   */
+  @PostMapping("/ingest/async")
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  public TaskSubmitResponse ingestAsync(@PathVariable String name,
+                                        @Valid @RequestBody IngestRequest request) {
+    List<Message> messages = request.messages().stream()
+      .map(m -> Message.of(request.sessionId(), m.role(), m.content()))
+      .toList();
+
+    UUID taskId = tasks.submit(progress -> {
+      List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages, progress);
+      return objectMapper.valueToTree(Map.of("count", stored.size()));
+    });
+    return new TaskSubmitResponse(taskId.toString());
   }
 
   @PostMapping("/memories")

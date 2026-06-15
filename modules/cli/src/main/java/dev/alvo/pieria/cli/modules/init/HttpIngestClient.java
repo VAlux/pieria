@@ -1,6 +1,10 @@
 package dev.alvo.pieria.cli.modules.init;
 
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.response.TaskStatusResponse;
+import dev.alvo.pieria.api.response.TaskSubmitResponse;
+import dev.alvo.pieria.cli.log.ProgressListener;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -16,6 +20,8 @@ import java.time.Duration;
 
 public final class HttpIngestClient implements IngestClient {
 
+  private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
+
   private final String baseUrl;
   private final HttpClient http;
   private final ObjectMapper mapper;
@@ -26,7 +32,10 @@ public final class HttpIngestClient implements IngestClient {
     this.http = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(3))
       .build();
-    this.mapper = JsonMapper.builder().build();
+    // Tolerate task bodies that omit numeric progress fields (treat absent done/total as 0).
+    this.mapper = JsonMapper.builder()
+      .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false)
+      .build();
   }
 
   @Override
@@ -45,7 +54,7 @@ public final class HttpIngestClient implements IngestClient {
   }
 
   @Override
-  public IngestResult ingest(String profile, IngestRequest body) {
+  public IngestResult ingest(String profile, IngestRequest body, ProgressListener progress) {
     String json;
     try {
       json = mapper.writeValueAsString(body);
@@ -53,38 +62,74 @@ public final class HttpIngestClient implements IngestClient {
       return new Failure(-1, "failed to serialize request: " + e.getMessage());
     }
 
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/ingest"))
-      .timeout(Duration.ofMinutes(10)) // extraction over many docs can be slow on local models
+    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/ingest/async"))
+      .timeout(Duration.ofSeconds(10))
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
       .build();
 
+    String taskId;
     try {
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
       int status = response.statusCode();
-      if (status == 200) {
-        return new Success(parseCount(response.body()));
-      }
       if (status == 503) {
         return new ModelUnavailable();
       }
-      return new Failure(status, response.body());
+      if (status != 200 && status != 202) {
+        return new Failure(status, response.body());
+      }
+      taskId = mapper.readValue(response.body(), TaskSubmitResponse.class).taskId();
     } catch (ConnectException | HttpConnectTimeoutException e) {
       return new DaemonDown(e.getMessage());
     } catch (Exception e) {
       return new Failure(-1, e.getMessage());
     }
+
+    return poll(taskId, progress);
   }
 
-  /**
-   * Read {@code count} from the ingest response via the tree model; default to 0 if absent.
-   */
-  private int parseCount(String body) {
-    try {
-      JsonNode node = mapper.readTree(body).get("count");
-      return node != null ? node.asInt(0) : 0;
-    } catch (RuntimeException e) {
-      return 0;
+  /** Poll {@code /v1/tasks/{id}} until terminal, forwarding progress and mapping the outcome. */
+  private IngestResult poll(String taskId, ProgressListener progress) {
+    URI uri = URI.create(baseUrl + "/v1/tasks/" + taskId);
+    while (true) {
+      TaskStatusResponse task;
+      try {
+        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10)).GET().build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+          return new Failure(response.statusCode(), response.body());
+        }
+        task = mapper.readValue(response.body(), TaskStatusResponse.class);
+      } catch (ConnectException | HttpConnectTimeoutException e) {
+        return new DaemonDown(e.getMessage());
+      } catch (Exception e) {
+        return new Failure(-1, e.getMessage());
+      }
+
+      switch (task.status()) {
+        case "SUCCEEDED" -> {
+          JsonNode count = task.result() == null ? null : task.result().get("count");
+          return new Success(count != null ? count.asInt(0) : 0);
+        }
+        case "FAILED" -> {
+          if ("model-unavailable".equals(task.errorKind())) {
+            return new ModelUnavailable();
+          }
+          return new Failure(-1, task.errorMessage() == null ? "ingest task failed" : task.errorMessage());
+        }
+        default -> {
+          if (task.phase() != null) {
+            progress.onProgress(task.phase(), task.done(), task.total());
+          }
+        }
+      }
+
+      try {
+        Thread.sleep(POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return new Failure(-1, "interrupted while waiting for the ingest task");
+      }
     }
   }
 }

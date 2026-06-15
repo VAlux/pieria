@@ -264,6 +264,11 @@ class ProfileApiTests {
       return dev.alvo.pieria.config.EffectiveConfigResolver.withoutOverrides(pieriaProperties());
     }
 
+    @Bean("profileApiTaskRegistry")
+    dev.alvo.pieria.task.TaskRegistry taskRegistry() {
+      return new dev.alvo.pieria.task.TaskRegistry();
+    }
+
     @Bean("profileApiObjectMapper")
     com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
       return new com.fasterxml.jackson.databind.ObjectMapper()
