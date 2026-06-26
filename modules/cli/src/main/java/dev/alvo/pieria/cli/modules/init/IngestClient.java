@@ -37,9 +37,10 @@ public interface IngestClient {
   }
 
   /**
-   * 503 — the daemon is up but its model provider is unavailable.
+   * 503 / failed task — the daemon is up but the model call failed. {@code reason} is the daemon's
+   * sanitized classification (e.g. "HTTP 404: model or deployment not found …"), or blank if none.
    */
-  record ModelUnavailable() implements IngestResult {
+  record ModelUnavailable(String reason) implements IngestResult {
   }
 
   /**

@@ -157,9 +157,13 @@ public final class OnboardCommand implements Callable<Integer> {
           s.count(), s.count() == 1 ? "y" : "ies");
         yield 0;
       }
-      case IngestClient.ModelUnavailable ignored -> {
-        log.error("The daemon is up but its model provider is unavailable.");
-        log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
+      case IngestClient.ModelUnavailable mu -> {
+        log.error("The daemon is up but the model call failed.");
+        if (mu.reason() != null && !mu.reason().isBlank()) {
+          log.error("Reason: {}", mu.reason());
+        } else {
+          log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
+        }
         yield 4;
       }
       case IngestClient.DaemonDown ignored -> daemonDown(url);

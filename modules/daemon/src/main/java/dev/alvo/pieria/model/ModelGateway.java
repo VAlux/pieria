@@ -11,6 +11,7 @@ import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -52,11 +53,47 @@ public interface ModelGateway {
   }
 
   /**
+   * Batch verification: verify every candidate of a single chunk against the shared source
+   * {@code transcript} in one model call, returning verdicts aligned 1:1 with {@code candidates} (same
+   * order, same size). This sends the transcript once instead of re-sending it per candidate, which is
+   * the dominant cost of the verify phase. The default delegates to per-candidate {@link #verify} so
+   * stubs and gateways without batch support keep working; production implementations override with a
+   * single batched call and must fall back to per-candidate verification on any batch parse failure.
+   */
+  default List<VerificationResult> verifyAll(List<ExtractedCandidate> candidates, String transcript) {
+    if (candidates == null || candidates.isEmpty()) {
+      return List.of();
+    }
+    List<VerificationResult> results = new ArrayList<>(candidates.size());
+    for (ExtractedCandidate candidate : candidates) {
+      results.add(verify(candidate, transcript));
+    }
+    return results;
+  }
+
+  /**
    * Classification and enrichment: assign a type, a normalized topic key for
    * keyed types, and 3-5 interrogative search queries for the given verified content.
    */
   default Classification classify(String content) {
     throw new UnsupportedOperationException("classify(...) not implemented");
+  }
+
+  /**
+   * Batch classification: classify several verified contents in one model call, returning results
+   * aligned 1:1 with {@code contents} (same order, same size). The default delegates to per-content
+   * {@link #classify} so stubs keep working; production implementations override with a single
+   * batched call and must fall back to per-content classification on any batch parse failure.
+   */
+  default List<Classification> classifyAll(List<String> contents) {
+    if (contents == null || contents.isEmpty()) {
+      return List.of();
+    }
+    List<Classification> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
+      results.add(classify(content));
+    }
+    return results;
   }
 
   /**
@@ -69,6 +106,30 @@ public interface ModelGateway {
    */
   default GraphFragment extractGraph(String content) {
     return GraphFragment.empty();
+  }
+
+  /**
+   * Batch graph extraction: extract a {@link GraphFragment} for several verified contents in one model
+   * call, returning fragments aligned 1:1 with {@code contents} (same order, same size). Like
+   * {@link #extractGraph} this pass is additive and degradable — the default catches per-content
+   * failures and substitutes {@link GraphFragment#empty()} so one bad item never loses the others, and
+   * production implementations override with a single batched call that falls back to per-content
+   * extraction on a batch parse failure. Callers should still treat any empty fragment as
+   * "store the memory without a graph".
+   */
+  default List<GraphFragment> extractGraphAll(List<String> contents) {
+    if (contents == null || contents.isEmpty()) {
+      return List.of();
+    }
+    List<GraphFragment> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
+      try {
+        results.add(extractGraph(content));
+      } catch (RuntimeException e) {
+        results.add(GraphFragment.empty());
+      }
+    }
+    return results;
   }
 
   /**

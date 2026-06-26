@@ -168,6 +168,7 @@ public class BootstrapService implements ApplicationRunner {
         extractionModel={} \
         synthesisModel={} \
         embedding={} \
+        reasoning={} \
         firstRunEnabled={} \
         modelCheck={} \
         modelStatus={} \
@@ -183,6 +184,7 @@ public class BootstrapService implements ApplicationRunner {
       model.extractionModel(),
       model.synthesisModel(),
       model.embedding(),
+      "structured=" + model.reasoning().structured() + ",synthesis=" + model.reasoning().synthesis(),
       state.enabled(),
       firstRun.checkModels(),
       state.modelStatus(),

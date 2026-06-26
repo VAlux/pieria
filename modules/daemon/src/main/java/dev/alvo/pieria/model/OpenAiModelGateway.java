@@ -22,6 +22,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.EmbeddingResponseMetadata;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -34,9 +35,11 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -82,10 +85,16 @@ public class OpenAiModelGateway implements ModelGateway {
    * (extract, extractDetail, verify, classify, analyzeQuery) for the log line.
    */
   private <T> T callExtractionEntity(String prompt, String stage, Class<T> type) {
+    LOGGER.debug("model call start stage={} model={} promptChars={}",
+      stage, properties.model().extractionModel(), prompt.length());
+    long start = System.nanoTime();
     var response = extractionChatClient.prompt()
       .user(prompt)
+      .options(reasoningOptions(stage, properties.model().extractionModel()))
       .call()
       .responseEntity(type);
+    LOGGER.debug("model call done stage={} model={} ms={}",
+      stage, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
 
     logTokenUsage(stage, response.getResponse());
     return response.getEntity();
@@ -111,6 +120,23 @@ public class OpenAiModelGateway implements ModelGateway {
 
   private static int nullToZero(Integer value) {
     return value == null ? 0 : value;
+  }
+
+  /**
+   * Build the chat options for {@code stage}: pin {@code modelName} and apply the configured
+   * {@code reasoning_effort} (see {@link PieriaProperties.Model.Reasoning}). For disabled stages this
+   * sends {@code none}, which suppresses the reasoning chain — including for Qwen3 over Ollama's
+   * OpenAI-compatible endpoint, whose request body honors {@code reasoning_effort} but not the
+   * {@code /no_think} prompt token. When the effort is unset the option is omitted (provider default).
+   */
+  private OpenAiChatOptions.Builder reasoningOptions(String stage, String modelName) {
+    OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder();
+    builder.model(modelName);
+    String effort = properties.model().reasoning().effortFor(stage);
+    if (effort != null) {
+      builder.reasoningEffort(effort);
+    }
+    return builder;
   }
 
   @Override
@@ -230,15 +256,21 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   private List<ExtractedCandidate> callExtraction(String prompt, int chunkIndex, String stage) {
+    LOGGER.debug("model call start stage={} chunk={} model={} promptChars={}",
+      stage, chunkIndex, properties.model().extractionModel(), prompt.length());
+    long start = System.nanoTime();
     ChatResponse chatResponse;
     try {
       chatResponse = extractionChatClient.prompt()
         .user(prompt)
+        .options(reasoningOptions(stage, properties.model().extractionModel()))
         .call()
         .chatResponse();
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model " + stage + " failed", e);
     }
+    LOGGER.debug("model call done stage={} chunk={} model={} ms={}",
+      stage, chunkIndex, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
     logTokenUsage(stage, chatResponse);
 
     String rawText = chatResponse != null && chatResponse.getResult() != null
@@ -390,6 +422,106 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   @Override
+  public List<VerificationResult> verifyAll(List<ExtractedCandidate> candidates, String transcript) {
+    if (candidates == null || candidates.isEmpty()) {
+      return List.of();
+    }
+    if (candidates.size() == 1) {
+      return List.of(verify(candidates.getFirst(), transcript));
+    }
+    String safeTranscript = transcript == null ? "" : transcript;
+    StringBuilder numbered = new StringBuilder();
+    for (int i = 0; i < candidates.size(); i++) {
+      numbered.append(i + 1).append(". ").append(candidates.get(i).content()).append('\n');
+    }
+    String prompt = """
+      You are the VERIFIER of a memory pipeline. Below is a source transcript and a NUMBERED list of
+      candidate memories extracted from it. For EACH candidate, return exactly one verdict:
+      - pass: the candidate is fully supported by the transcript; keep content unchanged
+      - correct: the candidate is mostly right but needs a factual fix; return corrected content
+      - drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
+
+      Return one result object per candidate, each with:
+      - index: the candidate's number (1-based) exactly as listed
+      - verdict: one of pass, correct, drop
+      - content: for pass echo the original; for correct give the fixed statement; for drop empty
+      - reason: a short justification
+
+      Return a result for EVERY candidate; do not merge, add, or omit any.
+
+      Source transcript:
+      %s
+
+      Candidates:
+      %s
+      """.formatted(safeTranscript, numbered);
+
+    BatchVerificationDto dto;
+    try {
+      dto = callExtractionEntity(prompt, "verify", BatchVerificationDto.class);
+    } catch (RuntimeException e) {
+      throw new ModelUnavailableException("model verification failed", e);
+    }
+
+    List<VerificationResult> mapped = mapBatchVerdicts(dto, candidates);
+    if (mapped != null) {
+      return mapped;
+    }
+    // Batch result unusable (null/empty/no indices): fall back to per-candidate verify so a single
+    // malformed batch response never silently drops a whole chunk's candidates.
+    LOGGER.warn("stage=verify batch result unusable for {} candidates; falling back to per-candidate verify",
+      candidates.size());
+    List<VerificationResult> results = new ArrayList<>(candidates.size());
+    for (ExtractedCandidate candidate : candidates) {
+      results.add(verify(candidate, safeTranscript));
+    }
+    return results;
+  }
+
+  /**
+   * Map a batched verify response onto {@code candidates} by 1-based index. Returns {@code null} when
+   * the response is structurally unusable (so the caller falls back to per-candidate verify); a
+   * candidate with no matching item becomes a DROP.
+   */
+  private List<VerificationResult> mapBatchVerdicts(BatchVerificationDto dto, List<ExtractedCandidate> candidates) {
+    if (dto == null || dto.verdicts() == null || dto.verdicts().isEmpty()) {
+      return null;
+    }
+    Map<Integer, VerificationItemDto> byIndex = new HashMap<>();
+    for (VerificationItemDto item : dto.verdicts()) {
+      if (item != null && item.index() != null) {
+        byIndex.putIfAbsent(item.index(), item);
+      }
+    }
+    if (byIndex.isEmpty()) {
+      return null;
+    }
+    List<VerificationResult> results = new ArrayList<>(candidates.size());
+    for (int i = 0; i < candidates.size(); i++) {
+      results.add(toVerificationResult(byIndex.get(i + 1), candidates.get(i)));
+    }
+    return results;
+  }
+
+  private static VerificationResult toVerificationResult(VerificationItemDto item, ExtractedCandidate candidate) {
+    if (item == null || item.verdict() == null) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "no verdict in batch result");
+    }
+    VerificationVerdict verdict;
+    try {
+      verdict = VerificationVerdict.fromWire(item.verdict());
+    } catch (IllegalArgumentException e) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "unparseable verdict");
+    }
+    String content = switch (verdict) {
+      case PASS -> candidate.content();
+      case CORRECT -> blankToNull(item.content()) == null ? candidate.content() : item.content().strip();
+      case DROP -> "";
+    };
+    return new VerificationResult(verdict, content, blankToNull(item.reason()));
+  }
+
+  @Override
   public Classification classify(String content) {
     if (content == null || content.isBlank()) {
       throw new IllegalArgumentException("content must not be blank");
@@ -413,23 +545,112 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model classification failed", e);
     }
-    MemoryType type = dto == null ? null : parseTypeOrNull(dto.type());
+    return dto == null
+      ? buildClassification(null, null, null, null)
+      : buildClassification(dto.type(), dto.topicKey(), dto.interrogativeQueries(), dto.payload());
+  }
+
+  @Override
+  public List<Classification> classifyAll(List<String> contents) {
+    if (contents == null || contents.isEmpty()) {
+      return List.of();
+    }
+    if (contents.size() == 1) {
+      return List.of(classify(contents.getFirst()));
+    }
+    StringBuilder numbered = new StringBuilder();
+    for (int i = 0; i < contents.size(); i++) {
+      numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
+    }
+    String prompt = """
+      You are the CLASSIFIER + enricher of a memory pipeline. Below is a NUMBERED list of verified
+      memories. For EACH memory assign:
+      - index: the memory's number (1-based) exactly as listed
+      - type: one of fact, event, instruction, task
+      - topicKey: ONLY for fact and instruction, a short normalized subject key
+        (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
+      - interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
+        answers (interrogative search queries)
+      - payload: a JSON object string of extra structured fields, or "{}"
+
+      Return a result for EVERY memory; do not merge, add, or omit any.
+
+      Memories:
+      %s
+      """.formatted(numbered);
+
+    BatchClassificationDto dto;
+    try {
+      dto = callExtractionEntity(prompt, "classify", BatchClassificationDto.class);
+    } catch (RuntimeException e) {
+      throw new ModelUnavailableException("model classification failed", e);
+    }
+
+    List<Classification> mapped = mapBatchClassifications(dto, contents);
+    if (mapped != null) {
+      return mapped;
+    }
+    LOGGER.warn("stage=classify batch result unusable for {} memories; falling back to per-memory classify",
+      contents.size());
+    List<Classification> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
+      results.add(classify(content));
+    }
+    return results;
+  }
+
+  /**
+   * Map a batched classify response onto {@code contents} by 1-based index. Returns {@code null} when
+   * the response is structurally unusable (caller falls back to per-content classify); a content with
+   * no matching item gets the default FACT classification.
+   */
+  private List<Classification> mapBatchClassifications(BatchClassificationDto dto, List<String> contents) {
+    if (dto == null || dto.items() == null || dto.items().isEmpty()) {
+      return null;
+    }
+    Map<Integer, ClassificationItemDto> byIndex = new HashMap<>();
+    for (ClassificationItemDto item : dto.items()) {
+      if (item != null && item.index() != null) {
+        byIndex.putIfAbsent(item.index(), item);
+      }
+    }
+    if (byIndex.isEmpty()) {
+      return null;
+    }
+    List<Classification> results = new ArrayList<>(contents.size());
+    for (int i = 0; i < contents.size(); i++) {
+      ClassificationItemDto item = byIndex.get(i + 1);
+      results.add(item == null
+        ? buildClassification(null, null, null, null)
+        : buildClassification(item.type(), item.topicKey(), item.interrogativeQueries(), item.payload()));
+    }
+    return results;
+  }
+
+  /**
+   * Build a {@link Classification} from raw model fields: default the type to {@code fact}, keep a
+   * normalized topic key only for keyed types, strip blank queries, and default the payload to
+   * {@code "{}"}. Shared by single- and batch-classify so both produce identical shapes.
+   */
+  private static Classification buildClassification(String typeWire, String topicKeyRaw,
+                                                    List<String> queriesRaw, String payloadRaw) {
+    MemoryType type = parseTypeOrNull(typeWire);
     if (type == null) {
       type = MemoryType.FACT;
     }
     String topicKey = null;
-    if ((type == MemoryType.FACT || type == MemoryType.INSTRUCTION) && dto != null) {
-      topicKey = normalizeTopicKey(dto.topicKey());
+    if (type == MemoryType.FACT || type == MemoryType.INSTRUCTION) {
+      topicKey = normalizeTopicKey(topicKeyRaw);
     }
     List<String> queries = new ArrayList<>();
-    if (dto != null && dto.interrogativeQueries() != null) {
-      for (String q : dto.interrogativeQueries()) {
+    if (queriesRaw != null) {
+      for (String q : queriesRaw) {
         if (q != null && !q.isBlank()) {
           queries.add(q.strip());
         }
       }
     }
-    String payload = (dto == null || blankToNull(dto.payload()) == null) ? "{}" : dto.payload().strip();
+    String payload = blankToNull(payloadRaw) == null ? "{}" : payloadRaw.strip();
     return new Classification(type, topicKey, List.copyOf(queries), payload);
   }
 
@@ -464,11 +685,102 @@ public class OpenAiModelGateway implements ModelGateway {
     if (dto == null) {
       return GraphFragment.empty();
     }
+    return toGraphFragment(dto.entities(), dto.triples());
+  }
 
+  @Override
+  public List<GraphFragment> extractGraphAll(List<String> contents) {
+    if (contents == null || contents.isEmpty()) {
+      return List.of();
+    }
+    if (contents.size() == 1) {
+      return List.of(extractGraph(contents.getFirst()));
+    }
+    StringBuilder numbered = new StringBuilder();
+    for (int i = 0; i < contents.size(); i++) {
+      numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
+    }
+    String prompt = """
+      You are the GRAPH EXTRACTOR of a memory pipeline. Below is a NUMBERED list of verified memories.
+      For EACH memory, extract:
+      - index: the memory's number (1-based) exactly as listed
+      - entities: the distinct named entities it mentions. For each: name, and type (one of
+        person, project, tool, file, concept).
+      - triples: the explicit relationships among those entities, as
+        (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase verb
+        phrase, e.g. "uses", "depends on", "runs on", "owns".
+
+      Ground everything strictly in each memory's OWN content; do not invent entities or relations, and
+      do not mix entities across memories. If a memory has nothing worth extracting, return empty
+      arrays for it.
+
+      Return a result for EVERY memory; do not merge, add, or omit any.
+
+      Memories:
+      %s
+      """.formatted(numbered);
+
+    BatchGraphDto dto;
+    try {
+      dto = callExtractionEntity(prompt, "extractGraph", BatchGraphDto.class);
+    } catch (RuntimeException e) {
+      // Degradable: fall back to per-memory extraction (each itself degradable).
+      LOGGER.warn("graph extraction batch call failed; falling back to per-memory: {}", e.toString());
+      return extractGraphPerItem(contents);
+    }
+
+    List<GraphFragment> mapped = mapBatchGraphs(dto, contents);
+    return mapped != null ? mapped : extractGraphPerItem(contents);
+  }
+
+  /**
+   * Map a batched graph response onto {@code contents} by 1-based index. Returns {@code null} when the
+   * response is structurally unusable (caller falls back to per-memory extraction); a content with no
+   * matching item gets an empty fragment.
+   */
+  private List<GraphFragment> mapBatchGraphs(BatchGraphDto dto, List<String> contents) {
+    if (dto == null || dto.memories() == null || dto.memories().isEmpty()) {
+      return null;
+    }
+    Map<Integer, GraphItemDto> byIndex = new HashMap<>();
+    for (GraphItemDto item : dto.memories()) {
+      if (item != null && item.index() != null) {
+        byIndex.putIfAbsent(item.index(), item);
+      }
+    }
+    if (byIndex.isEmpty()) {
+      return null;
+    }
+    List<GraphFragment> results = new ArrayList<>(contents.size());
+    for (int i = 0; i < contents.size(); i++) {
+      GraphItemDto item = byIndex.get(i + 1);
+      results.add(item == null ? GraphFragment.empty() : toGraphFragment(item.entities(), item.triples()));
+    }
+    return results;
+  }
+
+  private List<GraphFragment> extractGraphPerItem(List<String> contents) {
+    List<GraphFragment> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
+      try {
+        results.add(extractGraph(content));
+      } catch (RuntimeException e) {
+        results.add(GraphFragment.empty());
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Build a deduplicated {@link GraphFragment} from raw entity/triple DTOs (entities deduped by
+   * normalized type+name; triples by normalized source|relation|target). Shared by single- and
+   * batch-graph extraction so both produce identical shapes.
+   */
+  private GraphFragment toGraphFragment(List<EntityDto> entityDtos, List<TripleDto> tripleDtos) {
     List<Entity> entities = new ArrayList<>();
     LinkedHashSet<String> seenEntities = new LinkedHashSet<>();
-    if (dto.entities() != null) {
-      for (EntityDto e : dto.entities()) {
+    if (entityDtos != null) {
+      for (EntityDto e : entityDtos) {
         if (e == null) {
           continue;
         }
@@ -486,8 +798,8 @@ public class OpenAiModelGateway implements ModelGateway {
     // Deduplicate triples by normalized (source, relation, target).
     List<GraphFragment.EdgeTriple> triples = new ArrayList<>();
     LinkedHashSet<String> seenTriples = new LinkedHashSet<>();
-    if (dto.triples() != null) {
-      for (TripleDto t : dto.triples()) {
+    if (tripleDtos != null) {
+      for (TripleDto t : tripleDtos) {
         if (t == null) {
           continue;
         }
@@ -653,6 +965,7 @@ public class OpenAiModelGateway implements ModelGateway {
     try {
       ChatResponse chatResponse = synthesisChatClient.prompt()
         .user(prompt)
+        .options(reasoningOptions("synthesizeRecall", properties.model().synthesisModel()))
         .call()
         .chatResponse();
       logTokenUsage("synthesizeRecall", chatResponse);
@@ -695,6 +1008,7 @@ public class OpenAiModelGateway implements ModelGateway {
     try {
       String response = synthesisChatClient.prompt()
         .user(prompt)
+        .options(reasoningOptions("judgeAnswerFaithfulness", properties.model().synthesisModel()))
         .call()
         .content();
 
@@ -869,9 +1183,36 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
+   * Structured-output target for one item of {@link #verifyAll}; {@code index} is the 1-based
+   * candidate number echoed by the model. Shape v1.
+   */
+  private record VerificationItemDto(Integer index, String verdict, String content, String reason) {
+  }
+
+  /**
+   * Wrapper so Spring AI binds a top-level object for the batched verify pass. Shape v1.
+   */
+  private record BatchVerificationDto(List<VerificationItemDto> verdicts) {
+  }
+
+  /**
    * Structured-output target for {@link #classify}. Shape v1.
    */
   private record ClassificationDto(String type, String topicKey, List<String> interrogativeQueries, String payload) {
+  }
+
+  /**
+   * Structured-output target for one item of {@link #classifyAll}; {@code index} is the 1-based
+   * memory number echoed by the model. Shape v1.
+   */
+  private record ClassificationItemDto(Integer index, String type, String topicKey,
+                                       List<String> interrogativeQueries, String payload) {
+  }
+
+  /**
+   * Wrapper so Spring AI binds a top-level object for the batched classify pass. Shape v1.
+   */
+  private record BatchClassificationDto(List<ClassificationItemDto> items) {
   }
 
   /**
@@ -892,6 +1233,19 @@ public class OpenAiModelGateway implements ModelGateway {
    * Structured-output target for {@link #extractGraph}. Shape v1.
    */
   private record GraphDto(List<EntityDto> entities, List<TripleDto> triples) {
+  }
+
+  /**
+   * Structured-output target for one item of {@link #extractGraphAll}; {@code index} is the 1-based
+   * memory number echoed by the model. Shape v1.
+   */
+  private record GraphItemDto(Integer index, List<EntityDto> entities, List<TripleDto> triples) {
+  }
+
+  /**
+   * Wrapper so Spring AI binds a top-level object for the batched graph pass. Shape v1.
+   */
+  private record BatchGraphDto(List<GraphItemDto> memories) {
   }
 
   /**

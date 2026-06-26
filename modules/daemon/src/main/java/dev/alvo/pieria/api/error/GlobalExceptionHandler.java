@@ -3,6 +3,7 @@ package dev.alvo.pieria.api.error;
 
 import dev.alvo.pieria.api.response.ErrorResponse;
 import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -49,12 +50,13 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(ModelUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleModelUnavailable(ModelUnavailableException ex) {
-    // The client response is sanitized, but log the full cause chain server-side so a model-stage
-    // failure (provider down, response-binding/reflection error, etc.) is diagnosable from the log.
-    LOGGER.warn("model_unavailable: {}", ex.getMessage(), ex);
-    // Do not echo the provider's message; it may carry hosts/secrets.
+    // Classify the cause into a sanitized reason (status code / connection failure) and log the full
+    // cause chain server-side. The reason distinguishes "provider down" from "deployment not found"
+    // or "access denied" without leaking the API key.
+    String reason = ModelFailures.describe(ex);
+    LOGGER.warn("model_unavailable: {}", reason, ex);
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-      .body(new ErrorResponse("model_unavailable", "The model provider is currently unavailable"));
+      .body(new ErrorResponse("model_unavailable", reason));
   }
 
   private ResponseEntity<ErrorResponse> badRequest(String message) {

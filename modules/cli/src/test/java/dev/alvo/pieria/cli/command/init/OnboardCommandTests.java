@@ -112,6 +112,22 @@ class OnboardCommandTests {
     }
   }
 
+  @Test
+  void modelUnavailableSurfacesTheDaemonReason(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\","
+          + "\"errorMessage\":\"HTTP 404: model or deployment not found\"}");
+
+      Result r = run(command(proj, daemon.baseUrl()));
+
+      assertThat(r.code()).isEqualTo(4);
+      assertThat(r.err()).contains("HTTP 404: model or deployment not found");
+    }
+  }
+
   private record Result(int code, String out, String err) {
   }
 }

@@ -41,7 +41,7 @@ class IngestionServiceTests {
 
   private static PieriaProperties props() {
     return new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("small", "large", "embed", 1024),
+      new PieriaProperties.Model("small", "large", "embed", 1024, null),
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
       null);
   }
@@ -179,8 +179,10 @@ class IngestionServiceTests {
       List.of(msg("user", "I love coffee"), msg("assistant", "noted")),
       (phase, done, total) -> ticks.add(new Tick(phase, done, total)));
 
-    // The pipeline reports the three phases in order, each finishing fully complete (done == total).
-    for (String phase : List.of("extract", "verify", "store")) {
+    // The pipeline reports its phases each finishing fully complete (done == total). Storage is
+    // interleaved into the verify phase (each survivor is classified + stored as it passes), so there
+    // is no separate "store" phase.
+    for (String phase : List.of("extract", "verify")) {
       Tick last = ticks.stream().filter(t -> t.phase().equals(phase)).reduce((a, b) -> b)
         .orElseThrow(() -> new AssertionError("no progress reported for phase " + phase));
       assertTrue(last.total() >= 1, phase + " total should be positive");

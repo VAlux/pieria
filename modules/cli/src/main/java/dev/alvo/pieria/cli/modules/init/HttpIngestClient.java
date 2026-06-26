@@ -73,7 +73,7 @@ public final class HttpIngestClient implements IngestClient {
       HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
       int status = response.statusCode();
       if (status == 503) {
-        return new ModelUnavailable();
+        return new ModelUnavailable(errorMessageOf(response.body()));
       }
       if (status != 200 && status != 202) {
         return new Failure(status, response.body());
@@ -113,13 +113,19 @@ public final class HttpIngestClient implements IngestClient {
         }
         case "FAILED" -> {
           if ("model-unavailable".equals(task.errorKind())) {
-            return new ModelUnavailable();
+            return new ModelUnavailable(task.errorMessage() == null ? "" : task.errorMessage());
           }
           return new Failure(-1, task.errorMessage() == null ? "ingest task failed" : task.errorMessage());
         }
         default -> {
+          // A freshly-submitted task is RUNNING with no phase yet; the first real tick ("extract")
+          // only lands after the first chunk finishes, which is tens of seconds on a CPU provider.
+          // Emit an indeterminate "starting" tick so the reporter shows a live elapsed line instead
+          // of sitting silent and looking frozen.
           if (task.phase() != null) {
             progress.onProgress(task.phase(), task.done(), task.total());
+          } else {
+            progress.onProgress("starting", 0, 0);
           }
         }
       }
@@ -130,6 +136,19 @@ public final class HttpIngestClient implements IngestClient {
         Thread.currentThread().interrupt();
         return new Failure(-1, "interrupted while waiting for the ingest task");
       }
+    }
+  }
+
+  /** Extract the {@code message} field from a daemon {@code ErrorResponse} body, or "" if absent. */
+  private String errorMessageOf(String body) {
+    if (body == null || body.isBlank()) {
+      return "";
+    }
+    try {
+      JsonNode message = mapper.readTree(body).get("message");
+      return message == null ? "" : message.asString();
+    } catch (RuntimeException e) {
+      return "";
     }
   }
 }

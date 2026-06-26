@@ -81,7 +81,9 @@ public final class HttpCodeIndexClient implements CodeIndexClient {
     return poll(taskId, progress);
   }
 
-  /** Poll {@code /v1/tasks/{id}} until terminal, forwarding progress and mapping the outcome. */
+  /**
+   * Poll {@code /v1/tasks/{id}} until terminal, forwarding progress and mapping the outcome.
+   */
   private CodeIndexResult poll(String taskId, ProgressListener progress) {
     URI uri = URI.create(baseUrl + "/v1/tasks/" + taskId);
     while (true) {
@@ -107,8 +109,12 @@ public final class HttpCodeIndexClient implements CodeIndexClient {
           return new Failure(-1, task.errorMessage() == null ? "code index task failed" : task.errorMessage());
         }
         default -> {
+          // RUNNING but no phase yet: show a live "starting" tick so the reporter isn't silent
+          // during the initial parse/setup window.
           if (task.phase() != null) {
             progress.onProgress(task.phase(), task.done(), task.total());
+          } else {
+            progress.onProgress("starting", 0, 0);
           }
         }
       }

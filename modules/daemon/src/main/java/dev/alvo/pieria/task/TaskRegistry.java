@@ -1,6 +1,7 @@
 package dev.alvo.pieria.task;
 
 import dev.alvo.pieria.ingestion.IngestProgressListener;
+import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -58,8 +59,11 @@ public class TaskRegistry {
         JsonNode result = work.apply(listener);
         ref.updateAndGet(s -> s.succeeded(result, Instant.now()));
       } catch (ModelUnavailableException e) {
-        log.warn("task {} failed: model unavailable", id);
-        ref.updateAndGet(s -> s.failed("model-unavailable", e.getMessage(), Instant.now()));
+        // Classify and log the full cause chain: the bare wrapper message ("model extraction failed")
+        // hid the real HTTP status / connection error that explains the failure.
+        String reason = ModelFailures.describe(e);
+        log.warn("task {} failed: model unavailable: {}", id, reason, e);
+        ref.updateAndGet(s -> s.failed("model-unavailable", reason, Instant.now()));
       } catch (RuntimeException e) {
         log.warn("task {} failed", id, e);
         ref.updateAndGet(s -> s.failed("failure", e.getMessage(), Instant.now()));

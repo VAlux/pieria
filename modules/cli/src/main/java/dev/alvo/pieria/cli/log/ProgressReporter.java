@@ -45,7 +45,9 @@ public final class ProgressReporter implements ProgressListener {
     update(phase, done, total);
   }
 
-  /** Render an update for {@code phase} at {@code done}/{@code total}. */
+  /**
+   * Render an update for {@code phase} at {@code done}/{@code total}.
+   */
   public void update(String phase, int done, int total) {
     long now = nanoClock.getAsLong();
     boolean phaseChanged = !phase.equals(currentPhase);
@@ -69,7 +71,9 @@ public final class ProgressReporter implements ProgressListener {
     }
   }
 
-  /** Clear the live line (interactive only); the caller prints the final summary afterward. */
+  /**
+   * Clear the live line (interactive only); the caller prints the final summary afterward.
+   */
   public void finish() {
     if (interactive) {
       out.print('\r' + CLEAR_LINE);
@@ -86,7 +90,9 @@ public final class ProgressReporter implements ProgressListener {
       + " · elapsed " + formatDuration(elapsedSeconds);
   }
 
-  /** Remaining seconds for the current phase from its observed rate, or -1 when not yet known. */
+  /**
+   * Remaining seconds for the current phase from its observed rate, or -1 when not yet known.
+   */
   private long etaSeconds(int done, int total, long now) {
     double elapsed = (now - phaseStartNanos) / 1_000_000_000.0;
     if (done <= 0 || total <= 0 || elapsed <= 0) {
@@ -103,25 +109,31 @@ public final class ProgressReporter implements ProgressListener {
     return (int) Math.round(fraction * 100);
   }
 
-  /** {@code [####······]} with {@code width} cells filled in proportion to {@code fraction}. */
+  /**
+   * {@code [####······]} with {@code width} cells filled in proportion to {@code fraction}.
+   */
   static String renderBar(double fraction, int width) {
-    int filled = (int) Math.round(Math.min(1.0, Math.max(0.0, fraction)) * width);
-    StringBuilder b = new StringBuilder(width + 2);
-    b.append('[');
+    int filled = (int) Math.round(Math.clamp(fraction, 0.0, 1.0) * width);
+    var builder = new StringBuilder(width + 2);
+
+    builder.append('[');
     for (int i = 0; i < width; i++) {
-      b.append(i < filled ? FILLED : EMPTY);
+      builder.append(i < filled ? FILLED : EMPTY);
     }
-    return b.append(']').toString();
+
+    return builder.append(']').toString();
   }
 
-  /** Human-readable duration: {@code "45s"}, {@code "1m 12s"}, {@code "2h 5m"}. */
+  /**
+   * Human-readable duration: {@code "45s"}, {@code "1m 12s"}, {@code "2h 5m"}.
+   */
   static String formatDuration(long totalSeconds) {
-    long s = Math.max(0, totalSeconds);
-    if (s < 60) {
-      return s + "s";
+    long sec = Math.max(0, totalSeconds);
+    if (sec < 60) {
+      return sec + "s";
     }
-    long minutes = s / 60;
-    long seconds = s % 60;
+    long minutes = sec / 60;
+    long seconds = sec % 60;
     if (minutes < 60) {
       return minutes + "m " + seconds + "s";
     }

@@ -11,6 +11,7 @@ import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -58,17 +59,20 @@ public class IngestionService {
   }
 
   /**
-   * Verification output: contents that survived (passed or corrected) and the number dropped.
+   * Combined verify+classify+store output: per-verdict counts plus the persisted memories and their
+   * supersession / vectorization-enqueue / graph tallies.
    */
-  private record Verification(List<String> verifiedContents, int passed, int corrected, int dropped) {
+  private record VerifyStoreResult(List<Memory> stored, int passed, int corrected, int dropped,
+                                   int superseded, int enqueued,
+                                   int graphExtracted, int graphSkipped, int graphFailed) {
   }
 
-  /**
-   * Store output: the persisted memories plus supersession and vectorization-enqueue counts.
-   */
-  private record StoreResult(List<Memory> stored, int superseded, int enqueued,
-                             int graphExtracted, int graphSkipped, int graphFailed) {
+  /** Outcome of persisting one verified candidate (classify + graph + store). */
+  private record StoredOne(Memory stored, boolean superseded, boolean enqueued, GraphOutcome graph) {
   }
+
+  /** Whether graph extraction ran, was skipped (tasks), or failed (degraded, memory still stored). */
+  private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED}
 
   /**
    * Result of one extraction model call, keeping pass/chunk metadata for detailed logging.
@@ -133,7 +137,7 @@ public class IngestionService {
     boolean detailPass = normalized.size() >= Math.max(1, tuning.detailPassMinMessages());
     Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized, tuning));
     List<Chunk> chunks = chunk.value();
-    log.debug(
+    log.info(
       "ingest chunked profile={} session={} chunks={} detailPass={} detailPassMinMessages={} maxExtractionConcurrency={} chunkMs={}",
       profileName, sessionId, chunks.size(), detailPass, tuning.detailPassMinMessages(),
       Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
@@ -141,20 +145,30 @@ public class IngestionService {
     Timed<Extraction> extract = Timed.measure(
       () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency()), progress));
     Extraction extraction = extract.value();
-    log.debug("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
+    log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
       Math.max(0, extraction.rawCount() - extraction.merged().size()), extract.millis());
+    if (extraction.merged().isEmpty()) {
+      log.warn("ingest extraction produced no candidates profile={} session={} — the model returned no parseable"
+        + " memories for any chunk (check for unparseable-output warnings above); nothing will be stored",
+        profileName, sessionId);
+    }
 
-    Timed<Verification> verify = Timed.measure(() -> verifyCandidates(extraction.merged(), chunks, progress));
-    Verification verification = verify.value();
-    log.debug("ingest verified profile={} session={} passed={} corrected={} dropped={} verified={} verificationMs={}",
-      profileName, sessionId, verification.passed(), verification.corrected(), verification.dropped(),
-      verification.verifiedContents().size(), verify.millis());
-
-    Timed<StoreResult> classifyStore =
-      Timed.measure(() -> classifyAndStore(profile.id(), sessionId, verification.verifiedContents(), progress));
-
-    StoreResult result = classifyStore.value();
+    // Verify + classify + store as one stage: each candidate is classified and persisted the moment
+    // its verification passes, so an interrupted run keeps every memory it finished (the task is
+    // in-memory and dies on daemon restart — incremental storage is what makes partial progress
+    // durable). Verification model calls run bounded-parallel; the store write stays single-threaded.
+    Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyClassifyStore(
+      extraction.merged(), chunks, profile.id(), sessionId,
+      Math.max(1, tuning.maxExtractionConcurrency()), progress));
+    VerifyStoreResult result = verifyStore.value();
+    log.info("ingest verified profile={} session={} passed={} corrected={} dropped={} stored={} verifyStoreMs={}",
+      profileName, sessionId, result.passed(), result.corrected(), result.dropped(),
+      result.stored().size(), verifyStore.millis());
+    if (!extraction.merged().isEmpty() && result.stored().isEmpty()) {
+      log.warn("ingest verification dropped every candidate profile={} session={} merged={} — see per-candidate"
+        + " drop reasons above; nothing was stored", profileName, sessionId, extraction.merged().size());
+    }
 
     log.info("""
         ingest \
@@ -177,7 +191,7 @@ public class IngestionService {
       chunks.size(),
       extraction.rawCount(),
       extraction.merged().size(),
-      verification.dropped(),
+      result.dropped(),
       result.stored().size(),
       result.superseded(),
       result.enqueued(),
@@ -193,8 +207,7 @@ public class IngestionService {
         messageStoreMs={} \
         chunkMs={} \
         extractionMs={} \
-        verificationMs={} \
-        classifyStoreMs={} \
+        verifyStoreMs={} \
         totalMs={}""",
       profileName,
       sessionId,
@@ -202,8 +215,7 @@ public class IngestionService {
       messageStore.millis(),
       chunk.millis(),
       extract.millis(),
-      verify.millis(),
-      classifyStore.millis(),
+      verifyStore.millis(),
       Timed.elapsedMillis(totalStart));
 
     return result.stored();
@@ -236,114 +248,213 @@ public class IngestionService {
   }
 
   /**
-   * Verify each candidate against its source chunk: drop unsupported claims, pass verbatim ones,
-   * and substitute the model's correction when it returns one.
+   * Verify each candidate against its source chunk, then classify and store every survivor
+   * <em>immediately</em> — so each memory is durably persisted the moment its verification passes,
+   * and an interrupted run keeps everything it finished.
+   *
+   * <p>Verification model calls are independent and read-only, so they run bounded-parallel on
+   * virtual threads (gated by {@code maxConcurrency}, like extraction). Results are folded back in
+   * submission order on this single thread, which also performs the classify + store for each
+   * survivor — keeping the daemon's single-writer invariant and deterministic supersession ordering.
    */
-  private Verification verifyCandidates(List<ExtractedCandidate> merged, List<Chunk> chunks,
-                                        IngestProgressListener progress) {
+  private VerifyStoreResult verifyClassifyStore(List<ExtractedCandidate> merged, List<Chunk> chunks,
+                                                String profileId, String sessionId,
+                                                int maxConcurrency, IngestProgressListener progress) {
+    int total = merged.size();
+    if (total == 0) {
+      return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
     Map<Integer, String> transcriptByChunk = new HashMap<>();
     for (Chunk c : chunks) {
       transcriptByChunk.put(c.index(), c.transcript());
     }
 
-    int dropped = 0;
-    int passed = 0;
-    int corrected = 0;
-    int total = merged.size();
-    List<String> verifiedContents = new ArrayList<>();
-    int candidateIndex = 0;
+    // Group candidates by source chunk (first-seen order). Each chunk is verified in ONE batched
+    // call — the transcript is sent once, not re-sent per candidate — which is what collapses the
+    // verify phase from one call per candidate to one call per chunk.
+    LinkedHashMap<Integer, List<ExtractedCandidate>> byChunk = new LinkedHashMap<>();
     for (ExtractedCandidate candidate : merged) {
-      candidateIndex++;
-      String transcript = transcriptByChunk.getOrDefault(candidate.chunkIndex(), "");
-      VerificationResult result = modelGateway.verify(candidate, transcript);
-      switch (result.verdict()) {
-        case DROP -> dropped++;
-        case PASS -> {
-          passed++;
-          verifiedContents.add(candidate.content());
-        }
-        case CORRECT -> {
-          corrected++;
-          String correctedContent = result.content() != null && !result.content().isBlank()
-            ? result.content()
-            : candidate.content();
-          verifiedContents.add(correctedContent);
-        }
-      }
-      log.debug("ingest verification candidate={} chunk={} verdict={}",
-        candidateIndex, candidate.chunkIndex(), result.verdict());
-      progress.onPhase("verify", candidateIndex, total);
+      byChunk.computeIfAbsent(candidate.chunkIndex(), k -> new ArrayList<>()).add(candidate);
     }
 
-    return new Verification(verifiedContents, passed, corrected, dropped);
-  }
-
-  /**
-   * Classify and enrich each verified content (topic key + interrogative queries → {@code
-   * embed_text}), then store it under the profile with supersession and vectorization enqueue.
-   */
-  private StoreResult classifyAndStore(String profileId, String sessionId, List<String> verifiedContents,
-                                       IngestProgressListener progress) {
-    List<Memory> stored = new ArrayList<>(verifiedContents.size());
+    int passed = 0;
+    int corrected = 0;
+    int dropped = 0;
     int superseded = 0;
     int enqueued = 0;
     int graphExtracted = 0;
     int graphSkipped = 0;
     int graphFailed = 0;
-    int total = verifiedContents.size();
-    int candidateIndex = 0;
-    for (String content : verifiedContents) {
-      candidateIndex++;
-      if (content == null || content.isBlank()) {
-        log.debug("ingest store candidate={} skipped blank content", candidateIndex);
-        progress.onPhase("store", candidateIndex, total);
-        continue;
+    List<Memory> stored = new ArrayList<>();
+
+    Semaphore gate = new Semaphore(maxConcurrency);
+    try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+      // One batched verify call per chunk, bounded-parallel across chunks.
+      List<Integer> chunkOrder = new ArrayList<>(byChunk.keySet());
+      Map<Integer, Future<List<VerificationResult>>> verifyFutures = new LinkedHashMap<>();
+      for (Integer chunkIndex : chunkOrder) {
+        List<ExtractedCandidate> group = byChunk.get(chunkIndex);
+        String transcript = transcriptByChunk.getOrDefault(chunkIndex, "");
+        verifyFutures.put(chunkIndex,
+          exec.submit(() -> bounded(gate, () -> modelGateway.verifyAll(group, transcript))));
       }
-      Classification classification = modelGateway.classify(content);
-      log.debug("ingest classified candidate={} type={} hasTopicKey={} interrogativeQueries={}",
-        candidateIndex, classification.type(), classification.topicKey() != null,
-        classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size());
 
-      String embedText = buildEmbedText(classification.interrogativeQueries(), content);
-      String payload = classification.payload() == null ? "{}" : classification.payload();
-      Memory candidate = new Memory(
-        null, sessionId, classification.type(), content, classification.topicKey(),
-        null, false, payload, embedText, null);
+      // Announce the phase up front (see extraction) and fold per chunk in submission order.
+      progress.onPhase("verify", 0, total);
+      int done = 0;
+      for (Integer chunkIndex : chunkOrder) {
+        List<ExtractedCandidate> group = byChunk.get(chunkIndex);
+        List<VerificationResult> verdicts = awaitVerification(verifyFutures.get(chunkIndex));
 
-      // Graph extraction is additive and degradable: a failure here must never roll back or fail the
-      // memory write. Tasks are excluded from the graph (as from the vector index). The model call
-      // happens here, outside the store transaction.
-      GraphFragment graph = GraphFragment.empty();
-      if (classification.type() != MemoryType.TASK) {
-        try {
-          graph = modelGateway.extractGraph(content);
-          graphExtracted++;
-          log.debug("ingest graph extracted candidate={} entities={} triples={}",
-            candidateIndex, graph.allEntities().size(), graph.triples().size());
-        } catch (RuntimeException e) {
-          graphFailed++;
-          log.warn("graph extraction failed; storing memory without graph: {}", e.toString());
+        // Resolve this chunk's survivors, counting verdicts and logging drops.
+        List<String> survivors = new ArrayList<>();
+        for (int j = 0; j < group.size(); j++) {
+          ExtractedCandidate candidate = group.get(j);
+          VerificationResult result = j < verdicts.size() ? verdicts.get(j)
+            : new VerificationResult(VerificationVerdict.DROP, "", "no verdict returned");
+
+          String content = null;
+          switch (result.verdict()) {
+            case DROP -> dropped++;
+            case PASS -> {
+              passed++;
+              content = candidate.content();
+            }
+            case CORRECT -> {
+              corrected++;
+              content = result.content() != null && !result.content().isBlank()
+                ? result.content()
+                : candidate.content();
+            }
+          }
+          // Drops are the usual reason a profile stays empty, so log them at info with the model's
+          // reason; pass/correct stay at debug to keep healthy runs quiet.
+          if (result.verdict() == VerificationVerdict.DROP) {
+            log.info("ingest verification dropped chunk={} reason={} content=\"{}\"",
+              candidate.chunkIndex(), result.reason(), abbreviate(candidate.content()));
+          } else {
+            log.debug("ingest verification chunk={} verdict={} reason={}",
+              candidate.chunkIndex(), result.verdict(), result.reason());
+          }
+          if (content != null && !content.isBlank()) {
+            survivors.add(content);
+          }
+          progress.onPhase("verify", ++done, total);
         }
-      } else {
-        graphSkipped++;
-        log.debug("ingest graph skipped candidate={} type={}", candidateIndex, classification.type());
-      }
 
-      MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph);
-      stored.add(outcome.stored());
-      if (outcome.supersededId() != null) {
-        superseded++;
+        // Batch-classify this chunk's survivors (one call), batch graph-extract the non-task ones
+        // (one call), then store each. Storing per chunk keeps progress durable: a finished chunk's
+        // memories survive an interrupted run.
+        if (!survivors.isEmpty()) {
+          List<Classification> classifications = new ArrayList<>(modelGateway.classifyAll(survivors));
+          while (classifications.size() < survivors.size()) {
+            classifications.add(modelGateway.classify(survivors.get(classifications.size())));
+          }
+
+          // Tasks are excluded from the graph (as from the vector index); the rest are graph-extracted
+          // in one batched, degradable call.
+          List<String> graphContents = new ArrayList<>();
+          for (int k = 0; k < survivors.size(); k++) {
+            if (classifications.get(k).type() != MemoryType.TASK) {
+              graphContents.add(survivors.get(k));
+            }
+          }
+          List<GraphFragment> graphs;
+          boolean graphBatchFailed = false;
+          try {
+            graphs = modelGateway.extractGraphAll(graphContents);
+          } catch (RuntimeException e) {
+            log.warn("graph extraction batch failed; storing this chunk's memories without graph: {}", e.toString());
+            graphs = List.of();
+            graphBatchFailed = true;
+          }
+
+          int g = 0;
+          for (int k = 0; k < survivors.size(); k++) {
+            String content = survivors.get(k);
+            Classification classification = classifications.get(k);
+            GraphFragment graph = GraphFragment.empty();
+            GraphOutcome graphOutcome;
+            if (classification.type() == MemoryType.TASK) {
+              graphOutcome = GraphOutcome.SKIPPED;
+            } else if (graphBatchFailed) {
+              graphOutcome = GraphOutcome.FAILED;
+              g++;
+            } else {
+              graph = g < graphs.size() ? graphs.get(g) : GraphFragment.empty();
+              graphOutcome = GraphOutcome.EXTRACTED;
+              g++;
+            }
+
+            StoredOne s = storeMemory(profileId, sessionId, content, classification, graph, graphOutcome,
+              k + 1, survivors.size());
+            stored.add(s.stored());
+            if (s.superseded()) {
+              superseded++;
+            }
+            if (s.enqueued()) {
+              enqueued++;
+            }
+            switch (s.graph()) {
+              case EXTRACTED -> graphExtracted++;
+              case SKIPPED -> graphSkipped++;
+              case FAILED -> graphFailed++;
+            }
+          }
+        }
       }
-      if (outcome.enqueuedVector()) {
-        enqueued++;
-      }
-      log.debug("ingest stored candidate={} memoryId={} type={} supersededId={} vectorEnqueued={}",
-        candidateIndex, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
-        outcome.enqueuedVector());
-      progress.onPhase("store", candidateIndex, total);
     }
 
-    return new StoreResult(stored, superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
+    return new VerifyStoreResult(stored, passed, corrected, dropped,
+      superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
+  }
+
+  private static List<VerificationResult> awaitVerification(Future<List<VerificationResult>> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ModelUnavailableException("verification interrupted", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw new ModelUnavailableException("verification interrupted", cause);
+      }
+      if (cause instanceof ModelUnavailableException mue) {
+        throw mue;
+      }
+      throw new ModelUnavailableException("verification failed", cause);
+    }
+  }
+
+  /**
+   * Store one classified survivor with its pre-computed {@link GraphFragment} (both come from the
+   * batched classify + graph passes), applying supersession and vectorization enqueue. Runs on the
+   * single fold thread so the store write stays serialized. Graph extraction is additive and
+   * degradable: {@code graph} is already empty when extraction was skipped (tasks) or failed, and the
+   * memory is stored regardless.
+   */
+  private StoredOne storeMemory(String profileId, String sessionId, String content,
+                                Classification classification, GraphFragment graph, GraphOutcome graphOutcome,
+                                int index, int total) {
+    log.debug("ingest classified candidate={}/{} type={} hasTopicKey={} interrogativeQueries={} graph={}",
+      index, total, classification.type(), classification.topicKey() != null,
+      classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size(),
+      graphOutcome);
+
+    String embedText = buildEmbedText(classification.interrogativeQueries(), content);
+    String payload = classification.payload() == null ? "{}" : classification.payload();
+    Memory candidate = new Memory(
+      null, sessionId, classification.type(), content, classification.topicKey(),
+      null, false, payload, embedText, null);
+
+    MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph);
+    log.debug("ingest stored candidate={}/{} memoryId={} type={} supersededId={} vectorEnqueued={}",
+      index, total, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
+      outcome.enqueuedVector());
+    return new StoredOne(outcome.stored(), outcome.supersededId() != null, outcome.enqueuedVector(), graphOutcome);
   }
 
   /**
@@ -356,7 +467,7 @@ public class IngestionService {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
     }
-    log.debug("ingest extraction start chunks={} detailPass={} maxConcurrency={} modelCalls={}",
+    log.info("ingest extraction start chunks={} detailPass={} maxConcurrency={} modelCalls={}",
       chunks.size(), detailPass, maxExtractionConcurrency, detailPass ? chunks.size() * 2 : chunks.size());
 
     Semaphore gate = new Semaphore(maxExtractionConcurrency);
@@ -372,10 +483,14 @@ public class IngestionService {
       }
       int total = futures.size();
       int done = 0;
+      // Announce the phase and its size up front: extraction calls are slow, so without this the
+      // client shows an opaque "starting 0/0" until the first call returns. Emitting 0/total lets it
+      // render "extract 0/N" immediately so the user can gauge the scale of the run.
+      progress.onPhase("extract", 0, total);
       for (Future<ExtractionPassResult> f : futures) {
         ExtractionPassResult result = awaitExtraction(f);
-        log.debug("ingest extraction pass={} chunk={} candidates={} ms={}",
-          result.pass(), result.chunkIndex(), result.candidates().size(), result.millis());
+        log.info("ingest extraction pass={} chunk={} candidates={} done={}/{} ms={}",
+          result.pass(), result.chunkIndex(), result.candidates().size(), done + 1, total, result.millis());
         results.addAll(result.candidates());
         progress.onPhase("extract", ++done, total);
       }
@@ -466,6 +581,15 @@ public class IngestionService {
     }
     sb.append(content);
     return sb.toString();
+  }
+
+  /** Shorten candidate text for single-line diagnostic logs. */
+  private static String abbreviate(String content) {
+    if (content == null) {
+      return "";
+    }
+    String oneLine = content.strip().replaceAll("\\s+", " ");
+    return oneLine.length() <= 120 ? oneLine : oneLine.substring(0, 117) + "…";
   }
 
   /**

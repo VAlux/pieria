@@ -3,6 +3,8 @@ package dev.alvo.pieria.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
+import java.util.Map;
+
 /**
  * Strongly-typed Pieria configuration. The two chat tiers (extraction/synthesis) and the
  * embedding model are separate configuration knobs from the start.
@@ -54,7 +56,71 @@ public record PieriaProperties(
   public record Model(String extractionModel,
                       String synthesisModel,
                       String embedding,
-                      @DefaultValue("1024") int embeddingDimension) {
+                      @DefaultValue("1024") int embeddingDimension,
+                      @DefaultValue Reasoning reasoning) {
+
+    public Model {
+      if (reasoning == null) {
+        reasoning = Reasoning.DEFAULT;
+      }
+    }
+
+    /**
+     * Per-stage reasoning ("thinking") control. Reasoning is pure latency/cost overhead on the
+     * structured pipeline stages (extract, extractDetail, verify, classify, extractGraph,
+     * analyzeQuery) — they emit structured JSON, not a chain of thought — so it is disabled there by
+     * default. It is left on for synthesis, where multi-step reasoning over the retrieved memories
+     * can improve the answer.
+     *
+     * <p>Control is via the OpenAI {@code reasoning_effort} request option (NOT a prompt token: the
+     * {@code /no_think} soft switch is ignored over Ollama's OpenAI-compatible endpoint). Disabled
+     * stages send {@code disabledEffort}; {@code none} fully suppresses the reasoning chain, including
+     * on Ollama's OpenAI-compatible endpoint for Qwen3. Enabled stages send {@code enabledEffort}
+     * when set, otherwise nothing (the provider default). The option is harmless to non-reasoning
+     * models (Ollama ignores it); for OpenAI reasoning models use a supported level such as
+     * {@code minimal}/{@code low} rather than {@code none}.
+     *
+     * <p>{@code structured} and {@code synthesis} are the tier defaults; {@code stages} overrides any
+     * individual stage by name (e.g. {@code pieria.model.reasoning.stages.verify=true}).
+     */
+    public record Reasoning(@DefaultValue("false") boolean structured,
+                            @DefaultValue("true") boolean synthesis,
+                            @DefaultValue("none") String disabledEffort,
+                            @DefaultValue("") String enabledEffort,
+                            Map<String, Boolean> stages) {
+
+      public static final Reasoning DEFAULT = new Reasoning(false, true, "none", "", Map.of());
+
+      public Reasoning {
+        stages = stages == null ? Map.of() : Map.copyOf(stages);
+      }
+
+      /**
+       * Whether reasoning is enabled for {@code stage}. A per-stage override in {@code stages} wins;
+       * otherwise the synthesis stages ({@code synthesizeRecall}, {@code judgeAnswerFaithfulness})
+       * use {@code synthesis} and every other (structured) stage uses {@code structured}.
+       */
+      public boolean enabledFor(String stage) {
+        Boolean override = stages.get(stage);
+        if (override != null) {
+          return override;
+        }
+        return switch (stage) {
+          case "synthesizeRecall", "judgeAnswerFaithfulness" -> synthesis;
+          default -> structured;
+        };
+      }
+
+      /**
+       * The {@code reasoning_effort} to send for {@code stage}, or {@code null} to leave it unset
+       * (provider default). Disabled stages use {@code disabledEffort}; enabled stages use
+       * {@code enabledEffort} when non-blank, else {@code null}.
+       */
+      public String effortFor(String stage) {
+        String effort = enabledFor(stage) ? enabledEffort : disabledEffort;
+        return (effort == null || effort.isBlank()) ? null : effort.strip();
+      }
+    }
   }
 
   /**

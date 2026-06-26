@@ -42,15 +42,19 @@ class HttpIngestClientProgressTests {
   }
 
   @Test
-  void failedTaskWithModelUnavailableMapsToModelUnavailable() {
+  void failedTaskWithModelUnavailableMapsToModelUnavailableWithReason() {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\","
+          + "\"errorMessage\":\"HTTP 404: model or deployment not found\"}");
 
       IngestClient.IngestResult result = new HttpIngestClient(daemon.baseUrl())
         .ingest("proj", request(), ProgressListener.noop());
 
       assertThat(result).isInstanceOf(IngestClient.ModelUnavailable.class);
+      assertThat(((IngestClient.ModelUnavailable) result).reason())
+        .isEqualTo("HTTP 404: model or deployment not found");
     }
   }
 }

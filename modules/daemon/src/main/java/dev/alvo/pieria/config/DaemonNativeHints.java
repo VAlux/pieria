@@ -63,9 +63,15 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       owner + "RawCandidate",
       owner + "CandidateList",
       owner + "VerificationDto",
+      owner + "VerificationItemDto",
+      owner + "BatchVerificationDto",
       owner + "ClassificationDto",
+      owner + "ClassificationItemDto",
+      owner + "BatchClassificationDto",
       owner + "QueryAnalysisDto",
       owner + "GraphDto",
+      owner + "GraphItemDto",
+      owner + "BatchGraphDto",
       owner + "EntityDto",
       owner + "TripleDto"
     };
