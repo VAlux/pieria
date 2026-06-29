@@ -280,7 +280,7 @@ public final class EvaluationRunner {
       false,
       5000);
 
-    return new PieriaProperties(null, null, null, null, ingestion, retrieval);
+    return new PieriaProperties(null, null, null, null, ingestion, retrieval, null);
   }
 
   private static double ratio(int numerator, int denominator) {

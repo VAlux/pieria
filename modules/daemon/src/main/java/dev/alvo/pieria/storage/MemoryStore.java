@@ -11,6 +11,7 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 
 import java.util.List;
@@ -46,6 +47,31 @@ public interface MemoryStore {
    */
   default ProfileStats profileStats(String profileId) {
     throw new UnsupportedOperationException("profileStats(...) not implemented");
+  }
+
+  /**
+   * Accumulate one recall into the profile's lifetime savings counters: bump {@code recall_count},
+   * add the headline saving ({@code max(0, evidenceTokens − answerTokens)}) and the naive-dump upper
+   * bound ({@code max(0, activeCorpusTokens − answerTokens)}, with the corpus total computed by the
+   * backend). Best-effort and accounting-only — a no-op for backends that do not track usage.
+   */
+  default void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
+  }
+
+  /**
+   * Accumulate one ingest into the profile's lifetime savings counters: bump {@code ingest_count}
+   * and add the raw-message and distilled-memory token totals. Best-effort and accounting-only — a
+   * no-op for backends that do not track usage.
+   */
+  default void recordIngestUsage(String profileId, long ingestedTokens, long storedTokens) {
+  }
+
+  /**
+   * The profile's lifetime savings counters, or {@link ProfileUsage#empty()} when the backend does
+   * not track usage or the profile has no row yet.
+   */
+  default ProfileUsage usageStats(String profileId) {
+    return ProfileUsage.empty();
   }
 
   /**

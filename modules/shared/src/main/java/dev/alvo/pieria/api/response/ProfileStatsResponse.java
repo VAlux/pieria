@@ -15,6 +15,7 @@ import java.util.Map;
  * @param firstMemoryAt        creation time of the earliest active memory, or {@code null} if none
  * @param lastMemoryAt         creation time of the most recent active memory, or {@code null} if none
  * @param vectorizationBacklog pending vectorization-outbox depth, or {@code null} if unavailable
+ * @param impact               lifetime token-savings counters, or {@code null} if not tracked
  */
 public record ProfileStatsResponse(String name,
                                    Instant createdAt,
@@ -24,5 +25,29 @@ public record ProfileStatsResponse(String name,
                                    long sessions,
                                    Instant firstMemoryAt,
                                    Instant lastMemoryAt,
-                                   Long vectorizationBacklog) {
+                                   Long vectorizationBacklog,
+                                   ProfileImpact impact) {
+
+  /**
+   * Per-profile "Pieria impact": a lifetime, relative estimate (chars/4 heuristic) of the tokens
+   * saved by answering from memory instead of re-feeding context. All token counts are raw — the
+   * client derives the compression ratio, context-window count, and cost from these fields plus the
+   * two display knobs.
+   *
+   * @param recalls             number of recalls served
+   * @param tokensSavedEvidence headline saving: Σ (retrieved evidence − synthesized answer)
+   * @param tokensSavedNaive    labelled upper bound: Σ (active corpus − synthesized answer)
+   * @param tokensIngested      Σ raw-message tokens fed to ingest
+   * @param tokensStored        Σ distilled-memory tokens produced from those messages
+   * @param contextWindowTokens model context size used to express savings as a window count
+   * @param pricePerMillionTokens price per 1M tokens for the cost line; {@code 0} hides it
+   */
+  public record ProfileImpact(long recalls,
+                              long tokensSavedEvidence,
+                              long tokensSavedNaive,
+                              long tokensIngested,
+                              long tokensStored,
+                              int contextWindowTokens,
+                              double pricePerMillionTokens) {
+  }
 }

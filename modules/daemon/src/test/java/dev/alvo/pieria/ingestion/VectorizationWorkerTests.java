@@ -37,6 +37,7 @@ class VectorizationWorkerTests {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, null),
       new PieriaProperties.Ingestion(10000, 2, 4, 9, batchSize, maxAttempts, false, 5000),
+      null,
       null);
   }
 

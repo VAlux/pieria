@@ -16,6 +16,7 @@ import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Timed;
+import dev.alvo.pieria.tools.Tokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -218,7 +219,28 @@ public class IngestionService {
       verifyStore.millis(),
       Timed.elapsedMillis(totalStart));
 
+    recordUsage(profile.id(), normalized, result.stored());
+
     return result.stored();
+  }
+
+  /**
+   * Accumulate this ingest into the profile's lifetime savings counters: the raw-message tokens fed
+   * in versus the distilled-memory tokens produced (the compression story). Accounting-only and
+   * best-effort — a failure here must never break ingest, and an ingest that stored nothing is not
+   * recorded.
+   */
+  private void recordUsage(String profileId, List<Message> normalized, List<Memory> stored) {
+    if (stored.isEmpty()) {
+      return;
+    }
+    try {
+      long ingestedTokens = normalized.stream().mapToLong(m -> Tokens.estimate(m.content())).sum();
+      long storedTokens = stored.stream().mapToLong(m -> Tokens.estimate(m.content())).sum();
+      store.recordIngestUsage(profileId, ingestedTokens, storedTokens);
+    } catch (RuntimeException e) {
+      log.warn("recording ingest usage failed ({}); continuing", e.toString());
+    }
   }
 
   /**

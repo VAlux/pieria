@@ -52,7 +52,7 @@ class OpenAiModelGatewayBatchTests {
 
   private static OpenAiModelGateway gateway(CountingChatModel model) {
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null), null, null);
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null), null, null, null);
     ChatClient client = ChatClient.builder(model)
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
     return new OpenAiModelGateway(client, client, null, properties);

@@ -24,6 +24,7 @@ import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Timed;
+import dev.alvo.pieria.tools.Tokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -183,12 +184,30 @@ public class RetrievalService {
     LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
       profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
+    recordUsage(profile.id(), fused.value(), answer.value());
+
     RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
     LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
       profileName, hits.value().size(), fused.value().size(),
       analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
       temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
     return new RecallResult(answer.value(), fused.value(), temporal.value(), diagnostics);
+  }
+
+  /**
+   * Accumulate this recall into the profile's lifetime savings counters (evidence-only headline +
+   * naive-dump upper bound, computed in the store). Accounting-only and best-effort: a failure here
+   * must never break recall, so it is logged and swallowed.
+   */
+  private void recordUsage(String profileId, List<RecallCandidate> evidence, String answer) {
+    try {
+      long evidenceTokens = evidence.stream()
+        .mapToLong(c -> Tokens.estimate(c.memory().content()))
+        .sum();
+      store.recordRecallUsage(profileId, evidenceTokens, Tokens.estimate(answer));
+    } catch (RuntimeException e) {
+      LOGGER.warn("recording recall usage failed ({}); continuing", e.toString());
+    }
   }
 
   /**

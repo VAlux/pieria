@@ -202,7 +202,12 @@ class ProfileApiTests {
       .andExpect(jsonPath("$.byType.fact", is(1)))
       .andExpect(jsonPath("$.byType.event", is(0)))
       .andExpect(jsonPath("$.sessions", is(1)))
-      .andExpect(jsonPath("$.firstMemoryAt", is(org.hamcrest.Matchers.notNullValue())));
+      .andExpect(jsonPath("$.firstMemoryAt", is(org.hamcrest.Matchers.notNullValue())))
+      // The impact block is always present; explicit POST /memories does not record usage,
+      // so the counters are zero, but the display knobs fall back to their defaults.
+      .andExpect(jsonPath("$.impact.recalls", is(0)))
+      .andExpect(jsonPath("$.impact.tokensSavedEvidence", is(0)))
+      .andExpect(jsonPath("$.impact.contextWindowTokens", is(200000)));
   }
 
   private void storeFact(String profile, String content) throws Exception {
@@ -256,7 +261,8 @@ class ProfileApiTests {
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
-        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"));
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"),
+      null);
     }
 
     @Bean("profileApiEffectiveConfigResolver")

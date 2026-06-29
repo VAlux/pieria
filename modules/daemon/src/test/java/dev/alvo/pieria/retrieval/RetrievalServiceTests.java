@@ -15,6 +15,7 @@ import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.storage.NoOpCodeIndexStore;
+import dev.alvo.pieria.tools.Tokens;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -44,7 +45,7 @@ class RetrievalServiceTests {
 
   private static PieriaProperties props() {
     return new PieriaProperties(null, null, null, null,
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000), retrievalCfg());
+      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000), retrievalCfg(), null);
   }
 
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
@@ -69,6 +70,24 @@ class RetrievalServiceTests {
     assertThat(c.get(0).source()).contains("exact_key").contains("fts_memory");
     assertThat(c.get(1).memory().id()).isEqualTo("m2");
     assertThat(result.answer()).contains("user prefers tea");
+  }
+
+  @Test
+  void recallRecordsEvidenceAndAnswerUsage() {
+    Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
+    Memory ftsOnly = mem("m2", "tea is grown in Assam", MemoryType.FACT, null, T0.plusSeconds(10));
+    FakeStore store = new FakeStore();
+    store.exactKey = List.of(shared);
+    store.ftsMemory = List.of(ftsOnly, shared);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "tea", 10, false);
+
+    long expectedEvidence = result.candidates().stream()
+      .mapToLong(rc -> Tokens.estimate(rc.memory().content()))
+      .sum();
+    assertThat(store.recordUsageCalls).isEqualTo(1);
+    assertThat(store.recordedEvidenceTokens).isEqualTo(expectedEvidence);
+    assertThat(store.recordedAnswerTokens).isEqualTo(Tokens.estimate(result.answer()));
   }
 
   @Test
@@ -226,10 +245,20 @@ class RetrievalServiceTests {
     List<Memory> graphMemories = List.of();
     RuntimeException graphError;
     int graphCalls;
+    int recordUsageCalls;
+    long recordedEvidenceTokens = -1;
+    long recordedAnswerTokens = -1;
 
     @Override
     public Optional<Profile> findProfile(String name) {
       return Optional.ofNullable(profile);
+    }
+
+    @Override
+    public void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
+      recordUsageCalls++;
+      recordedEvidenceTokens = evidenceTokens;
+      recordedAnswerTokens = answerTokens;
     }
 
     @Override

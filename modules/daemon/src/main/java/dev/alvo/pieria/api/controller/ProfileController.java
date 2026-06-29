@@ -7,6 +7,7 @@ import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
@@ -18,6 +19,8 @@ import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.retrieval.RecallResult;
@@ -61,19 +64,22 @@ public class ProfileController {
   private final ObjectMapper objectMapper;
   private final TaskRegistry tasks;
   private final Converter<Memory, MemoryResponse> memoryResponseConverter;
+  private final PieriaProperties properties;
 
   public ProfileController(IngestionService ingestionService,
                            RetrievalService retrievalService,
                            MemoryStore store,
                            ObjectMapper objectMapper,
                            TaskRegistry tasks,
-                           Converter<Memory, MemoryResponse> memoryResponseConverter) {
+                           Converter<Memory, MemoryResponse> memoryResponseConverter,
+                           PieriaProperties properties) {
     this.ingestionService = ingestionService;
     this.retrievalService = retrievalService;
     this.store = store;
     this.objectMapper = objectMapper;
     this.tasks = tasks;
     this.memoryResponseConverter = memoryResponseConverter;
+    this.properties = properties;
   }
 
   @PostMapping("/ingest")
@@ -166,7 +172,24 @@ public class ProfileController {
       stats.sessions(),
       stats.firstMemoryAt(),
       stats.lastMemoryAt(),
-      backlog);
+      backlog,
+      impactOf(store.usageStats(profile.id())));
+  }
+
+  /** Map the stored lifetime counters to the wire impact block, stamping the display knobs. */
+  private ProfileImpact impactOf(ProfileUsage usage) {
+    // Stats binds with @DefaultValue in production; guard null for tests that construct properties directly.
+    PieriaProperties.Stats cfg = properties == null ? null : properties.stats();
+    int window = cfg == null ? 200_000 : cfg.contextWindowTokens();
+    double price = cfg == null ? 0.0 : cfg.pricePerMillionTokens();
+    return new ProfileImpact(
+      usage.recallCount(),
+      usage.tokensSavedEvidence(),
+      usage.tokensSavedNaive(),
+      usage.tokensIngested(),
+      usage.tokensStored(),
+      window,
+      price);
   }
 
   @GetMapping("/memories")

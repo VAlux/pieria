@@ -16,10 +16,21 @@ public record PieriaProperties(
   Provider provider,
   Model model,
   Ingestion ingestion,
-  Retrieval retrieval) {
+  Retrieval retrieval,
+  Stats stats) {
 
   public record Daemon(@DefaultValue("127.0.0.1") String host,
                        @DefaultValue("8077") int port) {
+  }
+
+  /**
+   * Display tuning for the per-profile "Pieria impact" panel. {@code pricePerMillionTokens} converts
+   * estimated saved tokens into an approximate cost figure; {@code 0.0} (the default) omits the cost
+   * line entirely. {@code contextWindowTokens} is the model context size used to express savings as
+   * a number of windows. Neither affects retrieval/ingestion behavior.
+   */
+  public record Stats(@DefaultValue("0.0") double pricePerMillionTokens,
+                      @DefaultValue("200000") int contextWindowTokens) {
   }
 
   public record Db(String path) {

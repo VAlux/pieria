@@ -14,7 +14,9 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -233,6 +235,70 @@ public class SqliteMemoryStore implements MemoryStore {
     return new ProfileStats(totalActive, byType, superseded, sessions,
       first == null ? null : Instant.parse(first),
       last == null ? null : Instant.parse(last));
+  }
+
+  @Override
+  @Transactional
+  public void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
+    // Naive-dump upper bound: what a "inject everything every turn" memory layer would have paid.
+    // Computed here (one cheap grouped scan) against the active corpus at this instant.
+    long corpusChars = jdbc.sql("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE profile_id = ? AND superseded = 0")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+
+    long corpusTokens = Tokens.fromChars(corpusChars);
+
+    long savedEvidence = Math.max(0, evidenceTokens - answerTokens);
+    long savedNaive = Math.max(0, corpusTokens - answerTokens);
+
+    jdbc.sql("""
+        INSERT INTO profile_usage \
+        (profile_id, recall_count, tokens_saved_evidence, tokens_saved_naive, tokens_recall_served, updated_at) \
+        VALUES (?, 1, ?, ?, ?, ?) \
+        ON CONFLICT (profile_id) DO UPDATE SET \
+        recall_count = recall_count + 1, \
+        tokens_saved_evidence = tokens_saved_evidence + excluded.tokens_saved_evidence, \
+        tokens_saved_naive = tokens_saved_naive + excluded.tokens_saved_naive, \
+        tokens_recall_served = tokens_recall_served + excluded.tokens_recall_served, \
+        updated_at = excluded.updated_at""")
+      .params(profileId, savedEvidence, savedNaive, answerTokens, Instant.now().toString())
+      .update();
+  }
+
+  @Override
+  @Transactional
+  public void recordIngestUsage(String profileId, long ingestedTokens, long storedTokens) {
+    jdbc.sql("""
+        INSERT INTO profile_usage \
+        (profile_id, ingest_count, tokens_ingested, tokens_stored, updated_at) \
+        VALUES (?, 1, ?, ?, ?) \
+        ON CONFLICT (profile_id) DO UPDATE SET \
+        ingest_count = ingest_count + 1, \
+        tokens_ingested = tokens_ingested + excluded.tokens_ingested, \
+        tokens_stored = tokens_stored + excluded.tokens_stored, \
+        updated_at = excluded.updated_at""")
+      .params(profileId, ingestedTokens, storedTokens, Instant.now().toString())
+      .update();
+  }
+
+  @Override
+  public ProfileUsage usageStats(String profileId) {
+    return jdbc.sql("""
+        SELECT recall_count, ingest_count, tokens_saved_evidence, tokens_saved_naive, \
+        tokens_recall_served, tokens_ingested, tokens_stored \
+        FROM profile_usage WHERE profile_id = ?""")
+      .param(profileId)
+      .query((rs, _) -> new ProfileUsage(
+        rs.getLong("recall_count"),
+        rs.getLong("ingest_count"),
+        rs.getLong("tokens_saved_evidence"),
+        rs.getLong("tokens_saved_naive"),
+        rs.getLong("tokens_recall_served"),
+        rs.getLong("tokens_ingested"),
+        rs.getLong("tokens_stored")))
+      .optional()
+      .orElse(ProfileUsage.empty());
   }
 
   @Override

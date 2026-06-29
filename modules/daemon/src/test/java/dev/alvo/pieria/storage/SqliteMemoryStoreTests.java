@@ -9,6 +9,7 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
 import org.flywaydb.core.Flyway;
@@ -253,6 +254,55 @@ class SqliteMemoryStoreTests {
     assertEquals(0, stats.sessions());
     assertNull(stats.firstMemoryAt());
     assertNull(stats.lastMemoryAt());
+  }
+
+  @Test
+  void usageStatsIsEmptyWhenNoRow() {
+    Profile p = store.getOrCreateProfile("no-usage");
+    assertEquals(ProfileUsage.empty(), store.usageStats(p.id()));
+  }
+
+  @Test
+  void recordRecallUsageAccumulatesEvidenceAndNaiveBaseline() {
+    Profile p = store.getOrCreateProfile("usage");
+    // Active corpus = 80 chars -> 20 tokens (chars/4) drives the naive-dump upper bound.
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "a".repeat(40), "s1", null, null));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "b".repeat(40), "s2", null, null));
+
+    // evidence 12, answer 2 -> evidence saved 10; naive saved 20-2=18.
+    store.recordRecallUsage(p.id(), 12, 2);
+    ProfileUsage u = store.usageStats(p.id());
+    assertEquals(1, u.recallCount());
+    assertEquals(10, u.tokensSavedEvidence());
+    assertEquals(18, u.tokensSavedNaive());
+    assertEquals(2, u.tokensRecallServed());
+
+    // Second recall accumulates: evidence saved 4; naive 20-1=19.
+    store.recordRecallUsage(p.id(), 5, 1);
+    u = store.usageStats(p.id());
+    assertEquals(2, u.recallCount());
+    assertEquals(14, u.tokensSavedEvidence());
+    assertEquals(37, u.tokensSavedNaive());
+
+    // An answer larger than the evidence/corpus floors both savings at zero.
+    store.recordRecallUsage(p.id(), 1, 100);
+    u = store.usageStats(p.id());
+    assertEquals(3, u.recallCount());
+    assertEquals(14, u.tokensSavedEvidence());
+    assertEquals(37, u.tokensSavedNaive());
+  }
+
+  @Test
+  void recordIngestUsageAccumulatesCompressionTotals() {
+    Profile p = store.getOrCreateProfile("ingest-usage");
+
+    store.recordIngestUsage(p.id(), 612, 88);
+    store.recordIngestUsage(p.id(), 100, 20);
+    ProfileUsage u = store.usageStats(p.id());
+
+    assertEquals(2, u.ingestCount());
+    assertEquals(712, u.tokensIngested());
+    assertEquals(108, u.tokensStored());
   }
 
   @Test

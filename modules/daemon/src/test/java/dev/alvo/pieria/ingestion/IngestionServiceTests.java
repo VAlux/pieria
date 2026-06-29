@@ -43,6 +43,7 @@ class IngestionServiceTests {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, null),
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
+      null,
       null);
   }
 
@@ -98,6 +99,16 @@ class IngestionServiceTests {
     List<OutboxEntry> outbox = store.drainOutbox(10);
     assertEquals(1, outbox.size());
     assertEquals(m.id(), outbox.getFirst().memoryId());
+  }
+
+  @Test
+  void ingestRecordsCompressionUsage() {
+    service.ingest("proj", "s1", List.of(msg("user", "I love coffee"), msg("assistant", "noted")));
+
+    var usage = store.usageStats(store.findProfile("proj").orElseThrow().id());
+    assertEquals(1, usage.ingestCount());
+    assertTrue(usage.tokensIngested() > 0, "raw-message tokens should be recorded");
+    assertTrue(usage.tokensStored() > 0, "distilled-memory tokens should be recorded");
   }
 
   @Test
