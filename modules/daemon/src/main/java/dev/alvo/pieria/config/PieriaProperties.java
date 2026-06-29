@@ -69,8 +69,9 @@ public record PieriaProperties(
      * Per-stage reasoning ("thinking") control. Reasoning is pure latency/cost overhead on the
      * structured pipeline stages (extract, extractDetail, verify, classify, extractGraph,
      * analyzeQuery) — they emit structured JSON, not a chain of thought — so it is disabled there by
-     * default. It is left on for synthesis, where multi-step reasoning over the retrieved memories
-     * can improve the answer.
+     * default. It is also disabled for synthesis by default: the reasoning chain over already-retrieved
+     * memories rarely earns its latency. Enable it (per stage or via the tier flag) when answer quality
+     * over the retrieved evidence justifies the extra generation cost.
      *
      * <p>Control is via the OpenAI {@code reasoning_effort} request option (NOT a prompt token: the
      * {@code /no_think} soft switch is ignored over Ollama's OpenAI-compatible endpoint). Disabled
@@ -84,12 +85,12 @@ public record PieriaProperties(
      * individual stage by name (e.g. {@code pieria.model.reasoning.stages.verify=true}).
      */
     public record Reasoning(@DefaultValue("false") boolean structured,
-                            @DefaultValue("true") boolean synthesis,
+                            @DefaultValue("false") boolean synthesis,
                             @DefaultValue("none") String disabledEffort,
                             @DefaultValue("") String enabledEffort,
                             Map<String, Boolean> stages) {
 
-      public static final Reasoning DEFAULT = new Reasoning(false, true, "none", "", Map.of());
+      public static final Reasoning DEFAULT = new Reasoning(false, false, "none", "", Map.of());
 
       public Reasoning {
         stages = stages == null ? Map.of() : Map.copyOf(stages);

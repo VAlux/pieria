@@ -83,7 +83,11 @@ public class DataSourceConfig {
     ensureParentDirectory(path);
 
     // enable_load_extension is a xerial connection property: without it load_extension() throws.
-    String url = "jdbc:sqlite:" + path + "?enable_load_extension=true";
+    // busy_timeout makes a connection wait (up to N ms) for a held write lock instead of failing
+    // immediately with SQLITE_BUSY — SQLite is single-writer, so the vectorization worker would
+    // otherwise collide with concurrent ingestion / code-index write transactions. Applied to every
+    // pooled connection by the xerial driver.
+    String url = "jdbc:sqlite:" + path + "?enable_load_extension=true&busy_timeout=5000";
     HikariDataSource dataSource = DataSourceBuilder.create()
       .type(HikariDataSource.class)
       .driverClassName("org.sqlite.JDBC")

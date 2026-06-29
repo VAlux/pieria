@@ -69,6 +69,9 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--source-code", description = "Also build a source-code intelligence index from the repo's tracked source files.")
   boolean sourceCode;
 
+  @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
+  boolean reindex;
+
   @Override
   public Integer call() {
     Path dir = projectDir.toAbsolutePath().normalize();
@@ -199,7 +202,7 @@ public final class OnboardCommand implements Callable<Integer> {
 
     log.info("Indexing {} source file(s) into profile '{}'…", files.size(), resolvedProfile);
     ProgressReporter reporter = new ProgressReporter();
-    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile, new CodeIndexRequest(null, files), reporter);
+    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile, new CodeIndexRequest(null, reindex, files), reporter);
     reporter.finish();
     return switch (result) {
       case CodeIndexClient.Success s -> {

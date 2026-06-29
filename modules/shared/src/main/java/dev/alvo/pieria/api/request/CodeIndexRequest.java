@@ -11,9 +11,14 @@ import java.util.List;
  * Body of POST /v1/profiles/{name}/code: a batch of source files to index, plus the repo's git
  * tree/HEAD hash for status/freshness. {@code language}/{@code contentHash} may be blank — the
  * daemon detects the language by extension and content-addresses by a hash of the content.
+ *
+ * <p>{@code reindex} forces every file to be re-parsed even when its content hash is unchanged
+ * (bypassing the skip-if-unchanged optimization). Use it after a parser/language-pack upgrade, when
+ * unchanged source would otherwise be skipped and never re-indexed by the new parser.
  */
 public record CodeIndexRequest(
   String treeHash,
+  boolean reindex,
   @NotEmpty @Valid List<FileDto> files) {
 
   public record FileDto(

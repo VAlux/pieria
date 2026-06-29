@@ -19,6 +19,9 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.springframework.ai:spring-ai-starter-model-openai")
+	// Tree-sitter (FFM/Panama binding). Version tracks the tree-sitter 0.25 core bundled in
+	// packaging/native/<os>-<arch>/libtree-sitter.*; keep them on the same minor line.
+	implementation("io.github.tree-sitter:jtreesitter:0.25.6")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	testImplementation(project(":gateway"))
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
@@ -36,6 +39,12 @@ tasks.bootJar {
 	enabled = false
 }
 
+// jtreesitter makes FFM/Panama downcalls into the bundled Tree-sitter libraries; grant native access
+// so the parser tests (and a JVM-mode daemon) run without the restricted-method warning/denial.
+tasks.test {
+	jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
 // Publish a plain jar so :eval can depend on daemon's classes directly.
 tasks.jar {
 	enabled = true
@@ -50,7 +59,16 @@ graalvmNative {
 				"--enable-url-protocols=http,https",
 				"-H:+ReportExceptionStackTraces",
 				// Auto-register api.request/response DTOs for reflection (see :shared ApiContractFeature).
-				"--features=dev.alvo.pieria.api.ApiContractFeature"
+				"--features=dev.alvo.pieria.api.ApiContractFeature",
+				// jtreesitter (Tree-sitter code parser) makes FFM downcalls into the bundled native libs.
+				// FFM is on by default in GraalVM 25; this grants the unnamed module native access. The
+				// downcall descriptors are registered via META-INF/native-image/.../reachability-metadata.json
+				// (generated with the native-image tracing agent).
+				"--enable-native-access=ALL-UNNAMED",
+				// jtreesitter's Parser and the parse path use Arena.ofShared (so a parse tree is usable
+				// across threads); native-image gates shared arenas behind this flag.
+				"-H:+UnlockExperimentalVMOptions",
+				"-H:+SharedArenaSupport"
 			)
 		}
 	}
@@ -89,6 +107,37 @@ val embedVecExtensions by tasks.registering(Sync::class) {
 // Adding the task as a resource srcDir wires processResources (and nativeCompile) to depend on it.
 sourceSets["main"].resources.srcDir(embedVecExtensions)
 
+// --- Embedded Tree-sitter native libraries (Phase 13) ---
+// jtreesitter is an FFM binding; the core libtree-sitter + per-language grammar shared libs are
+// dlopen'd at runtime (cannot be static-linked, like sqlite-vec). Embed them as classpath resources
+// under native/<os>-<arch>/; at startup TreeSitterLibraryResolver extracts the host-platform ones to
+// the runtime dir and TreeSitterEngine loads them by absolute path. Missing libs degrade gracefully
+// (that language — or all symbol parsing — is skipped). Binaries come from packaging/native/<platform>.
+val embedTreeSitterLibraries by tasks.registering(Sync::class) {
+	description = "Stage per-arch Tree-sitter libraries as embeddable classpath resources (native/<os>-<arch>/{libtree-sitter,tree-sitter-*}.*)."
+	from(rootProject.layout.projectDirectory.dir("packaging/native")) {
+		include(
+			"*-*/libtree-sitter.dylib", "*-*/libtree-sitter.so", "*-*/libtree-sitter.dll",
+			"*-*/tree-sitter-*.dylib", "*-*/tree-sitter-*.so", "*-*/tree-sitter-*.dll"
+		)
+		includeEmptyDirs = false
+		eachFile { relativePath = RelativePath(true, "native", *relativePath.segments) }
+	}
+	into(layout.buildDirectory.dir("generated/treesitter-resources"))
+	doLast {
+		val nativeDir = layout.buildDirectory.dir("generated/treesitter-resources/native").get().asFile
+		val staged = nativeDir.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
+		if (staged.isEmpty()) {
+			logger.warn("pieria: no Tree-sitter libraries found under packaging/native/<os>-<arch>/; "
+				+ "code symbol parsing will be disabled at runtime. See packaging/native/README.md.")
+		} else {
+			logger.lifecycle("pieria: embedding Tree-sitter libraries for $staged")
+		}
+	}
+}
+
+sourceSets["main"].resources.srcDir(embedTreeSitterLibraries)
+
 // Version stamp shipped next to the native binaries (bin/version.txt) for version reporting.
 val generateVersionStamp by tasks.registering {
 	description = "Write the project version to bin/version.txt for the distributions."
@@ -102,6 +151,30 @@ val generateVersionStamp by tasks.registering {
 			writeText(projectVersion)
 		}
 	}
+}
+
+// GraalVM emits "linker-signed" ad-hoc Mach-O binaries (flags=0x20002); macOS AMFI SIGKILLs such a
+// binary on its first exec after the file is replaced (the kernel signature cache is stale), which is
+// the `Killed: 9` seen right after a deploy. Re-signing with a plain ad-hoc signature (flags=0x2)
+// refreshes it so the binary launches. No-op off macOS (no codesign / not affected). ProcessBuilder
+// keeps this off Gradle's exec API, so it is configuration-cache safe.
+fun reSignAdhocMacOs(binDir: java.io.File, log: org.gradle.api.logging.Logger) {
+	if (!System.getProperty("os.name").lowercase().contains("mac")) {
+		return
+	}
+	listOf("pieria", "pieria-daemon", "pieria-gateway")
+		.map { binDir.resolve(it) }
+		.filter { it.isFile }
+		.forEach { bin ->
+			val proc = ProcessBuilder("codesign", "--force", "--sign", "-", bin.absolutePath)
+				.redirectErrorStream(true)
+				.start()
+			val output = proc.inputStream.bufferedReader().readText()
+			if (proc.waitFor() != 0) {
+				throw GradleException("codesign failed for ${bin.name}: $output")
+			}
+			log.lifecycle("pieria: re-signed ${bin.name} ad-hoc (macOS AMFI)")
+		}
 }
 
 val nativeDist by tasks.registering(Sync::class) {
@@ -136,6 +209,10 @@ val nativeDist by tasks.registering(Sync::class) {
 	from(generateVersionStamp) {
 		into("bin")
 	}
+	// Re-sign the freshly assembled binaries so the dist (and release archives) ship plain ad-hoc.
+	doLast {
+		reSignAdhocMacOs(layout.buildDirectory.dir("distributions/pieria-native/bin").get().asFile, logger)
+	}
 }
 
 // Build the native dist and copy it into the local install directory in one step.
@@ -154,5 +231,10 @@ val deployLocal by tasks.registering(Sync::class) {
 		include("harness/claude-code/**")
 		include("harness/codex/**")
 		include("harness/opencode/**")
+	}
+	// Re-sign in place after install: replacing the installed binary invalidates AMFI's cache for that
+	// path, so sign the final files so `pieria daemon restart` works immediately without a manual step.
+	doLast {
+		reSignAdhocMacOs(destinationDir.resolve("bin"), logger)
 	}
 }

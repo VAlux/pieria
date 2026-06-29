@@ -1,0 +1,161 @@
+{
+  "resources": [
+    {
+      "glob": "META-INF/services/io.github.treesitter.jtreesitter.NativeLibraryLookup"
+    }
+  ],
+  "foreign": {
+    "downcalls": [
+      {
+        "returnType": "struct(sequence(4, jint),void*,void*)",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*",
+          "jint",
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "jlong",
+          "jlong"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*",
+          "jlong"
+        ]
+      },
+      {
+        "returnType": "struct(sequence(4, jint),void*,void*)",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "void*",
+          "void*"
+        ]
+      },
+      {
+        "returnType": "struct(jint,jint)",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "jboolean",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "jboolean",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": []
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jint",
+          "void*",
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "void*",
+          "jint",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*"
+        ]
+      },
+      {
+        "returnType": "struct(void*,void*,sequence(3, jint),padding(4))",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "jlong"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "struct(sequence(4, jint),void*,void*)",
+        "parameterTypes": [
+          "struct(sequence(4, jint),void*,void*)",
+          "void*",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "void",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "struct(sequence(4, jint),void*,void*)"
+        ]
+      },
+      {
+        "returnType": "jboolean",
+        "parameterTypes": [
+          "void*",
+          "void*"
+        ]
+      }
+    ]
+  }
+}

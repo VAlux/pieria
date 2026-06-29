@@ -12,6 +12,15 @@
       },
       {
         "pattern": "native/.*/vec0\\..*"
+      },
+      {
+        "pattern": "native/.*/libtree-sitter\\..*"
+      },
+      {
+        "pattern": "native/.*/tree-sitter-.*\\..*"
+      },
+      {
+        "pattern": "code/langpack/.*\\.scm"
       }
     ]
   }

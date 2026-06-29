@@ -109,6 +109,32 @@ class OpenAiModelGatewayBatchTests {
   }
 
   @Test
+  void classifyAllDegradesToPlainFactsOnMalformedJson() {
+    // A raw unescaped newline inside a JSON string value — exactly the model output that aborted an
+    // ingest in production. The batch parse throws; classifyAll must fall back per-memory and never
+    // throw, so ingestion still stores every memory (as a plain fact when classification can't parse).
+    CountingChatModel model = new CountingChatModel("{\"items\":[{\"index\":1,\"type\":\"fa\nct\"}]}");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<Classification> results = gateway.classifyAll(List.of("memory one", "memory two"));
+
+    assertThat(results).hasSize(2);
+    assertThat(results).allSatisfy(c -> assertThat(c.type()).isEqualTo(MemoryType.FACT));
+    assertThat(model.calls).hasValueGreaterThanOrEqualTo(2); // batch attempt + per-memory retries
+  }
+
+  @Test
+  void verifyAllDegradesToDropsOnMalformedJson() {
+    CountingChatModel model = new CountingChatModel("{\"verdicts\":[{\"index\":1,\"verdict\":\"pa\nss\"}]}");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<VerificationResult> results = gateway.verifyAll(List.of(candidate(1), candidate(2)), "transcript");
+
+    assertThat(results).hasSize(2);
+    assertThat(results).allSatisfy(r -> assertThat(r.verdict()).isEqualTo(VerificationVerdict.DROP));
+  }
+
+  @Test
   void extractGraphAllResolvesEveryMemoryInOneCall() {
     CountingChatModel model = new CountingChatModel(
       "{\"memories\":[{\"index\":1,\"entities\":[{\"name\":\"Redis\",\"type\":\"tool\"},"

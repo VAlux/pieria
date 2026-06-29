@@ -83,21 +83,16 @@ All modules live under `modules/`:
 
 This repo is wired to its own daemon via the `pieria` MCP server (profile `pieria`).
 Use it actively while working here — recall is model-invoked, not a passive backdrop.
+The `recall`/`remember` MCP tool descriptions carry the guidance on when and how to
+call them (task boundaries, type mapping, `topicKey` supersession); the notes below
+are only what's specific to dogfooding in this repo.
 
-- **Before planning a non-trivial task**: call `recall` (MCP `mcp__pieria__recall`)
-  with the task description to pull prior decisions, rejected approaches, and gotchas.
-- **After settling something non-obvious**: call `remember` —
-  design decisions and constraints as `type: fact`; conventions the user insists on
-  as `type: instruction`; notable events as `type: event`.
-- Use `topicKey` for facts that supersede a prior value (e.g. `embedding-dimension`,
-  `embedding-backend`) so the new row replaces the old instead of accumulating.
 - Don't pass `profile` explicitly — the gateway resolves it from the git remote (`pieria`).
-- **Latency note**: recall runs the full retrieval+synthesis pipeline through Ollama
-  and currently takes tens of seconds (the `qwen2.5:14b` small model on CPU). Call it
-  deliberately at task boundaries, not on every turn.
 - **Prerequisite**: Ollama must be running (launch Ollama.app) or recall/ingest hang.
   Session-start recall and the PreCompact/Stop ingest hooks fail-closed and silently
   no-op when the daemon or Ollama is unreachable.
+- **Latency**: recall runs through Ollama (`qwen2.5:14b` on CPU) and takes tens of
+  seconds — call it deliberately at task boundaries, not on every turn.
 
 ## Configuration
 

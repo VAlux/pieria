@@ -79,13 +79,26 @@ class CodeControllerTests {
 
   @Test
   void indexReturnsCountsAndStatusReflectsThem() {
-    CodeIndexRequest request = new CodeIndexRequest("tree1",
+    CodeIndexRequest request = new CodeIndexRequest("tree1", false,
       List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}")));
 
     CodeIndexResponse response = controller.index("code", request);
     assertThat(response.filesParsed()).isEqualTo(1);
     assertThat(response.symbols()).isEqualTo(2);
     assertThat(response.memoriesStored()).isEqualTo(1);
+
+    // Re-sending the same file is skipped (unchanged); --reindex forces a re-parse.
+    CodeIndexResponse unchanged = controller.index("code",
+      new CodeIndexRequest("tree1", false,
+        List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}"))));
+    assertThat(unchanged.filesSkippedUnchanged()).isEqualTo(1);
+    assertThat(unchanged.filesParsed()).isEqualTo(0);
+
+    CodeIndexResponse forced = controller.index("code",
+      new CodeIndexRequest("tree1", true,
+        List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}"))));
+    assertThat(forced.filesSkippedUnchanged()).isEqualTo(0);
+    assertThat(forced.filesParsed()).isEqualTo(1);
 
     CodeStatusResponse status = controller.status("code");
     assertThat(status.present()).isTrue();

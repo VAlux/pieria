@@ -56,7 +56,8 @@ public class CodeController {
   public CodeIndexResponse index(@PathVariable String name, @Valid @RequestBody CodeIndexRequest request) {
     List<SourceFile> files = toSourceFiles(request);
 
-    CodeIndexSummary summary = indexing.index(name, request.treeHash(), files);
+    CodeIndexSummary summary = indexing.index(name, request.treeHash(), files,
+      request.reindex(), dev.alvo.pieria.ingestion.IngestProgressListener.noop());
 
     return toResponse(summary);
   }
@@ -72,7 +73,7 @@ public class CodeController {
     List<SourceFile> files = toSourceFiles(request);
 
     UUID taskId = tasks.submit(progress -> {
-      CodeIndexSummary summary = indexing.index(name, request.treeHash(), files, progress);
+      CodeIndexSummary summary = indexing.index(name, request.treeHash(), files, request.reindex(), progress);
       return objectMapper.valueToTree(toResponse(summary));
     });
     return new TaskSubmitResponse(taskId.toString());

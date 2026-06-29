@@ -1,5 +1,6 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import org.springframework.aot.hint.MemberCategory;
@@ -43,6 +44,11 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
         MemberCategory.INVOKE_PUBLIC_METHODS);
     }
+    // The Tree-sitter NativeLibraryLookup SPI is instantiated reflectively by jtreesitter's
+    // ServiceLoader at runtime (to point it at the bundled libtree-sitter core); register its
+    // constructor so the lookup survives in the native image.
+    hints.reflection().registerType(PieriaTreeSitterLibraryLookup.class,
+      MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
   }
 
   private static String[] azureProviderTypes() {

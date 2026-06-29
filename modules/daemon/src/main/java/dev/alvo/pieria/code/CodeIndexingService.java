@@ -98,7 +98,7 @@ public class CodeIndexingService {
    * not otherwise used here.
    */
   public CodeIndexSummary index(String profileName, String treeHash, List<SourceFile> files) {
-    return index(profileName, treeHash, files, IngestProgressListener.noop());
+    return index(profileName, treeHash, files, false, IngestProgressListener.noop());
   }
 
   /**
@@ -107,6 +107,16 @@ public class CodeIndexingService {
    */
   public CodeIndexSummary index(String profileName, String treeHash, List<SourceFile> files,
                                 IngestProgressListener progress) {
+    return index(profileName, treeHash, files, false, progress);
+  }
+
+  /**
+   * As {@link #index(String, String, List, IngestProgressListener)}, but when {@code reindex} is true
+   * every file is parsed even if its content hash is unchanged (the skip-if-unchanged optimization is
+   * bypassed) — used after a parser/language-pack upgrade so unchanged source is re-indexed.
+   */
+  public CodeIndexSummary index(String profileName, String treeHash, List<SourceFile> files,
+                                boolean reindex, IngestProgressListener progress) {
     Profile profile = store.getOrCreateProfile(profileName);
     String profileId = profile.id();
     List<SourceFile> batch = files == null ? List.of() : files;
@@ -118,7 +128,7 @@ public class CodeIndexingService {
     int done = 0;
     for (SourceFile file : batch) {
       try {
-        FileResult r = tx.execute(_ -> indexOne(profileId, file, markerDirs));
+        FileResult r = tx.execute(_ -> indexOne(profileId, file, markerDirs, reindex));
         acc.add(r);
       } catch (RuntimeException e) {
         acc.filesFailed++;
@@ -134,13 +144,13 @@ public class CodeIndexingService {
     return acc.toSummary();
   }
 
-  private FileResult indexOne(String profileId, SourceFile file, Set<String> markerDirs) {
+  private FileResult indexOne(String profileId, SourceFile file, Set<String> markerDirs, boolean reindex) {
     String path = file.repoRelPath();
     String contentHash = (file.contentHash() == null || file.contentHash().isBlank())
       ? Hash.hash128(file.content() == null ? "" : file.content())
       : file.contentHash();
 
-    if (codeStore.fileContentHash(profileId, path).filter(contentHash::equals).isPresent()) {
+    if (!reindex && codeStore.fileContentHash(profileId, path).filter(contentHash::equals).isPresent()) {
       return FileResult.skipped();
     }
 

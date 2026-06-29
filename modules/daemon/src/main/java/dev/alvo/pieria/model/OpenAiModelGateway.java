@@ -460,7 +460,10 @@ public class OpenAiModelGateway implements ModelGateway {
     try {
       dto = callExtractionEntity(prompt, "verify", BatchVerificationDto.class);
     } catch (RuntimeException e) {
-      throw new ModelUnavailableException("model verification failed", e);
+      // A malformed batch response (e.g. the model emitting invalid JSON) must not abort the whole
+      // chunk — fall back to per-candidate verification, isolating any bad item.
+      LOGGER.warn("stage=verify batch call failed ({}); falling back to per-candidate verify", e.toString());
+      return verifyEachTolerant(candidates, safeTranscript);
     }
 
     List<VerificationResult> mapped = mapBatchVerdicts(dto, candidates);
@@ -471,9 +474,23 @@ public class OpenAiModelGateway implements ModelGateway {
     // malformed batch response never silently drops a whole chunk's candidates.
     LOGGER.warn("stage=verify batch result unusable for {} candidates; falling back to per-candidate verify",
       candidates.size());
+    return verifyEachTolerant(candidates, safeTranscript);
+  }
+
+  /**
+   * Per-candidate verification that never throws: an individual call failure drops that one candidate
+   * rather than aborting the chunk. (A full provider outage is already caught loudly at the extract
+   * stage; by here the provider was reachable, so failures are transient/parse issues to isolate.)
+   */
+  private List<VerificationResult> verifyEachTolerant(List<ExtractedCandidate> candidates, String transcript) {
     List<VerificationResult> results = new ArrayList<>(candidates.size());
     for (ExtractedCandidate candidate : candidates) {
-      results.add(verify(candidate, safeTranscript));
+      try {
+        results.add(verify(candidate, transcript));
+      } catch (RuntimeException e) {
+        LOGGER.warn("verify failed for one candidate ({}); dropping it", e.toString());
+        results.add(new VerificationResult(VerificationVerdict.DROP, "", "verification error"));
+      }
     }
     return results;
   }
@@ -583,7 +600,10 @@ public class OpenAiModelGateway implements ModelGateway {
     try {
       dto = callExtractionEntity(prompt, "classify", BatchClassificationDto.class);
     } catch (RuntimeException e) {
-      throw new ModelUnavailableException("model classification failed", e);
+      // A malformed batch response (e.g. the model emitting invalid JSON) must not abort the chunk's
+      // ingest — fall back to per-memory classification, isolating any bad item.
+      LOGGER.warn("stage=classify batch call failed ({}); falling back to per-memory classify", e.toString());
+      return classifyEachTolerant(contents);
     }
 
     List<Classification> mapped = mapBatchClassifications(dto, contents);
@@ -592,9 +612,23 @@ public class OpenAiModelGateway implements ModelGateway {
     }
     LOGGER.warn("stage=classify batch result unusable for {} memories; falling back to per-memory classify",
       contents.size());
+    return classifyEachTolerant(contents);
+  }
+
+  /**
+   * Per-memory classification that never throws: an individual call failure stores that memory as a
+   * plain {@code fact} (no topic key) rather than aborting the chunk's ingest. Classification is
+   * enrichment — losing it for one memory is far better than dropping the memory entirely.
+   */
+  private List<Classification> classifyEachTolerant(List<String> contents) {
     List<Classification> results = new ArrayList<>(contents.size());
     for (String content : contents) {
-      results.add(classify(content));
+      try {
+        results.add(classify(content));
+      } catch (RuntimeException e) {
+        LOGGER.warn("classify failed for one memory ({}); storing it as a plain fact", e.toString());
+        results.add(buildClassification(null, null, null, null));
+      }
     }
     return results;
   }
