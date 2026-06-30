@@ -67,6 +67,49 @@ The daemon runs two pipelines over a pluggable storage backend:
 - **Read path (recall):** query analysis + embedding → five parallel retrieval channels →
   RRF fusion → synthesis.
 
+### Retrieval pipeline
+
+```mermaid
+flowchart TD
+    Q["recall(query)"] --> A{"Query analysis<br/>(model · deterministic fallback)"}
+    A --> E["Embed query + HyDE statement"]
+
+    E --> W1
+
+    subgraph W1["Wave 1 — primary channels (parallel, virtual threads)"]
+        direction LR
+        EK["Exact key"]
+        MF["Memory FTS"]
+        MSG["Message FTS"]
+        DV["Direct vector"]
+        HV["HyDE vector"]
+        SF["Symbol FTS<br/>(if weight &gt; 0)"]
+    end
+
+    W1 -- "hits seed wave 2" --> W2
+
+    subgraph W2["Wave 2 — graph traversal (seeded from wave-1 hits)"]
+        direction LR
+        GR["Memory graph<br/>(if weight &gt; 0)"]
+        CG["Code graph<br/>(if weight &gt; 0)"]
+    end
+
+    W1 --> RRF["Weighted Reciprocal Rank Fusion → top-N evidence"]
+    W2 --> RRF
+    RRF --> T["Temporal facts<br/>(deterministic, computed in Java)"]
+    T --> S["Synthesis (large model)"]
+    S --> R["RecallResult<br/>answer + evidence memories"]
+
+    classDef stage fill:#1f2933,stroke:#9aa5b1,color:#f5f7fa;
+    class Q,A,E,RRF,T,S,R stage;
+```
+
+> **Fast path:** the auto-recall hooks skip query analysis and synthesis (and drop
+> code-indexer memories), returning the fused evidence with a `null` answer in ~1–3 s
+> instead of tens of seconds. Channel failure is graceful: a critical local-storage channel
+> (FTS / exact-key) failing aborts the recall, while a best-effort vector or graph channel
+> that fails or times out is logged and contributes nothing.
+
 ## Stack
 
 - **Java 25**, **Spring Boot 4.0.6**, Gradle (Kotlin DSL)
