@@ -79,33 +79,18 @@ event   = "SessionStart"
 command = "sh <PIERIA_HARNESS_DIR>/codex/session-start.sh"
 ```
 
-`session-start.sh` calls `POST /v1/profiles/{name}/recall` and prints the result
-to stdout so Codex can surface it. A minimal implementation (mirrors the Claude
-Code variant):
+`session-start.sh` delegates to the shared `harness/recall.sh`, which uses the
+daemon's **fast recall** path (`fast:true`): deterministic query analysis and no
+synthesis, returning the top memories as a ready-to-inject text block in ~1-3s
+(instead of the tens of seconds a full synthesized recall takes), and excluding
+auto-indexed code-graph memories. It prints that block to stdout for Codex to
+surface before the first turn. Honors `PIERIA_RECALL_QUERY`, `PIERIA_RECALL_LIMIT`
+(default 10), and `PIERIA_RECALL_TIMEOUT` (default 8).
 
-```sh
-#!/usr/bin/env sh
-# session-start.sh for Codex — recall project context at session open.
-# VERIFY: confirm SessionStart hook, stdout injection contract, and env vars
-# against current Codex CLI docs (as of 2026-05).
-
-_SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-_HARNESS_DIR=$(cd "${_SCRIPT_DIR}/.." && pwd)
-
-. "${_HARNESS_DIR}/profile-name.sh"
-PROFILE="${PIERIA_RESOLVED_PROFILE:-default}"
-DAEMON_URL="${PIERIA_DAEMON_URL:-http://127.0.0.1:8077}"
-
-RESPONSE=$(curl --silent --max-time 10 \
-  -H 'Content-Type: application/json' \
-  --data '{"query":"What should I know about this project before starting?","limit":10}' \
-  "${DAEMON_URL}/v1/profiles/${PROFILE}/recall" 2>/dev/null) || true
-
-if [ -n "$RESPONSE" ]; then
-  printf '%s\n' "$RESPONSE"
-fi
-exit 0
-```
+**No per-prompt recall on Codex.** Codex command hooks are command-only — they fire
+on tool/command events, not on prompt submission — so there is no equivalent to
+Claude Code's `UserPromptSubmit` auto-recall. The session-open primer is the recall
+surface Codex supports.
 
 > VERIFY: the `SessionStart` event name, whether hook stdout is injected into the
 > session context, and the available env vars must be confirmed against current
@@ -115,15 +100,16 @@ exit 0
 
 ## Wrapper scripts
 
-Two small wrapper scripts under `harness/codex/` (not yet created — add them
-following the patterns in `harness/claude-code/`) are needed for the hooks:
+Two small wrapper scripts under `harness/codex/` back the hooks (both fail-closed —
+exit 0 on any error — and contain no machine-specific paths or secrets):
 
-- `stop.sh` — mirrors `harness/claude-code/stop.sh`, reads `CODEX_TRANSCRIPT_PATH`
-  or equivalent env var (verify the name in Codex docs) and calls `ingest.sh`.
-- `session-start.sh` — mirrors `harness/claude-code/session-start.sh`.
+- `stop.sh` — mirrors `harness/claude-code/stop.sh`; reads the transcript path env
+  var (verify the name in Codex docs) and calls the shared `harness/ingest.sh`.
+- `session-start.sh` — calls the shared `harness/recall.sh` (fast recall) and prints
+  the result for Codex to surface.
 
-Both must be fail-closed (exit 0 on any error) and must not contain machine-specific
-paths or secrets.
+`pieria harness install codex` extracts these (plus the shared `profile-name.sh`,
+`ingest.sh`, and `recall.sh`) and wires the `[[hooks]]` entries automatically.
 
 ---
 
