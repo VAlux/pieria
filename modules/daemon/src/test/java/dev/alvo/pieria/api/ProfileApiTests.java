@@ -7,7 +7,10 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.ingestion.Chunker;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
+import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.model.ModelGateway;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -18,6 +21,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
@@ -39,6 +43,8 @@ class ProfileApiTests {
   MockMvc mvc;
   @Autowired
   ModelGateway modelGateway;
+  @Autowired
+  MemoryStore store;
 
   StubModelGateway stubModel() {
     return (StubModelGateway) modelGateway;
@@ -207,7 +213,29 @@ class ProfileApiTests {
       // so the counters are zero, but the display knobs fall back to their defaults.
       .andExpect(jsonPath("$.impact.recalls", is(0)))
       .andExpect(jsonPath("$.impact.tokensSavedEvidence", is(0)))
-      .andExpect(jsonPath("$.impact.contextWindowTokens", is(200000)));
+      .andExpect(jsonPath("$.impact.contextWindowTokens", is(200000)))
+      // No inference spend recorded for this profile, so the spend block is omitted.
+      .andExpect(jsonPath("$.spend").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  @Test
+  void statsReportsInferenceSpendWithPerTierCost() throws Exception {
+    Profile p = store.getOrCreateProfile("spendtest");
+    store.recordInferenceUsage(p.id(), java.util.Map.of(
+      InferenceTier.EXTRACTION, new TierUsage(10, 1_000_000, 200_000),
+      InferenceTier.SYNTHESIS, new TierUsage(2, 500_000, 100_000)));
+
+    mvc.perform(get("/v1/profiles/spendtest/stats"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.spend.costAvailable", is(true)))
+      .andExpect(jsonPath("$.spend.totalPromptTokens", is(1500000)))
+      .andExpect(jsonPath("$.spend.totalCompletionTokens", is(300000)))
+      // extraction: 1.0*0.30 + 0.2*0.60 = 0.42; synthesis: 0.5*3.0 + 0.1*15.0 = 3.0; total 3.42.
+      .andExpect(jsonPath("$.spend.totalCostUsd", org.hamcrest.Matchers.closeTo(3.42, 1e-6)))
+      .andExpect(jsonPath("$.spend.tiers[?(@.tier=='extraction')].costUsd",
+        org.hamcrest.Matchers.contains(org.hamcrest.Matchers.closeTo(0.42, 1e-6))))
+      .andExpect(jsonPath("$.spend.tiers[?(@.tier=='synthesis')].calls",
+        org.hamcrest.Matchers.contains(2)));
   }
 
   private void storeFact(String profile, String content) throws Exception {
@@ -222,6 +250,31 @@ class ProfileApiTests {
     mvc.perform(get("/v1/profiles/ghost/stats"))
       .andExpect(status().isNotFound())
       .andExpect(jsonPath("$.error", is("not_found")));
+  }
+
+  @Test
+  void recallTextPlainReturnsInjectableBlock() throws Exception {
+    remember(); // stores "Bob likes tea" in profile alice
+
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .accept(MediaType.TEXT_PLAIN)
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
+      .andExpect(content().string(containsString("[pieria] Relevant prior context")))
+      .andExpect(content().string(containsString("Bob likes tea")));
+  }
+
+  @Test
+  void recallTextPlainIsNoContentWhenNothingRecalled() throws Exception {
+    remember(); // alice has memories, but none match the query below
+
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .accept(MediaType.TEXT_PLAIN)
+        .content("{\"query\":\"zzzznomatchwhatsoever\"}"))
+      .andExpect(status().isNoContent());
   }
 
   private String remember() throws Exception {
@@ -262,7 +315,10 @@ class ProfileApiTests {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
         new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"),
-      null);
+        new PieriaProperties.Stats(0.0, 200000, java.util.Map.of(
+          "extraction", new PieriaProperties.Stats.TierPrice(0.30, 0.60),
+          "synthesis", new PieriaProperties.Stats.TierPrice(3.0, 15.0),
+          "embedding", new PieriaProperties.Stats.TierPrice(0.02, 0.0))));
     }
 
     @Bean("profileApiEffectiveConfigResolver")

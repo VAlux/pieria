@@ -17,10 +17,10 @@ class ProgressReporterTests {
 
   @Test
   void formatsDurationsHumanReadably() {
-    assertThat(ProgressReporter.formatDuration(45)).isEqualTo("45s");
-    assertThat(ProgressReporter.formatDuration(72)).isEqualTo("1m 12s");
-    assertThat(ProgressReporter.formatDuration(3700)).isEqualTo("1h 1m");
-    assertThat(ProgressReporter.formatDuration(-5)).isEqualTo("0s");
+    assertThat(Durations.format(45)).isEqualTo("45s");
+    assertThat(Durations.format(72)).isEqualTo("1m 12s");
+    assertThat(Durations.format(3700)).isEqualTo("1h 1m");
+    assertThat(Durations.format(-5)).isEqualTo("0s");
   }
 
   @Test

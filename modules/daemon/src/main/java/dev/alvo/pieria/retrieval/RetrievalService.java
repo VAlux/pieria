@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 
+import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
@@ -12,6 +13,8 @@ import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.model.ModelGateway;
+import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
+import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.ChannelDiagnostics;
 import dev.alvo.pieria.retrieval.channel.DirectVectorChannel;
 import dev.alvo.pieria.retrieval.channel.ExactKeyChannel;
@@ -143,9 +146,21 @@ public class RetrievalService {
    * @throws NotFoundException if the profile does not exist
    */
   public RecallResult recall(String profileName, String query, int limit, boolean debug) {
+    return recall(profileName, query, limit, debug, false);
+  }
+
+  /**
+   * As {@link #recall(String, String, int, boolean)}, but {@code fast} selects the low-latency
+   * injection path used by the auto-recall hooks: deterministic query analysis (skips the
+   * {@code analyzeQuery} model call) and no synthesis (skips the large model), returning the fused
+   * memories with a {@code null} answer. The direct-vector channel's query embedding is the only
+   * remaining model call, so a fast recall completes in ~1-3s instead of tens of seconds. Code-indexer
+   * memories are excluded (see {@link #isCodeDerived}) since this path feeds prompt-context injection.
+   */
+  public RecallResult recall(String profileName, String query, int limit, boolean debug, boolean fast) {
     long totalStart = System.nanoTime();
-    LOGGER.info("recall start profile={} limit={} debug={} queryChars={}",
-      profileName, limit, debug, query == null ? 0 : query.length());
+    LOGGER.info("recall start profile={} limit={} debug={} fast={} queryChars={}",
+      profileName, limit, debug, fast, query == null ? 0 : query.length());
 
     var profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
     LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
@@ -156,7 +171,15 @@ public class RetrievalService {
       profileName, channelTypes(pipeline.channels()), channelTypes(pipeline.secondWaveChannels()),
       pipeline.channelLimit(), pipeline.channelTimeoutMs());
 
-    Timed<QueryAnalysis> analysis = Timed.measure(() -> analyze(query));
+    // One accumulator for this recall: analyzeQuery, embed, and synthesizeRecall all run on this
+    // request thread, so a single main-thread binding captures their real provider token usage.
+    InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
+    InferenceUsageSink.Binding usageBinding = InferenceUsageSink.bind(inferenceUsage);
+    try {
+
+    // Fast path forces the deterministic analyzer (no analyzeQuery model call); the HyDE channel then
+    // drops out on its own since deterministic analysis produces no hyde statement.
+    Timed<QueryAnalysis> analysis = Timed.measure(() -> fast ? fallbackAnalyzer.analyze(query) : analyze(query));
     LOGGER.debug("recall analysis profile={} topicKeys={} ftsTerms={} entities={} hasHyde={} analysisMs={}",
       profileName, analysis.value().topicKeys().size(), analysis.value().ftsTerms().size(),
       analysis.value().entities().size(), analysis.value().hydeStatement() != null, analysis.millis());
@@ -172,15 +195,27 @@ public class RetrievalService {
 
     List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
     Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics));
-    Timed<List<RecallCandidate>> fused = Timed.measure(() -> fuse(pipeline, hits.value(), limit));
+    // Fast path is for prompt-context injection: drop code-indexer-derived memories (one-line symbol
+    // summaries the agent can grep for itself) so the limited slots go to the decisions/conventions it
+    // can't cheaply re-derive. Filtered before fusion so the limit still yields that many real hits.
+    Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
+      List<RetrievalCandidate> forFusion = fast
+        ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
+        : hits.value();
+      return fuse(pipeline, forFusion, limit);
+    });
     LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
       profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
 
-    Timed<List<TemporalFact>> temporal = Timed.measure(() -> extractTemporalFacts(query, fused.value()));
+    // Fast path skips temporal facts + synthesis entirely: the answer is null and callers (the
+    // injection hooks) consume the raw memories directly.
+    Timed<List<TemporalFact>> temporal = Timed.measure(
+      () -> fast ? List.<TemporalFact>of() : extractTemporalFacts(query, fused.value()));
     LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
       profileName, temporal.value().size(), temporal.millis());
 
-    Timed<String> answer = Timed.measure(() -> synthesize(query, fused.value(), temporal.value()));
+    Timed<String> answer = Timed.measure(
+      () -> fast ? null : synthesize(query, fused.value(), temporal.value()));
     LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
       profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
@@ -192,6 +227,24 @@ public class RetrievalService {
       analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
       temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
     return new RecallResult(answer.value(), fused.value(), temporal.value(), diagnostics);
+
+    } finally {
+      usageBinding.close();
+      recordInferenceUsage(profile.id(), inferenceUsage);
+    }
+  }
+
+  /**
+   * Accumulate this recall's real provider token usage into the profile's lifetime inference-spend
+   * counters, per model tier. Accounting-only and best-effort: a failure here must never break
+   * recall, so it is logged and swallowed.
+   */
+  private void recordInferenceUsage(String profileId, InferenceUsageAccumulator usage) {
+    try {
+      store.recordInferenceUsage(profileId, usage.snapshot());
+    } catch (RuntimeException e) {
+      LOGGER.warn("recording recall inference usage failed ({}); continuing", e.toString());
+    }
   }
 
   /**
@@ -257,6 +310,15 @@ public class RetrievalService {
   /**
    * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
    */
+  /**
+   * Whether {@code memory} was derived by the code indexer (vs. a conversational memory), keyed off
+   * the stable {@link CodeIndexingService#CODE_SESSION} session id every code-index memory carries.
+   * Such memories are valuable for the code-graph channels but noise for prompt-context injection.
+   */
+  private static boolean isCodeDerived(Memory memory) {
+    return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
+  }
+
   private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit) {
     List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
     return fused.size() > limit ? List.copyOf(fused.subList(0, limit)) : fused;

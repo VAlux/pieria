@@ -42,7 +42,7 @@ val stageHarnessAssets by tasks.registering(Sync::class) {
 	// Nest under harness/ so the classpath resource paths are harness/profile-name.sh, etc.
 	from(rootProject.layout.projectDirectory.dir("harness")) {
 		into("harness")
-		include("profile-name.sh", "ingest.sh", "claude-code/*.sh", "codex/*.sh")
+		include("profile-name.sh", "ingest.sh", "recall.sh", "claude-code/*.sh", "codex/*.sh")
 	}
 }
 

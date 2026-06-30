@@ -2,6 +2,8 @@ package dev.alvo.pieria.cli.command.profile;
 
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
 import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -46,6 +48,7 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
     line("Vectorization backlog",
       s.vectorizationBacklog() == null ? "unknown" : s.vectorizationBacklog().toString());
     renderImpact(s.impact());
+    renderSpend(s.spend());
     return 0;
   }
 
@@ -78,6 +81,29 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
       double ratio = impact.tokensIngested() / (double) impact.tokensStored();
       line("Ingest compression", String.format(Locale.ROOT, "%s → %s tokens  (%.1f×)",
         humanize(impact.tokensIngested()), humanize(impact.tokensStored()), ratio));
+    }
+  }
+
+  /**
+   * The "Inference spend" panel: the real provider tokens Pieria spent running the pipeline, broken
+   * down by model tier, with a per-million input/output cost estimate. The cost line shows only when
+   * at least one tier price is configured; the whole panel is omitted when nothing was spent or an
+   * older daemon does not return the block.
+   */
+  private void renderSpend(ProfileSpend spend) {
+    if (spend == null || spend.tiers() == null || spend.tiers().isEmpty()) {
+      return;
+    }
+    log.info("");
+    log.info("Inference spend");
+    for (TierSpend t : spend.tiers()) {
+      line("  " + t.tier(), String.format(Locale.ROOT, "prompt %s   out %s   (%s calls)",
+        humanize(t.promptTokens()), humanize(t.completionTokens()), humanize(t.calls())));
+    }
+    long total = spend.totalPromptTokens() + spend.totalCompletionTokens();
+    line("total", "~" + humanize(total) + " tokens");
+    if (spend.costAvailable()) {
+      line("  ≈ cost spent", String.format(Locale.ROOT, "$%.2f", spend.totalCostUsd()));
     }
   }
 

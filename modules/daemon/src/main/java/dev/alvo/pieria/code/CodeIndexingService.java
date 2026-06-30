@@ -48,9 +48,11 @@ public class CodeIndexingService {
   private static final Logger log = LoggerFactory.getLogger(CodeIndexingService.class);
 
   /**
-   * Stable session id so unchanged code yields identical, content-addressed derived memories.
+   * Stable session id so unchanged code yields identical, content-addressed derived memories. Also
+   * the canonical marker that a memory was derived by the code indexer (vs. a conversational memory):
+   * the fast/injection recall path filters these out (see {@code RetrievalService}).
    */
-  static final String CODE_SESSION = "pieria:code-index";
+  public static final String CODE_SESSION = "pieria:code-index";
 
   /**
    * Build-file names used to locate module roots within a batch.

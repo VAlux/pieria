@@ -144,7 +144,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    IngestClient client = new HttpIngestClient(url);
+    IngestClient client = new HttpIngestClient(url, "onboard");
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }
@@ -195,7 +195,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    CodeIndexClient client = new HttpCodeIndexClient(url);
+    CodeIndexClient client = new HttpCodeIndexClient(url, "onboard");
     if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }

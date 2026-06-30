@@ -8,6 +8,10 @@ import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
@@ -21,6 +25,7 @@ import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.retrieval.RecallResult;
@@ -43,7 +48,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -102,12 +109,14 @@ public class ProfileController {
   @PostMapping("/ingest/async")
   @ResponseStatus(HttpStatus.ACCEPTED)
   public TaskSubmitResponse ingestAsync(@PathVariable String name,
+                                        @RequestParam(name = "label", required = false) String label,
                                         @Valid @RequestBody IngestRequest request) {
     List<Message> messages = request.messages().stream()
       .map(m -> Message.of(request.sessionId(), m.role(), m.content()))
       .toList();
 
-    UUID taskId = tasks.submit(progress -> {
+    String kind = label == null || label.isBlank() ? "ingest" : label;
+    UUID taskId = tasks.submit(kind, name, progress -> {
       List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages, progress);
       return objectMapper.valueToTree(Map.of("count", stored.size()));
     });
@@ -129,13 +138,56 @@ public class ProfileController {
                                @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
     boolean debug = Boolean.TRUE.equals(request.debug());
-    RecallResult result = retrievalService.recall(name, request.query(), limit, debug);
+    boolean fast = Boolean.TRUE.equals(request.fast());
+    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, fast);
 
     List<MemoryResponse> memories = result.candidates().stream()
       .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()))
       .toList();
 
     return new RecallResponse(result.answer(), memories, debug ? debugBlock(result) : null);
+  }
+
+  /**
+   * Content-negotiated companion to {@link #recall}: returns a compact, injection-ready text block
+   * (one line per memory) instead of JSON, for the auto-recall hooks that pipe stdout straight into a
+   * Claude Code session. Always runs the fast path (deterministic analysis, no synthesis) regardless
+   * of the request's {@code fast} flag — there is no answer to synthesize when the caller only wants
+   * the memories. Returns {@code 204 No Content} when nothing was recalled so the hook injects nothing.
+   */
+  @PostMapping(value = "/recall", produces = MediaType.TEXT_PLAIN_VALUE)
+  public ResponseEntity<String> recallContext(@PathVariable String name,
+                                              @Valid @RequestBody RecallRequest request) {
+    int limit = request.limit() == null ? 10 : request.limit();
+    RecallResult result = retrievalService.recall(name, request.query(), limit, false, true);
+
+    String block = renderContextBlock(name, result.candidates());
+    return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);
+  }
+
+  /** Render fused recall candidates as a compact, injection-ready text block; empty string when none. */
+  private static String renderContextBlock(String profile, List<RecallCandidate> candidates) {
+    if (candidates == null || candidates.isEmpty()) {
+      return "";
+    }
+    StringBuilder block = new StringBuilder()
+      .append("[pieria] Relevant prior context for profile \"").append(profile).append("\"\n")
+      .append("(recalled memories — verify against current code before relying on them):\n");
+    for (RecallCandidate candidate : candidates) {
+      Memory memory = candidate.memory();
+      block.append("- (").append(memory.type().wire()).append(") ")
+        .append(oneLine(memory.content(), 200)).append('\n');
+    }
+    return block.toString();
+  }
+
+  /** Collapse whitespace to single spaces and truncate to {@code max} chars with an ellipsis. */
+  private static String oneLine(String text, int max) {
+    if (text == null) {
+      return "";
+    }
+    String collapsed = text.strip().replaceAll("\\s+", " ");
+    return collapsed.length() <= max ? collapsed : collapsed.substring(0, max - 1) + "…";
   }
 
   private static RecallDebug debugBlock(RecallResult result) {
@@ -173,7 +225,8 @@ public class ProfileController {
       stats.firstMemoryAt(),
       stats.lastMemoryAt(),
       backlog,
-      impactOf(store.usageStats(profile.id())));
+      impactOf(store.usageStats(profile.id())),
+      spendOf(store.inferenceUsage(profile.id())));
   }
 
   /** Map the stored lifetime counters to the wire impact block, stamping the display knobs. */
@@ -190,6 +243,48 @@ public class ProfileController {
       usage.tokensStored(),
       window,
       price);
+  }
+
+  /**
+   * Map the stored per-tier inference-spend counters to the wire spend block, costing each tier with
+   * its configured input/output prices. Returns {@code null} when nothing has been spent yet so the
+   * client renders no panel.
+   */
+  private ProfileSpend spendOf(Map<InferenceTier, TierUsage> usage) {
+    if (usage == null || usage.isEmpty()) {
+      return null;
+    }
+    // Stats binds with @DefaultValue in production; guard null for tests that construct properties directly.
+    Map<String, PieriaProperties.Stats.TierPrice> prices =
+      (properties == null || properties.stats() == null) ? Map.of() : properties.stats().spend();
+
+    List<TierSpend> tiers = new ArrayList<>();
+    long totalPrompt = 0;
+    long totalCompletion = 0;
+    double totalCost = 0.0;
+    boolean costAvailable = false;
+
+    for (Map.Entry<InferenceTier, TierUsage> entry : usage.entrySet()) {
+      String tierName = entry.getKey().name().toLowerCase(Locale.ROOT);
+      TierUsage u = entry.getValue();
+      PieriaProperties.Stats.TierPrice price = prices.get(tierName);
+
+      double cost = 0.0;
+      if (price != null) {
+        cost = u.promptTokens() / 1_000_000.0 * price.inputPrice()
+          + u.completionTokens() / 1_000_000.0 * price.outputPrice();
+        if (price.inputPrice() > 0.0 || price.outputPrice() > 0.0) {
+          costAvailable = true;
+        }
+      }
+
+      tiers.add(new TierSpend(tierName, u.calls(), u.promptTokens(), u.completionTokens(), cost));
+      totalPrompt += u.promptTokens();
+      totalCompletion += u.completionTokens();
+      totalCost += cost;
+    }
+
+    return new ProfileSpend(tiers, totalPrompt, totalCompletion, totalCost, costAvailable);
   }
 
   @GetMapping("/memories")

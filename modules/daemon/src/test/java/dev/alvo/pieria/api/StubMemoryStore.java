@@ -11,12 +11,15 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +41,22 @@ class StubMemoryStore implements MemoryStore {
   private final Map<String, Long> outboxEnqueuedAt = new LinkedHashMap<>();
   // memoryId -> embedding written by completeVectorization
   private final Map<String, float[]> embeddings = new LinkedHashMap<>();
+  // profileId -> per-tier inference spend
+  private final Map<String, Map<InferenceTier, TierUsage>> inferenceUsage = new LinkedHashMap<>();
   private long enqueueSeq = 0;
+
+  @Override
+  public void recordInferenceUsage(String profileId, Map<InferenceTier, TierUsage> usage) {
+    Map<InferenceTier, TierUsage> existing =
+      inferenceUsage.computeIfAbsent(profileId, k -> new EnumMap<>(InferenceTier.class));
+    usage.forEach((tier, u) -> existing.merge(tier, u, (a, b) -> new TierUsage(
+      a.calls() + b.calls(), a.promptTokens() + b.promptTokens(), a.completionTokens() + b.completionTokens())));
+  }
+
+  @Override
+  public Map<InferenceTier, TierUsage> inferenceUsage(String profileId) {
+    return inferenceUsage.getOrDefault(profileId, Map.of());
+  }
 
   @Override
   public Profile getOrCreateProfile(String name) {

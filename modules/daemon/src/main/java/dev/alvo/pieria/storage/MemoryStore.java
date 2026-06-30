@@ -12,9 +12,12 @@ import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -72,6 +75,23 @@ public interface MemoryStore {
    */
   default ProfileUsage usageStats(String profileId) {
     return ProfileUsage.empty();
+  }
+
+  /**
+   * Accumulate one operation's real provider token usage into the profile's lifetime inference-spend
+   * counters, per {@link InferenceTier}. {@code usage} is a per-tier snapshot of an
+   * {@code InferenceUsageAccumulator}; an empty map is a no-op. Best-effort and accounting-only — a
+   * no-op for backends that do not track spend.
+   */
+  default void recordInferenceUsage(String profileId, Map<InferenceTier, TierUsage> usage) {
+  }
+
+  /**
+   * The profile's lifetime inference-spend counters keyed by tier, or an empty map when the backend
+   * does not track spend or the profile has no rows yet.
+   */
+  default Map<InferenceTier, TierUsage> inferenceUsage(String profileId) {
+    return Map.of();
   }
 
   /**

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
@@ -69,10 +70,13 @@ public class CodeController {
    */
   @PostMapping("/code/async")
   @ResponseStatus(HttpStatus.ACCEPTED)
-  public TaskSubmitResponse indexAsync(@PathVariable String name, @Valid @RequestBody CodeIndexRequest request) {
+  public TaskSubmitResponse indexAsync(@PathVariable String name,
+                                       @RequestParam(name = "label", required = false) String label,
+                                       @Valid @RequestBody CodeIndexRequest request) {
     List<SourceFile> files = toSourceFiles(request);
 
-    UUID taskId = tasks.submit(progress -> {
+    String kind = label == null || label.isBlank() ? "code" : label;
+    UUID taskId = tasks.submit(kind, name, progress -> {
       CodeIndexSummary summary = indexing.index(name, request.treeHash(), files, request.reindex(), progress);
       return objectMapper.valueToTree(toResponse(summary));
     });

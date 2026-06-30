@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
@@ -226,6 +227,97 @@ class RetrievalServiceTests {
     store.profile = null;
     assertThatThrownBy(() -> service(store, new FakeModelGateway()).recall("ghost", "tea", 10, false))
       .isInstanceOf(NotFoundException.class);
+  }
+
+  @Test
+  void fastRecallSkipsModelAnalysisAndSynthesis() {
+    Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
+    FakeStore store = new FakeStore();
+    store.exactKey = List.of(shared);
+    store.ftsMemory = List.of(shared);
+
+    ProbeGateway model = new ProbeGateway();
+    RecallResult result = service(store, model).recall("p", "tea", 10, false, true);
+
+    // Fast path returns the retrieved memories with no synthesized answer, and never touches the
+    // model for query analysis or synthesis (the expensive calls).
+    assertThat(result.answer()).isNull();
+    assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("m1");
+    assertThat(result.temporalFacts()).isEmpty();
+    assertThat(model.analyzeQueryCalled).isFalse();
+    assertThat(model.synthesizeCalled).isFalse();
+  }
+
+  @Test
+  void nonFastRecallStillAnalysesAndSynthesises() {
+    Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
+    FakeStore store = new FakeStore();
+    store.exactKey = List.of(shared);
+    store.ftsMemory = List.of(shared);
+
+    ProbeGateway model = new ProbeGateway();
+    RecallResult result = service(store, model).recall("p", "tea", 10, false, false);
+
+    assertThat(result.answer()).isNotNull();
+    assertThat(model.analyzeQueryCalled).isTrue();
+    assertThat(model.synthesizeCalled).isTrue();
+  }
+
+  @Test
+  void fastRecallExcludesCodeIndexedMemories() {
+    Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+      "Source file Tokens.java defines class Tokens", "code:file:Tokens.java", null, false,
+      "{\"source\":\"code\"}", null, T0);
+    Memory designFact = mem("m1", "inference cost is estimated per tier from prompt/completion tokens",
+      MemoryType.FACT, "cost.estimate", T0.plusSeconds(10));
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(codeFact, designFact);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "cost", 10, false, true);
+
+    // The code-indexer memory is dropped from the injection path; the conversational one survives.
+    assertThat(result.candidates()).extracting(c -> c.memory().id())
+      .contains("m1")
+      .doesNotContain("c1");
+  }
+
+  @Test
+  void nonFastRecallKeepsCodeIndexedMemories() {
+    Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+      "Source file Tokens.java defines class Tokens", "code:file:Tokens.java", null, false,
+      "{\"source\":\"code\"}", null, T0);
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(codeFact);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "tokens", 10, false, false);
+
+    // A normal (synthesized) recall still surfaces code memories — the filter is injection-only.
+    assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("c1");
+  }
+
+  /** Records whether the model-driven analysis/synthesis stages were invoked, delegating otherwise. */
+  private static final class ProbeGateway extends FakeModelGateway {
+    boolean analyzeQueryCalled = false;
+    boolean synthesizeCalled = false;
+
+    @Override
+    public QueryAnalysis analyzeQuery(String query) {
+      analyzeQueryCalled = true;
+      return super.analyzeQuery(query);
+    }
+
+    @Override
+    public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
+      synthesizeCalled = true;
+      return super.synthesizeRecall(query, candidates);
+    }
+
+    @Override
+    public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                   List<dev.alvo.pieria.retrieval.model.TemporalFact> temporalFacts) {
+      synthesizeCalled = true;
+      return super.synthesizeRecall(query, candidates, temporalFacts);
+    }
   }
 
   /** Minimal configurable {@link MemoryStore}: only the methods the read path touches are wired. */

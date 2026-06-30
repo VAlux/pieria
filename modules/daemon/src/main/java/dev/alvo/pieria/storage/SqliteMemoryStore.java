@@ -15,6 +15,8 @@ import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
@@ -32,6 +34,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -42,6 +45,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Embedded SQLite backend for {@link MemoryStore}. Hand-written SQL against the V1 schema
@@ -299,6 +303,40 @@ public class SqliteMemoryStore implements MemoryStore {
         rs.getLong("tokens_stored")))
       .optional()
       .orElse(ProfileUsage.empty());
+  }
+
+  @Override
+  @Transactional
+  public void recordInferenceUsage(String profileId, Map<InferenceTier, TierUsage> usage) {
+    if (usage == null || usage.isEmpty()) {
+      return;
+    }
+    String now = Instant.now().toString();
+    usage.forEach((tier, u) -> jdbc.sql("""
+        INSERT INTO profile_inference_usage \
+        (profile_id, tier, calls, prompt_tokens, completion_tokens, updated_at) \
+        VALUES (?, ?, ?, ?, ?, ?) \
+        ON CONFLICT (profile_id, tier) DO UPDATE SET \
+        calls = calls + excluded.calls, \
+        prompt_tokens = prompt_tokens + excluded.prompt_tokens, \
+        completion_tokens = completion_tokens + excluded.completion_tokens, \
+        updated_at = excluded.updated_at""")
+      .params(profileId, tier.name(), u.calls(), u.promptTokens(), u.completionTokens(), now)
+      .update());
+  }
+
+  @Override
+  public Map<InferenceTier, TierUsage> inferenceUsage(String profileId) {
+    return jdbc.sql("""
+        SELECT tier, calls, prompt_tokens, completion_tokens \
+        FROM profile_inference_usage WHERE profile_id = ?""")
+      .param(profileId)
+      .query((rs, _) -> Map.entry(
+        InferenceTier.valueOf(rs.getString("tier")),
+        new TierUsage(rs.getLong("calls"), rs.getLong("prompt_tokens"), rs.getLong("completion_tokens"))))
+      .list().stream()
+      .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+        (a, b) -> b, () -> new EnumMap<>(InferenceTier.class)));
   }
 
   @Override

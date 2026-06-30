@@ -23,12 +23,23 @@ public final class HttpIngestClient implements IngestClient {
   private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
 
   private final String baseUrl;
+  private final String label;
   private final HttpClient http;
   private final ObjectMapper mapper;
 
   public HttpIngestClient(String baseUrl) {
+    this(baseUrl, null);
+  }
+
+  /**
+   * @param label optional task label sent as {@code ?label=}, so the task surfaces in
+   *              {@code pieria task list} under a higher-level name (e.g. {@code "onboard"}) instead
+   *              of the default {@code "ingest"}.
+   */
+  public HttpIngestClient(String baseUrl, String label) {
     // Strip a trailing slash so path concatenation is predictable.
     this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+    this.label = label;
     this.http = HttpClient.newBuilder()
       .connectTimeout(Duration.ofSeconds(3))
       .build();
@@ -62,7 +73,7 @@ public final class HttpIngestClient implements IngestClient {
       return new Failure(-1, "failed to serialize request: " + e.getMessage());
     }
 
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/ingest/async"))
+    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/ingest/async" + labelQuery()))
       .timeout(Duration.ofSeconds(10))
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
@@ -137,6 +148,14 @@ public final class HttpIngestClient implements IngestClient {
         return new Failure(-1, "interrupted while waiting for the ingest task");
       }
     }
+  }
+
+  /** {@code "?label=onboard"} when a label is set, otherwise empty. */
+  private String labelQuery() {
+    if (label == null || label.isBlank()) {
+      return "";
+    }
+    return "?label=" + java.net.URLEncoder.encode(label, StandardCharsets.UTF_8);
   }
 
   /** Extract the {@code message} field from a daemon {@code ErrorResponse} body, or "" if absent. */

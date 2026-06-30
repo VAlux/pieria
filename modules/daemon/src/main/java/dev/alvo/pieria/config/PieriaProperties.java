@@ -24,13 +24,30 @@ public record PieriaProperties(
   }
 
   /**
-   * Display tuning for the per-profile "Pieria impact" panel. {@code pricePerMillionTokens} converts
-   * estimated saved tokens into an approximate cost figure; {@code 0.0} (the default) omits the cost
-   * line entirely. {@code contextWindowTokens} is the model context size used to express savings as
-   * a number of windows. Neither affects retrieval/ingestion behavior.
+   * Display tuning for the per-profile stats panels. {@code pricePerMillionTokens} converts
+   * estimated <em>saved</em> tokens into an approximate cost figure for the "Pieria impact" panel;
+   * {@code 0.0} (the default) omits that cost line. {@code contextWindowTokens} is the model context
+   * size used to express savings as a number of windows. {@code spend} carries the per-tier
+   * input/output prices used to cost the "Inference spend" panel (the real tokens Pieria spent),
+   * keyed by lower-case tier name ({@code extraction}/{@code synthesis}/{@code embedding}); a tier
+   * with no entry, or all-zero prices, simply contributes no cost. None of these affect
+   * retrieval/ingestion behavior.
    */
   public record Stats(@DefaultValue("0.0") double pricePerMillionTokens,
-                      @DefaultValue("200000") int contextWindowTokens) {
+                      @DefaultValue("200000") int contextWindowTokens,
+                      Map<String, TierPrice> spend) {
+
+    public Stats {
+      spend = spend == null ? Map.of() : Map.copyOf(spend);
+    }
+
+    /**
+     * Per-million-token input/output price for a single model tier. Both default to {@code 0.0},
+     * which hides the cost contribution for that tier.
+     */
+    public record TierPrice(@DefaultValue("0.0") double inputPrice,
+                            @DefaultValue("0.0") double outputPrice) {
+    }
   }
 
   public record Db(String path) {

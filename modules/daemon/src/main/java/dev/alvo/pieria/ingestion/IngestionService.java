@@ -14,6 +14,8 @@ import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
+import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
+import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Timed;
 import dev.alvo.pieria.tools.Tokens;
@@ -143,8 +145,12 @@ public class IngestionService {
       profileName, sessionId, chunks.size(), detailPass, tuning.detailPassMinMessages(),
       Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
+    // One accumulator for this whole ingest: every model call (extract/verify/classify/graph),
+    // whether on this thread or a virtual-thread worker, reports its real provider token usage here.
+    InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
+
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency()), progress));
+      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
@@ -161,7 +167,7 @@ public class IngestionService {
     // durable). Verification model calls run bounded-parallel; the store write stays single-threaded.
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyClassifyStore(
       extraction.merged(), chunks, profile.id(), sessionId,
-      Math.max(1, tuning.maxExtractionConcurrency()), progress));
+      Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     VerifyStoreResult result = verifyStore.value();
     log.info("ingest verified profile={} session={} passed={} corrected={} dropped={} stored={} verifyStoreMs={}",
       profileName, sessionId, result.passed(), result.corrected(), result.dropped(),
@@ -220,8 +226,36 @@ public class IngestionService {
       Timed.elapsedMillis(totalStart));
 
     recordUsage(profile.id(), normalized, result.stored());
+    recordInferenceUsage(profile.id(), inferenceUsage);
 
     return result.stored();
+  }
+
+  /**
+   * Accumulate this ingest's real provider token usage into the profile's lifetime inference-spend
+   * counters, per model tier. Accounting-only and best-effort — a failure here must never break
+   * ingest, and an operation that spent nothing records nothing.
+   */
+  private void recordInferenceUsage(String profileId, InferenceUsageAccumulator usage) {
+    try {
+      store.recordInferenceUsage(profileId, usage.snapshot());
+    } catch (RuntimeException e) {
+      log.warn("recording ingest inference usage failed ({}); continuing", e.toString());
+    }
+  }
+
+  /**
+   * Wrap {@code task} so it binds {@code usage} to whatever (virtual) thread runs it before calling
+   * the gateway, then restores the prior binding. Required because the extraction/verify executors
+   * are virtual-thread-per-task and do not inherit thread-locals, so the binding must be established
+   * on the worker thread itself rather than propagated from the submitter.
+   */
+  private static <T> Callable<T> tracked(InferenceUsageAccumulator usage, Callable<T> task) {
+    return () -> {
+      try (InferenceUsageSink.Binding ignored = InferenceUsageSink.bind(usage)) {
+        return task.call();
+      }
+    };
   }
 
   /**
@@ -263,8 +297,8 @@ public class IngestionService {
    * candidates, retaining the raw count for logging.
    */
   private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
-                                       IngestProgressListener progress) {
-    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency, progress);
+                                       InferenceUsageAccumulator usage, IngestProgressListener progress) {
+    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency, usage, progress);
     List<ExtractedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -280,8 +314,8 @@ public class IngestionService {
    * survivor — keeping the daemon's single-writer invariant and deterministic supersession ordering.
    */
   private VerifyStoreResult verifyClassifyStore(List<ExtractedCandidate> merged, List<Chunk> chunks,
-                                                String profileId, String sessionId,
-                                                int maxConcurrency, IngestProgressListener progress) {
+                                                String profileId, String sessionId, int maxConcurrency,
+                                                InferenceUsageAccumulator usage, IngestProgressListener progress) {
     int total = merged.size();
     if (total == 0) {
       return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0);
@@ -311,7 +345,10 @@ public class IngestionService {
     List<Memory> stored = new ArrayList<>();
 
     Semaphore gate = new Semaphore(maxConcurrency);
-    try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+    // Bind on this fold thread so the synchronous classify/graph calls below record their usage;
+    // the verify calls run on worker threads and bind via tracked(...).
+    try (InferenceUsageSink.Binding ignored = InferenceUsageSink.bind(usage);
+         ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       // One batched verify call per chunk, bounded-parallel across chunks.
       List<Integer> chunkOrder = new ArrayList<>(byChunk.keySet());
       Map<Integer, Future<List<VerificationResult>>> verifyFutures = new LinkedHashMap<>();
@@ -319,7 +356,7 @@ public class IngestionService {
         List<ExtractedCandidate> group = byChunk.get(chunkIndex);
         String transcript = transcriptByChunk.getOrDefault(chunkIndex, "");
         verifyFutures.put(chunkIndex,
-          exec.submit(() -> bounded(gate, () -> modelGateway.verifyAll(group, transcript))));
+          exec.submit(tracked(usage, () -> bounded(gate, () -> modelGateway.verifyAll(group, transcript)))));
       }
 
       // Announce the phase up front (see extraction) and fold per chunk in submission order.
@@ -484,7 +521,7 @@ public class IngestionService {
    * by {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
    */
   private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
-                                                 IngestProgressListener progress) {
+                                                 InferenceUsageAccumulator usage, IngestProgressListener progress) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
@@ -498,9 +535,11 @@ public class IngestionService {
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<ExtractionPassResult>> futures = new ArrayList<>();
       for (Chunk chunk : chunks) {
-        futures.add(exec.submit(() -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk))));
+        futures.add(exec.submit(tracked(usage,
+          () -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk)))));
         if (detailPass) {
-          futures.add(exec.submit(() -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk))));
+          futures.add(exec.submit(tracked(usage,
+            () -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk)))));
         }
       }
       int total = futures.size();

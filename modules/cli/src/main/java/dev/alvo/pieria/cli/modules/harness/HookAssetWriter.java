@@ -15,13 +15,13 @@ import java.util.Set;
 /**
  * Extracts the embedded harness shell scripts (classpath resources under {@code harness/}) to the
  * on-disk harness directory. Idempotent: existing files are overwritten with the binary's
- * versioned copy. The shared scripts ({@code profile-name.sh}, {@code ingest.sh}) are always
- * written; harness-specific scripts are added per installer.
+ * versioned copy. The shared scripts ({@code profile-name.sh}, {@code ingest.sh}, {@code recall.sh})
+ * are always written; harness-specific scripts are added per installer.
  */
 public final class HookAssetWriter {
 
   private static final List<String> SHARED_SCRIPTS =
-    List.of("harness/profile-name.sh", "harness/ingest.sh");
+    List.of("harness/profile-name.sh", "harness/ingest.sh", "harness/recall.sh");
 
   private final ClassLoader classLoader;
 

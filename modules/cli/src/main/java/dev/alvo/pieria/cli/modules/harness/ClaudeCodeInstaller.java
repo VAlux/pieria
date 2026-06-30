@@ -12,9 +12,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Wires Claude Code: an MCP server in {@code .mcp.json} plus {@code SessionStart}/{@code PreCompact}/
- * {@code Stop} hooks in {@code settings.json}. Project scope writes to the repo;
- * {@code --user} writes under {@code ~/.claude/}.
+ * Wires Claude Code: an MCP server in {@code .mcp.json} plus {@code SessionStart}/
+ * {@code UserPromptSubmit}/{@code PreCompact}/{@code Stop} hooks in {@code settings.json}. Project
+ * scope writes to the repo; {@code --user} writes under {@code ~/.claude/}.
  *
  * <p>VERIFY against current Claude Code docs (as of 2026-05): hook event names, the {@code .mcp.json}
  * shape, and the user-level MCP config location.
@@ -22,10 +22,13 @@ import java.util.Map;
 public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   /**
-   * Claude Code hook event -> embedded script under {@code harness/claude-code/}.
+   * Claude Code hook event -> embedded script under {@code harness/claude-code/}. {@code SessionStart}
+   * and {@code UserPromptSubmit} auto-recall (inject prior memories); {@code PreCompact}/{@code Stop}
+   * ingest the transcript. The two recall hooks share {@code harness/recall.sh} (a shared script).
    */
   private static final Map<String, String> HOOK_SCRIPTS = new LinkedHashMap<>() {{
     put("SessionStart", "session-start.sh");
+    put("UserPromptSubmit", "user-prompt-submit.sh");
     put("PreCompact", "pre-compact.sh");
     put("Stop", "stop.sh");
   }};

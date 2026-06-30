@@ -1,6 +1,7 @@
 package dev.alvo.pieria.api.response;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,6 +17,7 @@ import java.util.Map;
  * @param lastMemoryAt         creation time of the most recent active memory, or {@code null} if none
  * @param vectorizationBacklog pending vectorization-outbox depth, or {@code null} if unavailable
  * @param impact               lifetime token-savings counters, or {@code null} if not tracked
+ * @param spend                lifetime real inference-token spend by tier, or {@code null} if none
  */
 public record ProfileStatsResponse(String name,
                                    Instant createdAt,
@@ -26,7 +28,8 @@ public record ProfileStatsResponse(String name,
                                    Instant firstMemoryAt,
                                    Instant lastMemoryAt,
                                    Long vectorizationBacklog,
-                                   ProfileImpact impact) {
+                                   ProfileImpact impact,
+                                   ProfileSpend spend) {
 
   /**
    * Per-profile "Pieria impact": a lifetime, relative estimate (chars/4 heuristic) of the tokens
@@ -49,5 +52,42 @@ public record ProfileStatsResponse(String name,
                               long tokensStored,
                               int contextWindowTokens,
                               double pricePerMillionTokens) {
+  }
+
+  /**
+   * Per-profile "inference spend": the real provider token usage Pieria incurred running the model
+   * pipeline, broken down by model tier (extraction / synthesis / embedding). Tokens are the
+   * provider-reported prompt/completion counts (not the chars/4 heuristic). Per-tier {@code costUsd}
+   * is pre-computed server-side from the configured per-tier input/output prices; {@code costAvailable}
+   * is {@code true} only when at least one tier has a non-zero price configured, so the client knows
+   * whether to render the cost line.
+   *
+   * @param tiers                 per-tier spend, in tier order; empty tiers are omitted
+   * @param totalPromptTokens     Σ prompt (input) tokens across tiers
+   * @param totalCompletionTokens Σ completion (output) tokens across tiers
+   * @param totalCostUsd          Σ per-tier cost; {@code 0} when no prices are configured
+   * @param costAvailable         whether any tier has a configured price (controls cost display)
+   */
+  public record ProfileSpend(List<TierSpend> tiers,
+                             long totalPromptTokens,
+                             long totalCompletionTokens,
+                             double totalCostUsd,
+                             boolean costAvailable) {
+
+    /**
+     * One model tier's spend.
+     *
+     * @param tier             tier name, lower-case ("extraction" | "synthesis" | "embedding")
+     * @param calls            number of model calls recorded for the tier
+     * @param promptTokens     provider-reported input tokens
+     * @param completionTokens provider-reported output tokens
+     * @param costUsd          cost for this tier from its configured input/output prices
+     */
+    public record TierSpend(String tier,
+                            long calls,
+                            long promptTokens,
+                            long completionTokens,
+                            double costUsd) {
+    }
   }
 }

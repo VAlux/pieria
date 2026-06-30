@@ -16,6 +16,8 @@ import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -116,6 +118,7 @@ public class OpenAiModelGateway implements ModelGateway {
     }
     LOGGER.info("model stage={} promptTokens={} completionTokens={} totalTokens={}",
       stage, prompt, completion, total);
+    InferenceUsageSink.current().add(InferenceTier.forStage(stage), prompt, completion, 1);
   }
 
   private static int nullToZero(Integer value) {
@@ -1093,10 +1096,11 @@ public class OpenAiModelGateway implements ModelGateway {
     }
     EmbeddingResponseMetadata metadata = response.getMetadata();
     Usage usage = metadata.getUsage();
+    int prompt = nullToZero(usage.getPromptTokens());
+    int completion = nullToZero(usage.getCompletionTokens());
     LOGGER.info("model stage=embed promptTokens={} completionTokens={} totalTokens={}",
-      nullToZero(usage.getPromptTokens()),
-      nullToZero(usage.getCompletionTokens()),
-      nullToZero(usage.getTotalTokens()));
+      prompt, completion, nullToZero(usage.getTotalTokens()));
+    InferenceUsageSink.current().add(InferenceTier.EMBEDDING, prompt, completion, 1);
   }
 
   /**

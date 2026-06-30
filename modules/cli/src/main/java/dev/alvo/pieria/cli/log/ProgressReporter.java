@@ -84,10 +84,10 @@ public final class ProgressReporter implements ProgressListener {
   private String line(String phase, int done, int total, double fraction, long now) {
     long elapsedSeconds = (now - startNanos) / 1_000_000_000L;
     long remaining = etaSeconds(done, total, now);
-    String eta = remaining >= 0 ? "ETA " + formatDuration(remaining) : "ETA --";
+    String eta = remaining >= 0 ? "ETA " + Durations.format(remaining) : "ETA --";
     return renderBar(fraction, BAR_WIDTH) + ' ' + percent(fraction) + "%  "
       + phase + ' ' + done + '/' + total + " · " + eta
-      + " · elapsed " + formatDuration(elapsedSeconds);
+      + " · elapsed " + Durations.format(elapsedSeconds);
   }
 
   /**
@@ -105,7 +105,7 @@ public final class ProgressReporter implements ProgressListener {
     return Math.max(0, Math.round((total - done) / rate));
   }
 
-  private static int percent(double fraction) {
+  static int percent(double fraction) {
     return (int) Math.round(fraction * 100);
   }
 
@@ -122,22 +122,5 @@ public final class ProgressReporter implements ProgressListener {
     }
 
     return builder.append(']').toString();
-  }
-
-  /**
-   * Human-readable duration: {@code "45s"}, {@code "1m 12s"}, {@code "2h 5m"}.
-   */
-  static String formatDuration(long totalSeconds) {
-    long sec = Math.max(0, totalSeconds);
-    if (sec < 60) {
-      return sec + "s";
-    }
-    long minutes = sec / 60;
-    long seconds = sec % 60;
-    if (minutes < 60) {
-      return minutes + "m " + seconds + "s";
-    }
-    long hours = minutes / 60;
-    return hours + "h " + (minutes % 60) + "m";
   }
 }

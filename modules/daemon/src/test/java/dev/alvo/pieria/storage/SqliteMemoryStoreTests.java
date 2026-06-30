@@ -10,6 +10,8 @@ import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
 import org.flywaydb.core.Flyway;
@@ -303,6 +305,46 @@ class SqliteMemoryStoreTests {
     assertEquals(2, u.ingestCount());
     assertEquals(712, u.tokensIngested());
     assertEquals(108, u.tokensStored());
+  }
+
+  @Test
+  void inferenceUsageIsEmptyWhenNoRows() {
+    Profile p = store.getOrCreateProfile("no-spend");
+    assertTrue(store.inferenceUsage(p.id()).isEmpty());
+  }
+
+  @Test
+  void recordInferenceUsageUpsertsAndAccumulatesPerTier() {
+    Profile p = store.getOrCreateProfile("spend");
+
+    store.recordInferenceUsage(p.id(), java.util.Map.of(
+      InferenceTier.EXTRACTION, new TierUsage(3, 1_200, 80),
+      InferenceTier.SYNTHESIS, new TierUsage(1, 400, 120)));
+    // Second operation accumulates onto the existing rows; embedding appears for the first time.
+    store.recordInferenceUsage(p.id(), java.util.Map.of(
+      InferenceTier.EXTRACTION, new TierUsage(2, 800, 20),
+      InferenceTier.EMBEDDING, new TierUsage(5, 0, 0)));
+
+    java.util.Map<InferenceTier, TierUsage> usage = store.inferenceUsage(p.id());
+    assertEquals(3, usage.size());
+
+    TierUsage extraction = usage.get(InferenceTier.EXTRACTION);
+    assertEquals(5, extraction.calls());
+    assertEquals(2_000, extraction.promptTokens());
+    assertEquals(100, extraction.completionTokens());
+
+    TierUsage synthesis = usage.get(InferenceTier.SYNTHESIS);
+    assertEquals(1, synthesis.calls());
+    assertEquals(400, synthesis.promptTokens());
+    assertEquals(120, synthesis.completionTokens());
+
+    TierUsage embedding = usage.get(InferenceTier.EMBEDDING);
+    assertEquals(5, embedding.calls());
+    assertEquals(0, embedding.promptTokens());
+
+    // An empty snapshot is a no-op (and never throws).
+    store.recordInferenceUsage(p.id(), java.util.Map.of());
+    assertEquals(5, store.inferenceUsage(p.id()).get(InferenceTier.EXTRACTION).calls());
   }
 
   @Test

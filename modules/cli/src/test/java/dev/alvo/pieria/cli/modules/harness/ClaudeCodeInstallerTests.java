@@ -56,6 +56,21 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
+  void wiresUserPromptSubmitHookAndExtractsRecallScripts(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    ObjectNode settings = json.load(installer.settingsFile(ctx));
+    String upsCmd = settings.path("hooks").path("UserPromptSubmit").get(0)
+      .path("hooks").get(0).path("command").asString();
+    assertThat(upsCmd).contains("claude-code").contains("user-prompt-submit.sh");
+
+    // The per-prompt hook and the shared fast-recall client it depends on are both extracted.
+    assertThat(Files.exists(ctx.harnessDir().resolve("claude-code").resolve("user-prompt-submit.sh"))).isTrue();
+    assertThat(Files.exists(ctx.harnessDir().resolve("recall.sh"))).isTrue();
+  }
+
+  @Test
   void omitsProfileEnvWhenNotProvided(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, null);
     installer.install(ctx);

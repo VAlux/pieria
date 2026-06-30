@@ -5,7 +5,15 @@ Wires Pieria into Claude Code via two surfaces:
 1. **MCP stdio gateway** — registers `mcp__pieria__recall`, `mcp__pieria__remember`,
    `mcp__pieria__list`, and `mcp__pieria__forget` as model-facing tools.
 2. **Lifecycle hooks** — `SessionStart` primes context from prior memories;
+   `UserPromptSubmit` auto-recalls memories relevant to each prompt and injects them;
    `PreCompact` and `Stop` ingest the transcript so memories survive compaction.
+
+Auto-recall (`SessionStart` + `UserPromptSubmit`) uses the daemon's **fast recall** path
+(`fast:true`): deterministic query analysis and no synthesis, returning the top memories as a
+ready-to-inject text block in ~1-3s instead of the tens of seconds a full synthesized recall takes.
+Both hooks share `harness/recall.sh` and require `python3` (for safe JSON handling); without it they
+no-op. The `UserPromptSubmit` hook skips trivial prompts (shorter than `PIERIA_RECALL_MIN_CHARS`,
+slash commands, and bare acknowledgements like `ok`/`yes`/`continue`).
 
 ## Prerequisites
 
@@ -65,6 +73,17 @@ Add the hook commands to your Claude Code `settings.json`.
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh <PIERIA_HARNESS_DIR>/claude-code/user-prompt-submit.sh"
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "matcher": "",
@@ -99,12 +118,26 @@ A ready-to-paste snippet (with `_comment` keys showing placement) is in
 
 | Hook | Trigger | Pieria action |
 |------|---------|---------------|
-| `SessionStart` | Session opens | POST `/recall` → inject prior context |
+| `SessionStart` | Session opens | fast `/recall` (project primer) → inject prior context |
+| `UserPromptSubmit` | Each non-trivial prompt | fast `/recall` on the prompt → inject relevant memories |
 | `PreCompact` | Before context compaction | POST `/ingest` with current transcript |
 | `Stop` | Session ends | POST `/ingest` with final transcript |
 
-All hooks are fail-closed: daemon unavailability is logged to stderr and the hook
-exits 0 so Claude Code is never blocked.
+All hooks are fail-closed: daemon unavailability (or a missing `python3`) is logged to stderr and the
+hook exits 0 so Claude Code is never blocked.
+
+### Auto-recall environment variables
+
+Honored by `recall.sh` and the two recall hooks:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PIERIA_DAEMON_URL` | `http://127.0.0.1:8077` | Daemon base URL |
+| `PIERIA_PROFILE` | auto-derived | Explicit profile override |
+| `PIERIA_RECALL_LIMIT` | `10` (session) / `5` (prompt) | Memories to inject |
+| `PIERIA_RECALL_TIMEOUT` | `8` | Recall curl `--max-time` seconds |
+| `PIERIA_RECALL_MIN_CHARS` | `24` | `UserPromptSubmit`: skip shorter prompts |
+| `PIERIA_RECALL_QUERY` | project-summary | `SessionStart`: override the primer query |
 
 ## Profile mapping
 
@@ -126,7 +159,9 @@ memory store via the common daemon.
 ## Version verification
 
 > VERIFY against current Claude Code docs (as of 2026-05):
-> - Hook event names: `SessionStart`, `PreCompact`, `Stop`.
+> - Hook event names: `SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop`.
+> - That a `UserPromptSubmit` hook receives the prompt as JSON on stdin (a `prompt` field) and that
+>   its stdout (on exit 0) is injected into the model's context for that turn.
 > - Environment variables available inside hook commands:
 >   `CLAUDE_TRANSCRIPT_PATH`, `CLAUDE_SESSION_ID`.
 > - The `claude mcp add` CLI syntax and `.mcp.json` format.

@@ -36,7 +36,7 @@ public class MemoryTools {
     @ToolParam(description = "Natural-language query describing what you need context on") String query,
     @ToolParam(required = false, description = "Max memories to consider") Integer limit,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.recall(profile(profile), new RecallRequest(query, limit, null)));
+    return guarded(() -> client.recall(profile(profile), new RecallRequest(query, limit, null, null)));
   }
 
   @Tool(name = "remember", description = """

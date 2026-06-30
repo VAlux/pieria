@@ -23,11 +23,22 @@ public final class HttpCodeIndexClient implements CodeIndexClient {
   private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
 
   private final String baseUrl;
+  private final String label;
   private final HttpClient http;
   private final ObjectMapper mapper;
 
   public HttpCodeIndexClient(String baseUrl) {
+    this(baseUrl, null);
+  }
+
+  /**
+   * @param label optional task label sent as {@code ?label=}, so the task surfaces in
+   *              {@code pieria task list} under a higher-level name (e.g. {@code "onboard"}) instead
+   *              of the default {@code "code"}.
+   */
+  public HttpCodeIndexClient(String baseUrl, String label) {
     this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+    this.label = label;
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     // Tolerate task bodies that omit numeric progress fields (treat absent done/total as 0).
     this.mapper = JsonMapper.builder()
@@ -58,7 +69,7 @@ public final class HttpCodeIndexClient implements CodeIndexClient {
       return new Failure(-1, "failed to serialize request: " + e.getMessage());
     }
 
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/code/async"))
+    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/code/async" + labelQuery()))
       .timeout(Duration.ofSeconds(10))
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
@@ -79,6 +90,14 @@ public final class HttpCodeIndexClient implements CodeIndexClient {
     }
 
     return poll(taskId, progress);
+  }
+
+  /** {@code "?label=onboard"} when a label is set, otherwise empty. */
+  private String labelQuery() {
+    if (label == null || label.isBlank()) {
+      return "";
+    }
+    return "?label=" + java.net.URLEncoder.encode(label, StandardCharsets.UTF_8);
   }
 
   /**
