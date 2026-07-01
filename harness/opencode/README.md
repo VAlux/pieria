@@ -1,10 +1,15 @@
 # OpenCode Integration
 
-Wires Pieria into OpenCode via two surfaces:
+Wires Pieria into OpenCode via three surfaces:
 
 1. **MCP stdio gateway** — registered via the `mcp` key in `opencode.json`.
 2. **Session lifecycle hooks** — compaction-time ingestion and session-bootstrap recall
    using OpenCode's experimental plugin surfaces.
+3. **Slash commands** (in `.opencode/command/`) — `/pieria-remember [type:] <content>` and
+   `/pieria-recall <query>`, which shell out to `remember.sh`/`recall.sh` (deterministic).
+
+> The quickest path is `pieria harness install opencode`, which writes all three surfaces
+> into `opencode.json` and `.opencode/command/`. The manual steps below document the same wiring.
 
 > VERIFY all configuration keys and hook surfaces against current OpenCode docs
 > (as of 2026-05). The `experimental.*` namespaces described below are

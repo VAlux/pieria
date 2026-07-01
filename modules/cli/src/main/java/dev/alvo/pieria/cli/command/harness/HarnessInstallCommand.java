@@ -27,7 +27,7 @@ public final class HarnessInstallCommand implements Callable<Integer> {
 
   private final HarnessRegistry registry = new HarnessRegistry();
   private final Logger log = new Logger();
-  @Parameters(index = "0", paramLabel = "HARNESS", description = "Harness id: claude-code, codex")
+  @Parameters(index = "0", paramLabel = "HARNESS", description = "Harness id: claude-code, codex, opencode")
   String harness;
   @Option(names = "--user", description = "Wire user-level config (~) instead of the current project.")
   boolean user;

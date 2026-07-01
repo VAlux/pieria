@@ -17,11 +17,16 @@ import org.springframework.web.client.RestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates the harness-driven ingestion payload contract WITHOUT a real
- * harness: a transcript fixture is POSTed to {@code /v1/profiles/{name}/ingest} on a real daemon
- * (random port, faked model gateway producing deterministic extractions). The hook scripts depend
- * on this exact request shape ({@code sessionId} + {@code messages[].role} + {@code messages[].content}),
- * so the JSON the daemon accepts is locked here to keep hooks and daemon in sync.
+ * Locks the generic explicit-shape ingest contract on {@code POST /v1/profiles/{name}/ingest}:
+ * a {@code {sessionId, messages[].role, messages[].content}} body POSTed to a real daemon (random
+ * port, faked model gateway producing deterministic extractions) is accepted and its content becomes
+ * retrievable.
+ *
+ * <p>Note: the harness hooks do NOT emit this shape — they POST their raw native transcript to
+ * {@code /ingest/transcript}, which is parsed server-side per harness (see
+ * {@code dev.alvo.pieria.ingestion.transcript}). This endpoint is the direct programmatic path (used
+ * by the gateway and by callers that already have structured messages), so its shape is locked here
+ * independently.
  */
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -36,7 +41,7 @@ class IngestHookPayloadTests {
     }
   }
 
-  /** The transcript shape the Claude Code / OpenCode / Codex hook scripts emit. */
+  /** The explicit structured shape accepted by {@code POST /ingest} (not the raw harness transcript). */
   private static final String TRANSCRIPT_JSON = """
     {
       "sessionId": "hook-session-42",

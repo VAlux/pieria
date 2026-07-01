@@ -36,7 +36,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {ProfileController.class, ProfilesController.class, GlobalExceptionHandler.class})
 @Import({ProfileApiTests.Wiring.class, IngestionService.class, RetrievalService.class,
   dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer.class,
-  TranscriptNormalizer.class, Chunker.class})
+  TranscriptNormalizer.class, Chunker.class,
+  dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry.class,
+  dev.alvo.pieria.ingestion.transcript.ClaudeCodeTranscriptParser.class,
+  dev.alvo.pieria.ingestion.transcript.CodexTranscriptParser.class})
 class ProfileApiTests {
 
   @Autowired

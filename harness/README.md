@@ -52,8 +52,9 @@ subdirectory contains wrapper scripts that adapt the hook event to call it.
 - On demand: the model calls `recall` mid-task via the MCP tool.
 - At session start: the `SessionStart` hook calls `/recall` and injects prior
   context so Claude starts primed even without an explicit model recall.
-- At compaction / session end: the `PreCompact` / `Stop` hooks call `/ingest`
-  to capture memories before context is discarded.
+- At compaction / turn end / session end: the `PreCompact` / `Stop` / `SessionEnd`
+  hooks call `/ingest` to capture memories before context is discarded (`SessionEnd`
+  fires on `/clear`, quit, and logout).
 
 ---
 
@@ -106,30 +107,55 @@ reads and writes the same memory store.
 harness/
   profile-name.sh          # POSIX shell profile resolver (source in hooks)
   ingest.sh                # shared ingestion hook client
+  recall.sh                # shared fast-recall client (hooks + /pieria-recall)
+  remember.sh              # shared explicit-memory client (/pieria-remember)
   claude-code/
     .mcp.json              # MCP server registration fragment
     settings-hooks-snippet.json  # settings.json hook config (paste into Claude Code)
     session-start.sh       # SessionStart hook
     pre-compact.sh         # PreCompact hook
     stop.sh                # Stop hook
+    session-end.sh         # SessionEnd hook (/clear, quit, logout)
+    commands/              # /pieria-remember, /pieria-recall slash commands
     README.md              # Claude Code setup guide
   opencode/
+    recall-transform.sh    # experimental.chat.system.transform recall hook
+    commands/              # /pieria-remember, /pieria-recall slash commands
     README.md              # OpenCode setup guide
   codex/
+    stop.sh                # Stop hook
+    session-start.sh       # SessionStart hook
+    commands/              # /pieria-remember, /pieria-recall slash commands (model-mediated)
     README.md              # Codex CLI setup guide
   README.md                # this file
 ```
 
 ---
 
+## User-triggered slash commands
+
+Alongside the automatic lifecycle hooks, `pieria harness install <harness>` also installs two
+**user-triggered** slash commands:
+
+- **`/pieria-remember [type:] <content>`** — deterministically pin a memory (`POST /memories`),
+  without depending on the model choosing to call the MCP `remember` tool. `type` is one of
+  `fact` (default), `instruction`, `event`, `task`.
+- **`/pieria-recall <query>`** — recall relevant prior context on demand and inject the answer.
+
+On Claude Code and OpenCode these run the shared `remember.sh`/`recall.sh` clients directly
+(deterministic). Codex prompts cannot execute shell, so there the commands are model-mediated —
+they instruct the model to call the `mcp__pieria__remember` / `mcp__pieria__recall` tools.
+
+---
+
 ## Harness support matrix
 
-| Harness | MCP tools | Ingestion hook | Session-start recall | Notes |
-|---------|-----------|----------------|----------------------|-------|
-| Claude Code | `claude mcp add` / `.mcp.json` | `PreCompact` + `Stop` hooks | `SessionStart` hook | First-class; plugin marketplace install planned |
-| OpenCode | `mcp` key in `opencode.json` | `experimental.session.compacting` | `experimental.chat.system.transform` | No `SessionStart` yet (issue #14808); experimental surfaces — verify |
-| Codex CLI | `[mcp_servers]` in `config.toml` | `Stop` hook | `SessionStart` hook | Hooks are recent and command-only — verify against Codex docs |
-| Custom | MCP client or direct REST | Call `/ingest` at compaction | Call `/recall` on bootstrap | Use `harness/ingest.sh` as a reference |
+| Harness | MCP tools | Ingestion hook | Session-start recall | Slash commands | Notes |
+|---------|-----------|----------------|----------------------|----------------|-------|
+| Claude Code | `claude mcp add` / `.mcp.json` | `PreCompact` + `Stop` + `SessionEnd` hooks | `SessionStart` hook | `/pieria-remember`, `/pieria-recall` (shell, deterministic) | First-class; `pieria harness install claude-code` |
+| OpenCode | `mcp` key in `opencode.json` | `experimental.session.compacting` | `experimental.chat.system.transform` | `/pieria-remember`, `/pieria-recall` (shell, deterministic) | `pieria harness install opencode`; experimental surfaces — verify |
+| Codex CLI | `[mcp_servers]` in `config.toml` | `Stop` hook | `SessionStart` hook | `/pieria-remember`, `/pieria-recall` (model-mediated) | `pieria harness install codex`; hooks/prompts recent — verify |
+| Custom | MCP client or direct REST | Call `/ingest` at compaction | Call `/recall` on bootstrap | Call `/memories` + `/recall` | Use `harness/ingest.sh` as a reference |
 
 ---
 

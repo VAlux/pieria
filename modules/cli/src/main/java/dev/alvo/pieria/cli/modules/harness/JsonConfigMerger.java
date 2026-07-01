@@ -79,4 +79,8 @@ public final class JsonConfigMerger {
   public ObjectNode newObject() {
     return mapper.createObjectNode();
   }
+
+  public ArrayNode newArray() {
+    return mapper.createArrayNode();
+  }
 }

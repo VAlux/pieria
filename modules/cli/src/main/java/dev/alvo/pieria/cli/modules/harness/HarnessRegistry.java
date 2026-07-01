@@ -14,6 +14,7 @@ public final class HarnessRegistry {
   public HarnessRegistry() {
     register(new ClaudeCodeInstaller());
     register(new CodexInstaller());
+    register(new OpenCodeInstaller());
   }
 
   private void register(HarnessInstaller installer) {

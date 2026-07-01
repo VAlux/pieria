@@ -28,6 +28,7 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.IngestionService;
+import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.retrieval.RecallResult;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -72,6 +73,7 @@ public class ProfileController {
   private final TaskRegistry tasks;
   private final Converter<Memory, MemoryResponse> memoryResponseConverter;
   private final PieriaProperties properties;
+  private final TranscriptParserRegistry transcriptParsers;
 
   public ProfileController(IngestionService ingestionService,
                            RetrievalService retrievalService,
@@ -79,7 +81,8 @@ public class ProfileController {
                            ObjectMapper objectMapper,
                            TaskRegistry tasks,
                            Converter<Memory, MemoryResponse> memoryResponseConverter,
-                           PieriaProperties properties) {
+                           PieriaProperties properties,
+                           TranscriptParserRegistry transcriptParsers) {
     this.ingestionService = ingestionService;
     this.retrievalService = retrievalService;
     this.store = store;
@@ -87,6 +90,7 @@ public class ProfileController {
     this.tasks = tasks;
     this.memoryResponseConverter = memoryResponseConverter;
     this.properties = properties;
+    this.transcriptParsers = transcriptParsers;
   }
 
   @PostMapping("/ingest")
@@ -97,6 +101,32 @@ public class ProfileController {
       .toList();
 
     List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages);
+
+    return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
+  }
+
+  /**
+   * Ingest a raw harness session transcript. The transcript is parsed server-side into conversation
+   * messages by the {@link TranscriptParserRegistry} implementation for {@code harness} (default
+   * {@code claude-code}), so harness hooks stay dependency-free and only need to POST the raw file.
+   * An empty/unusable transcript yields an empty response rather than an error, so a fail-closed
+   * hook never sees a non-2xx for an uneventful session. An unknown {@code harness} is a 400.
+   */
+  @PostMapping(path = "/ingest/transcript", consumes = NDJSON)
+  public IngestResponse ingestTranscript(@PathVariable String name,
+                                         @RequestParam(name = "sessionId", required = false) String sessionId,
+                                         @RequestParam(name = "harness", defaultValue = "claude-code") String harness,
+                                         @RequestBody String transcript) {
+    String resolvedSessionId = (sessionId == null || sessionId.isBlank())
+      ? "session-" + UUID.randomUUID()
+      : sessionId;
+
+    List<Message> messages = transcriptParsers.forHarness(harness).parse(transcript, resolvedSessionId);
+    if (messages.isEmpty()) {
+      return IngestResponse.of(List.of());
+    }
+
+    List<Memory> stored = ingestionService.ingest(name, resolvedSessionId, messages);
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
   }

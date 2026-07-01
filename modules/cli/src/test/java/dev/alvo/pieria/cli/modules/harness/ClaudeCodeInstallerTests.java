@@ -56,18 +56,70 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
-  void wiresUserPromptSubmitHookAndExtractsRecallScripts(@TempDir Path tmp) throws IOException {
+  void doesNotWirePerPromptHookButKeepsRecallClient(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    // The per-prompt UserPromptSubmit auto-recall is no longer installed.
+    ObjectNode settings = json.load(installer.settingsFile(ctx));
+    assertThat(settings.path("hooks").has("UserPromptSubmit")).isFalse();
+
+    // But recall.sh (shared) is still extracted — SessionStart and /pieria-recall use it.
+    assertThat(Files.exists(ctx.harnessDir().resolve("recall.sh"))).isTrue();
+  }
+
+  @Test
+  void installStripsLegacyUserPromptSubmitHook(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    // Seed a prior install that had the per-prompt hook plus an unrelated user hook.
+    Path settingsFile = installer.settingsFile(ctx);
+    Files.createDirectories(settingsFile.getParent());
+    Files.writeString(settingsFile, "{\"hooks\":{\"UserPromptSubmit\":["
+      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh /x/claude-code/user-prompt-submit.sh\"}]},"
+      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo keep-me\"}]}]}}");
+
+    installer.install(ctx);
+
+    ObjectNode settings = json.load(settingsFile);
+    ArrayNode ups = (ArrayNode) settings.path("hooks").path("UserPromptSubmit");
+    // Pieria's legacy entry removed; the unrelated hook preserved.
+    assertThat(ups.size()).isEqualTo(1);
+    assertThat(ups.get(0).path("hooks").get(0).path("command").asString()).isEqualTo("echo keep-me");
+  }
+
+  @Test
+  void wiresSessionEndHookAndExtractsScript(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
     ObjectNode settings = json.load(installer.settingsFile(ctx));
-    String upsCmd = settings.path("hooks").path("UserPromptSubmit").get(0)
+    String cmd = settings.path("hooks").path("SessionEnd").get(0)
       .path("hooks").get(0).path("command").asString();
-    assertThat(upsCmd).contains("claude-code").contains("user-prompt-submit.sh");
+    assertThat(cmd).contains("claude-code").contains("session-end.sh");
 
-    // The per-prompt hook and the shared fast-recall client it depends on are both extracted.
-    assertThat(Files.exists(ctx.harnessDir().resolve("claude-code").resolve("user-prompt-submit.sh"))).isTrue();
-    assertThat(Files.exists(ctx.harnessDir().resolve("recall.sh"))).isTrue();
+    assertThat(Files.exists(ctx.harnessDir().resolve("claude-code").resolve("session-end.sh"))).isTrue();
+  }
+
+  @Test
+  void installsSlashCommandsWithHarnessDirSubstituted(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
+    Path recall = installer.commandsDir(ctx).resolve("pieria-recall.md");
+    assertThat(Files.exists(remember)).isTrue();
+    assertThat(Files.exists(recall)).isTrue();
+
+    String body = Files.readString(remember);
+    assertThat(body)
+      .contains("remember.sh")
+      .contains(ctx.harnessDir().toString())
+      .doesNotContain("<PIERIA_HARNESS_DIR>");
+
+    // Uninstall removes the command files.
+    installer.uninstall(ctx);
+    assertThat(Files.exists(remember)).isFalse();
+    assertThat(Files.exists(recall)).isFalse();
   }
 
   @Test

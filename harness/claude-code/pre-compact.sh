@@ -27,6 +27,9 @@ set -e
 _SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 _HARNESS_DIR=$(cd "${_SCRIPT_DIR}/.." && pwd)
 
+# Select the Claude Code transcript parser on the daemon side.
+export PIERIA_HARNESS="claude-code"
+
 # Use CLAUDE_SESSION_ID if available, otherwise the ingest.sh default applies.
 if [ -n "${CLAUDE_SESSION_ID:-}" ]; then
   export PIERIA_SESSION_ID="$CLAUDE_SESSION_ID"

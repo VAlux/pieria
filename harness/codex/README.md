@@ -1,10 +1,14 @@
 # Codex CLI Integration
 
-Wires Pieria into the Codex CLI via two surfaces:
+Wires Pieria into the Codex CLI via three surfaces:
 
 1. **MCP stdio gateway** — registered via the `[mcp_servers]` section in `config.toml`.
 2. **Lifecycle hooks** — `Stop`-hook ingestion (no compaction-specific event in Codex)
    and session-start recall.
+3. **Slash commands** (custom prompts in `.codex/prompts/`) — `/pieria-remember` and
+   `/pieria-recall`. Codex prompts cannot execute shell, so these are **model-mediated**:
+   they instruct the model to call the `mcp__pieria__remember` / `mcp__pieria__recall` tools
+   (unlike Claude Code/OpenCode, where the equivalent commands hit the daemon directly).
 
 > VERIFY all configuration keys and hook surfaces against current Codex CLI docs
 > (as of 2026-05). Codex command hooks are a recent addition and their exact
@@ -88,9 +92,10 @@ surface before the first turn. Honors `PIERIA_RECALL_QUERY`, `PIERIA_RECALL_LIMI
 (default 10), and `PIERIA_RECALL_TIMEOUT` (default 8).
 
 **No per-prompt recall on Codex.** Codex command hooks are command-only — they fire
-on tool/command events, not on prompt submission — so there is no equivalent to
-Claude Code's `UserPromptSubmit` auto-recall. The session-open primer is the recall
-surface Codex supports.
+on tool/command events, not on prompt submission. The session-open primer plus the
+on-demand `/pieria-recall` command are the recall surfaces Codex supports. (Pieria no
+longer does per-prompt auto-recall on any harness — it was low-precision and taxed
+every turn.)
 
 > VERIFY: the `SessionStart` event name, whether hook stdout is injected into the
 > session context, and the available env vars must be confirmed against current

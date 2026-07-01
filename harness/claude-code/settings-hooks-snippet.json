@@ -15,17 +15,6 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh <PIERIA_HARNESS_DIR>/claude-code/user-prompt-submit.sh"
-          }
-        ]
-      }
-    ],
     "PreCompact": [
       {
         "matcher": "",
@@ -44,6 +33,17 @@
           {
             "type": "command",
             "command": "sh <PIERIA_HARNESS_DIR>/claude-code/stop.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh <PIERIA_HARNESS_DIR>/claude-code/session-end.sh"
           }
         ]
       }

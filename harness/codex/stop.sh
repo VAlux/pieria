@@ -22,6 +22,9 @@ set -e
 _SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 _HARNESS_DIR=$(cd "${_SCRIPT_DIR}/.." && pwd)
 
+# Select the Codex transcript parser on the daemon side.
+export PIERIA_HARNESS="codex"
+
 # Carry through a session id if Codex exposes one (verify the env var name).
 if [ -n "${CODEX_SESSION_ID:-}" ]; then
   export PIERIA_SESSION_ID="$CODEX_SESSION_ID"

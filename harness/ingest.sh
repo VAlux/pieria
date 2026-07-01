@@ -1,44 +1,24 @@
 #!/usr/bin/env sh
 # ingest.sh — harness ingestion hook client for Pieria
 #
-# Reads a transcript payload (JSON) from stdin or a file argument, derives the profile
-# slug via profile-name.sh, and POSTs to the daemon's /ingest endpoint.
+# Reads a Claude Code session transcript (JSONL / NDJSON — one event object per line) from a file
+# argument or stdin, derives the profile slug via profile-name.sh, and POSTs the RAW transcript to
+# the daemon's /ingest/transcript endpoint. The daemon parses the JSONL server-side (Jackson), so
+# this script needs no JSON tooling (no jq/python/awk) — only curl.
 #
-# FAIL-CLOSED CONTRACT: on any error (daemon unreachable, curl failure, non-2xx response)
-# this script logs to stderr and exits 0. It must NEVER break or stall the harness session.
+# FAIL-CLOSED CONTRACT: on any error (daemon unreachable, curl failure, non-2xx response) this
+# script logs to stderr and exits 0. It must NEVER break or stall the harness session.
 #
 # Usage:
-#   # From stdin (pipe):
-#   cat transcript.json | sh harness/ingest.sh
-#
-#   # From a file argument:
-#   sh harness/ingest.sh /path/to/transcript.json
+#   cat transcript.jsonl | sh harness/ingest.sh          # from stdin
+#   sh harness/ingest.sh /path/to/transcript.jsonl       # from a file argument
 #
 # Environment variables:
 #   PIERIA_DAEMON_URL  — daemon base URL (default: http://127.0.0.1:8077)
 #   PIERIA_PROFILE     — explicit profile override (see profile-name.sh)
-#   PIERIA_SESSION_ID  — session ID to include in the payload (default: generated uuid-like value)
-#
-# ---------------------------------------------------------------------------
-# HARNESS-SPECIFIC ADAPTATION NOTE
-# ---------------------------------------------------------------------------
-# The transcript-to-payload mapping below expects the input to be a JSON object
-# with a "messages" array, each entry having "role" and "content" fields, and
-# optionally a top-level "sessionId":
-#
-#   {
-#     "sessionId": "optional-session-id",
-#     "messages": [
-#       { "role": "user",      "content": "..." },
-#       { "role": "assistant", "content": "..." }
-#     ]
-#   }
-#
-# If your harness produces a different transcript format, adapt the
-# _pieria_build_payload() function below to reshape it before sending.
-# Claude Code's PreCompact/Stop hooks pass $CLAUDE_TRANSCRIPT_PATH (a file
-# containing the session JSON); adapt the reading logic for other harnesses.
-# ---------------------------------------------------------------------------
+#   PIERIA_SESSION_ID  — session ID to tag the ingested messages (default: generated)
+#   PIERIA_HARNESS     — harness id selecting the daemon-side transcript parser
+#                        (default: claude-code; e.g. codex). The per-harness hook scripts set this.
 
 set -e
 
@@ -52,92 +32,63 @@ _SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 PROFILE="${PIERIA_RESOLVED_PROFILE:-default}"
 DAEMON_URL="${PIERIA_DAEMON_URL:-http://127.0.0.1:8077}"
-ENDPOINT="${DAEMON_URL}/v1/profiles/${PROFILE}/ingest"
 
 # Generate a simple session ID if not provided: timestamp + random suffix (no uuidgen dependency).
 _default_session_id() {
   printf 'session-%s-%s' "$(date +%s)" "$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || printf '%04d' $$)"
 }
 SESSION_ID="${PIERIA_SESSION_ID:-$(_default_session_id)}"
+HARNESS="${PIERIA_HARNESS:-claude-code}"
+
+ENDPOINT="${DAEMON_URL}/v1/profiles/${PROFILE}/ingest/transcript?sessionId=${SESSION_ID}&harness=${HARNESS}"
 
 # ---------------------------------------------------------------------------
-# _pieria_build_payload TRANSCRIPT_JSON SESSION_ID
-# Shapes the raw transcript into the /ingest request body.
-# Expected input: JSON with "messages" array of {role, content} objects.
-# Override this function for harness-specific transcript formats.
-# ---------------------------------------------------------------------------
-_pieria_build_payload() {
-  _transcript="$1"
-  _sid="$2"
-
-  # If the transcript already has a top-level sessionId, use it; otherwise inject ours.
-  # We use sed for a minimal dependency footprint (no jq required).
-  # For production harnesses with complex JSON, swap this for a proper jq/python transform.
-
-  # Check if the transcript already contains a sessionId key.
-  if printf '%s' "$_transcript" | grep -q '"sessionId"'; then
-    # Transcript already has sessionId — use as-is.
-    printf '%s' "$_transcript"
-  else
-    # Inject sessionId into the top-level JSON object.
-    # Simple approach: insert after the opening brace.
-    printf '%s' "$_transcript" | sed 's/^[[:space:]]*{/{/' | \
-      sed "s/^{/{ \"sessionId\": \"${_sid}\", /"
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# Read the transcript from a file argument or stdin
+# Determine the transcript source. We pass it to curl as --data-binary so the
+# daemon receives the exact bytes of the JSONL file (no reshaping in shell).
 # ---------------------------------------------------------------------------
 if [ $# -ge 1 ] && [ -n "$1" ]; then
   if [ ! -f "$1" ]; then
     printf '[pieria/ingest] WARNING: transcript file not found: %s\n' "$1" >&2
     exit 0
   fi
-  TRANSCRIPT=$(cat "$1")
+  if [ ! -s "$1" ]; then
+    printf '[pieria/ingest] WARNING: transcript file is empty: %s; nothing to ingest.\n' "$1" >&2
+    exit 0
+  fi
+  DATA_ARG="@$1"
 else
-  # Read from stdin; if stdin is a terminal (no pipe), treat as empty.
   if [ -t 0 ]; then
     printf '[pieria/ingest] WARNING: no transcript file or stdin data; nothing to ingest.\n' >&2
     exit 0
   fi
-  TRANSCRIPT=$(cat)
+  DATA_ARG="@-"
 fi
 
-if [ -z "$TRANSCRIPT" ]; then
-  printf '[pieria/ingest] WARNING: empty transcript; nothing to ingest.\n' >&2
-  exit 0
-fi
-
-PAYLOAD=$(_pieria_build_payload "$TRANSCRIPT" "$SESSION_ID")
-
 # ---------------------------------------------------------------------------
-# POST to the daemon — fail closed on any error
+# POST to the daemon — fail closed on any error.
+# set +e around curl so a curl failure does not abort the script.
 # ---------------------------------------------------------------------------
-# We deliberately use set +e around the curl call so a curl failure does not
-# abort the script (we re-enable set -e after).
+_RESP_FILE="/tmp/pieria_ingest_response_$$.txt"
+_ERR_FILE="/tmp/pieria_ingest_stderr_$$.txt"
+trap 'rm -f "$_RESP_FILE" "$_ERR_FILE"' EXIT
+
 set +e
-
 HTTP_STATUS=$(curl \
   --silent \
   --show-error \
   --write-out '%{http_code}' \
-  --output /tmp/pieria_ingest_response_$$.txt \
+  --output "$_RESP_FILE" \
   --max-time 30 \
-  --header 'Content-Type: application/json' \
-  --data "$PAYLOAD" \
-  "$ENDPOINT" 2>/tmp/pieria_ingest_stderr_$$.txt)
+  --header 'Content-Type: application/x-ndjson' \
+  --data-binary "$DATA_ARG" \
+  "$ENDPOINT" 2>"$_ERR_FILE")
 CURL_EXIT=$?
-
 set -e
-
-# Cleanup temp files on exit
-trap 'rm -f /tmp/pieria_ingest_response_$$.txt /tmp/pieria_ingest_stderr_$$.txt' EXIT
 
 if [ $CURL_EXIT -ne 0 ]; then
   printf '[pieria/ingest] WARNING: curl failed (exit %d) posting to %s\n' "$CURL_EXIT" "$ENDPOINT" >&2
-  if [ -s /tmp/pieria_ingest_stderr_$$.txt ]; then
-    printf '[pieria/ingest] curl error: %s\n' "$(cat /tmp/pieria_ingest_stderr_$$.txt)" >&2
+  if [ -s "$_ERR_FILE" ]; then
+    printf '[pieria/ingest] curl error: %s\n' "$(cat "$_ERR_FILE")" >&2
   fi
   exit 0
 fi
@@ -145,11 +96,15 @@ fi
 case "$HTTP_STATUS" in
   2*)
     printf '[pieria/ingest] Ingested transcript into profile "%s" (HTTP %s)\n' "$PROFILE" "$HTTP_STATUS" >&2
+    if [ -s "$_RESP_FILE" ]; then
+      printf '[pieria/ingest] Response: %s\n' "$(cat "$_RESP_FILE")" >&2
+    fi
     ;;
   *)
-    printf '[pieria/ingest] WARNING: daemon returned HTTP %s for profile "%s"\n' "$HTTP_STATUS" "$PROFILE" >&2
-    if [ -s /tmp/pieria_ingest_response_$$.txt ]; then
-      printf '[pieria/ingest] Response: %s\n' "$(cat /tmp/pieria_ingest_response_$$.txt)" >&2
+    # Loud, so a rejected payload is never silently mistaken for success.
+    printf '[pieria/ingest] WARNING: daemon returned HTTP %s for profile "%s" at %s\n' "$HTTP_STATUS" "$PROFILE" "$ENDPOINT" >&2
+    if [ -s "$_RESP_FILE" ]; then
+      printf '[pieria/ingest] Response: %s\n' "$(cat "$_RESP_FILE")" >&2
     fi
     exit 0
     ;;

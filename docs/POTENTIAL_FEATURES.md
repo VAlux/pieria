@@ -1,17 +1,19 @@
 # Tier 1 — Storage & retrieval quality (moves recall accuracy)
 
 1. Graph / relationship memory layer
-Phase: 8 | Status: pending
+Phase: 8 | Status: done
 Who has it: Zep, Graphiti, Cognee, Supermemory, Hindsight — universally, the single biggest thing Pieria lacks.
 What: Extract entities and relations during classification; store an entity-relation graph; add graph traversal as a retrieval signal. Answers "who/what is connected to X" and multi-hop questions that vector+FTS miss. For coding-agent use, make code entities first-class too: repository, module, package, file, class, method, endpoint, config key, command, test, tool, and memory.
 Fit: New GraphChannel alongside the existing five in RetrievalService's StructuredTaskScope fan-out; extend MemoryStore with edge tables. Largest effort here, largest payoff. SQLite can hold the adjacency tables; no new
 infra needed. Later server/large-local modes can evaluate Neo4j (graph + vector indexes), Kuzu (embedded graph + Cypher/vector/FTS), or TinkerPop/Gremlin as optional graph backends, but the first implementation should stay SQLite-native.
+Shipped: `domain.graph` (`Entity`/`Edge`/`GraphFragment`/`EntityNormalizer`), entity/relation extraction wired into `IngestionService`'s classification stage, and `retrieval.channel.GraphChannel` running as a wave-2 channel in `RetrievalService`, weighted into the existing RRF fusion.
 
 2. Source-code ingestion / persistent code intelligence index
-Phase: 13 | Status: planned
+Phase: 13 | Status: done
 Who has it: Sourcegraph SCIP/LSIF, CodeGraphContext/codebase-memory-style MCP servers, Serena memories partially.
 What: `pieria onboard` only seeds markdown today. Add source-code ingestion that builds a persistent semantic index from the actual repo: symbols, definitions, references, implementations, imports, ownership boundaries, API endpoints, config keys, tests, and module dependencies. Do not store full source as ordinary memories; store structured code-index rows and derive compact durable memories from them.
 Fit: New `pieria onboard --source-code` path. For Java/Kotlin/Scala, start with `scip-java` because it supports Gradle/Maven/sbt and emits precise symbol occurrences. Use Tree-sitter as a lower-confidence fallback when the build cannot resolve or for polyglot files. Add `CodeIndexStore` methods under/alongside MemoryStore, then add SymbolFts/CodeGraph retrieval channels that feed the existing RRF pipeline.
+Shipped: real Tree-sitter-based indexer (`CodeIndexingService`, `CodeIndexStore`/`SqliteCodeIndexStore`) behind `pieria onboard --source-code` and `POST /v1/profiles/{name}/code(/async)` + `GET /code/status`; content-hash based skip-unchanged and `--reindex`; `SymbolFtsChannel` and `CodeGraphChannel` feed the same RRF pipeline as the memory channels.
 
 3. Reranker stage between fusion and synthesis
 Phase: 9 | Status: pending
@@ -87,14 +89,16 @@ Fit: Larger conceptual addition; could layer on the existing version-chain (supe
 # Tier 3 — Quality-of-life & ops
 
 14. Local recall/usage analytics dashboard
-Phase: unassigned | Status: pending
+Phase: unassigned | Status: done (CLI, not a GUI dashboard)
 Who has it: Memori cloud. You already emit per-stage latency/token metrics to logs — a local read-only dashboard makes them usable. No telemetry leaves the machine, consistent with your design.
+Shipped: `model.usage` (`InferenceTier`/`TierUsage`/`InferenceUsageAccumulator`/`InferenceUsageSink`) plus `pieria profile stats` (`ProfileStatsCommand`), which renders per-profile memory counts, sessions, vectorization backlog, an "impact" panel (tokens saved vs. naive context dump), and per-tier spend/cost estimation. Still CLI-only — no GUI/read-only web dashboard.
 
 15. Code-index freshness and watch mode
-Phase: unassigned | Status: pending
+Phase: unassigned | Status: in progress
 Who has it: IDEs/LSP workspaces, Sourcegraph auto-indexing, file-watcher based code graph tools.
 What: Keep source-code indexes fresh without making every recall rebuild the project. Track git HEAD/tree hash, indexed file hashes, language-server readiness, and stale symbol counts. Optionally watch files and queue incremental re-indexing.
 Fit: Start simple: `pieria code status`, `pieria code index --changed`, and status fields surfaced through `/v1/status`. Later add a filesystem watcher and background index outbox. Do not block recall when the code index is stale; mark code candidates with freshness metadata.
+Shipped so far: `GET /v1/profiles/{name}/code/status` (file/symbol/resolved-edge/heuristic-edge counts, `isCodeIndexPresent`) and per-file content-hash skip-unchanged with an explicit `--reindex` override. Still missing: a standalone `pieria code status` CLI command, git tree-hash-level staleness surfaced to the caller, and any filesystem watcher / incremental-queue for continuous re-indexing.
 
 16. Webhooks / change events
 Phase: unassigned | Status: pending

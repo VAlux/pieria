@@ -30,8 +30,19 @@ public final class CodexInstaller implements HarnessInstaller {
     put("SessionStart", "session-start.sh");
   }};
 
+  /**
+   * User-triggered slash commands, installed under {@code .codex/prompts/}. Codex prompts are
+   * message templates (no shell execution), so these are model-mediated: they instruct the model to
+   * call the MCP {@code remember}/{@code recall} tools.
+   */
+  private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
+    put("pieria-remember.md", "harness/codex/commands/pieria-remember.md");
+    put("pieria-recall.md", "harness/codex/commands/pieria-recall.md");
+  }};
+
   private final TomlConfigMerger toml = new TomlConfigMerger();
   private final HookAssetWriter assets = new HookAssetWriter();
+  private final CommandAssetWriter commands = new CommandAssetWriter();
 
   private static void removePieriaEntries(ArrayNode hooks) {
     for (int i = hooks.size() - 1; i >= 0; i--) {
@@ -71,6 +82,12 @@ public final class CodexInstaller implements HarnessInstaller {
       : ctx.projectDir().resolve(".codex").resolve("config.toml");
   }
 
+  Path commandsDir(WiringContext ctx) {
+    return ctx.scope() == Scope.USER
+      ? ctx.userHome().resolve(".codex").resolve("prompts")
+      : ctx.projectDir().resolve(".codex").resolve("prompts");
+  }
+
   @Override
   public void install(WiringContext ctx) throws IOException {
     assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
@@ -88,6 +105,13 @@ public final class CodexInstaller implements HarnessInstaller {
     HOOK_SCRIPTS.forEach((event, script) -> hooks.add(hookEntry(ctx, event, script)));
 
     toml.save(config, root, ctx.dryRun(), ctx.log());
+
+    // User-triggered slash commands (Codex prompts).
+    Path cmdDir = commandsDir(ctx);
+    Map<String, String> subs = Map.of("<PIERIA_HARNESS_DIR>", ctx.harnessDir().toString());
+    for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
+      commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
+    }
   }
 
   @Override
@@ -111,6 +135,11 @@ public final class CodexInstaller implements HarnessInstaller {
 
     if (changed) {
       toml.save(config, root, ctx.dryRun(), ctx.log());
+    }
+
+    Path cmdDir = commandsDir(ctx);
+    for (String file : COMMANDS.keySet()) {
+      commands.delete(cmdDir.resolve(file), ctx.dryRun(), ctx.log());
     }
   }
 

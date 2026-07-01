@@ -58,6 +58,23 @@ class CodexInstallerTests {
   }
 
   @Test
+  void installsSlashCommandPrompts(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "p");
+    installer.install(ctx);
+
+    Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
+    Path recall = installer.commandsDir(ctx).resolve("pieria-recall.md");
+    assertThat(Files.exists(remember)).isTrue();
+    assertThat(Files.exists(recall)).isTrue();
+    // Codex prompts are model-mediated: they reference the MCP tool, not a shell script.
+    assertThat(Files.readString(remember)).contains("mcp__pieria__remember");
+
+    installer.uninstall(ctx);
+    assertThat(Files.exists(remember)).isFalse();
+    assertThat(Files.exists(recall)).isFalse();
+  }
+
+  @Test
   void uninstallRemovesOnlyPieria(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "p");
     Path config = installer.configFile(ctx);

@@ -21,7 +21,7 @@ import java.util.Set;
 public final class HookAssetWriter {
 
   private static final List<String> SHARED_SCRIPTS =
-    List.of("harness/profile-name.sh", "harness/ingest.sh", "harness/recall.sh");
+    List.of("harness/profile-name.sh", "harness/ingest.sh", "harness/recall.sh", "harness/remember.sh");
 
   private final ClassLoader classLoader;
 

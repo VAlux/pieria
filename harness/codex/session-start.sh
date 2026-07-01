@@ -9,8 +9,9 @@
 # timeout (against a ~tens-of-seconds recall, so it always timed out) and dumped raw JSON.
 #
 # NOTE: Codex command hooks are command-only and fire on tool/command events, not on prompt
-# submission, so there is no per-prompt recall equivalent here (unlike Claude Code's UserPromptSubmit).
-# This session-open primer is the recall surface Codex supports.
+# submission, so there is no per-prompt recall here. This session-open primer plus the on-demand
+# /pieria-recall command are the recall surfaces Codex supports. (Pieria no longer does per-prompt
+# auto-recall on any harness — it was low-precision and taxed every turn.)
 #
 # VERIFY against current Codex CLI docs (as of 2026-05): the SessionStart event name and whether hook
 # stdout is injected into the session context must be confirmed. These surfaces are recent and evolving.

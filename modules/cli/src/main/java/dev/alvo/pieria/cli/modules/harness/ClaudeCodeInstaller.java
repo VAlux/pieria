@@ -12,9 +12,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Wires Claude Code: an MCP server in {@code .mcp.json} plus {@code SessionStart}/
- * {@code UserPromptSubmit}/{@code PreCompact}/{@code Stop} hooks in {@code settings.json}. Project
- * scope writes to the repo; {@code --user} writes under {@code ~/.claude/}.
+ * Wires Claude Code: an MCP server in {@code .mcp.json}, the {@code SessionStart}/
+ * {@code PreCompact}/{@code Stop}/{@code SessionEnd} hooks in {@code settings.json}, and the
+ * {@code /pieria-remember} and {@code /pieria-recall} slash commands in {@code .claude/commands/}.
+ * Project scope writes to the repo; {@code --user} writes under {@code ~/.claude/}.
  *
  * <p>VERIFY against current Claude Code docs (as of 2026-05): hook event names, the {@code .mcp.json}
  * shape, and the user-level MCP config location.
@@ -23,21 +24,61 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   /**
    * Claude Code hook event -> embedded script under {@code harness/claude-code/}. {@code SessionStart}
-   * and {@code UserPromptSubmit} auto-recall (inject prior memories); {@code PreCompact}/{@code Stop}
-   * ingest the transcript. The two recall hooks share {@code harness/recall.sh} (a shared script).
+   * primes context with prior memories (via {@code harness/recall.sh}); {@code PreCompact}/{@code Stop}/
+   * {@code SessionEnd} ingest the transcript ({@code SessionEnd} captures on /clear, quit, and logout
+   * before the conversation is discarded).
+   *
+   * <p>The per-prompt {@code UserPromptSubmit} auto-recall was removed: it added a recall round-trip
+   * to every turn for low-precision, mostly-ambient context. On-demand recall now lives in the
+   * SessionStart primer plus the deterministic {@code /pieria-recall} slash command. See
+   * {@link #LEGACY_HOOK_SCRIPTS} for cleanup of prior installs.
    */
   private static final Map<String, String> HOOK_SCRIPTS = new LinkedHashMap<>() {{
     put("SessionStart", "session-start.sh");
-    put("UserPromptSubmit", "user-prompt-submit.sh");
     put("PreCompact", "pre-compact.sh");
     put("Stop", "stop.sh");
+    put("SessionEnd", "session-end.sh");
+  }};
+
+  /**
+   * Hooks Pieria used to install but no longer does. Install and uninstall both strip these so an
+   * upgrade (re-running {@code harness install}) removes the stale entry and its script reference.
+   */
+  private static final Map<String, String> LEGACY_HOOK_SCRIPTS = new LinkedHashMap<>() {{
+    put("UserPromptSubmit", "user-prompt-submit.sh");
+  }};
+
+  /**
+   * User-triggered slash commands: on-disk file name under {@code .claude/commands/} -> embedded
+   * template resource. Deterministic — they shell out to the shared clients rather than relying on
+   * the model to call the MCP tool.
+   */
+  private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
+    put("pieria-remember.md", "harness/claude-code/commands/pieria-remember.md");
+    put("pieria-recall.md", "harness/claude-code/commands/pieria-recall.md");
   }};
 
   private final JsonConfigMerger json = new JsonConfigMerger();
   private final HookAssetWriter assets = new HookAssetWriter();
+  private final CommandAssetWriter commands = new CommandAssetWriter();
 
   private static String hookCommand(WiringContext ctx, String script) {
     return "sh " + ctx.harnessDir().resolve("claude-code").resolve(script);
+  }
+
+  /**
+   * Strip any leftover Pieria groups for hooks we no longer install (e.g. the removed per-prompt
+   * {@code UserPromptSubmit} recall), pruning the event key if it becomes empty.
+   */
+  private static void stripLegacyHooks(ObjectNode hooks) {
+    for (String event : LEGACY_HOOK_SCRIPTS.keySet()) {
+      if (hooks.get(event) instanceof ArrayNode eventArray) {
+        removePieriaEntries(eventArray);
+        if (eventArray.isEmpty()) {
+          hooks.remove(event);
+        }
+      }
+    }
   }
 
   /**
@@ -66,8 +107,16 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
   }
 
   private static boolean isPieriaHookCommand(String command) {
+    if (!command.contains("claude-code")) {
+      return false;
+    }
     for (String script : HOOK_SCRIPTS.values()) {
-      if (command.contains("claude-code") && command.contains(script)) {
+      if (command.contains(script)) {
+        return true;
+      }
+    }
+    for (String script : LEGACY_HOOK_SCRIPTS.values()) {
+      if (command.contains(script)) {
         return true;
       }
     }
@@ -100,6 +149,12 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
       : ctx.projectDir().resolve(".claude").resolve("settings.json");
   }
 
+  Path commandsDir(WiringContext ctx) {
+    return ctx.scope() == Scope.USER
+      ? ctx.userHome().resolve(".claude").resolve("commands")
+      : ctx.projectDir().resolve(".claude").resolve("commands");
+  }
+
   @Override
   public void install(WiringContext ctx) throws IOException {
     assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
@@ -120,7 +175,15 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
       removePieriaEntries(eventArray);
       eventArray.add(hookGroup(ctx, script));
     });
+    stripLegacyHooks(hooks);
     json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
+
+    // 3. User-triggered slash commands.
+    Path cmdDir = commandsDir(ctx);
+    Map<String, String> subs = Map.of("<PIERIA_HARNESS_DIR>", ctx.harnessDir().toString());
+    for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
+      commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
+    }
   }
 
   @Override
@@ -146,7 +209,13 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
           }
         }
       }
+      stripLegacyHooks(hooksObject);
       json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
+    }
+
+    Path cmdDir = commandsDir(ctx);
+    for (String file : COMMANDS.keySet()) {
+      commands.delete(cmdDir.resolve(file), ctx.dryRun(), ctx.log());
     }
   }
 
