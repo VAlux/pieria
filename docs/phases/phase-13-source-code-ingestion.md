@@ -50,8 +50,15 @@ Out of scope (explicit follow-ups):
 - Watch mode / incremental freshness and `pieria code index --changed` (feature #15); this phase only
   lays the tree-hash/`contentHash` seam and a minimal status read.
 - Endpoint/config-key extraction beyond a best-effort, per-pack deterministic pass.
-- Changing `RetrievalCandidate`/synthesis to carry raw symbol/edge rows as first-class evidence (tie
-  to the reranker #3 / citations #11 work).
+- ~~Changing `RetrievalCandidate`/synthesis to carry raw symbol/edge rows as first-class evidence (tie
+  to the reranker #3 / citations #11 work).~~ **Implemented as a follow-up**: the code-graph channel
+  now also queries the edges touching its seed symbols (`CodeIndexStore.findEdgesTouching`) and emits
+  them as ephemeral `GraphEvidence` lines ("`A#m (A.java) calls B#n (B.java) [resolved]`"). They
+  bypass RRF fusion (`RetrievalChannel.ChannelResult` carries them alongside the memory candidates),
+  are injected into the synthesis prompt as a dedicated "Code graph evidence" ground-truth section,
+  and surface in `RecallResponse.codeEvidence` (omitted from the JSON when empty). This makes
+  relation queries like "which class calls X" answerable even though derived memory prose only ever
+  says "defines:"/"depends on:".
 - Refactoring recipes (#8) and Postgres parity (Phase 6).
 
 ## Implementation Sequence

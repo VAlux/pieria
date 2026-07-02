@@ -64,6 +64,19 @@ public interface CodeIndexStore {
   List<String> symbolNeighborhood(
     String profileId, List<String> seedSymbolIds, int depth, int fanout, EdgeConfidence minConfidence);
 
+  /**
+   * All edges touching any of {@code symbolIds} (as source or resolved target), each joined with
+   * its endpoint symbols, filtered to confidences {@code >= minConfidence.rank()}, resolved edges
+   * first in deterministic order, capped at {@code limit}. Feeds the ephemeral code-graph evidence
+   * of recall (relation-general: callers/callees, extends, implements, references alike).
+   */
+  List<EdgeEvidence> findEdgesTouching(
+    String profileId, List<String> symbolIds, EdgeConfidence minConfidence, int limit);
+
+  /** A code edge with its hydrated endpoints; {@code dst} is null when the target is unresolved. */
+  record EdgeEvidence(CodeEdge edge, CodeSymbol src, CodeSymbol dst) {
+  }
+
   /** Whether any file has been indexed for this profile. */
   boolean isCodeIndexPresent(String profileId);
 

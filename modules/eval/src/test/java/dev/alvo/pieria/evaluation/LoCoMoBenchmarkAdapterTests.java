@@ -44,7 +44,13 @@ class LoCoMoBenchmarkAdapterTests {
 		EvaluationFixture.RecallExpectation first = fixture.recalls().getFirst();
 		assertThat(first.query()).isEqualTo("What is the name of Caroline's dog?");
 		assertThat(first.expectedAnswer()).isEqualTo("Biscuit");
-		assertThat(first.expectedEvidence()).containsExactly("D1:1");
+		// Evidence id "D1:1" is resolved to the referenced turn text (speaker prefix excluded).
+		assertThat(first.expectedEvidence())
+			.containsExactly("I just adopted a rescue dog named Biscuit last weekend!");
+
+		EvaluationFixture.RecallExpectation second = fixture.recalls().get(1);
+		assertThat(second.expectedEvidence())
+			.containsExactly("Biscuit is a beagle mix. We went hiking in Yosemite this weekend.");
 
 		// LoCoMo supplies no gold extraction set.
 		assertThat(fixture.expectedMemories()).isEmpty();
@@ -60,8 +66,8 @@ class LoCoMoBenchmarkAdapterTests {
 			InMemoryEvaluationMemoryStore::new);
 
 		assertThat(report.fixtures()).hasSize(1);
-		// LoCoMo evidence are dialog ids (e.g. "D1:1"), not text, so content hit-rate is not meaningful;
-		// the harness still runs both recall queries through the real retrieval pipeline.
+		// Evidence ids are resolved to turn text and matched by token containment, so hit-rate is now
+		// meaningful; the harness runs both recall queries through the real retrieval pipeline.
 		assertThat(report.fixtures().getFirst().recalls()).hasSize(2);
 		assertThat(report.summary().retrievalHitRate()).isGreaterThanOrEqualTo(0.0);
 	}

@@ -32,11 +32,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-
-import static dev.alvo.pieria.evaluation.EvaluationFixture.normalizedContent;
 
 /**
  * Fixture-first evaluation harness. It runs the real ingestion/retrieval orchestration
@@ -54,6 +53,16 @@ public final class EvaluationRunner {
 
   private static final Logger log = LoggerFactory.getLogger(EvaluationRunner.class);
 
+  /** Fraction of an evidence turn's content words a memory must cover to count as retrieved. */
+  private static final double EVIDENCE_MATCH_THRESHOLD = 0.6;
+
+  /** Dropped before containment so filler words don't dominate short evidence turns. */
+  private static final Set<String> STOPWORDS = Set.of(
+    "a", "an", "the", "i", "you", "we", "he", "she", "it", "they", "me", "my", "your", "our",
+    "is", "are", "was", "were", "be", "been", "am", "do", "does", "did", "have", "has", "had",
+    "to", "of", "in", "on", "at", "for", "with", "and", "or", "but", "so", "just", "this", "that",
+    "these", "those", "as", "from", "by", "about", "last", "next", "here", "there");
+
   private final PieriaProperties properties;
 
   public EvaluationRunner(PieriaProperties properties) {
@@ -70,11 +79,13 @@ public final class EvaluationRunner {
   public EvaluationReport run(List<EvaluationFixture> fixtures) {
     List<EvaluationFixture> list = fixtures == null ? List.of() : fixtures;
     List<FixtureReport> reports = new ArrayList<>();
+    long runStart = System.nanoTime();
     for (int i = 0; i < list.size(); i++) {
       EvaluationFixture fixture = list.get(i);
       EvaluationTokenUsage tokenUsage = new EvaluationTokenUsage();
       ModelGateway gateway = new PinnedEvaluationModelGateway(fixture, tokenUsage);
       reports.add(runFixture(fixture, gateway, new InMemoryEvaluationMemoryStore(), tokenUsage, i + 1, list.size()));
+      logRunProgress(runStart, i + 1, list.size());
     }
     return new EvaluationReport(Instant.now(), reports, summarize(reports));
   }
@@ -96,10 +107,12 @@ public final class EvaluationRunner {
     Objects.requireNonNull(storeFactory, "storeFactory");
     List<EvaluationFixture> list = fixtures == null ? List.of() : fixtures;
     List<FixtureReport> reports = new ArrayList<>();
+    long runStart = System.nanoTime();
     for (int i = 0; i < list.size(); i++) {
       EvaluationFixture fixture = list.get(i);
       EvaluationTokenUsage tokenUsage = new EvaluationTokenUsage();
       reports.add(runFixture(fixture, gatewayFactory.get(), storeFactory.get(), tokenUsage, i + 1, list.size()));
+      logRunProgress(runStart, i + 1, list.size());
     }
     return new EvaluationReport(Instant.now(), reports, summarize(reports));
   }
@@ -129,6 +142,7 @@ public final class EvaluationRunner {
     long recallMs = 0;
     List<RecallExpectation> recalls = fixture.recalls();
     log.info("[{}/{}] {} — running {} recall queries", index, total, fixture.name(), recalls.size());
+    long queriesStart = System.nanoTime();
     for (int q = 0; q < recalls.size(); q++) {
       RecallExpectation expectation = recalls.get(q);
       log.info("[{}/{}] {} — query [{}/{}]: {}", index, total, fixture.name(), q + 1, recalls.size(), expectation.query());
@@ -139,9 +153,13 @@ public final class EvaluationRunner {
       boolean faithful = modelGateway.judgeAnswerFaithfulness(
         expectation.query(), expectation.expectedAnswer(), result.answer());
       RecallReport report = recallReport(expectation, result, latencyMs, faithful);
-      log.info("[{}/{}] {} — query [{}/{}] done in {}ms — faithful={} answer='{}'",
+      int completedQueries = q + 1;
+      int remainingQueries = recalls.size() - completedQueries;
+      long avgQueryMs = elapsedMs(queriesStart) / completedQueries;
+      log.info("[{}/{}] {} — query [{}/{}] done in {}ms — faithful={} answer='{}'{}",
         index, total, fixture.name(), q + 1, recalls.size(), latencyMs,
-        faithful, truncate(result.answer(), 80));
+        faithful, truncate(result.answer(), 80),
+        remainingQueries == 0 ? "" : " (ETA " + formatDuration(avgQueryMs * remainingQueries) + " for remaining queries)");
       recallReports.add(report);
     }
     log.info("[{}/{}] {} — recall done ({}ms)", index, total, fixture.name(), recallMs);
@@ -185,25 +203,23 @@ public final class EvaluationRunner {
 
   private static RecallReport recallReport(RecallExpectation expectation, RecallResult result, long latencyMs, boolean faithful) {
     List<String> actualEvidence = result.memories().stream().map(Memory::content).toList();
-    Set<String> actualNormalized = new HashSet<>();
-
+    // Extraction rewrites turns into terse memories, so an evidence turn rarely equals a memory
+    // verbatim. Match on stopword-filtered token containment instead: an expected evidence item
+    // "hits" when some retrieved memory covers at least EVIDENCE_MATCH_THRESHOLD of its content
+    // words. MRR is the reciprocal of the best (smallest) rank among all matching memories.
+    List<Set<String>> actualTokens = new ArrayList<>(actualEvidence.size());
     for (String content : actualEvidence) {
-      actualNormalized.add(normalizedContent(content));
+      actualTokens.add(contentTokens(content));
     }
 
     int hits = 0;
     int firstRank = 0;
     for (String expected : expectation.expectedEvidence()) {
-      String normalizedExpected = normalizedContent(expected);
-      if (actualNormalized.contains(normalizedExpected)) {
+      int rank = firstMatchingRank(contentTokens(expected), actualTokens);
+      if (rank > 0) {
         hits++;
-        if (firstRank == 0) {
-          for (int i = 0; i < actualEvidence.size(); i++) {
-            if (normalizedContent(actualEvidence.get(i)).equals(normalizedExpected)) {
-              firstRank = i + 1;
-              break;
-            }
-          }
+        if (firstRank == 0 || rank < firstRank) {
+          firstRank = rank;
         }
       }
     }
@@ -283,6 +299,46 @@ public final class EvaluationRunner {
     return new PieriaProperties(null, null, null, null, ingestion, retrieval, null);
   }
 
+  /** Rank (1-based) of the first memory whose tokens cover the expected evidence, or 0 for none. */
+  private static int firstMatchingRank(Set<String> expectedTokens, List<Set<String>> actualTokens) {
+    if (expectedTokens.isEmpty()) {
+      return 0;
+    }
+    for (int i = 0; i < actualTokens.size(); i++) {
+      if (containment(expectedTokens, actualTokens.get(i)) >= EVIDENCE_MATCH_THRESHOLD) {
+        return i + 1;
+      }
+    }
+    return 0;
+  }
+
+  /** Fraction of {@code expected} tokens present in {@code actual} (0 when {@code expected} empty). */
+  private static double containment(Set<String> expected, Set<String> actual) {
+    if (expected.isEmpty()) {
+      return 0.0;
+    }
+    int overlap = 0;
+    for (String token : expected) {
+      if (actual.contains(token)) {
+        overlap++;
+      }
+    }
+    return (double) overlap / expected.size();
+  }
+
+  private static Set<String> contentTokens(String content) {
+    if (content == null || content.isBlank()) {
+      return Set.of();
+    }
+    Set<String> tokens = new HashSet<>();
+    for (String token : content.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+      if (!token.isBlank() && !STOPWORDS.contains(token)) {
+        tokens.add(token);
+      }
+    }
+    return tokens;
+  }
+
   private static double ratio(int numerator, int denominator) {
     if (denominator == 0) {
       return numerator == 0 ? 1.0 : 0.0;
@@ -303,6 +359,33 @@ public final class EvaluationRunner {
 
   private static long elapsedMs(long startedAtNanos) {
     return Math.max(0, (System.nanoTime() - startedAtNanos) / 1_000_000L);
+  }
+
+  /** Logs elapsed/average/ETA across the whole fixture run, using completed fixtures as the sample. */
+  private static void logRunProgress(long runStartNanos, int completed, int total) {
+    long elapsedMs = elapsedMs(runStartNanos);
+    int remaining = total - completed;
+    if (remaining == 0) {
+      log.info("[{}/{}] run complete — elapsed {}", completed, total, formatDuration(elapsedMs));
+      return;
+    }
+    long avgMs = elapsedMs / completed;
+    log.info("[{}/{}] run progress — elapsed {}, avg {}/fixture, ETA {} ({} fixtures left)",
+      completed, total, formatDuration(elapsedMs), formatDuration(avgMs), formatDuration(avgMs * remaining), remaining);
+  }
+
+  private static String formatDuration(long millis) {
+    long totalSeconds = millis / 1000;
+    long hours = totalSeconds / 3600;
+    long minutes = (totalSeconds % 3600) / 60;
+    long seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return String.format(Locale.ROOT, "%dh%02dm%02ds", hours, minutes, seconds);
+    }
+    if (minutes > 0) {
+      return String.format(Locale.ROOT, "%dm%02ds", minutes, seconds);
+    }
+    return seconds + "s";
   }
 
   private static String truncate(String s, int max) {

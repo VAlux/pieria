@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 
@@ -30,6 +31,23 @@ public interface RetrievalChannel {
   }
 
   List<RetrievalCandidate> retrieve(RetrievalContext ctx);
+
+  /**
+   * Full channel output: the fused-rankable memory candidates plus any {@link GraphEvidence} lines
+   * that bypass fusion and go straight to synthesis (edges are not memories, so they cannot be
+   * rank-aggregated). The default wraps {@link #retrieve} with no evidence; only the code-graph
+   * channel overrides it.
+   */
+  default ChannelResult retrieveWithEvidence(RetrievalContext ctx) {
+    return ChannelResult.of(retrieve(ctx));
+  }
+
+  /** A channel's candidates and its non-fused code-graph evidence. */
+  record ChannelResult(List<RetrievalCandidate> candidates, List<GraphEvidence> evidence) {
+    public static ChannelResult of(List<RetrievalCandidate> candidates) {
+      return new ChannelResult(candidates, List.of());
+    }
+  }
 
   /**
    * Wrap a store result (already ranked best-first) into {@link RetrievalCandidate}s with 1-based

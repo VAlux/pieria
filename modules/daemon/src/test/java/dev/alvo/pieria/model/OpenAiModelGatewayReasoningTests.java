@@ -3,6 +3,9 @@ package dev.alvo.pieria.model;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Model.Reasoning;
 import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.model.provider.AzureModelProviderAdapter;
+import dev.alvo.pieria.model.provider.ModelProviderAdapter;
+import dev.alvo.pieria.model.provider.OllamaModelProviderAdapter;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -56,6 +59,10 @@ class OpenAiModelGatewayReasoningTests {
   }
 
   private static Harness harness(Reasoning reasoning) {
+    return harness(reasoning, new OllamaModelProviderAdapter());
+  }
+
+  private static Harness harness(Reasoning reasoning, ModelProviderAdapter providerAdapter) {
     CapturingChatModel extraction = new CapturingChatModel("{\"verdict\":\"drop\",\"content\":\"\",\"reason\":\"x\"}");
     CapturingChatModel synthesis = new CapturingChatModel("an answer");
     PieriaProperties properties = new PieriaProperties(null, null, null,
@@ -66,7 +73,7 @@ class OpenAiModelGatewayReasoningTests {
     OpenAiModelGateway gateway = new OpenAiModelGateway(
       ChatClient.builder(extraction).defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build(),
       ChatClient.builder(synthesis).defaultOptions(OpenAiChatOptions.builder().model("synth-model")).build(),
-      null, properties);
+      null, properties, providerAdapter);
     return new Harness(gateway, extraction, synthesis);
   }
 
@@ -85,6 +92,19 @@ class OpenAiModelGatewayReasoningTests {
     h.gateway().verify(candidate(), "transcript");
 
     assertThat(effortOf(h.extraction().lastOptions)).isEqualTo("none");
+  }
+
+  @Test
+  void azureAdapterNeverSendsReasoningEffortEvenWhenConfigured() {
+    // Azure/DIAL chat deployments (gpt-4o, gpt-4.1-mini, ...) reject the reasoning_effort argument
+    // outright with HTTP 400, unlike Ollama where an unsupported model simply ignores it.
+    Harness h = harness(new Reasoning(false, true, "none", "low", Map.of()), new AzureModelProviderAdapter());
+
+    h.gateway().verify(candidate(), "transcript");
+    h.gateway().synthesizeRecall("q", List.<RecallCandidate>of());
+
+    assertThat(effortOf(h.extraction().lastOptions)).isNull();
+    assertThat(effortOf(h.synthesis().lastOptions)).isNull();
   }
 
   @Test

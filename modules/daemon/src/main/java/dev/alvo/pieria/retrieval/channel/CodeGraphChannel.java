@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.retrieval.RetrievalChannel;
 import dev.alvo.pieria.retrieval.RetrievalContext;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.storage.CodeIndexStore;
@@ -53,24 +54,29 @@ public final class CodeGraphChannel implements RetrievalChannel {
 
   @Override
   public List<RetrievalCandidate> retrieve(RetrievalContext ctx) {
+    return retrieveWithEvidence(ctx).candidates();
+  }
+
+  @Override
+  public ChannelResult retrieveWithEvidence(RetrievalContext ctx) {
     if (!codeStore.isCodeIndexPresent(ctx.profileId())) {
-      return List.of();
+      return ChannelResult.of(List.of());
     }
 
-    LinkedHashSet<String> seedSymbolIds = new LinkedHashSet<>();
-
     // (a) symbols named in the query (entities + FTS terms).
+    LinkedHashSet<String> querySeedIds = new LinkedHashSet<>();
     List<String> names = queryNames(ctx);
     if (!names.isEmpty()) {
       for (CodeSymbol s : codeStore.findSymbolsByName(ctx.profileId(), names, seedLimit)) {
-        seedSymbolIds.add(s.id());
+        querySeedIds.add(s.id());
       }
       for (CodeSymbol s : codeStore.findSymbolsByQualifiedName(ctx.profileId(), names, seedLimit)) {
-        seedSymbolIds.add(s.id());
+        querySeedIds.add(s.id());
       }
     }
 
     // (b) symbol-id provenance carried by wave-1 candidate memories.
+    LinkedHashSet<String> seedSymbolIds = new LinkedHashSet<>(querySeedIds);
     for (RetrievalCandidate cand : ctx.seedCandidates()) {
       for (String id : CodePayload.symbolIds(cand.memory().payload())) {
         seedSymbolIds.add(id);
@@ -81,17 +87,39 @@ public final class CodeGraphChannel implements RetrievalChannel {
     }
 
     if (seedSymbolIds.isEmpty()) {
-      return List.of();
+      return ChannelResult.of(List.of());
     }
+
+    // Edges touching the seeds themselves (not the BFS closure) are the direct "who calls X /
+    // what does X call" answers; they go to synthesis as evidence lines, bypassing fusion.
+    // When the query names symbols, evidence is drawn from those alone: the wave-1 provenance
+    // symbols (every symbol of every candidate file) would flood the capped evidence list with
+    // edges unrelated to what was asked. Provenance seeds are the fallback for queries that
+    // don't name any symbol.
+    List<String> evidenceSeeds = querySeedIds.isEmpty()
+      ? List.copyOf(seedSymbolIds)
+      : List.copyOf(querySeedIds);
+    List<GraphEvidence> evidence = edgeEvidence(ctx.profileId(), evidenceSeeds);
 
     List<String> reached = codeStore.symbolNeighborhood(
       ctx.profileId(), List.copyOf(seedSymbolIds), depth, fanout, minConfidence);
     if (reached.isEmpty()) {
-      return List.of();
+      return new ChannelResult(List.of(), evidence);
     }
 
     List<Memory> memories = store.findCodeMemoriesBySymbolIds(ctx.profileId(), reached, ctx.limit());
-    return RetrievalChannel.ranked(memories, type());
+    return new ChannelResult(RetrievalChannel.ranked(memories, type()), evidence);
+  }
+
+  private List<GraphEvidence> edgeEvidence(String profileId, List<String> seedSymbolIds) {
+    return codeStore.findEdgesTouching(profileId, seedSymbolIds, minConfidence, fanout).stream()
+      .map(e -> new GraphEvidence(
+        e.src().qualifiedName(), e.src().path(),
+        e.edge().relation().wire(),
+        e.dst() != null ? e.dst().qualifiedName() : e.edge().dstRef(),
+        e.dst() != null ? e.dst().path() : null,
+        e.edge().confidence().wire()))
+      .toList();
   }
 
   private static List<String> queryNames(RetrievalContext ctx) {

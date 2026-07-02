@@ -69,7 +69,9 @@ class ApiContractTests {
         .content("{\"query\":\"tea\"}"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.answer").exists())
-      .andExpect(jsonPath("$.memories").isArray());
+      .andExpect(jsonPath("$.memories").isArray())
+      // Wire compatibility: codeEvidence is omitted entirely when there is none.
+      .andExpect(jsonPath("$.codeEvidence").doesNotExist());
   }
 
   @Test

@@ -44,6 +44,17 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
         log.info("  - [{}] {}", m.type(), m.content());
       }
     }
+
+    List<RecallResponse.CodeEvidence> codeEvidence = response.codeEvidence();
+    if (codeEvidence != null && !codeEvidence.isEmpty()) {
+      log.info("");
+      log.info("Code graph evidence:");
+      for (RecallResponse.CodeEvidence e : codeEvidence) {
+        String target = e.dstPath() == null ? e.dst() : e.dst() + " (" + e.dstPath() + ")";
+        log.info("  - {} ({}) {} {} [{}]",
+          e.src(), e.srcPath(), e.relation().replace('-', ' '), target, e.confidence());
+      }
+    }
     return 0;
   }
 }

@@ -11,11 +11,13 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
+import dev.alvo.pieria.model.provider.ModelProviderAdapter;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import org.slf4j.Logger;
@@ -30,10 +32,8 @@ import org.springframework.ai.embedding.EmbeddingResponseMetadata;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.util.ArrayList;
@@ -63,15 +63,18 @@ public class OpenAiModelGateway implements ModelGateway {
   private final ChatClient synthesisChatClient;
   private final EmbeddingModel embeddingModel;
   private final PieriaProperties properties;
+  private final ModelProviderAdapter providerAdapter;
 
   public OpenAiModelGateway(@Qualifier("extractionChatClient") ChatClient extractionChatClient,
                             @Qualifier("synthesisChatClient") ChatClient synthesisChatClient,
                             EmbeddingModel embeddingModel,
-                            PieriaProperties properties) {
+                            PieriaProperties properties,
+                            ModelProviderAdapter providerAdapter) {
     this.extractionChatClient = extractionChatClient;
     this.synthesisChatClient = synthesisChatClient;
     this.embeddingModel = embeddingModel;
     this.properties = properties;
+    this.providerAdapter = providerAdapter;
   }
 
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -126,20 +129,13 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Build the chat options for {@code stage}: pin {@code modelName} and apply the configured
-   * {@code reasoning_effort} (see {@link PieriaProperties.Model.Reasoning}). For disabled stages this
-   * sends {@code none}, which suppresses the reasoning chain — including for Qwen3 over Ollama's
-   * OpenAI-compatible endpoint, whose request body honors {@code reasoning_effort} but not the
-   * {@code /no_think} prompt token. When the effort is unset the option is omitted (provider default).
+   * Build the chat options for {@code stage} on {@code modelName}, delegating to the configured
+   * {@link ModelProviderAdapter} so whether/how {@code reasoning_effort} (see
+   * {@link PieriaProperties.Model.Reasoning}) is applied stays dialect-specific — e.g. Ollama sends it
+   * as configured, while Azure omits it entirely since non-reasoning deployments reject the argument.
    */
   private OpenAiChatOptions.Builder reasoningOptions(String stage, String modelName) {
-    OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder();
-    builder.model(modelName);
-    String effort = properties.model().reasoning().effortFor(stage);
-    if (effort != null) {
-      builder.reasoningEffort(effort);
-    }
-    return builder;
+    return providerAdapter.chatOptions(stage, modelName, properties.model().reasoning());
   }
 
   @Override
@@ -962,6 +958,12 @@ public class OpenAiModelGateway implements ModelGateway {
   @Override
   public String synthesizeRecall(String query, List<RecallCandidate> candidates,
                                  List<TemporalFact> temporalFacts) {
+    return synthesizeRecall(query, candidates, temporalFacts, List.of());
+  }
+
+  @Override
+  public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                 List<TemporalFact> temporalFacts, List<GraphEvidence> graphEvidence) {
     List<RecallCandidate> safeCandidates = candidates == null ? List.of() : candidates;
     String context = safeCandidates.stream()
       .map(c -> "- " + c.memory().content())
@@ -977,8 +979,16 @@ public class OpenAiModelGateway implements ModelGateway {
       ? "(none)"
       : safeTemporal.stream().map(f -> "- " + f.render()).collect(Collectors.joining("\n"));
 
+    // Code-graph evidence is extracted deterministically from the indexed source, so like the
+    // temporal facts it is injected as ground truth rather than recalled memory text.
+    List<GraphEvidence> safeEvidence = graphEvidence == null ? List.of() : graphEvidence;
+    String graphBlock = safeEvidence.isEmpty()
+      ? "(none)"
+      : safeEvidence.stream().map(e -> "- " + e.render()).collect(Collectors.joining("\n"));
+
     String prompt = """
-      You answer strictly from the remembered memories below; never add facts they do not contain.
+      You answer strictly from the remembered memories and the code graph evidence below; never add
+      facts they do not contain.
       Interpret the query generously: it may be a full question, a phrase, or a single keyword, so
       infer the subject it points at and gather every memory bearing on that subject. Count a memory
       as relevant when it concerns the query's subject, even if it states a related fact, rule, or
@@ -988,16 +998,20 @@ public class OpenAiModelGateway implements ModelGateway {
       brevity or vagueness of the query is never itself a reason to refuse.
       The pre-computed temporal facts are authoritative: use them verbatim and never perform your
       own date or duration arithmetic.
-      
+
       Query:
       %s
-      
+
       Pre-computed temporal facts:
       %s
-      
+
+      Code graph evidence (precise relations extracted from the indexed source code; treat each
+      line as an authoritative fact about the code):
+      %s
+
       Remembered memories:
       %s
-      """.formatted(query, temporalBlock, context);
+      """.formatted(query, temporalBlock, graphBlock, context);
 
     try {
       ChatResponse chatResponse = synthesisChatClient.prompt()
@@ -1131,63 +1145,14 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Query the provider's OpenAI-compatible {@code GET /v1/models} endpoint and return the set of
-   * available model names (the {@code data[].id} values). Read-only: never invokes a model or
-   * generates tokens. Returns an empty set on any IO/parse failure and never throws, so first-run
-   * guidance degrades gracefully when the provider is down. Model names are returned verbatim
-   * (e.g. {@code "llama3.2:3b"}, {@code "gpt-4o"}).
-   *
-   * <p>Azure OpenAI does not expose models at {@code /v1/models} (it lists <em>deployments</em> at a
-   * different, api-version'd path), so in {@code azure} mode this returns an empty set and skips the
-   * probe. First-run guidance is log-only, so an empty set degrades gracefully.
+   * Report the model names the provider currently has available, delegating to the configured
+   * {@link ModelProviderAdapter} since discovery is dialect-specific (Ollama et al. expose
+   * {@code GET /v1/models}; Azure exposes deployments at a different, api-version'd path and is
+   * skipped). Read-only, log-only first-run guidance: never invokes a model or throws.
    */
   @Override
   public Set<String> availableModels() {
-    if (properties.provider().isAzure()) {
-      return Set.of();
-    }
-    String baseUrl = properties.provider().baseUrl();
-    if (baseUrl == null || baseUrl.isBlank()) {
-      return Set.of();
-    }
-    String modelsUrl = baseUrl.replaceAll("/+$", "") + "/v1/models";
-    HttpURLConnection conn = null;
-    try {
-      conn = (HttpURLConnection) URI.create(modelsUrl).toURL().openConnection();
-      conn.setRequestMethod("GET");
-      String apiKey = properties.provider().apiKey();
-      if (apiKey != null && !apiKey.isBlank()) {
-        conn.setRequestProperty("Authorization", "Bearer " + apiKey);
-      }
-      conn.setConnectTimeout(2000);
-      conn.setReadTimeout(2000);
-      conn.setInstanceFollowRedirects(false);
-      int code = conn.getResponseCode();
-      if (code < 200 || code >= 300) {
-        return Set.of();
-      }
-      LinkedHashSet<String> names = new LinkedHashSet<>();
-      try (InputStream in = conn.getInputStream()) {
-        JsonNode root = objectMapper.readTree(in);
-        JsonNode models = root.get("data");
-        if (models != null && models.isArray()) {
-          for (JsonNode model : models) {
-            JsonNode id = model.get("id");
-            if (id != null && !id.asString().isBlank()) {
-              names.add(id.asString().strip());
-            }
-          }
-        }
-      }
-      return Set.copyOf(names);
-    } catch (Exception e) {
-      // Never throw: missing/unreachable provider just yields no available models.
-      return Set.of();
-    } finally {
-      if (conn != null) {
-        conn.disconnect();
-      }
-    }
+    return providerAdapter.availableModels(properties.provider());
   }
 
   /**

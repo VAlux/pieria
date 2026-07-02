@@ -4,6 +4,7 @@ import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.code.CodeEdge;
 import dev.alvo.pieria.domain.code.CodeFile;
 import dev.alvo.pieria.domain.code.CodeModule;
+import dev.alvo.pieria.domain.code.CodeRelation;
 import dev.alvo.pieria.domain.code.CodeSymbol;
 import dev.alvo.pieria.domain.code.CodeSymbolKind;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
@@ -45,20 +46,25 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
   }
 
   private static CodeSymbol mapSymbol(ResultSet rs) throws SQLException {
+    return mapSymbol(rs, "");
+  }
+
+  /** Map a symbol whose columns were selected under {@code prefix}-ed aliases (e.g. {@code s_id}). */
+  private static CodeSymbol mapSymbol(ResultSet rs, String prefix) throws SQLException {
     return new CodeSymbol(
-      rs.getString("id"),
-      rs.getString("profile_id"),
-      rs.getString("file_id"),
-      CodeSymbolKind.fromWire(rs.getString("kind")),
-      rs.getString("name"),
-      rs.getString("qualified_name"),
-      rs.getString("signature"),
-      rs.getString("visibility"),
-      rs.getInt("start_line"),
-      rs.getInt("end_line"),
-      rs.getString("language"),
-      rs.getString("parent_symbol_id"),
-      rs.getString("path"));
+      rs.getString(prefix + "id"),
+      rs.getString(prefix + "profile_id"),
+      rs.getString(prefix + "file_id"),
+      CodeSymbolKind.fromWire(rs.getString(prefix + "kind")),
+      rs.getString(prefix + "name"),
+      rs.getString(prefix + "qualified_name"),
+      rs.getString(prefix + "signature"),
+      rs.getString(prefix + "visibility"),
+      rs.getInt(prefix + "start_line"),
+      rs.getInt(prefix + "end_line"),
+      rs.getString(prefix + "language"),
+      rs.getString(prefix + "parent_symbol_id"),
+      rs.getString(prefix + "path"));
   }
 
   /** Build a safe FTS5 MATCH string: identifier tokens, each quoted, OR-joined. Empty ⇒ no match. */
@@ -311,6 +317,71 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
       .query(String.class)
       .list();
     return List.copyOf(new LinkedHashSet<>(rows));
+  }
+
+  @Override
+  public List<EdgeEvidence> findEdgesTouching(
+    String profileId, List<String> symbolIds, EdgeConfidence minConfidence, int limit) {
+    if (symbolIds == null || limit <= 0) {
+      return List.of();
+    }
+    List<String> ids = symbolIds.stream().filter(i -> i != null && !i.isBlank()).distinct().toList();
+    List<String> allowed = allowedConfidences(minConfidence);
+    if (ids.isEmpty() || allowed.isEmpty()) {
+      return List.of();
+    }
+    String idPh = placeholders(ids.size());
+    String confPh = placeholders(allowed.size());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(ids);
+    params.addAll(ids);
+    params.addAll(allowed);
+    params.add(limit);
+    return jdbc.sql("SELECT "
+        + "e.id AS e_id, e.profile_id AS e_profile_id, e.src_symbol_id AS e_src_symbol_id, "
+        + "e.relation AS e_relation, e.confidence AS e_confidence, "
+        + "e.dst_symbol_id AS e_dst_symbol_id, e.dst_ref AS e_dst_ref, e.file_id AS e_file_id, "
+        + prefixed("s") + ", " + prefixed("d") + " "
+        + "FROM code_edges e "
+        + "JOIN code_symbols s ON s.id = e.src_symbol_id "
+        + "LEFT JOIN code_symbols d ON d.id = e.dst_symbol_id "
+        + "WHERE e.profile_id = ? "
+        + "  AND (e.src_symbol_id IN (" + idPh + ") OR e.dst_symbol_id IN (" + idPh + ")) "
+        + "  AND e.confidence IN (" + confPh + ") "
+        + "ORDER BY CASE e.confidence WHEN '" + EdgeConfidence.RESOLVED.wire() + "' THEN 0 ELSE 1 END, "
+        + "  e.relation ASC, s.qualified_name ASC, e.id ASC "
+        + "LIMIT ?")
+      .params(params)
+      .query((rs, _) -> mapEdgeEvidence(rs))
+      .list();
+  }
+
+  private static EdgeEvidence mapEdgeEvidence(ResultSet rs) throws SQLException {
+    CodeEdge edge = new CodeEdge(
+      rs.getString("e_id"),
+      rs.getString("e_profile_id"),
+      rs.getString("e_src_symbol_id"),
+      CodeRelation.fromWire(rs.getString("e_relation")),
+      EdgeConfidence.fromWire(rs.getString("e_confidence")),
+      rs.getString("e_dst_symbol_id"),
+      rs.getString("e_dst_ref"),
+      rs.getString("e_file_id"));
+    CodeSymbol src = mapSymbol(rs, "s_");
+    CodeSymbol dst = rs.getString("d_id") == null ? null : mapSymbol(rs, "d_");
+    return new EdgeEvidence(edge, src, dst);
+  }
+
+  /** Symbol columns of {@code alias} selected under {@code alias_}-prefixed names. */
+  private static String prefixed(String alias) {
+    StringBuilder sb = new StringBuilder();
+    for (String col : SYMBOL_COLUMNS.split(", ")) {
+      if (!sb.isEmpty()) {
+        sb.append(", ");
+      }
+      sb.append(alias).append('.').append(col).append(" AS ").append(alias).append('_').append(col);
+    }
+    return sb.toString();
   }
 
   private static List<String> allowedConfidences(EdgeConfidence minConfidence) {

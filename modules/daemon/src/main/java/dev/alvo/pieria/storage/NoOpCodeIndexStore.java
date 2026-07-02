@@ -73,6 +73,12 @@ public final class NoOpCodeIndexStore implements CodeIndexStore {
   }
 
   @Override
+  public List<EdgeEvidence> findEdgesTouching(
+    String profileId, List<String> symbolIds, EdgeConfidence minConfidence, int limit) {
+    return List.of();
+  }
+
+  @Override
   public boolean isCodeIndexPresent(String profileId) {
     return false;
   }

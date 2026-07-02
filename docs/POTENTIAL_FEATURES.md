@@ -71,7 +71,7 @@ Fit: An expires_at column + a sweep in an existing scheduler. Low effort.
 Phase: unassigned | Status: pending
 Who has it: Hindsight.
 What: You already store session_id provenance and line indices; surface them as citations in the synthesized recall answer so the agent (and user) can trust/trace claims. With code indexing, citations should include file path, symbol id/FQN, line range, memory id, trace id, and source freshness.
-Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff. Code-index candidates should carry structured provenance so citations do not depend on the model inventing file references.
+Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff. Code-index candidates should carry structured provenance so citations do not depend on the model inventing file references. Partially landed: code-graph edge evidence (src/dst FQN + path + relation + confidence) already flows structurally through synthesis and `RecallResponse.codeEvidence`; extending the same carrier to memory/session citations is the remaining work.
 
 12. Rolling user/project profile compaction
 Phase: unassigned | Status: pending

@@ -225,6 +225,24 @@ public class FakeModelGateway implements ModelGateway {
       + temporal + " temporal fact(s): " + contents;
   }
 
+  /**
+   * Surfaces the code-graph evidence count and rendered lines so retrieval-pipeline tests can
+   * assert that the ephemeral edge evidence reached synthesis.
+   */
+  @Override
+  public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                 List<TemporalFact> temporalFacts,
+                                 List<dev.alvo.pieria.retrieval.model.GraphEvidence> graphEvidence) {
+    String base = synthesizeRecall(query, candidates, temporalFacts);
+    if (graphEvidence == null || graphEvidence.isEmpty()) {
+      return base;
+    }
+    String lines = graphEvidence.stream()
+      .map(dev.alvo.pieria.retrieval.model.GraphEvidence::render)
+      .collect(java.util.stream.Collectors.joining("; "));
+    return base + " | " + graphEvidence.size() + " code edge(s): " + lines;
+  }
+
   @Override
   public float[] embed(String text) {
     failIfUnavailable();

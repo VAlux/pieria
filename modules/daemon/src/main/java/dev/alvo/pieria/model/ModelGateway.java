@@ -6,6 +6,7 @@ import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
@@ -159,6 +160,17 @@ public interface ModelGateway {
   default String synthesizeRecall(String query, List<RecallCandidate> candidates,
                                   List<TemporalFact> temporalFacts) {
     return synthesizeRecall(query, candidates);
+  }
+
+  /**
+   * Synthesis with both the deterministic {@code temporalFacts} and the ephemeral code-graph
+   * {@code graphEvidence} (rendered edge rows) injected into the prompt as ground truth. The
+   * default ignores the evidence and delegates to the three-argument form so existing
+   * implementations keep working.
+   */
+  default String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                  List<TemporalFact> temporalFacts, List<GraphEvidence> graphEvidence) {
+    return synthesizeRecall(query, candidates, temporalFacts);
   }
 
   /**

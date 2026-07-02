@@ -28,6 +28,8 @@ out/
 
 ### Pieria local evaluation ###
 pieria-eval-reports/
+# Benchmark datasets (LoCoMo, LongMemEval) are fetched locally, never checked in.
+datasets/
 
 ### Pieria native sqlite-vec extension (platform binaries fetched at build/release time) ###
 packaging/native/*/*.dylib

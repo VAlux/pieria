@@ -13,9 +13,13 @@ tasks.withType<Test> {
 	testLogging {
 		showStandardStreams = true
 	}
-	// Benchmark tests require a live model and dataset; run them explicitly via
-	// PIERIA_LIVE_EVAL=1 ./gradlew :eval:test
-	filter.excludeTestsMatching("*Benchmark*")
+	// Resolve relative paths (datasets/, pieria-eval-reports/) against the repo root so live
+	// benchmark runs find their dataset and write their report where the docs say they will.
+	workingDir = rootDir
+	// The live benchmark tests (BenchmarkRunnerLiveTests) self-disable via
+	// @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL), so no Gradle-level exclude is needed — and a
+	// broad "*Benchmark*" exclude would (a) also drop the offline *BenchmarkAdapterTests and (b) block
+	// `--tests "*BenchmarkRunner*"`, since Gradle excludes win over an explicit --tests filter.
 }
 
 dependencies {

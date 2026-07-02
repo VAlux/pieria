@@ -7,6 +7,7 @@ import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
@@ -194,7 +195,9 @@ public class RetrievalService {
       embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit());
 
     List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
-    Timed<List<RetrievalCandidate>> hits = Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics));
+    List<GraphEvidence> graphEvidence = new ArrayList<>();
+    Timed<List<RetrievalCandidate>> hits =
+      Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics, graphEvidence));
     // Fast path is for prompt-context injection: drop code-indexer-derived memories (one-line symbol
     // summaries the agent can grep for itself) so the limited slots go to the decisions/conventions it
     // can't cheaply re-derive. Filtered before fusion so the limit still yields that many real hits.
@@ -214,8 +217,9 @@ public class RetrievalService {
     LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
       profileName, temporal.value().size(), temporal.millis());
 
+    List<GraphEvidence> evidence = graphEvidence.stream().distinct().toList();
     Timed<String> answer = Timed.measure(
-      () -> fast ? null : synthesize(query, fused.value(), temporal.value()));
+      () -> fast ? null : synthesize(query, fused.value(), temporal.value(), evidence));
     LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
       profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
@@ -226,7 +230,7 @@ public class RetrievalService {
       profileName, hits.value().size(), fused.value().size(),
       analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
       temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
-    return new RecallResult(answer.value(), fused.value(), temporal.value(), diagnostics);
+    return new RecallResult(answer.value(), fused.value(), temporal.value(), evidence, diagnostics);
 
     } finally {
       usageBinding.close();
@@ -291,16 +295,18 @@ public class RetrievalService {
    * Channel stage: wave 1 runs the primary channels in parallel; wave 2 runs the graph channel
    * seeded from wave-1 hits + query entities. Both waves feed the same weighted RRF downstream.
    */
-  private List<RetrievalCandidate> runWaves(Pipeline pipeline, RetrievalContext context, List<ChannelDiagnostics> diags) {
+  private List<RetrievalCandidate> runWaves(Pipeline pipeline, RetrievalContext context,
+                                            List<ChannelDiagnostics> diags, List<GraphEvidence> evidenceOut) {
     LOGGER.debug("recall wave=1 start channels={} seedCandidates=0", channelTypes(pipeline.channels()));
-    List<RetrievalCandidate> hits = new ArrayList<>(runChannels(pipeline, pipeline.channels(), context, diags));
+    List<RetrievalCandidate> hits =
+      new ArrayList<>(runChannels(pipeline, pipeline.channels(), context, diags, evidenceOut));
     LOGGER.debug("recall wave=1 completed hits={}", hits.size());
     if (!pipeline.secondWaveChannels().isEmpty()) {
       int firstWaveHits = hits.size();
       LOGGER.debug("recall wave=2 start channels={} seedCandidates={}",
         channelTypes(pipeline.secondWaveChannels()), firstWaveHits);
       List<RetrievalCandidate> secondWaveHits =
-        runChannels(pipeline, pipeline.secondWaveChannels(), context.withSeedCandidates(hits), diags);
+        runChannels(pipeline, pipeline.secondWaveChannels(), context.withSeedCandidates(hits), diags, evidenceOut);
       hits.addAll(secondWaveHits);
       LOGGER.debug("recall wave=2 completed hits={} totalHits={}", secondWaveHits.size(), hits.size());
     }
@@ -336,8 +342,9 @@ public class RetrievalService {
    * Synthesis stage: the large model composes the answer from the fused evidence and temporal facts.
    * A failure here is genuine (mapped to 503), not soft.
    */
-  private String synthesize(String query, List<RecallCandidate> fused, List<TemporalFact> temporalFacts) {
-    return modelGateway.synthesizeRecall(query, fused, temporalFacts);
+  private String synthesize(String query, List<RecallCandidate> fused, List<TemporalFact> temporalFacts,
+                            List<GraphEvidence> graphEvidence) {
+    return modelGateway.synthesizeRecall(query, fused, temporalFacts, graphEvidence);
   }
 
   /**
@@ -382,28 +389,30 @@ public class RetrievalService {
   private List<RetrievalCandidate> runChannels(Pipeline pipeline,
                                                List<RetrievalChannel> channelsToRun,
                                                RetrievalContext ctx,
-                                               List<ChannelDiagnostics> diags) {
+                                               List<ChannelDiagnostics> diags,
+                                               List<GraphEvidence> evidenceOut) {
 
     List<RetrievalCandidate> all = new ArrayList<>();
 
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      Map<RetrievalChannel, Future<Timed<List<RetrievalCandidate>>>> futures = new LinkedHashMap<>();
+      Map<RetrievalChannel, Future<Timed<RetrievalChannel.ChannelResult>>> futures = new LinkedHashMap<>();
       for (RetrievalChannel channel : channelsToRun) {
         LOGGER.debug("retrieval channel {} scheduled critical={} limit={} seedCandidates={}",
           channel.type(), channel.critical(), ctx.limit(), ctx.seedCandidates().size());
         futures.put(channel, exec.submit(() -> {
           LOGGER.debug("retrieval channel {} started", channel.type());
-          return Timed.measure(() -> channel.retrieve(ctx));
+          return Timed.measure(() -> channel.retrieveWithEvidence(ctx));
         }));
       }
 
       futures.forEach((channel, value) -> {
         try {
-          Timed<List<RetrievalCandidate>> result = value.get(pipeline.channelTimeoutMs(), TimeUnit.MILLISECONDS);
-          all.addAll(result.value());
-          LOGGER.debug("retrieval channel {} completed hits={} ms={}",
-            channel.type(), result.value().size(), result.millis());
-          diags.add(new ChannelDiagnostics(channel.type(), result.millis(), result.value().size(), false));
+          Timed<RetrievalChannel.ChannelResult> result = value.get(pipeline.channelTimeoutMs(), TimeUnit.MILLISECONDS);
+          all.addAll(result.value().candidates());
+          evidenceOut.addAll(result.value().evidence());
+          LOGGER.debug("retrieval channel {} completed hits={} evidence={} ms={}",
+            channel.type(), result.value().candidates().size(), result.value().evidence().size(), result.millis());
+          diags.add(new ChannelDiagnostics(channel.type(), result.millis(), result.value().candidates().size(), false));
         } catch (TimeoutException | ExecutionException | InterruptedException e) {
           if (e instanceof InterruptedException) {
             Thread.currentThread().interrupt();

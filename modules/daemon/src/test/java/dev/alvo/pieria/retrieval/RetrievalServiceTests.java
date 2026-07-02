@@ -3,6 +3,11 @@ package dev.alvo.pieria.retrieval;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.domain.code.CodeEdge;
+import dev.alvo.pieria.domain.code.CodeRelation;
+import dev.alvo.pieria.domain.code.CodeSymbol;
+import dev.alvo.pieria.domain.code.CodeSymbolKind;
+import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -14,6 +19,8 @@ import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.storage.CodeIndexStore;
+import dev.alvo.pieria.storage.CodeIndexStore.EdgeEvidence;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.storage.NoOpCodeIndexStore;
 import dev.alvo.pieria.tools.Tokens;
@@ -52,6 +59,16 @@ class RetrievalServiceTests {
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
     return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(),
       EffectiveConfigResolver.withoutOverrides(props()));
+  }
+
+  /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
+  private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
+    PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
+      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic");
+    PieriaProperties props = new PieriaProperties(null, null, null, null,
+      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000), cfg, null);
+    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), codeStore,
+      EffectiveConfigResolver.withoutOverrides(props));
   }
 
   @Test
@@ -295,10 +312,57 @@ class RetrievalServiceTests {
     assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("c1");
   }
 
+  @Test
+  void codeGraphEvidenceReachesResultAndSynthesis() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(mem("m1", "gpt is the forward pass", MemoryType.FACT, null, T0));
+    CodeIndexStore codeStore = new EvidenceOnlyCodeIndexStore(
+      new CodeSymbol("sym-gpt", "prof-1", "f1", CodeSymbolKind.METHOD, "gpt", "Model#gpt",
+        "gpt()", "public", 1, 2, "java", null, "Model.java"),
+      new CodeIndexStore.EdgeEvidence(
+        new CodeEdge("e1", "prof-1", "sym-main", CodeRelation.CALLS, EdgeConfidence.RESOLVED,
+          "sym-gpt", "gpt", "f2"),
+        new CodeSymbol("sym-main", "prof-1", "f2", CodeSymbolKind.METHOD, "main", "JGPT#main",
+          "main()", "public", 1, 2, "java", null, "JGPT.java"),
+        new CodeSymbol("sym-gpt", "prof-1", "f1", CodeSymbolKind.METHOD, "gpt", "Model#gpt",
+          "gpt()", "public", 1, 2, "java", null, "Model.java")));
+
+    ProbeGateway model = new ProbeGateway();
+    RecallResult result = serviceWithCodeGraph(store, model, codeStore).recall("p", "gpt", 10, false);
+
+    assertThat(result.graphEvidence()).hasSize(1);
+    assertThat(result.graphEvidence().getFirst().render())
+      .isEqualTo("JGPT#main (JGPT.java) calls Model#gpt (Model.java) [resolved]");
+    assertThat(model.synthesizedGraphEvidence).isEqualTo(result.graphEvidence());
+    assertThat(result.answer()).contains("1 code edge(s)");
+  }
+
+  @Test
+  void fastRecallCollectsEvidenceButSkipsSynthesis() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(mem("m1", "gpt is the forward pass", MemoryType.FACT, null, T0));
+    CodeIndexStore codeStore = new EvidenceOnlyCodeIndexStore(
+      new CodeSymbol("sym-gpt", "prof-1", "f1", CodeSymbolKind.METHOD, "gpt", "Model#gpt",
+        "gpt()", "public", 1, 2, "java", null, "Model.java"),
+      new CodeIndexStore.EdgeEvidence(
+        new CodeEdge("e1", "prof-1", "sym-main", CodeRelation.CALLS, EdgeConfidence.RESOLVED,
+          "sym-gpt", "gpt", "f2"),
+        new CodeSymbol("sym-main", "prof-1", "f2", CodeSymbolKind.METHOD, "main", "JGPT#main",
+          "main()", "public", 1, 2, "java", null, "JGPT.java"),
+        null));
+
+    ProbeGateway model = new ProbeGateway();
+    RecallResult result = serviceWithCodeGraph(store, model, codeStore).recall("p", "gpt", 10, false, true);
+
+    assertThat(result.answer()).isNull();
+    assertThat(model.synthesizeCalled).isFalse();
+  }
+
   /** Records whether the model-driven analysis/synthesis stages were invoked, delegating otherwise. */
   private static final class ProbeGateway extends FakeModelGateway {
     boolean analyzeQueryCalled = false;
     boolean synthesizeCalled = false;
+    List<dev.alvo.pieria.retrieval.model.GraphEvidence> synthesizedGraphEvidence;
 
     @Override
     public QueryAnalysis analyzeQuery(String query) {
@@ -318,6 +382,58 @@ class RetrievalServiceTests {
       synthesizeCalled = true;
       return super.synthesizeRecall(query, candidates, temporalFacts);
     }
+
+    @Override
+    public String synthesizeRecall(String query, List<RecallCandidate> candidates,
+                                   List<dev.alvo.pieria.retrieval.model.TemporalFact> temporalFacts,
+                                   List<dev.alvo.pieria.retrieval.model.GraphEvidence> graphEvidence) {
+      synthesizeCalled = true;
+      synthesizedGraphEvidence = graphEvidence;
+      return super.synthesizeRecall(query, candidates, temporalFacts, graphEvidence);
+    }
+  }
+
+  /**
+   * A code index holding one seed symbol and one edge: enough for the code-graph wave to emit
+   * evidence without resolving derived memories (the neighborhood is empty on purpose).
+   */
+  private static final class EvidenceOnlyCodeIndexStore implements CodeIndexStore {
+    private final CodeSymbol seed;
+    private final EdgeEvidence edge;
+
+    EvidenceOnlyCodeIndexStore(CodeSymbol seed, EdgeEvidence edge) {
+      this.seed = seed;
+      this.edge = edge;
+    }
+
+    @Override
+    public boolean isCodeIndexPresent(String profileId) {
+      return true;
+    }
+
+    @Override
+    public List<CodeSymbol> findSymbolsByName(String profileId, List<String> names, int limit) {
+      return names.contains(seed.name()) ? List.of(seed) : List.of();
+    }
+
+    @Override
+    public List<EdgeEvidence> findEdgesTouching(
+      String profileId, List<String> symbolIds, EdgeConfidence minConfidence, int limit) {
+      return symbolIds.contains(seed.id()) ? List.of(edge) : List.of();
+    }
+
+    // --- unused surface for the evidence tests ---
+    @Override public dev.alvo.pieria.domain.code.CodeModule upsertCodeModule(String p, dev.alvo.pieria.domain.code.CodeModule m) { return m; }
+    @Override public dev.alvo.pieria.domain.code.CodeFile upsertCodeFile(String p, dev.alvo.pieria.domain.code.CodeFile f) { return f; }
+    @Override public CodeSymbol upsertCodeSymbol(String p, CodeSymbol s) { return s; }
+    @Override public CodeEdge upsertCodeEdge(String p, CodeEdge e) { return e; }
+    @Override public Optional<String> fileContentHash(String p, String path) { return Optional.empty(); }
+    @Override public void replaceFileIndex(String p, dev.alvo.pieria.domain.code.CodeFile f, List<CodeSymbol> s, List<CodeEdge> e) { }
+    @Override public List<CodeSymbol> searchSymbolsFts(String p, String q, int l) { return List.of(); }
+    @Override public List<CodeSymbol> findSymbolsByQualifiedName(String p, List<String> n, int l) { return List.of(); }
+    @Override public List<CodeSymbol> findSymbolsByIds(String p, List<String> ids, int l) { return List.of(); }
+    @Override public List<String> symbolNeighborhood(String p, List<String> seeds, int d, int f, EdgeConfidence c) { return List.of(); }
+    @Override public CodeIndexCounts counts(String p) { return new CodeIndexCounts(1, 1, 1, 0); }
   }
 
   /** Minimal configurable {@link MemoryStore}: only the methods the read path touches are wired. */

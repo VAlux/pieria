@@ -2,6 +2,7 @@ package dev.alvo.pieria.evaluation;
 
 import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -163,6 +164,27 @@ final class InMemoryEvaluationMemoryStore implements MemoryStore {
 		return lexicalSearch(activeMemories(profileId), query, limit).stream()
 			.map(memory -> new RecallCandidate(memory, 1.0, "evaluation_lexical"))
 			.toList();
+	}
+
+	// Graph surface: empty so the second-wave graph channel runs cleanly (0 hits) in benchmark runs.
+	@Override
+	public List<Entity> findEntitiesByName(String profileId, List<String> names, int limit) {
+		return List.of();
+	}
+
+	@Override
+	public List<Entity> entitiesForMemories(String profileId, List<String> memoryIds, int limit) {
+		return List.of();
+	}
+
+	@Override
+	public List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
+		return List.of();
+	}
+
+	@Override
+	public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+		return List.of();
 	}
 
 	private Memory withStoreFields(Memory memory) {

@@ -7,6 +7,7 @@ import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
+import dev.alvo.pieria.model.provider.OllamaModelProviderAdapter;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -55,7 +56,7 @@ class OpenAiModelGatewayBatchTests {
       new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null), null, null, null);
     ChatClient client = ChatClient.builder(model)
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
-    return new OpenAiModelGateway(client, client, null, properties);
+    return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());
   }
 
   private static ExtractedCandidate candidate(int n) {

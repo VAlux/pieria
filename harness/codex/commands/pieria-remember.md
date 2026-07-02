@@ -1,9 +1,14 @@
 # pieria-remember
 
-Store the following in Pieria memory by calling the `remember` MCP tool
-(`mcp__pieria__remember`). Infer a sensible `type` — `fact` (default), `instruction`,
-`event`, or `task` — and pass the text as `content`. If the user prefixed the text
-with `fact:` / `instruction:` / `event:` / `task:`, use that as the type.
+If the memory to store below is non-empty, store it in Pieria by calling the `remember`
+MCP tool (`mcp__pieria__remember`). Infer a sensible `type` — `fact` (default),
+`instruction`, `event`, or `task` — and pass the text as `content`. If the user prefixed
+the text with `fact:` / `instruction:` / `event:` / `task:`, use that as the type.
+
+If it is empty, no explicit content was given: instead, review the recent conversation,
+pick the 1-3 most relevant memories worth persisting (facts, instructions, decisions,
+events), and store each with `mcp__pieria__remember`, choosing an appropriate `type` and
+`topicKey`. Briefly tell the user what you stored.
 
 Memory to store:
 

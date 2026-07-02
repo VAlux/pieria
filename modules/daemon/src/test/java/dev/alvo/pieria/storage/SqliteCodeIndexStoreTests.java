@@ -177,6 +177,69 @@ class SqliteCodeIndexStoreTests {
     assertThat(store.isCodeIndexPresent(profileId)).isTrue();
   }
 
+  @Test
+  void findEdgesTouchingMatchesBySourceAndByTarget() {
+    CodeFile file = store.upsertCodeFile(profileId, CodeFile.of("java", "G.java", "h1", 10, null));
+    CodeSymbol sa = store.upsertCodeSymbol(profileId, named(file.id(), "a", "G#a"));
+    CodeSymbol sb = store.upsertCodeSymbol(profileId, named(file.id(), "b", "G#b"));
+    store.upsertCodeEdge(profileId, new CodeEdge(null, profileId, sa.id(),
+      CodeRelation.CALLS, EdgeConfidence.RESOLVED, sb.id(), "b", file.id()));
+
+    for (String seed : List.of(sa.id(), sb.id())) {
+      List<CodeIndexStore.EdgeEvidence> hits =
+        store.findEdgesTouching(profileId, List.of(seed), EdgeConfidence.HEURISTIC, 10);
+      assertThat(hits).hasSize(1);
+      assertThat(hits.getFirst().src().qualifiedName()).isEqualTo("G#a");
+      assertThat(hits.getFirst().dst().qualifiedName()).isEqualTo("G#b");
+      assertThat(hits.getFirst().edge().relation()).isEqualTo(CodeRelation.CALLS);
+    }
+  }
+
+  @Test
+  void findEdgesTouchingReturnsUnresolvedTargetAsNullDst() {
+    CodeFile file = store.upsertCodeFile(profileId, CodeFile.of("java", "G.java", "h1", 10, null));
+    CodeSymbol sa = store.upsertCodeSymbol(profileId, named(file.id(), "a", "G#a"));
+    store.upsertCodeEdge(profileId, new CodeEdge(null, profileId, sa.id(),
+      CodeRelation.REFERENCES, EdgeConfidence.HEURISTIC, null, "Unknown", file.id()));
+
+    List<CodeIndexStore.EdgeEvidence> hits =
+      store.findEdgesTouching(profileId, List.of(sa.id()), EdgeConfidence.HEURISTIC, 10);
+    assertThat(hits).hasSize(1);
+    assertThat(hits.getFirst().dst()).isNull();
+    assertThat(hits.getFirst().edge().dstRef()).isEqualTo("Unknown");
+  }
+
+  @Test
+  void findEdgesTouchingHonorsMinConfidenceLimitAndOrder() {
+    CodeFile file = store.upsertCodeFile(profileId, CodeFile.of("java", "G.java", "h1", 10, null));
+    CodeSymbol sa = store.upsertCodeSymbol(profileId, named(file.id(), "a", "G#a"));
+    CodeSymbol sb = store.upsertCodeSymbol(profileId, named(file.id(), "b", "G#b"));
+    store.upsertCodeEdge(profileId, new CodeEdge(null, profileId, sa.id(),
+      CodeRelation.REFERENCES, EdgeConfidence.HEURISTIC, null, "Unknown", file.id()));
+    store.upsertCodeEdge(profileId, new CodeEdge(null, profileId, sa.id(),
+      CodeRelation.CALLS, EdgeConfidence.RESOLVED, sb.id(), "b", file.id()));
+
+    // Resolved-only filters the heuristic edge out.
+    assertThat(store.findEdgesTouching(profileId, List.of(sa.id()), EdgeConfidence.RESOLVED, 10))
+      .hasSize(1)
+      .allSatisfy(e -> assertThat(e.edge().confidence()).isEqualTo(EdgeConfidence.RESOLVED));
+
+    // Both allowed: resolved sorts first; limit 1 keeps only it.
+    List<CodeIndexStore.EdgeEvidence> all =
+      store.findEdgesTouching(profileId, List.of(sa.id()), EdgeConfidence.HEURISTIC, 10);
+    assertThat(all).hasSize(2);
+    assertThat(all.getFirst().edge().confidence()).isEqualTo(EdgeConfidence.RESOLVED);
+    assertThat(store.findEdgesTouching(profileId, List.of(sa.id()), EdgeConfidence.HEURISTIC, 1))
+      .hasSize(1)
+      .allSatisfy(e -> assertThat(e.edge().confidence()).isEqualTo(EdgeConfidence.RESOLVED));
+  }
+
+  @Test
+  void findEdgesTouchingIsEmptyOnEmptyIdsOrZeroLimit() {
+    assertThat(store.findEdgesTouching(profileId, List.of(), EdgeConfidence.HEURISTIC, 10)).isEmpty();
+    assertThat(store.findEdgesTouching(profileId, List.of("x"), EdgeConfidence.HEURISTIC, 0)).isEmpty();
+  }
+
   private static CodeSymbol named(String fileId, String name, String fqn) {
     return new CodeSymbol(null, null, fileId, CodeSymbolKind.METHOD, name, fqn, name + "()",
       "public", 1, 2, "java", null, "G.java");

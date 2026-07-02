@@ -69,8 +69,8 @@ All properties are in `src/main/resources/application.properties`. Key ones:
 | `pieria.provider.base-url` | `http://localhost:11434` | Provider API root, **without** the `/v1` suffix (the client appends it) |
 | `pieria.provider.api-key` | `ollama` | Bearer token sent to the provider; local providers ignore it, so any non-blank placeholder works |
 | `pieria.provider.name` | `ollama` | Display-only label surfaced on `/pieria-status` and `/pieria-health` |
-| `pieria.model.extraction-model` | `qwen3:8b` | Small/fast model for structured stages (extract, verify, classify, analyze) |
-| `pieria.model.synthesis-model` | `gemma3:12b` | Large model for synthesis |
+| `pieria.model.extraction-model` | `qwen3.5:9b-mlx` | Small/fast model for structured stages (extract, verify, classify, analyze) |
+| `pieria.model.synthesis-model` | `gemma4:12b-mlx` | Large model for synthesis |
 | `pieria.model.embedding` | `mxbai-embed-large` | Embedding model |
 | `pieria.model.embedding-dimension` | `1024` | Fixes the `FLOAT[n]` vector column width — set once |
 | `pieria.retrieval.vector-enabled` | `true` | Disable if `sqlite-vec` is not available |
@@ -105,8 +105,8 @@ The daemon talks to any provider that exposes an **OpenAI-compatible API** (`/v1
 pieria.provider.base-url=http://localhost:11434
 pieria.provider.api-key=ollama
 pieria.provider.name=ollama
-pieria.model.extraction-model=qwen3:8b
-pieria.model.synthesis-model=gemma3:12b
+pieria.model.extraction-model=qwen3.5:9b-mlx
+pieria.model.synthesis-model=gemma4:12b-mlx
 pieria.model.embedding=mxbai-embed-large
 ```
 

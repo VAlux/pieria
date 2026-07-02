@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,9 +35,13 @@ import java.util.TreeMap;
  *       {@code blip_caption} we fold into the text when {@code text} is empty.</li>
  *   <li>{@code qa} — an array of question/answer objects. Each is assumed to expose {@code question}
  *       and {@code answer} (coerced to a string; numeric/boolean answers are stringified). An
- *       optional {@code evidence} field (string or array of strings, typically dialog ids such as
- *       {@code "D1:2"}) is recorded as expected recall evidence. {@code category 5} (adversarial,
- *       answer often "Not mentioned") is kept as-is — the harness still scores it.</li>
+ *       optional {@code evidence} field (string or array of strings, dialog ids such as
+ *       {@code "D1:2"}) is <em>resolved to the referenced turn text</em> via each turn's
+ *       {@code dia_id} and recorded as expected recall evidence — the raw ids never match a
+ *       retrieved memory, so resolving them is what makes retrieval hit-rate/MRR meaningful for
+ *       LoCoMo. Ids that cannot be resolved are kept verbatim (they simply never match).
+ *       {@code category 5} (adversarial, answer often "Not mentioned") is kept as-is — the harness
+ *       still scores it.</li>
  * </ul>
  *
  * <p>The transcript is mapped to ingest messages by alternating user/assistant roles is NOT done —
@@ -97,8 +102,10 @@ public final class LoCoMoBenchmarkAdapter {
 		String name = sampleId.isBlank() ? "locomo-" + index : sampleId;
 		String sessionId = "locomo-" + name;
 
-		List<EvaluationFixture.TranscriptMessage> transcript = parseConversation(sample.get("conversation"));
-		List<EvaluationFixture.RecallExpectation> recalls = parseQa(sample.get("qa"));
+		// dia_id -> turn text, populated during conversation parsing so QA evidence ids resolve to text.
+		Map<String, String> evidenceText = new LinkedHashMap<>();
+		List<EvaluationFixture.TranscriptMessage> transcript = parseConversation(sample.get("conversation"), evidenceText);
+		List<EvaluationFixture.RecallExpectation> recalls = parseQa(sample.get("qa"), evidenceText);
 
 		if (transcript.isEmpty() || recalls.isEmpty()) {
 			return null;
@@ -106,7 +113,8 @@ public final class LoCoMoBenchmarkAdapter {
 		return new EvaluationFixture(name, PROFILE, sessionId, transcript, List.of(), recalls);
 	}
 
-	private List<EvaluationFixture.TranscriptMessage> parseConversation(JsonNode conversation) {
+	private List<EvaluationFixture.TranscriptMessage> parseConversation(JsonNode conversation,
+	                                                                    Map<String, String> evidenceText) {
 		List<EvaluationFixture.TranscriptMessage> messages = new ArrayList<>();
 		if (conversation == null || !conversation.isObject()) {
 			return messages;
@@ -128,34 +136,45 @@ public final class LoCoMoBenchmarkAdapter {
 
 		for (JsonNode session : sessions.values()) {
 			for (JsonNode turn : session) {
-				EvaluationFixture.TranscriptMessage message = parseTurn(turn, speakerA);
+				String body = turnBody(turn);
+				EvaluationFixture.TranscriptMessage message = parseTurn(turn, speakerA, body);
 				if (message != null) {
 					messages.add(message);
+					String diaId = text(turn, "dia_id", "id");
+					if (!diaId.isBlank()) {
+						// Evidence is compared against retrieved memory text, so record the turn body
+						// (without the speaker prefix) as the resolvable text for this dialog id.
+						evidenceText.put(diaId, body);
+					}
 				}
 			}
 		}
 		return messages;
 	}
 
-	private EvaluationFixture.TranscriptMessage parseTurn(JsonNode turn, String speakerA) {
+	private static String turnBody(JsonNode turn) {
 		if (turn == null || !turn.isObject()) {
-			return null;
+			return "";
 		}
-		String speaker = text(turn, "speaker", "role", "from");
 		String body = text(turn, "text", "clean_text", "value", "content");
 		if (body.isBlank()) {
 			body = text(turn, "blip_caption", "caption");
 		}
-		if (body.isBlank()) {
+		return body;
+	}
+
+	private EvaluationFixture.TranscriptMessage parseTurn(JsonNode turn, String speakerA, String body) {
+		if (turn == null || !turn.isObject() || body.isBlank()) {
 			return null;
 		}
+		String speaker = text(turn, "speaker", "role", "from");
 		// Two-human dialogue → first speaker = user, everyone else = assistant; keep the name inline.
 		String role = speaker.isBlank() || speaker.equalsIgnoreCase(speakerA) ? "user" : "assistant";
 		String content = speaker.isBlank() ? body : speaker + ": " + body;
 		return new EvaluationFixture.TranscriptMessage(role, content);
 	}
 
-	private List<EvaluationFixture.RecallExpectation> parseQa(JsonNode qa) {
+	private List<EvaluationFixture.RecallExpectation> parseQa(JsonNode qa, Map<String, String> evidenceText) {
 		List<EvaluationFixture.RecallExpectation> recalls = new ArrayList<>();
 		if (qa == null || !qa.isArray()) {
 			return recalls;
@@ -172,10 +191,27 @@ public final class LoCoMoBenchmarkAdapter {
 			if (question.isBlank() || answer.isBlank()) {
 				continue;
 			}
-			List<String> evidence = stringList(item.get("evidence"));
+			List<String> evidence = resolveEvidence(stringList(item.get("evidence")), evidenceText);
 			recalls.add(new EvaluationFixture.RecallExpectation(question, evidence, answer));
 		}
 		return recalls;
+	}
+
+	/**
+	 * Maps dialog ids (e.g. {@code "D1:2"}) to the referenced turn text. Ids with no matching
+	 * {@code dia_id} are kept verbatim so the denominator stays honest — they simply never match a
+	 * retrieved memory.
+	 */
+	private static List<String> resolveEvidence(List<String> evidenceIds, Map<String, String> evidenceText) {
+		List<String> resolved = new ArrayList<>();
+		for (String id : evidenceIds) {
+			String turnText = evidenceText.get(id);
+			String value = turnText != null && !turnText.isBlank() ? turnText : id;
+			if (!resolved.contains(value)) {
+				resolved.add(value);
+			}
+		}
+		return resolved;
 	}
 
 	private static Integer sessionNumber(String key) {

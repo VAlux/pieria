@@ -13,6 +13,7 @@ import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.RecallResponse.CodeEvidence;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
@@ -175,7 +176,7 @@ public class ProfileController {
       .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()))
       .toList();
 
-    return new RecallResponse(result.answer(), memories, debug ? debugBlock(result) : null);
+    return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null);
   }
 
   /**
@@ -218,6 +219,16 @@ public class ProfileController {
     }
     String collapsed = text.strip().replaceAll("\\s+", " ");
     return collapsed.length() <= max ? collapsed : collapsed.substring(0, max - 1) + "…";
+  }
+
+  /** The code-graph evidence lines as DTOs, or {@code null} (omitted from JSON) when there are none. */
+  private static List<CodeEvidence> codeEvidence(RecallResult result) {
+    if (result.graphEvidence().isEmpty()) {
+      return null;
+    }
+    return result.graphEvidence().stream()
+      .map(e -> new CodeEvidence(e.src(), e.srcPath(), e.relation(), e.dst(), e.dstPath(), e.confidence()))
+      .toList();
   }
 
   private static RecallDebug debugBlock(RecallResult result) {

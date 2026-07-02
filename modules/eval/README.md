@@ -71,14 +71,16 @@ Faithfulness is judged by `ModelGateway.judgeAnswerFaithfulness`. In determinist
 ## Running
 
 ```bash
-# Deterministic CI run (no Ollama required)
+# Deterministic CI run (no Ollama required) — includes the offline *BenchmarkAdapterTests.
+# The live BenchmarkRunnerLiveTests self-skip here via @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL).
 ./gradlew :eval:test
 
-# Live run against local Ollama (requires Ollama running with configured models)
-PIERIA_LIVE_EVAL=1 ./gradlew :eval:test
+# Live LoCoMo baseline run against local Ollama (requires Ollama running with configured models).
+# Uses datasets/locomo/locomo10.json at the repo root when present; skipped (not failed) if absent.
+PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*BenchmarkRunnerLiveTests*"
 
-# Run only benchmark tests (excluded from the default test task)
-PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*BenchmarkRunner*"
+# LongMemEval stays opt-in behind its dataset env var.
+PIERIA_LIVE_EVAL=1 PIERIA_LONGMEMEVAL_DATASET=datasets/longmemeval/longmemeval_s.json ./gradlew :eval:test --tests "*BenchmarkRunnerLiveTests*"
 ```
 
-Benchmark datasets (LoCoMo, LongMemEval) are not checked into the repository. Place dataset files in `datasets/` at the repo root; the adapters read them from there. Sample files for unit testing the adapters live in `src/test/resources/evaluation/benchmarks/`.
+Benchmark datasets (LoCoMo, LongMemEval) are not checked into the repository (`datasets/` is git-ignored). Place `locomo10.json` under `datasets/locomo/` at the repo root; the LoCoMo run reads it there by default (override with `PIERIA_LOCOMO_DATASET`). Sample files for unit testing the adapters live in `src/test/resources/evaluation/benchmarks/`. The averaged report is written to `pieria-eval-reports/`. See `docs/eval/BASELINE.md` for the baseline protocol.
