@@ -1,0 +1,19 @@
+You are the VERIFIER of a memory pipeline. Below is a source transcript and a NUMBERED list of
+candidate memories extracted from it. For EACH candidate, return exactly one verdict:
+- pass: the candidate is fully supported by the transcript; keep content unchanged
+- correct: the candidate is mostly right but needs a factual fix; return corrected content
+- drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
+
+Return one result object per candidate, each with:
+- index: the candidate's number (1-based) exactly as listed
+- verdict: one of pass, correct, drop
+- content: for pass echo the original; for correct give the fixed statement; for drop empty
+- reason: a short justification
+
+Return a result for EVERY candidate; do not merge, add, or omit any.
+
+Source transcript:
+{{transcript}}
+
+Candidates:
+{{candidates}}

@@ -4,6 +4,8 @@ import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.ResolvedConfig;
 import dev.alvo.pieria.config.model.DaemonOverrides;
+import dev.alvo.pieria.config.model.DaemonOverrides.Ingestion;
+import dev.alvo.pieria.config.model.DaemonOverrides.Retrieval;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -37,10 +39,12 @@ import java.util.Set;
 @RequestMapping("/v1/profiles/{name}/config")
 public class ProfileConfigController {
 
-  /** Allowed keys per section, derived from the DaemonOverrides records (kebab-case). */
+  /**
+   * Allowed keys per section, derived from the DaemonOverrides records (kebab-case).
+   */
   private static final Map<String, Set<String>> WHITELIST = Map.of(
-    "ingestion", kebabComponentNames(DaemonOverrides.Ingestion.class),
-    "retrieval", kebabComponentNames(DaemonOverrides.Retrieval.class));
+    "ingestion", kebabComponentNames(Ingestion.class),
+    "retrieval", kebabComponentNames(Retrieval.class));
 
   private final MemoryStore store;
   private final EffectiveConfigResolver configResolver;
@@ -81,7 +85,9 @@ public class ProfileConfigController {
       .orElseGet(() -> ConfigCodec.toNode(toFullOverrides(configResolver.global())));
   }
 
-  /** Remove the profile's overrides; reading falls back to the global config. Idempotent. */
+  /**
+   * Remove the profile's overrides; reading falls back to the global config. Idempotent.
+   */
   @DeleteMapping
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void delete(@PathVariable String name) {
@@ -91,23 +97,47 @@ public class ProfileConfigController {
     });
   }
 
-  /** Effective config for the profile as a kebab-case node. */
+  /**
+   * Effective config for the profile as a kebab-case node.
+   */
   private JsonNode effective(String profileId) {
     return ConfigCodec.toNode(toFullOverrides(configResolver.resolve(profileId)));
   }
 
-  /** Render a ResolvedConfig as a fully-populated DaemonOverrides view (every field set). */
+  /**
+   * Render a ResolvedConfig as a fully-populated DaemonOverrides view (every field set).
+   */
   private static DaemonOverrides toFullOverrides(ResolvedConfig resolved) {
-    PieriaProperties.Ingestion i = resolved.ingestion();
-    PieriaProperties.Retrieval r = resolved.retrieval();
+    PieriaProperties.Ingestion ingestion = resolved.ingestion();
+    PieriaProperties.Retrieval retrieval = resolved.retrieval();
+
     return new DaemonOverrides(
-      new DaemonOverrides.Ingestion(
-        i.chunkSizeChars(), i.chunkOverlapMessages(), i.maxExtractionConcurrency(), i.detailPassMinMessages()),
-      new DaemonOverrides.Retrieval(
-        r.vectorEnabled(), r.rrfK(), r.weightExactKey(), r.weightFtsMemory(), r.weightHydeVector(),
-        r.weightDirectVector(), r.weightFtsMessage(), r.weightGraph(), r.graphDepth(), r.graphFanout(),
-        r.graphSeedLimit(), r.channelLimit(), r.channelTimeoutMs(), r.weightSymbolFts(), r.weightCodeGraph(),
-        r.codeGraphDepth(), r.codeGraphFanout(), r.codeGraphSeedLimit(), r.codeGraphMinConfidence()));
+      new Ingestion(
+        ingestion.chunkSizeChars(),
+        ingestion.chunkOverlapMessages(),
+        ingestion.maxExtractionConcurrency(),
+        ingestion.detailPassMinMessages()),
+
+      new Retrieval(
+        retrieval.vectorEnabled(),
+        retrieval.rrfK(),
+        retrieval.weightExactKey(),
+        retrieval.weightFtsMemory(),
+        retrieval.weightHydeVector(),
+        retrieval.weightDirectVector(),
+        retrieval.weightFtsMessage(),
+        retrieval.weightGraph(),
+        retrieval.graphDepth(),
+        retrieval.graphFanout(),
+        retrieval.graphSeedLimit(),
+        retrieval.channelLimit(),
+        retrieval.channelTimeoutMs(),
+        retrieval.weightSymbolFts(),
+        retrieval.weightCodeGraph(),
+        retrieval.codeGraphDepth(),
+        retrieval.codeGraphFanout(),
+        retrieval.codeGraphSeedLimit(),
+        retrieval.codeGraphMinConfidence()));
   }
 
   /**
@@ -117,18 +147,22 @@ public class ProfileConfigController {
     if (body == null || body.isNull()) {
       return;
     }
+
     if (!(body instanceof ObjectNode root)) {
       throw new IllegalArgumentException("config overrides must be a JSON object");
     }
+
     for (var section : root.properties()) {
       Set<String> allowed = WHITELIST.get(section.getKey());
       if (allowed == null) {
         throw new IllegalArgumentException(
           "unknown or non-overridable config section: '" + section.getKey() + "'");
       }
+
       if (!(section.getValue() instanceof ObjectNode sectionNode)) {
         throw new IllegalArgumentException("config section '" + section.getKey() + "' must be an object");
       }
+
       for (var entry : sectionNode.properties()) {
         if (!allowed.contains(entry.getKey())) {
           throw new IllegalArgumentException("unknown or non-overridable config key: '"
@@ -138,7 +172,9 @@ public class ProfileConfigController {
     }
   }
 
-  /** Record component names converted to kebab-case (matches the ConfigCodec naming strategy). */
+  /**
+   * Record component names converted to kebab-case (matches the ConfigCodec naming strategy).
+   */
   private static Set<String> kebabComponentNames(Class<? extends Record> type) {
     Set<String> names = new LinkedHashSet<>();
     for (RecordComponent component : type.getRecordComponents()) {
@@ -149,13 +185,14 @@ public class ProfileConfigController {
 
   private static String toKebab(String camel) {
     StringBuilder sb = new StringBuilder(camel.length() + 4);
-    for (char c : camel.toCharArray()) {
-      if (Character.isUpperCase(c)) {
-        sb.append('-').append(Character.toLowerCase(c));
+    for (char character : camel.toCharArray()) {
+      if (Character.isUpperCase(character)) {
+        sb.append('-').append(Character.toLowerCase(character));
       } else {
-        sb.append(c);
+        sb.append(character);
       }
     }
+
     return sb.toString().toLowerCase(Locale.ROOT);
   }
 }

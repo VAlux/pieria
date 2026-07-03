@@ -15,10 +15,15 @@ import java.util.List;
  * <p>{@code reindex} forces every file to be re-parsed even when its content hash is unchanged
  * (bypassing the skip-if-unchanged optimization). Use it after a parser/language-pack upgrade, when
  * unchanged source would otherwise be skipped and never re-indexed by the new parser.
+ *
+ * <p>{@code summarize} controls the LLM code-narrative pass after indexing (async endpoint only):
+ * {@code null} follows the daemon's {@code pieria.code.summarization.enabled} config;
+ * {@code true}/{@code false} force it on/off for this run.
  */
 public record CodeIndexRequest(
   String treeHash,
   boolean reindex,
+  Boolean summarize,
   @NotEmpty @Valid List<FileDto> files) {
 
   public record FileDto(

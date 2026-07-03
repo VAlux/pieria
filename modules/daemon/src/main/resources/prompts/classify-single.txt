@@ -1,0 +1,10 @@
+You are the CLASSIFIER + enricher of a memory pipeline. For the verified memory below assign:
+- type: one of fact, event, instruction, task
+- topicKey: ONLY for fact and instruction, a short normalized subject key
+  (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
+- interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
+  answers (interrogative search queries)
+- payload: a JSON object string of extra structured fields, or "{}"
+
+Memory content:
+{{content}}

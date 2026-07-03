@@ -72,6 +72,9 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
   boolean reindex;
 
+  @Option(names = "--summarize", description = "After indexing, write LLM-synthesized architecture/module summary memories (uses the daemon's synthesis model; unchanged code is skipped). Only affects --source-code.")
+  boolean summarize;
+
   @Override
   public Integer call() {
     Path dir = projectDir.toAbsolutePath().normalize();
@@ -202,7 +205,8 @@ public final class OnboardCommand implements Callable<Integer> {
 
     log.info("Indexing {} source file(s) into profile '{}'…", files.size(), resolvedProfile);
     ProgressReporter reporter = new ProgressReporter();
-    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile, new CodeIndexRequest(null, reindex, files), reporter);
+    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile,
+      new CodeIndexRequest(null, reindex, summarize ? Boolean.TRUE : null, files), reporter);
     reporter.finish();
     return switch (result) {
       case CodeIndexClient.Success s -> {
@@ -210,6 +214,10 @@ public final class OnboardCommand implements Callable<Integer> {
         log.info("Done. Parsed {} file(s) ({} unchanged), {} symbol(s), {} edge(s); stored {} memor{}.",
           r.filesParsed(), r.filesSkippedUnchanged(), r.symbols(), r.resolvedEdges() + r.heuristicEdges(),
           r.memoriesStored(), r.memoriesStored() == 1 ? "y" : "ies");
+        if (r.summariesStored() + r.summariesSkipped() + r.summariesFailed() > 0) {
+          log.info("Summaries: {} written, {} unchanged, {} failed.",
+            r.summariesStored(), r.summariesSkipped(), r.summariesFailed());
+        }
         yield 0;
       }
       case CodeIndexClient.DaemonDown ignored -> daemonDown(url);

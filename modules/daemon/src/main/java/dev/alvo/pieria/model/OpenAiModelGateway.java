@@ -20,6 +20,7 @@ import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.provider.ModelProviderAdapter;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
+import dev.alvo.pieria.tools.PromptTemplateLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -149,22 +150,7 @@ public class OpenAiModelGateway implements ModelGateway {
       .map(m -> m.role() + ": " + m.content())
       .collect(Collectors.joining("\n"));
 
-    String prompt = """
-      Extract durable, long-lived memories from the following conversation transcript.
-      Only capture information worth remembering across future sessions: stable facts,
-      notable events, standing instructions/preferences, and outstanding tasks.
-      
-      For each memory set:
-      - type: one of fact, event, instruction, task
-      - content: a concise, self-contained statement of the memory
-      - topicKey: a short stable key for the subject (or empty if none)
-      - payload: a JSON object string with any extra structured fields (or "{}")
-      
-      Do not invent information. If nothing is worth remembering, return an empty list.
-      
-      Transcript:
-      %s
-      """.formatted(transcript);
+    String prompt = PromptTemplateLoader.render("extract-memories", Map.of("transcript", transcript));
 
     ExtractionResult result;
     try {
@@ -196,34 +182,16 @@ public class OpenAiModelGateway implements ModelGateway {
 
   // --- Pipeline stages: extraction, verification, classification ----
   // All stages below run on the small/fast extraction client for structured output.
-  // The prompts and the structured-output record shapes below are part of the stable contract
-  // the ingestion + test layers rely on; bump a version note here if the JSON shapes change.
-  // Prompt/shape version: v1.
+  // The prompts (resources under prompts/) and the structured-output record shapes below are part
+  // of the stable contract the ingestion + test layers rely on; bump a version note here if the
+  // JSON shapes change. Prompt/shape version: v1.
 
   @Override
   public List<ExtractedCandidate> extract(Chunk chunk) {
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
-    String prompt = """
-      You are the FULL-PASS extractor of a memory pipeline. Read the conversation chunk below
-      and extract durable, long-lived candidate memories worth remembering across future sessions:
-      stable facts, notable events, standing instructions/preferences, and outstanding tasks.
-      
-      For each candidate set:
-      - content: a concise, self-contained declarative statement
-      - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
-      
-      Do not invent information not present in the chunk. If nothing is worth remembering,
-      return an empty array.
-      
-      Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
-      Format: [{"content": "...", "suggestedType": "..."}]
-      Empty result: []
-      
-      Chunk transcript:
-      %s
-      """.formatted(chunk.transcript());
+    String prompt = PromptTemplateLoader.render("extract-full-pass", Map.of("transcript", chunk.transcript()));
     return callExtraction(prompt, chunk.index(), "extract");
   }
 
@@ -232,25 +200,7 @@ public class OpenAiModelGateway implements ModelGateway {
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
-    String prompt = """
-      You are the DETAIL-PASS extractor of a memory pipeline. The broad full pass tends to miss
-      concrete values. From the conversation chunk below, extract candidates that capture concrete,
-      specific values: names, versions, prices, file paths, URLs, entity attributes, and dates.
-      
-      For each candidate set:
-      - content: a concise, self-contained declarative statement carrying the concrete value
-      - suggestedType: your best guess of one of fact, event, instruction, task (or empty if unsure)
-      
-      Do not invent information not present in the chunk. If there are no concrete values worth
-      capturing, return an empty array.
-      
-      Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
-      Format: [{"content": "...", "suggestedType": "..."}]
-      Empty result: []
-      
-      Chunk transcript:
-      %s
-      """.formatted(chunk.transcript());
+    String prompt = PromptTemplateLoader.render("extract-detail-pass", Map.of("transcript", chunk.transcript()));
     return callExtraction(prompt, chunk.index(), "extractDetail");
   }
 
@@ -378,24 +328,8 @@ public class OpenAiModelGateway implements ModelGateway {
       return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
     }
     String safeTranscript = transcript == null ? "" : transcript;
-    String prompt = """
-      You are the VERIFIER of a memory pipeline. Check the candidate memory against the source
-      transcript and return one verdict:
-      - pass: the candidate is fully supported by the transcript; keep content unchanged
-      - correct: the candidate is mostly right but needs a factual fix; return corrected content
-      - drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
-      
-      Set:
-      - verdict: one of pass, correct, drop
-      - content: for pass echo the original; for correct give the fixed statement; for drop empty
-      - reason: a short justification
-      
-      Candidate:
-      %s
-      
-      Source transcript:
-      %s
-      """.formatted(candidate.content(), safeTranscript);
+    String prompt = PromptTemplateLoader.render("verify-single",
+      Map.of("candidate", candidate.content(), "transcript", safeTranscript));
 
     VerificationDto dto;
     try {
@@ -433,27 +367,8 @@ public class OpenAiModelGateway implements ModelGateway {
     for (int i = 0; i < candidates.size(); i++) {
       numbered.append(i + 1).append(". ").append(candidates.get(i).content()).append('\n');
     }
-    String prompt = """
-      You are the VERIFIER of a memory pipeline. Below is a source transcript and a NUMBERED list of
-      candidate memories extracted from it. For EACH candidate, return exactly one verdict:
-      - pass: the candidate is fully supported by the transcript; keep content unchanged
-      - correct: the candidate is mostly right but needs a factual fix; return corrected content
-      - drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
-
-      Return one result object per candidate, each with:
-      - index: the candidate's number (1-based) exactly as listed
-      - verdict: one of pass, correct, drop
-      - content: for pass echo the original; for correct give the fixed statement; for drop empty
-      - reason: a short justification
-
-      Return a result for EVERY candidate; do not merge, add, or omit any.
-
-      Source transcript:
-      %s
-
-      Candidates:
-      %s
-      """.formatted(safeTranscript, numbered);
+    String prompt = PromptTemplateLoader.render("verify-batch",
+      Map.of("transcript", safeTranscript, "candidates", numbered.toString()));
 
     BatchVerificationDto dto;
     try {
@@ -542,18 +457,7 @@ public class OpenAiModelGateway implements ModelGateway {
     if (content == null || content.isBlank()) {
       throw new IllegalArgumentException("content must not be blank");
     }
-    String prompt = """
-      You are the CLASSIFIER + enricher of a memory pipeline. For the verified memory below assign:
-      - type: one of fact, event, instruction, task
-      - topicKey: ONLY for fact and instruction, a short normalized subject key
-        (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
-      - interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
-        answers (interrogative search queries)
-      - payload: a JSON object string of extra structured fields, or "{}"
-      
-      Memory content:
-      %s
-      """.formatted(content);
+    String prompt = PromptTemplateLoader.render("classify-single", Map.of("content", content));
 
     ClassificationDto dto;
     try {
@@ -578,22 +482,7 @@ public class OpenAiModelGateway implements ModelGateway {
     for (int i = 0; i < contents.size(); i++) {
       numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
     }
-    String prompt = """
-      You are the CLASSIFIER + enricher of a memory pipeline. Below is a NUMBERED list of verified
-      memories. For EACH memory assign:
-      - index: the memory's number (1-based) exactly as listed
-      - type: one of fact, event, instruction, task
-      - topicKey: ONLY for fact and instruction, a short normalized subject key
-        (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
-      - interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
-        answers (interrogative search queries)
-      - payload: a JSON object string of extra structured fields, or "{}"
-
-      Return a result for EVERY memory; do not merge, add, or omit any.
-
-      Memories:
-      %s
-      """.formatted(numbered);
+    String prompt = PromptTemplateLoader.render("classify-batch", Map.of("memories", numbered.toString()));
 
     BatchClassificationDto dto;
     try {
@@ -692,20 +581,7 @@ public class OpenAiModelGateway implements ModelGateway {
     if (content == null || content.isBlank()) {
       return GraphFragment.empty();
     }
-    String prompt = """
-      You are the GRAPH EXTRACTOR of a memory pipeline. From the verified memory below, extract:
-      - entities: the distinct named entities it mentions. For each: name, and type (one of
-        person, project, tool, file, concept).
-      - triples: the explicit relationships among those entities, as
-        (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase
-        verb phrase, e.g. "uses", "depends on", "runs on", "owns".
-
-      Ground everything strictly in the memory content; do not invent entities or relations. If
-      nothing is worth extracting, return empty arrays.
-
-      Memory content:
-      %s
-      """.formatted(content);
+    String prompt = PromptTemplateLoader.render("extract-graph-single", Map.of("content", content));
 
     GraphDto dto;
     try {
@@ -733,25 +609,7 @@ public class OpenAiModelGateway implements ModelGateway {
     for (int i = 0; i < contents.size(); i++) {
       numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
     }
-    String prompt = """
-      You are the GRAPH EXTRACTOR of a memory pipeline. Below is a NUMBERED list of verified memories.
-      For EACH memory, extract:
-      - index: the memory's number (1-based) exactly as listed
-      - entities: the distinct named entities it mentions. For each: name, and type (one of
-        person, project, tool, file, concept).
-      - triples: the explicit relationships among those entities, as
-        (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase verb
-        phrase, e.g. "uses", "depends on", "runs on", "owns".
-
-      Ground everything strictly in each memory's OWN content; do not invent entities or relations, and
-      do not mix entities across memories. If a memory has nothing worth extracting, return empty
-      arrays for it.
-
-      Return a result for EVERY memory; do not merge, add, or omit any.
-
-      Memories:
-      %s
-      """.formatted(numbered);
+    String prompt = PromptTemplateLoader.render("extract-graph-batch", Map.of("memories", numbered.toString()));
 
     BatchGraphDto dto;
     try {
@@ -882,23 +740,7 @@ public class OpenAiModelGateway implements ModelGateway {
     if (query == null || query.isBlank()) {
       return new QueryAnalysis(List.of(), List.of(), List.of(), null);
     }
-    String prompt = """
-      You are the QUERY ANALYZER of a memory retrieval pipeline. Given a recall query,
-      produce the inputs the retrieval channels need:
-      - topicKeys: 1 to 5 ranked candidate subject keys, most likely first. Each is a short
-        normalized key (lowercase, words joined by '.', e.g. "user.editor", "db.engine").
-      - ftsTerms: the salient keyword terms from the query EXPANDED with close synonyms and
-        common alternate spellings, for full-text search. Single words, lowercase.
-      - entities: the named entities (people, projects, tools, files, concepts) referenced in the
-        query, as short names, for relationship-graph lookup. Empty if none are named.
-      - hydeStatement: one plausible declarative sentence that would directly ANSWER the query
-        (a hypothetical answer), used for HyDE vector search.
-
-      Do not answer the question for real; just produce a plausible hypothetical answer sentence.
-
-      Query:
-      %s
-      """.formatted(query);
+    String prompt = PromptTemplateLoader.render("analyze-query", Map.of("query", query));
 
     QueryAnalysisDto dto;
     try {
@@ -986,32 +828,11 @@ public class OpenAiModelGateway implements ModelGateway {
       ? "(none)"
       : safeEvidence.stream().map(e -> "- " + e.render()).collect(Collectors.joining("\n"));
 
-    String prompt = """
-      You answer strictly from the remembered memories and the code graph evidence below; never add
-      facts they do not contain.
-      Interpret the query generously: it may be a full question, a phrase, or a single keyword, so
-      infer the subject it points at and gather every memory bearing on that subject. Count a memory
-      as relevant when it concerns the query's subject, even if it states a related fact, rule, or
-      detail rather than a direct answer. Then answer concisely, grounding each claim in those
-      memories.
-      Declare insufficient memory evidence only when no memory bears on the query's subject at all;
-      brevity or vagueness of the query is never itself a reason to refuse.
-      The pre-computed temporal facts are authoritative: use them verbatim and never perform your
-      own date or duration arithmetic.
-
-      Query:
-      %s
-
-      Pre-computed temporal facts:
-      %s
-
-      Code graph evidence (precise relations extracted from the indexed source code; treat each
-      line as an authoritative fact about the code):
-      %s
-
-      Remembered memories:
-      %s
-      """.formatted(query, temporalBlock, graphBlock, context);
+    String prompt = PromptTemplateLoader.render("synthesize-recall", Map.of(
+      "query", query,
+      "temporalFacts", temporalBlock,
+      "graphEvidence", graphBlock,
+      "memories", context));
 
     try {
       ChatResponse chatResponse = synthesisChatClient.prompt()
@@ -1032,26 +853,50 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   @Override
+  public String summarizeCode(CodeSummaryInput input) {
+    String prompt = switch (input.level()) {
+      case FILE -> PromptTemplateLoader.render("summarize-code-file", Map.of(
+        "path", input.subjectPath(),
+        "language", input.language() == null ? "unknown" : input.language(),
+        "outlines", joinedOrNone(input.outlines()),
+        "source", input.source() == null || input.source().isBlank() ? "(no source available)" : input.source()));
+      case MODULE -> PromptTemplateLoader.render("summarize-code-module", Map.of(
+        "module", input.subjectPath(),
+        "outlines", joinedOrNone(input.outlines()),
+        "childSummaries", joinedOrNone(input.childSummaries())));
+      case ARCHITECTURE -> PromptTemplateLoader.render("summarize-code-architecture", Map.of(
+        "repository", input.subjectPath(),
+        "modules", joinedOrNone(input.childSummaries().isEmpty() ? input.outlines() : input.childSummaries())));
+    };
+
+    try {
+      ChatResponse chatResponse = synthesisChatClient.prompt()
+        .user(prompt)
+        .options(reasoningOptions("summarizeCode", properties.model().synthesisModel()))
+        .call()
+        .chatResponse();
+      logTokenUsage("summarizeCode", chatResponse);
+      if (chatResponse == null || chatResponse.getResult() == null) {
+        return "";
+      }
+      return chatResponse.getResult().getOutput().getText();
+    } catch (RuntimeException e) {
+      throw new ModelUnavailableException("model code summarization failed", e);
+    }
+  }
+
+  private static String joinedOrNone(List<String> lines) {
+    return lines == null || lines.isEmpty()
+      ? "(none)"
+      : lines.stream().map(l -> "- " + l).collect(Collectors.joining("\n"));
+  }
+
+  @Override
   public boolean judgeAnswerFaithfulness(String question, String expectedAnswer, String actualAnswer) {
-    String prompt = """
-      You are a strict answer equivalence judge. Decide whether the ACTUAL answer conveys the same
-      information as the EXPECTED answer for the given question.
-      
-      Rules:
-      - Respond "true" if the actual answer contains the expected answer or is semantically equivalent.
-      - Respond "false" if the actual answer is wrong, incomplete, or claims insufficient evidence
-        when the expected answer exists.
-      - Ignore differences in phrasing, capitalization, or minor wording.
-      
-      Question: %s
-      Expected: %s
-      Actual: %s
-      
-      Respond with only "true" or "false".
-      """.formatted(
-      question == null ? "" : question,
-      expectedAnswer == null ? "" : expectedAnswer,
-      actualAnswer == null ? "" : actualAnswer);
+    String prompt = PromptTemplateLoader.render("judge-answer-faithfulness", Map.of(
+      "question", question == null ? "" : question,
+      "expected", expectedAnswer == null ? "" : expectedAnswer,
+      "actual", actualAnswer == null ? "" : actualAnswer));
 
     LOGGER.info("judge question='{}' expected='{}'", truncate(question, 80), truncate(expectedAnswer, 80));
     LOGGER.info("judge actual='{}'", truncate(actualAnswer, 120));

@@ -32,7 +32,7 @@ Fit: You already have TemporalExtractor and the supersession machinery — exten
 Phase: 11 | Status: pending
 Who has it: Hindsight (observations from raw facts), Letta, Generative Agents research. Already in your SPEC §17 as "future."
 What: A background worker merges/strengthens related memories and derives higher-level observations from clusters of raw facts.
-Fit: The transactional-outbox + virtual-thread worker pattern (VectorizationWorker/VectorizationScheduler) is exactly the host for a ConsolidationWorker. Architecturally pre-paved. Once source-code indexing exists, consolidation should also derive/update high-level project observations from code facts (module responsibilities, entry points, service boundaries, test strategy) rather than relying only on docs and conversations.
+Fit: The transactional-outbox + virtual-thread worker pattern (VectorizationWorker/VectorizationScheduler) is exactly the host for a ConsolidationWorker. Architecturally pre-paved. Once source-code indexing exists, consolidation should also derive/update high-level project observations from code facts (module responsibilities, entry points, service boundaries, test strategy) rather than relying only on docs and conversations. The code-facing half landed as Phase 14 (code narrative summaries: per-file/module/architecture memories, hash-keyed); conversational consolidation remains.
 
 6. Execution-trace / tool-output memory
 Phase: 12 | Status: pending
@@ -77,7 +77,7 @@ Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff. Co
 Phase: unassigned | Status: pending
 Who has it: Supermemory (user profiles), Zep (context templates).
 What: Maintain a continuously-compacted "profile" memory per project — a synthesized standing summary that's cheap to inject at session start. Extend it with code-derived standing context: architecture map, module responsibilities, public entry points, test/build commands, generated-code boundaries, and known risky files.
-Fit: Pairs with consolidation (#5); feeds your SessionStart hook injection path. Source-code summaries should be content-addressed by commit/tree/file hashes so unchanged code does not regenerate duplicate memories.
+Fit: Pairs with consolidation (#5); feeds your SessionStart hook injection path. Source-code summaries should be content-addressed by commit/tree/file hashes so unchanged code does not regenerate duplicate memories. Partially landed via Phase 14: hash-keyed architecture/module/file summary memories exist (`code:summary:*`); remaining work is the rolling *injectable* profile (the summaries use CODE_SESSION and are excluded from the fast/injection path today).
 
 13. Procedural / skill memory as versioned artifacts
 Phase: unassigned | Status: pending

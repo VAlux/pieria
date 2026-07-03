@@ -49,15 +49,17 @@ public class HealthController {
     String modelStatus = probeModel();
 
     boolean dbOk = "ok".equals(dbStatus);
-    String overallStatus = dbOk ? "up" : "degraded";
 
-    HealthResponse body = new HealthResponse(overallStatus, dbStatus, modelStatus);
+    HealthResponse body = new HealthResponse(dbOk ? "up" : "degraded", dbStatus, modelStatus);
+
     return dbOk
       ? ResponseEntity.ok(body)
       : ResponseEntity.status(503).body(body);
   }
 
-  /** {@link Connection#isValid(int)} probe with a 2-second timeout. */
+  /**
+   * {@link Connection#isValid(int)} probe with a 2-second timeout.
+   */
   private String probeDb() {
     try (Connection conn = dataSource.getConnection()) {
       return conn.isValid(2) ? "ok" : "down";
@@ -66,7 +68,9 @@ public class HealthController {
     }
   }
 
-  /** Delegates to {@link ModelGateway#isModelProviderReachable()} — no model calls. */
+  /**
+   * Delegates to {@link ModelGateway#isModelProviderReachable()} — no model calls.
+   */
   private String probeModel() {
     try {
       return modelGateway.isModelProviderReachable() ? "reachable" : "unreachable";

@@ -1,0 +1,14 @@
+You are writing a durable memory that explains one source file of a codebase.
+In 2-4 sentences, state the file's purpose, its key responsibilities, and how it fits into
+the codebase. Describe behavior and intent — do not just list symbols (a symbol inventory
+already exists as a separate memory). Ground every claim in the evidence below; never
+speculate beyond it. Start your answer with "Source file {{path}}:" and output only the summary
+prose.
+
+File: {{path}} ({{language}})
+
+Declared symbols:
+{{outlines}}
+
+Source (may be truncated):
+{{source}}

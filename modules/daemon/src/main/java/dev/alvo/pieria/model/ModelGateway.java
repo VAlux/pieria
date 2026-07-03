@@ -185,6 +185,45 @@ public interface ModelGateway {
   }
 
   /**
+   * The three cumulative levels of the code narrative layer (see {@code CodeSummarizationService}).
+   */
+  enum CodeSummaryLevel { FILE, MODULE, ARCHITECTURE }
+
+  /**
+   * Level-discriminated input for {@link #summarizeCode}; fields not meaningful for a level are
+   * null/empty.
+   *
+   * @param level          which summary to write
+   * @param subjectPath    file path (FILE), module path (MODULE), or repo/profile name (ARCHITECTURE)
+   * @param language       source language (FILE only)
+   * @param outlines       symbol-outline evidence: the file's outline (FILE), member-file outlines
+   *                       (MODULE), or module member listings (ARCHITECTURE fallback)
+   * @param childSummaries lower-level summaries feeding this one: file summaries (MODULE) or module
+   *                       summaries (ARCHITECTURE); empty when the lower level is not generated
+   * @param source         truncated file source text (FILE only)
+   */
+  record CodeSummaryInput(CodeSummaryLevel level,
+                          String subjectPath,
+                          String language,
+                          List<String> outlines,
+                          List<String> childSummaries,
+                          String source) {
+
+    public CodeSummaryInput {
+      outlines = outlines == null ? List.of() : List.copyOf(outlines);
+      childSummaries = childSummaries == null ? List.of() : List.copyOf(childSummaries);
+    }
+  }
+
+  /**
+   * Write one interpretive code-narrative summary (plain prose, no JSON) on the synthesis (large)
+   * model. Implementations must throw {@link ModelUnavailableException} on provider failure.
+   */
+  default String summarizeCode(CodeSummaryInput input) {
+    throw new UnsupportedOperationException("summarizeCode(...) not implemented");
+  }
+
+  /**
    * Embed text for vector search. Defined now so config/contracts are stable.
    */
   float[] embed(String text);

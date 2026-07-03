@@ -54,12 +54,6 @@ public class CodeIndexingService {
    */
   public static final String CODE_SESSION = "pieria:code-index";
 
-  /**
-   * Build-file names used to locate module roots within a batch.
-   */
-  private static final Set<String> BUILD_MARKERS = Set.of(
-    "build.gradle.kts", "build.gradle", "pom.xml", "package.json", "go.mod", "Cargo.toml");
-
   private static final int MAX_SYMBOLS_IN_FACT = 30;
   private static final int MAX_SYMBOL_IDS = 200;
   private static final Set<CodeRelation> CURATED_RELATIONS =
@@ -122,7 +116,7 @@ public class CodeIndexingService {
     Profile profile = store.getOrCreateProfile(profileName);
     String profileId = profile.id();
     List<SourceFile> batch = files == null ? List.of() : files;
-    Set<String> markerDirs = markerDirs(batch);
+    Set<String> markerDirs = ModulePaths.markerDirs(batch);
 
     Acc acc = new Acc();
     acc.filesReceived = batch.size();
@@ -186,7 +180,7 @@ public class CodeIndexingService {
       String dstSymbolId = resolveDst(profileId, byQname, pe.dstQualifiedName());
       String dstRef = (pe.dstRef() != null && !pe.dstRef().isBlank())
         ? pe.dstRef()
-        : lastSegment(pe.dstQualifiedName());
+        : ModulePaths.lastSegment(pe.dstQualifiedName());
       edges.add(new CodeEdge(null, profileId, src.id(), pe.relation(), pe.confidence(),
         dstSymbolId, dstRef, fileId));
     }
@@ -242,7 +236,7 @@ public class CodeIndexingService {
     r.graphEntities++;
     for (ParsedEdge e : curated) {
       String targetType = targetEntityType(e.relation());
-      String targetName = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : lastSegment(e.dstQualifiedName());
+      String targetName = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : ModulePaths.lastSegment(e.dstQualifiedName());
       if (targetName == null || targetName.isBlank()) {
         continue;
       }
@@ -267,12 +261,13 @@ public class CodeIndexingService {
   }
 
   private String upsertModule(String profileId, String path, Set<String> markerDirs) {
-    Optional<String> dir = moduleDir(path, markerDirs);
+    Optional<String> dir = ModulePaths.moduleDir(path, markerDirs);
     if (dir.isEmpty()) {
       return null;
     }
     String modulePath = dir.get();
-    CodeModule module = codeStore.upsertCodeModule(profileId, CodeModule.of(lastSegment(modulePath), modulePath));
+    CodeModule module = codeStore.upsertCodeModule(profileId,
+      CodeModule.of(ModulePaths.lastSegment(modulePath), modulePath));
     return module.id();
   }
 
@@ -308,7 +303,7 @@ public class CodeIndexingService {
     if (!curated.isEmpty()) {
       Set<String> targets = new TreeSet<>();
       for (ParsedEdge e : curated) {
-        String t = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : lastSegment(e.dstQualifiedName());
+        String t = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : ModulePaths.lastSegment(e.dstQualifiedName());
         if (t != null && !t.isBlank()) {
           targets.add(t);
         }
@@ -374,49 +369,6 @@ public class CodeIndexingService {
       }
     }
     return b.toString();
-  }
-
-  private static Set<String> markerDirs(List<SourceFile> files) {
-    Set<String> dirs = new TreeSet<>();
-    for (SourceFile f : files) {
-      String path = f.repoRelPath();
-      String name = lastSegment(path);
-      if (name != null && BUILD_MARKERS.contains(name)) {
-        dirs.add(parentDir(path));
-      }
-    }
-    return dirs;
-  }
-
-  /**
-   * The module root for a path: the longest marker dir that is its ancestor, else its top dir.
-   */
-  private static Optional<String> moduleDir(String path, Set<String> markerDirs) {
-    String best = null;
-    for (String d : markerDirs) {
-      String prefix = d.isEmpty() ? "" : d + "/";
-      if ((d.isEmpty() || path.startsWith(prefix)) && (best == null || d.length() > best.length())) {
-        best = d;
-      }
-    }
-    if (best != null) {
-      return Optional.of(best);
-    }
-    int slash = path.indexOf('/');
-    return slash > 0 ? Optional.of(path.substring(0, slash)) : Optional.empty();
-  }
-
-  private static String parentDir(String path) {
-    int slash = path.lastIndexOf('/');
-    return slash <= 0 ? "" : path.substring(0, slash);
-  }
-
-  private static String lastSegment(String path) {
-    if (path == null || path.isBlank()) {
-      return null;
-    }
-    int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-    return slash < 0 ? path : path.substring(slash + 1);
   }
 
   private static int lineCount(String content) {

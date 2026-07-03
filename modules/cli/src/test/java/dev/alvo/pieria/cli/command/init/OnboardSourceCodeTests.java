@@ -68,14 +68,36 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0)));
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0, 0, 0, 0)));
 
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
       CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
       assertThat(sent.files()).extracting(CodeIndexRequest.FileDto::repoRelPath).contains("Main.java");
+      // Without --summarize the flag is absent so the daemon's config decides.
+      assertThat(sent.summarize()).isNull();
       assertThat(r.out()).contains("Parsed 1 file");
+      assertThat(r.out()).doesNotContain("Summaries:");
+    }
+  }
+
+  @Test
+  void summarizeFlagForcesSummariesAndReportsCounts(@TempDir Path proj) throws IOException {
+    Files.writeString(proj.resolve("Main.java"), "class Main {}");
+
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0, 2, 1, 0)));
+
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.summarize = true;
+      Result r = run(cmd);
+
+      assertThat(r.code()).isZero();
+      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
+      assertThat(sent.summarize()).isTrue();
+      assertThat(r.out()).contains("Summaries: 2 written, 1 unchanged, 0 failed.");
     }
   }
 
@@ -110,7 +132,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0)));
       daemon.stub("/config", 200, "{}");
 
       Result r = run(command(proj, daemon.baseUrl()));
@@ -131,7 +153,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0)));
+      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0)));
 
       Result r = run(command(proj, daemon.baseUrl()));
 

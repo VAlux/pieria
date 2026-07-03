@@ -52,12 +52,27 @@ public class FakeModelGateway implements ModelGateway {
   public static final int EMBEDDING_DIMENSION = 1024;
 
   private boolean unavailable;
+  private boolean failSummaries;
+
+  /**
+   * Every {@link #summarizeCode} input, in call order — lets tests count model calls (skip
+   * behavior) and inspect the evidence each summary prompt was given.
+   */
+  public final List<CodeSummaryInput> summarizeCalls = new java.util.ArrayList<>();
 
   /**
    * When {@code true}, every method throws {@link ModelUnavailableException}.
    */
   public void setUnavailable(boolean unavailable) {
     this.unavailable = unavailable;
+  }
+
+  /**
+   * When {@code true}, only {@link #summarizeCode} throws {@link ModelUnavailableException} —
+   * for asserting the summarizer's per-target failure isolation.
+   */
+  public void setFailSummaries(boolean failSummaries) {
+    this.failSummaries = failSummaries;
   }
 
   private void failIfUnavailable() {
@@ -241,6 +256,21 @@ public class FakeModelGateway implements ModelGateway {
       .map(dev.alvo.pieria.retrieval.model.GraphEvidence::render)
       .collect(java.util.stream.Collectors.joining("; "));
     return base + " | " + graphEvidence.size() + " code edge(s): " + lines;
+  }
+
+  /**
+   * Deterministic prose embedding the input's level, subject, and evidence counts so tests can
+   * assert exact stored content and which evidence reached the prompt.
+   */
+  @Override
+  public String summarizeCode(CodeSummaryInput input) {
+    failIfUnavailable();
+    if (failSummaries) {
+      throw new ModelUnavailableException("fake summaries are unavailable");
+    }
+    summarizeCalls.add(input);
+    return "summary[" + input.level().name().toLowerCase(Locale.ROOT) + ":" + input.subjectPath()
+      + "] outlines=" + input.outlines().size() + " children=" + input.childSummaries().size();
   }
 
   @Override

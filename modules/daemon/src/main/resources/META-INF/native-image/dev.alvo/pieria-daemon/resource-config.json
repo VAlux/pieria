@@ -21,6 +21,9 @@
       },
       {
         "pattern": "code/langpack/.*\\.scm"
+      },
+      {
+        "pattern": "prompts/.*\\.txt"
       }
     ]
   }

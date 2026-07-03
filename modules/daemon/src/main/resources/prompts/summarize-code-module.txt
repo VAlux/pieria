@@ -1,0 +1,13 @@
+You are writing a durable memory that explains one module of a codebase.
+In 3-6 sentences, state the module's purpose, its main responsibilities, its key entry
+points, and how its parts collaborate. Describe behavior and intent — do not just list
+files or symbols. Ground every claim in the evidence below; never speculate beyond it.
+Start your answer with "Module {{module}}:" and output only the summary prose.
+
+Module: {{module}}
+
+Member files and their declared symbols:
+{{outlines}}
+
+Per-file summaries:
+{{childSummaries}}

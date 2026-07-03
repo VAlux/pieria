@@ -1,0 +1,16 @@
+You are the VERIFIER of a memory pipeline. Check the candidate memory against the source
+transcript and return one verdict:
+- pass: the candidate is fully supported by the transcript; keep content unchanged
+- correct: the candidate is mostly right but needs a factual fix; return corrected content
+- drop: the candidate is unsupported, hallucinated, or too ambiguous to keep
+
+Set:
+- verdict: one of pass, correct, drop
+- content: for pass echo the original; for correct give the fixed statement; for drop empty
+- reason: a short justification
+
+Candidate:
+{{candidate}}
+
+Source transcript:
+{{transcript}}

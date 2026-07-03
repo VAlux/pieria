@@ -10,28 +10,28 @@ import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
-import dev.alvo.pieria.model.usage.InferenceTier;
-import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.CodeEvidence;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
+import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
-import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
-import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.retrieval.model.RecallCandidate;
-import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
+import dev.alvo.pieria.model.usage.InferenceTier;
+import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.RecallResult;
 import dev.alvo.pieria.retrieval.RetrievalService;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
@@ -196,7 +196,9 @@ public class ProfileController {
     return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);
   }
 
-  /** Render fused recall candidates as a compact, injection-ready text block; empty string when none. */
+  /**
+   * Render fused recall candidates as a compact, injection-ready text block; empty string when none.
+   */
   private static String renderContextBlock(String profile, List<RecallCandidate> candidates) {
     if (candidates == null || candidates.isEmpty()) {
       return "";
@@ -212,7 +214,9 @@ public class ProfileController {
     return block.toString();
   }
 
-  /** Collapse whitespace to single spaces and truncate to {@code max} chars with an ellipsis. */
+  /**
+   * Collapse whitespace to single spaces and truncate to {@code max} chars with an ellipsis.
+   */
   private static String oneLine(String text, int max) {
     if (text == null) {
       return "";
@@ -221,7 +225,9 @@ public class ProfileController {
     return collapsed.length() <= max ? collapsed : collapsed.substring(0, max - 1) + "…";
   }
 
-  /** The code-graph evidence lines as DTOs, or {@code null} (omitted from JSON) when there are none. */
+  /**
+   * The code-graph evidence lines as DTOs, or {@code null} (omitted from JSON) when there are none.
+   */
   private static List<CodeEvidence> codeEvidence(RecallResult result) {
     if (result.graphEvidence().isEmpty()) {
       return null;
@@ -241,8 +247,8 @@ public class ProfileController {
       .toList();
 
     List<ChannelDiagnostic> channels = result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
-        .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
-        .toList();
+      .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
+      .toList();
 
     return new RecallDebug(candidates, temporalFacts, channels);
   }
@@ -270,7 +276,9 @@ public class ProfileController {
       spendOf(store.inferenceUsage(profile.id())));
   }
 
-  /** Map the stored lifetime counters to the wire impact block, stamping the display knobs. */
+  /**
+   * Map the stored lifetime counters to the wire impact block, stamping the display knobs.
+   */
   private ProfileImpact impactOf(ProfileUsage usage) {
     // Stats binds with @DefaultValue in production; guard null for tests that construct properties directly.
     PieriaProperties.Stats cfg = properties == null ? null : properties.stats();

@@ -1,0 +1,24 @@
+You answer strictly from the remembered memories and the code graph evidence below; never add
+facts they do not contain.
+Interpret the query generously: it may be a full question, a phrase, or a single keyword, so
+infer the subject it points at and gather every memory bearing on that subject. Count a memory
+as relevant when it concerns the query's subject, even if it states a related fact, rule, or
+detail rather than a direct answer. Then answer concisely, grounding each claim in those
+memories.
+Declare insufficient memory evidence only when no memory bears on the query's subject at all;
+brevity or vagueness of the query is never itself a reason to refuse.
+The pre-computed temporal facts are authoritative: use them verbatim and never perform your
+own date or duration arithmetic.
+
+Query:
+{{query}}
+
+Pre-computed temporal facts:
+{{temporalFacts}}
+
+Code graph evidence (precise relations extracted from the indexed source code; treat each
+line as an authoritative fact about the code):
+{{graphEvidence}}
+
+Remembered memories:
+{{memories}}

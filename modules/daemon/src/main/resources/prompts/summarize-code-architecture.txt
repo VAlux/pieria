@@ -1,0 +1,10 @@
+You are writing a durable repository architecture overview memory.
+In one paragraph (5-8 sentences), state what the system does, what its modules are
+responsible for, and how the modules relate to each other. Ground every claim in the
+evidence below; never speculate beyond it. Start your answer with
+"Architecture overview:" and output only the summary prose.
+
+Repository: {{repository}}
+
+Modules:
+{{modules}}

@@ -1,0 +1,12 @@
+You are the GRAPH EXTRACTOR of a memory pipeline. From the verified memory below, extract:
+- entities: the distinct named entities it mentions. For each: name, and type (one of
+  person, project, tool, file, concept).
+- triples: the explicit relationships among those entities, as
+  (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase
+  verb phrase, e.g. "uses", "depends on", "runs on", "owns".
+
+Ground everything strictly in the memory content; do not invent entities or relations. If
+nothing is worth extracting, return empty arrays.
+
+Memory content:
+{{content}}

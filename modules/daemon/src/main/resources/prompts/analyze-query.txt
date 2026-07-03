@@ -1,0 +1,15 @@
+You are the QUERY ANALYZER of a memory retrieval pipeline. Given a recall query,
+produce the inputs the retrieval channels need:
+- topicKeys: 1 to 5 ranked candidate subject keys, most likely first. Each is a short
+  normalized key (lowercase, words joined by '.', e.g. "user.editor", "db.engine").
+- ftsTerms: the salient keyword terms from the query EXPANDED with close synonyms and
+  common alternate spellings, for full-text search. Single words, lowercase.
+- entities: the named entities (people, projects, tools, files, concepts) referenced in the
+  query, as short names, for relationship-graph lookup. Empty if none are named.
+- hydeStatement: one plausible declarative sentence that would directly ANSWER the query
+  (a hypothetical answer), used for HyDE vector search.
+
+Do not answer the question for real; just produce a plausible hypothetical answer sentence.
+
+Query:
+{{query}}

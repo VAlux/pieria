@@ -1,0 +1,14 @@
+Extract durable, long-lived memories from the following conversation transcript.
+Only capture information worth remembering across future sessions: stable facts,
+notable events, standing instructions/preferences, and outstanding tasks.
+
+For each memory set:
+- type: one of fact, event, instruction, task
+- content: a concise, self-contained statement of the memory
+- topicKey: a short stable key for the subject (or empty if none)
+- payload: a JSON object string with any extra structured fields (or "{}")
+
+Do not invent information. If nothing is worth remembering, return an empty list.
+
+Transcript:
+{{transcript}}

@@ -8,8 +8,11 @@ import dev.alvo.pieria.api.response.CodeStatusResponse;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.code.CodeParser.ParseResult;
 import dev.alvo.pieria.code.CodeParser.ParsedSymbol;
+import dev.alvo.pieria.code.CodeSummarizationService;
 import dev.alvo.pieria.code.FakeCodeParser;
+import dev.alvo.pieria.config.CodeSummarizationProperties;
 import dev.alvo.pieria.domain.code.CodeSymbolKind;
+import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.storage.SqliteCodeIndexStore;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import dev.alvo.pieria.task.TaskRegistry;
@@ -61,8 +64,12 @@ class CodeControllerTests {
 
     CodeIndexingService service = new CodeIndexingService(memoryStore, codeStore, List.of(parser),
       new DataSourceTransactionManager(dataSource));
-    controller = new CodeController(service, codeStore, memoryStore,
-      JsonMapper.builder().build(), new TaskRegistry());
+    CodeSummarizationProperties summarizationProperties =
+      new CodeSummarizationProperties(false, "module", 20000, 80, 40);
+    CodeSummarizationService summarization =
+      new CodeSummarizationService(memoryStore, new FakeModelGateway(), summarizationProperties);
+    controller = new CodeController(service, summarization, summarizationProperties, codeStore,
+      memoryStore, JsonMapper.builder().build(), new TaskRegistry());
   }
 
   @AfterEach
@@ -79,7 +86,7 @@ class CodeControllerTests {
 
   @Test
   void indexReturnsCountsAndStatusReflectsThem() {
-    CodeIndexRequest request = new CodeIndexRequest("tree1", false,
+    CodeIndexRequest request = new CodeIndexRequest("tree1", false, null,
       List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}")));
 
     CodeIndexResponse response = controller.index("code", request);
@@ -89,13 +96,13 @@ class CodeControllerTests {
 
     // Re-sending the same file is skipped (unchanged); --reindex forces a re-parse.
     CodeIndexResponse unchanged = controller.index("code",
-      new CodeIndexRequest("tree1", false,
+      new CodeIndexRequest("tree1", false, null,
         List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}"))));
     assertThat(unchanged.filesSkippedUnchanged()).isEqualTo(1);
     assertThat(unchanged.filesParsed()).isEqualTo(0);
 
     CodeIndexResponse forced = controller.index("code",
-      new CodeIndexRequest("tree1", true,
+      new CodeIndexRequest("tree1", true, null,
         List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}"))));
     assertThat(forced.filesSkippedUnchanged()).isEqualTo(0);
     assertThat(forced.filesParsed()).isEqualTo(1);
