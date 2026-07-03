@@ -74,7 +74,7 @@ graalvmNative {
 	}
 }
 
-// --- Embedded sqlite-vec extension (SPEC 14) ---
+// --- Embedded sqlite-vec extension ---
 // The xerial driver loads its own SQLite engine at runtime, so sqlite-vec cannot be statically
 // linked into the GraalVM image. Instead we embed the platform `vec0` loadable extension(s) as
 // classpath resources under native/; at startup VecExtensionResolver extracts the host-platform one

@@ -87,7 +87,7 @@ class OpenAiModelGatewayReasoningTests {
 
   @Test
   void structuredStageSendsNoneEffortByDefault() {
-    Harness h = harness(null); // null → all-defaults: structured off (none), synthesis on
+    Harness h = harness(null); // null → all-defaults: structured off (none), synthesis off (none)
 
     h.gateway().verify(candidate(), "transcript");
 
@@ -108,12 +108,12 @@ class OpenAiModelGatewayReasoningTests {
   }
 
   @Test
-  void synthesisLeavesEffortUnsetByDefault() {
-    Harness h = harness(null);
+  void synthesisSendsNoneEffortByDefault() {
+    Harness h = harness(null); // synthesis reasoning is off by default → disabledEffort ("none")
 
     h.gateway().synthesizeRecall("what coffee?", List.<RecallCandidate>of());
 
-    assertThat(effortOf(h.synthesis().lastOptions)).isNull();
+    assertThat(effortOf(h.synthesis().lastOptions)).isEqualTo("none");
   }
 
   @Test
@@ -138,11 +138,11 @@ class OpenAiModelGatewayReasoningTests {
   void effortForAppliesTierDefaultsAndOverrides() {
     Reasoning defaults = Reasoning.DEFAULT;
     assertThat(defaults.enabledFor("verify")).isFalse();
-    assertThat(defaults.enabledFor("synthesizeRecall")).isTrue();
+    assertThat(defaults.enabledFor("synthesizeRecall")).isFalse();
     assertThat(defaults.effortFor("verify")).isEqualTo("none");
     assertThat(defaults.effortFor("extract")).isEqualTo("none");
-    assertThat(defaults.effortFor("synthesizeRecall")).isNull();
-    assertThat(defaults.effortFor("judgeAnswerFaithfulness")).isNull();
+    assertThat(defaults.effortFor("synthesizeRecall")).isEqualTo("none");
+    assertThat(defaults.effortFor("judgeAnswerFaithfulness")).isEqualTo("none");
 
     Reasoning overridden = new Reasoning(false, true, "none", "medium",
       Map.of("verify", true, "synthesizeRecall", false));
