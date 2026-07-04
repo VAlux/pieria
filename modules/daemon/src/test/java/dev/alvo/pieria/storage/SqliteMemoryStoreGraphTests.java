@@ -181,6 +181,42 @@ class SqliteMemoryStoreGraphTests {
   }
 
   @Test
+  void graphSnapshotReturnsConnectedNodesAndActiveEdgesWithProvenance() {
+    Profile p = store.getOrCreateProfile("g-snapshot");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s1", null, null), frag("alpha", "uses", "beta"));
+
+    var snapshot = store.graphSnapshot(p.id());
+
+    assertEquals(2, snapshot.nodes().size());
+    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("alpha")));
+    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("beta")));
+
+    assertEquals(1, snapshot.links().size());
+    var link = snapshot.links().get(0);
+    assertEquals("uses", link.relation());
+    assertEquals(entityId(p.id(), "alpha"), link.sourceEntityId());
+    assertEquals(entityId(p.id(), "beta"), link.targetEntityId());
+    assertEquals("alpha uses beta", link.memoryContent());
+  }
+
+  @Test
+  void graphSnapshotOmitsSupersededEdgesAndNowIsolatedNodes() {
+    Profile p = store.getOrCreateProfile("g-snapshot-supersede");
+    // Both share topic key "k": the second supersedes the first. "old" only ever appears on the
+    // now-superseded edge, so it must drop out of the snapshot entirely.
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old uses redis", "s1", "k", null), frag("old", "uses", "redis"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new uses redis", "s2", "k", null), frag("new", "uses", "redis"));
+
+    var snapshot = store.graphSnapshot(p.id());
+
+    assertEquals(1, snapshot.links().size(), "only the active edge survives");
+    assertEquals(2, snapshot.nodes().size(), "redis + new; old is isolated once its edge is gone");
+    assertFalse(snapshot.nodes().stream().anyMatch(n -> n.name().equals("old")));
+    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("new")));
+    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("redis")));
+  }
+
+  @Test
   void findMemoriesByEntitiesRanksByProximityThenRecency() {
     Profile p = store.getOrCreateProfile("g-rank");
     MemoryStore.StoreOutcome first =

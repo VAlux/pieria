@@ -1,0 +1,61 @@
+/* Memory-graph view. Lives inside the console as the #view-graph tab, so every overlay is
+   positioned relative to the view container (not the viewport) to sit below the top nav. */
+/* Unlike the other views, the graph is full-bleed: drop the console's centered max-width column. */
+#view-graph { position: relative; height: 100%; overflow: hidden; max-width: none; margin: 0; }
+#view-graph canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+#view-graph canvas.dragging { cursor: grabbing; }
+
+.graph-toolbar {
+  position: absolute; top: 12px; left: 12px; right: 12px;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  pointer-events: none; z-index: 5;
+}
+.graph-toolbar > * { pointer-events: auto; }
+.graph-toolbar .grow { flex: 1 1 160px; min-width: 120px; max-width: 320px; }
+
+.graph-legend {
+  position: absolute; bottom: 12px; left: 12px; z-index: 5;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; width: 232px;
+  max-height: calc(100% - 40px); overflow-y: auto;
+}
+.graph-legend h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+.graph-legend .section + .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.graph-legend .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 13px; }
+.graph-legend .key { flex: none; width: 26px; display: flex; align-items: center; justify-content: center; }
+.graph-legend .muted { color: var(--muted); font-size: 12px; }
+#graphLegendRows { max-height: 168px; overflow-y: auto; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.dot { border-radius: 50%; background: var(--muted); flex: none; }
+.dot-sm { width: 7px; height: 7px; }
+.dot-lg { width: 15px; height: 15px; }
+.glyph { color: var(--muted); font-size: 15px; line-height: 1; }
+.edge-line { width: 22px; height: 0; border-top: 2px solid var(--muted); position: relative; }
+.edge-line::after {
+  content: ""; position: absolute; right: -1px; top: -4px;
+  border-left: 6px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+}
+
+.graph-stats {
+  position: absolute; bottom: 12px; right: 12px; z-index: 5;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; color: var(--muted); font-size: 12px; text-align: right;
+}
+.graph-stats b { color: var(--text); }
+
+#graphTooltip {
+  position: fixed; z-index: 60; pointer-events: none; display: none;
+  max-width: 320px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+#graphTooltip .t-title { font-weight: 600; }
+#graphTooltip .t-type { color: var(--muted); font-size: 12px; }
+#graphTooltip .t-rel { color: var(--accent); font-weight: 600; }
+#graphTooltip .t-mem { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+.graph-banner {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: var(--muted); max-width: 420px; padding: 0 20px; z-index: 4;
+}
+.graph-banner.err { color: var(--danger); }
+.graph-banner h2 { color: var(--text); margin: 0 0 8px; }

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pieria · Console</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/console.css">
+  <link rel="stylesheet" href="css/graph.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Pieria <small id="profileLabel">Console</small></div>
+    <select id="profileSelect" title="Select a profile" disabled>
+      <option>Loading…</option>
+    </select>
+    <nav class="nav" id="nav">
+      <button data-view="memories" class="active">Memories</button>
+      <button data-view="add">Add</button>
+      <button data-view="recall">Recall</button>
+      <button data-view="stats">Statistics</button>
+      <button data-view="graph">Graph</button>
+    </nav>
+    <div class="spacer"></div>
+    <button id="exportBtn" title="Download all memories as NDJSON">⬇ Export</button>
+  </div>
+
+  <main>
+    <!-- ===== Memories ===== -->
+    <section class="view active" id="view-memories">
+      <div class="controls">
+        <input id="searchInput" class="grow" placeholder="search content, topic key, session…" autocomplete="off">
+        <select id="typeFilter" title="Filter by type">
+          <option value="">All types</option>
+          <option value="fact">fact</option>
+          <option value="event">event</option>
+          <option value="instruction">instruction</option>
+          <option value="task">task</option>
+        </select>
+        <select id="sessionFilter" title="Filter by session"><option value="">All sessions</option></select>
+        <select id="sortSelect" title="Sort">
+          <option value="new">Newest</option>
+          <option value="old">Oldest</option>
+          <option value="type">Type</option>
+          <option value="long">Longest</option>
+        </select>
+        <label class="check"><input type="checkbox" id="supToggle"> show superseded</label>
+      </div>
+      <div id="memList" class="mem-list"></div>
+      <div id="memPager" class="pager"></div>
+    </section>
+
+    <!-- ===== Add ===== -->
+    <section class="view" id="view-add">
+      <div class="panel">
+        <h2 class="section">Add a memory</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label>Type <span class="req">*</span></label>
+            <select id="addType">
+              <option value="fact">fact</option>
+              <option value="event">event</option>
+              <option value="instruction">instruction</option>
+              <option value="task">task</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Topic key <span class="hint">(supersedes prior fact/instruction with same key)</span></label>
+            <input id="addTopicKey" placeholder="optional, e.g. recall-latency">
+          </div>
+          <div class="field full">
+            <label>Content <span class="req">*</span></label>
+            <textarea id="addContent" placeholder="The canonical statement to remember…"></textarea>
+          </div>
+          <div class="field">
+            <label>Session id</label>
+            <input id="addSession" placeholder="optional">
+          </div>
+          <div class="field">
+            <label>Payload (JSON)</label>
+            <textarea id="addPayload" placeholder='optional, e.g. {"source":"manual"}'></textarea>
+          </div>
+          <div class="field full form-actions">
+            <button class="primary" id="addSubmit">Store memory</button>
+            <span id="addStatus" class="hint"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Recall ===== -->
+    <section class="view" id="view-recall">
+      <div class="controls">
+        <input id="recallQuery" class="grow" placeholder="Ask a question…" autocomplete="off">
+        <select id="recallLimit" title="Max supporting memories">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+        <button class="primary" id="recallBtn">Ask</button>
+      </div>
+      <p class="hint">Recall runs the full retrieval + synthesis pipeline through the local model (Ollama) and can take tens of seconds.</p>
+      <div id="recallResult"></div>
+    </section>
+
+    <!-- ===== Stats ===== -->
+    <section class="view" id="view-stats">
+      <div id="statsBody"></div>
+    </section>
+
+    <!-- ===== Graph ===== -->
+    <section class="view" id="view-graph">
+      <canvas id="graphCanvas"></canvas>
+
+      <div class="graph-toolbar">
+        <input id="graphSearch" class="grow" placeholder="highlight nodes…" autocomplete="off">
+        <button id="graphReload" title="Reload graph">Reload</button>
+        <button id="graphFit" title="Fit to screen">Fit</button>
+      </div>
+
+      <div class="graph-legend" id="graphLegend" style="display:none">
+        <div class="section">
+          <h4>Entity types <span class="muted" id="graphTypeCount"></span></h4>
+          <div id="graphLegendRows"></div>
+        </div>
+        <div class="section">
+          <h4>How to read</h4>
+          <div class="row">
+            <span class="key"><span class="dot dot-sm"></span><span class="dot dot-lg" style="margin-left:3px"></span></span>
+            node size = number of links
+          </div>
+          <div class="row">
+            <span class="key"><span class="edge-line"></span></span>
+            arrow points source → target
+          </div>
+          <div class="row">
+            <span class="key"><span class="glyph">◍</span></span>
+            hover a node or edge for details
+          </div>
+          <div class="row">
+            <span class="key"><span class="glyph">⌕</span></span>
+            “highlight” dims non-matches
+          </div>
+          <div class="row muted">drag to move · scroll to zoom · drag a node to pin</div>
+        </div>
+      </div>
+
+      <div class="graph-stats" id="graphStatsBox" style="display:none"></div>
+    </section>
+  </main>
+
+  <!-- detail drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="drawer">
+    <header>
+      <span id="drawerChip"></span>
+      <span class="spacer"></span>
+      <button class="danger" id="drawerDelete" title="Forget this memory">🗑 Forget</button>
+      <button id="drawerClose" title="Close">✕</button>
+    </header>
+    <div class="body" id="drawerBody"></div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+  <div id="graphTooltip"></div>
+
+  <script type="module" src="js/console/main.js"></script>
+</body>
+</html>

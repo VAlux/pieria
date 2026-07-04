@@ -50,7 +50,7 @@ class EffectiveConfigResolverTests {
     }
 
     @Override
-    public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
+    public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter, boolean includeSuperseded) {
       throw new UnsupportedOperationException();
     }
 

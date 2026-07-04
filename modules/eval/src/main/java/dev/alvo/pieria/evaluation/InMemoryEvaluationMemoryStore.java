@@ -128,8 +128,15 @@ final class InMemoryEvaluationMemoryStore implements MemoryStore {
 	}
 
 	@Override
-	public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
-		return activeMemories(profileId).stream()
+	public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter,
+			boolean includeSuperseded) {
+		List<Memory> base = includeSuperseded
+			? memoryIdsByProfile.getOrDefault(profileId, List.of()).stream()
+				.map(memoriesById::get)
+				.filter(memory -> memory != null)
+				.toList()
+			: activeMemories(profileId);
+		return base.stream()
 			.filter(memory -> typeFilter == null || memory.type() == typeFilter)
 			.filter(memory -> sessionFilter == null || sessionFilter.equals(memory.sessionId()))
 			.toList();

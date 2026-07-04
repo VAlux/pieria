@@ -120,7 +120,7 @@ class GraphChannelTests {
     @Override public java.util.Optional<Profile> findProfile(String name) { return java.util.Optional.empty(); }
     @Override public void insertMessages(String p, String s, List<Message> m) { }
     @Override public Memory insertMemory(String p, Memory m) { throw new UnsupportedOperationException(); }
-    @Override public List<Memory> listMemories(String p, MemoryType t, String s) { return List.of(); }
+    @Override public List<Memory> listMemories(String p, MemoryType t, String s, boolean incl) { return List.of(); }
     @Override public boolean forgetMemory(String p, String id) { return false; }
     @Override public List<dev.alvo.pieria.domain.ExportRow> exportProfile(String p) { return List.of(); }
     @Override public List<RecallCandidate> findRecallCandidates(String p, String q, int l) { return List.of(); }

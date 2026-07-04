@@ -13,8 +13,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import java.util.Set;
 
 /**
- * Dialect for Azure OpenAI / Microsoft Foundry (and Azure-fronted proxies such as EPAM's AI DIAL)
- * that speak the classic deployment URL scheme: {@code {base}/openai/deployments/{deployment}/...
+ * Dialect for Azure OpenAI / Microsoft Foundry that speak the classic deployment URL scheme: {@code {base}/openai/deployments/{deployment}/...
  * ?api-version=}. {@code Api-Key} header auth, {@link AzureUrlPathMode#LEGACY} forced (Spring AI never
  * sets it, so the SDK's {@code AUTO} default fails to recognize a non-{@code *.openai.azure.com} host
  * and posts to a non-deployment URL — 404 on every call), and the resource root kept as-is (the SDK

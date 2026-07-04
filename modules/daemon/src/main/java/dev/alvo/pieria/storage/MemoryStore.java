@@ -4,6 +4,7 @@ import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -289,9 +290,20 @@ public interface MemoryStore {
 
   /**
    * List active (non-superseded) memories, optionally filtered by type and/or session.
-   * Null filters mean "no filter on that dimension".
+   * Null filters mean "no filter on that dimension". Convenience overload of
+   * {@link #listMemories(String, MemoryType, String, boolean)} with {@code includeSuperseded=false}.
    */
-  List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter);
+  default List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
+    return listMemories(profileId, typeFilter, sessionFilter, false);
+  }
+
+  /**
+   * List memories, optionally filtered by type and/or session. Null filters mean "no filter on
+   * that dimension". When {@code includeSuperseded} is false, only active (non-superseded)
+   * memories are returned; when true, superseded memories are included as well. Ordered newest
+   * first ({@code created_at} desc).
+   */
+  List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter, boolean includeSuperseded);
 
   /**
    * Mark a memory superseded (logical delete); never physically deletes.
@@ -367,5 +379,14 @@ public interface MemoryStore {
    */
   default List<Memory> findCodeMemoriesBySymbolIds(String profileId, List<String> symbolIds, int limit) {
     throw new UnsupportedOperationException("findCodeMemoriesBySymbolIds(...) not implemented");
+  }
+
+  /**
+   * A read-only snapshot of the profile's entity-relation graph for visualization: all active edges
+   * (source memory not superseded) plus the entities they connect. Isolated entities are omitted.
+   * See {@link dev.alvo.pieria.domain.graph.GraphSnapshot}.
+   */
+  default GraphSnapshot graphSnapshot(String profileId) {
+    throw new UnsupportedOperationException("graphSnapshot(...) not implemented");
   }
 }

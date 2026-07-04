@@ -94,6 +94,36 @@ class ProfileApiTests {
   }
 
   @Test
+  void listIncludesSupersededOnlyWhenRequested() throws Exception {
+    // Use a dedicated profile + content so superseding it cannot pollute the shared "alice"
+    // fixture that the recall tests rely on (the stub store is a singleton across test methods,
+    // and content-addressed ids make re-inserts a no-op once a memory is superseded).
+    String body = mvc.perform(post("/v1/profiles/supq/memories")
+        .contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"Superseded probe\",\"sessionId\":\"sup1\"}"))
+      .andExpect(status().isCreated())
+      .andReturn().getResponse().getContentAsString();
+    int idx = body.indexOf("\"id\":\"") + 6;
+    String id = body.substring(idx, body.indexOf('"', idx));
+
+    // forget it -> now superseded
+    mvc.perform(delete("/v1/profiles/supq/memories/" + id))
+      .andExpect(status().isNoContent());
+
+    // default list omits the superseded memory
+    mvc.perform(get("/v1/profiles/supq/memories"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories", org.hamcrest.Matchers.hasSize(0)));
+
+    // includeSuperseded=true surfaces it, flagged
+    mvc.perform(get("/v1/profiles/supq/memories").param("includeSuperseded", "true"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories", org.hamcrest.Matchers.hasSize(1)))
+      .andExpect(jsonPath("$.memories[0].content", is("Superseded probe")))
+      .andExpect(jsonPath("$.memories[0].superseded", is(true)));
+  }
+
+  @Test
   void ingestExtractsMemories() throws Exception {
     mvc.perform(post("/v1/profiles/bob/ingest")
         .contentType("application/json")
@@ -278,6 +308,43 @@ class ProfileApiTests {
         .accept(MediaType.TEXT_PLAIN)
         .content("{\"query\":\"zzzznomatchwhatsoever\"}"))
       .andExpect(status().isNoContent());
+  }
+
+  @Test
+  void graphReturnsNodesAndLinksWithProvenance() throws Exception {
+    Profile p = store.getOrCreateProfile("graphtest");
+    store.insertMemory(p.id(), dev.alvo.pieria.domain.memory.Memory.of(
+      dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta", "s1", null, null));
+    String memId = dev.alvo.pieria.domain.ContentId.forMemory("s1",
+      dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta");
+    var alpha = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "alpha", "{}"));
+    var beta = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "beta", "{}"));
+    store.upsertEdge(p.id(), new dev.alvo.pieria.domain.graph.Edge(
+      null, p.id(), alpha.id(), beta.id(), "uses", memId, null));
+
+    mvc.perform(get("/v1/profiles/graphtest/graph"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.nodes", org.hamcrest.Matchers.hasSize(2)))
+      .andExpect(jsonPath("$.links", org.hamcrest.Matchers.hasSize(1)))
+      .andExpect(jsonPath("$.links[0].relation", is("uses")))
+      .andExpect(jsonPath("$.links[0].source", is(alpha.id())))
+      .andExpect(jsonPath("$.links[0].target", is(beta.id())))
+      .andExpect(jsonPath("$.links[0].memory", is("alpha uses beta")));
+  }
+
+  @Test
+  void graphOnMissingProfileIsNotFound() throws Exception {
+    mvc.perform(get("/v1/profiles/ghost/graph"))
+      .andExpect(status().isNotFound())
+      .andExpect(jsonPath("$.error", is("not_found")));
+  }
+
+  @Test
+  void graphViewRedirectsToStaticViewerWithProfile() throws Exception {
+    mvc.perform(get("/v1/profiles/alice/graph/view"))
+      .andExpect(status().isFound())
+      .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+        .redirectedUrl("/index.html?view=graph&profile=alice"));
   }
 
   private String remember() throws Exception {

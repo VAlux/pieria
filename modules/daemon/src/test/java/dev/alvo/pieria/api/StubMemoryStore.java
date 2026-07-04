@@ -1,9 +1,11 @@
 package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.domain.ContentId;
+import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -258,10 +260,11 @@ class StubMemoryStore implements MemoryStore {
   }
 
   @Override
-  public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
+  public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter,
+                                   boolean includeSuperseded) {
     List<Memory> out = new ArrayList<>();
     for (Memory m : memories.getOrDefault(profileId, Map.of()).values()) {
-      if (m.superseded()) {
+      if (m.superseded() && !includeSuperseded) {
         continue;
       }
       if (typeFilter != null && m.type() != typeFilter) {
@@ -401,5 +404,57 @@ class StubMemoryStore implements MemoryStore {
   @Override
   public List<Memory> vectorSearch(String profileId, float[] queryEmbedding, int limit) {
     return List.of(); // stub has no vector index
+  }
+
+  // ---- entity-relation graph (enough for the /graph endpoint slice test) ----
+
+  // profileId -> (entityId -> entity)
+  private final Map<String, Map<String, Entity>> entities = new LinkedHashMap<>();
+  // profileId -> edges
+  private final Map<String, List<Edge>> edges = new LinkedHashMap<>();
+
+  @Override
+  public Entity upsertEntity(String profileId, Entity entity) {
+    String id = entity.id() != null ? entity.id()
+      : ContentId.forEntity(profileId, entity.type(), entity.name());
+    Entity stored = new Entity(id, profileId, entity.type(), entity.name(),
+      entity.payload() == null ? "{}" : entity.payload(),
+      entity.createdAt() == null ? Instant.now() : entity.createdAt());
+    entities.computeIfAbsent(profileId, k -> new LinkedHashMap<>()).putIfAbsent(id, stored);
+    return entities.get(profileId).get(id);
+  }
+
+  @Override
+  public Edge upsertEdge(String profileId, Edge edge) {
+    String id = edge.id() != null ? edge.id()
+      : ContentId.forEdge(profileId, edge.sourceEntityId(), edge.relation(), edge.targetEntityId(), edge.memoryId());
+    Edge stored = new Edge(id, profileId, edge.sourceEntityId(), edge.targetEntityId(),
+      edge.relation(), edge.memoryId(), edge.createdAt() == null ? Instant.now() : edge.createdAt());
+    edges.computeIfAbsent(profileId, k -> new ArrayList<>()).add(stored);
+    return stored;
+  }
+
+  @Override
+  public GraphSnapshot graphSnapshot(String profileId) {
+    Map<String, Memory> mem = memories.getOrDefault(profileId, Map.of());
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+
+    List<GraphSnapshot.Link> links = new ArrayList<>();
+    java.util.LinkedHashSet<String> connected = new java.util.LinkedHashSet<>();
+    for (Edge e : edges.getOrDefault(profileId, List.of())) {
+      Memory m = mem.get(e.memoryId());
+      if (m == null || m.superseded()) {
+        continue; // edge is off a superseded (or missing) memory
+      }
+      links.add(new GraphSnapshot.Link(e.sourceEntityId(), e.targetEntityId(), e.relation(),
+        e.memoryId(), m.content()));
+      connected.add(e.sourceEntityId());
+      connected.add(e.targetEntityId());
+    }
+    List<Entity> nodes = connected.stream()
+      .map(ents::get)
+      .filter(java.util.Objects::nonNull)
+      .toList();
+    return new GraphSnapshot(nodes, links);
   }
 }

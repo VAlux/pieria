@@ -14,7 +14,9 @@ package dev.alvo.pieria.model.usage;
  */
 public final class InferenceUsageSink {
 
-  /** Shared sink for unbound threads; never read back, so its contents are irrelevant. */
+  /**
+   * Shared sink for unbound threads; never read back, so its contents are irrelevant.
+   */
   private static final InferenceUsageAccumulator NOOP = new InferenceUsageAccumulator();
 
   private static final ThreadLocal<InferenceUsageAccumulator> BOUND = new ThreadLocal<>();
@@ -38,13 +40,17 @@ public final class InferenceUsageSink {
     };
   }
 
-  /** The accumulator bound to this thread, or a shared no-op sink when nothing is bound. */
+  /**
+   * The accumulator bound to this thread, or a shared no-op sink when nothing is bound.
+   */
   public static InferenceUsageAccumulator current() {
     InferenceUsageAccumulator accumulator = BOUND.get();
     return accumulator == null ? NOOP : accumulator;
   }
 
-  /** A non-throwing {@link AutoCloseable} for try-with-resources binding. */
+  /**
+   * A non-throwing {@link AutoCloseable} for try-with-resources binding.
+   */
   public interface Binding extends AutoCloseable {
     @Override
     void close();

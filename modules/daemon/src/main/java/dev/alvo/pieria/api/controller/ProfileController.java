@@ -3,6 +3,7 @@ package dev.alvo.pieria.api.controller;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.response.GraphResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
@@ -19,6 +20,7 @@ import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -50,6 +52,9 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -339,11 +344,12 @@ public class ProfileController {
   @GetMapping("/memories")
   public MemoryListResponse list(@PathVariable String name,
                                  @RequestParam(name = "type", required = false) String type,
-                                 @RequestParam(name = "session", required = false) String session) {
+                                 @RequestParam(name = "session", required = false) String session,
+                                 @RequestParam(name = "includeSuperseded", defaultValue = "false") boolean includeSuperseded) {
     var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
 
     MemoryType typeFilter = type == null ? null : MemoryType.fromWire(type);
-    List<Memory> memories = store.listMemories(profile.id(), typeFilter, session);
+    List<Memory> memories = store.listMemories(profile.id(), typeFilter, session, includeSuperseded);
     return new MemoryListResponse(memories.stream().map(this.memoryResponseConverter::convert).toList());
   }
 
@@ -355,6 +361,39 @@ public class ProfileController {
       throw NotFoundException.memory(id);
     }
     return ResponseEntity.noContent().build();
+  }
+
+  /**
+   * The profile's entity-relation graph as node/link JSON for the force-directed viewer. Only
+   * entities connected by an edge off an active (non-superseded) memory are returned. Edge
+   * provenance snippets are truncated for a compact payload.
+   */
+  @GetMapping("/graph")
+  public GraphResponse graph(@PathVariable String name) {
+    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
+
+    GraphSnapshot snapshot = store.graphSnapshot(profile.id());
+
+    List<GraphResponse.Node> nodes = snapshot.nodes().stream()
+      .map(e -> new GraphResponse.Node(e.id(), e.type(), e.name()))
+      .toList();
+    List<GraphResponse.Link> links = snapshot.links().stream()
+      .map(l -> new GraphResponse.Link(l.sourceEntityId(), l.targetEntityId(), l.relation(),
+        l.memoryId(), oneLine(l.memoryContent(), 200)))
+      .toList();
+
+    return new GraphResponse(nodes, links);
+  }
+
+  /**
+   * Convenience entry point for humans: redirect to the console's graph tab with this profile
+   * pre-selected, so {@code /v1/profiles/{name}/graph/view} opens a ready-to-use page.
+   */
+  @GetMapping("/graph/view")
+  public ResponseEntity<Void> graphView(@PathVariable String name) {
+    var viewer = URI.create("/index.html?view=graph&profile=%s"
+      .formatted(URLEncoder.encode(name, StandardCharsets.UTF_8)));
+    return ResponseEntity.status(HttpStatus.FOUND).location(viewer).build();
   }
 
   @GetMapping(value = "/export", produces = NDJSON)

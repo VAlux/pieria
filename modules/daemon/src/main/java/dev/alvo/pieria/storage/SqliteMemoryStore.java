@@ -7,6 +7,7 @@ import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -577,12 +578,16 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
-  public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter) {
+  public List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter,
+                                   boolean includeSuperseded) {
     StringBuilder sql = new StringBuilder(
       """
         SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
         FROM memories \
-        WHERE profile_id = ? AND superseded = 0""");
+        WHERE profile_id = ?""");
+    if (!includeSuperseded) {
+      sql.append(" AND superseded = 0");
+    }
 
     List<Object> params = new ArrayList<>();
     params.add(profileId);
@@ -1168,5 +1173,38 @@ public class SqliteMemoryStore implements MemoryStore {
       .params(params)
       .query((rs, _) -> mapMemory(rs))
       .list();
+  }
+
+  @Override
+  public GraphSnapshot graphSnapshot(String profileId) {
+    // Active edges (source memory not superseded) with a snippet of the provenance memory. Newest
+    // first so the viewer's link list reads most-recent-first.
+    List<GraphSnapshot.Link> links = jdbc.sql(
+        "SELECT e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, m.content "
+          + "FROM edges e JOIN memories m ON m.id = e.memory_id "
+          + "WHERE e.profile_id = ? AND m.superseded = 0 "
+          + "ORDER BY e.created_at DESC, e.id")
+      .param(profileId)
+      .query((rs, _) -> new GraphSnapshot.Link(
+        rs.getString("source_entity_id"),
+        rs.getString("target_entity_id"),
+        rs.getString("relation"),
+        rs.getString("memory_id"),
+        rs.getString("content")))
+      .list();
+
+    // Only entities that are an endpoint of an active edge — isolated nodes have nothing to draw.
+    List<Entity> nodes = jdbc.sql(
+        "SELECT DISTINCT en.id, en.profile_id, en.type, en.name, en.payload, en.created_at "
+          + "FROM entities en "
+          + "JOIN edges e ON (e.source_entity_id = en.id OR e.target_entity_id = en.id) "
+          + "JOIN memories m ON m.id = e.memory_id "
+          + "WHERE en.profile_id = ? AND m.superseded = 0 "
+          + "ORDER BY en.name")
+      .param(profileId)
+      .query((rs, _) -> mapEntity(rs))
+      .list();
+
+    return new GraphSnapshot(nodes, links);
   }
 }

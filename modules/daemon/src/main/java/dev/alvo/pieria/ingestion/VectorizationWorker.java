@@ -49,6 +49,7 @@ public class VectorizationWorker {
   public VectorizationWorker(MemoryStore store, ModelGateway modelGateway, PieriaProperties properties) {
     this.store = store;
     this.modelGateway = modelGateway;
+
     Ingestion ingestion = properties.ingestion();
     this.batchSize = Math.max(1, ingestion.outboxBatchSize());
     this.maxAttempts = Math.max(1, ingestion.outboxMaxAttempts());

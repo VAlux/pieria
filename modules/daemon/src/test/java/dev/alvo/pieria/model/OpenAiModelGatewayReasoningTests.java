@@ -96,8 +96,6 @@ class OpenAiModelGatewayReasoningTests {
 
   @Test
   void azureAdapterNeverSendsReasoningEffortEvenWhenConfigured() {
-    // Azure/DIAL chat deployments (gpt-4o, gpt-4.1-mini, ...) reject the reasoning_effort argument
-    // outright with HTTP 400, unlike Ollama where an unsupported model simply ignores it.
     Harness h = harness(new Reasoning(false, true, "none", "low", Map.of()), new AzureModelProviderAdapter());
 
     h.gateway().verify(candidate(), "transcript");
