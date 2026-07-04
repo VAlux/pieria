@@ -1,9 +1,6 @@
 package dev.alvo.pieria.evaluation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.model.ModelGateway;
-import dev.alvo.pieria.storage.MemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,39 +8,23 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /**
- * Live benchmark entry point for the LoCoMo and LongMemEval adapters.
+ * Live benchmark entry point for the LoCoMo and LongMemEval adapters, run against a <em>real</em>
+ * daemon.
  *
- * <p>This is the seam that runs the <em>real</em> {@link dev.alvo.pieria.ingestion.IngestionService}
- * and {@link dev.alvo.pieria.retrieval.RetrievalService} against a live {@link ModelGateway} (the
- * daemon's {@code OpenAiModelGateway}, or any other gateway you wire — e.g. a hosted Anthropic/OpenAI
- * baseline for comparison) and an in-memory {@link MemoryStore}.
+ * <p>The harness boots a full {@link LiveDaemon} (the daemon's web stack on a throwaway temp DB) and
+ * drives it over HTTP via {@link DaemonEvalClient} — exercising the real ingestion/retrieval
+ * pipeline, sqlite-vec + FTS5 + graph + RRF, and the daemon's own configuration. It is intentionally
+ * <strong>not</strong> exercised by CI: it requires a local dataset file and a reachable model
+ * provider (Ollama by default). {@link #averageRuns(List, int)} drives the harness {@code runCount}
+ * times (default {@code 3}) and averages the summary metrics so stochastic model output is smoothed
+ * out, then {@link EvaluationReportWriter} writes the report into the git-ignored
+ * {@code pieria-eval-reports/} directory.
  *
- * <p>It is intentionally <strong>not</strong> exercised by CI: it requires a local dataset file and a
- * reachable model provider. {@link #averageRuns(List, Supplier, Supplier, int)} drives the harness
- * {@code runCount} times (default {@code 3}) and averages the summary metrics so stochastic
- * model output is smoothed out, then {@link EvaluationReportWriter} writes the report into the
- * git-ignored {@code pieria-eval-reports/} directory.
- *
- * <h2>How to run the live path</h2>
- * Wire a live gateway and invoke:
- * <pre>{@code
- *   ModelGateway gateway = ...;            // e.g. daemon OpenAiModelGateway bean
- *   PieriaProperties props = ...;          // extraction-model/synthesis-model, embedding model + dimension
- *   BenchmarkRunner runner = new BenchmarkRunner(props, () -> gateway);
- *
- *   // LoCoMo
- *   runner.runLoCoMo(Path.of("/data/locomo10.json"), 3);
- *   // LongMemEval
- *   runner.runLongMemEval(Path.of("/data/longmemeval_s.json"), 3);
- * }</pre>
- * <p>
- * The gateway supplier is shared across fixtures and runs; the store factory creates a fresh
- * {@link InMemoryEvaluationMemoryStore} per fixture so memories never leak between samples. To
- * compare a local model against a hosted baseline, construct two {@code BenchmarkRunner}s with
- * different gateway suppliers and diff the two reports.
+ * <p>Answer faithfulness is deferred: the daemon run records each synthesized answer but leaves the
+ * faithfulness flag unjudged. {@link #main} runs {@link FaithfulnessJudgeRunner} as a second pass to
+ * fill it in and write a judged report alongside the raw one.
  */
 public final class BenchmarkRunner {
 
@@ -53,29 +34,17 @@ public final class BenchmarkRunner {
 
   private final EvaluationRunner runner;
   private final EvaluationReportWriter reportWriter;
-  private final Supplier<ModelGateway> gatewayFactory;
-  private final Supplier<MemoryStore> storeFactory;
   private final ObjectMapper objectMapper;
 
-  public BenchmarkRunner(PieriaProperties properties, Supplier<ModelGateway> gatewayFactory) {
-    this(
-      new EvaluationRunner(properties),
-      new EvaluationReportWriter(),
-      gatewayFactory,
-      InMemoryEvaluationMemoryStore::new,
-      new ObjectMapper());
+  public BenchmarkRunner(DaemonEvalClient client) {
+    this(new EvaluationRunner(client), new EvaluationReportWriter(), new ObjectMapper());
   }
 
   public BenchmarkRunner(EvaluationRunner runner,
                          EvaluationReportWriter reportWriter,
-                         Supplier<ModelGateway> gatewayFactory,
-                         Supplier<MemoryStore> storeFactory,
                          ObjectMapper objectMapper) {
-
     this.runner = runner;
     this.reportWriter = reportWriter;
-    this.gatewayFactory = gatewayFactory;
-    this.storeFactory = storeFactory;
     this.objectMapper = objectMapper;
   }
 
@@ -83,38 +52,35 @@ public final class BenchmarkRunner {
     LOGGER.info("Loading LoCoMo dataset from {}", datasetFile);
     List<EvaluationFixture> fixtures = new LoCoMoBenchmarkAdapter(objectMapper).load(datasetFile);
     LOGGER.info("Loaded {} LoCoMo fixtures", fixtures.size());
-    return averageRuns(fixtures, gatewayFactory, storeFactory, runCount);
+    return averageRuns(fixtures, runCount);
   }
 
   public EvaluationReport runLongMemEval(Path datasetFile, int runCount) throws Exception {
     LOGGER.info("Loading LongMemEval dataset from {}", datasetFile);
     List<EvaluationFixture> fixtures = new LongMemEvalBenchmarkAdapter(objectMapper).load(datasetFile);
     LOGGER.info("Loaded {} LongMemEval fixtures", fixtures.size());
-    return averageRuns(fixtures, gatewayFactory, storeFactory, runCount);
+    return averageRuns(fixtures, runCount);
   }
 
   /**
    * Runs the harness {@code runCount} times over the same fixtures and returns a report whose
    * summary metrics are the mean across runs (the last run's per-fixture detail is retained, as
-   * detail is mainly useful for spot-checking). Latency and token totals are averaged too.
+   * detail is mainly useful for spot-checking). Each run uses a distinct profile tag so repeated
+   * ingests hit fresh profiles. Latency totals are averaged too.
    */
-  public EvaluationReport averageRuns(List<EvaluationFixture> fixtures,
-                                      Supplier<ModelGateway> gateways,
-                                      Supplier<MemoryStore> stores,
-                                      int runCount) {
+  public EvaluationReport averageRuns(List<EvaluationFixture> fixtures, int runCount) {
     int runs = Math.max(1, runCount);
     List<EvaluationReport> reports = new ArrayList<>();
     for (int i = 0; i < runs; i++) {
       LOGGER.info("Starting run {}/{} over {} fixtures", i + 1, runs, fixtures.size());
-      reports.add(runner.run(fixtures, gateways, stores));
+      reports.add(runner.run(fixtures, "run" + (i + 1)));
       LOGGER.info("Run {}/{} complete", i + 1, runs);
     }
     EvaluationReport result = averageReports(reports);
     EvaluationReport.Summary s = result.summary();
-    LOGGER.info("Benchmark complete — hitRate={} mrr={} faithfulness={} ingestion={}ms recall={}ms",
+    LOGGER.info("Benchmark complete — hitRate={} mrr={} ingestion={}ms recall={}ms (faithfulness deferred to judge pass)",
       String.format("%.3f", s.retrievalHitRate()),
       String.format("%.3f", s.meanReciprocalRank()),
-      String.format("%.3f", s.answerFaithfulness()),
       s.latency().ingestionMs(), s.latency().recallMs());
     return result;
   }
@@ -126,7 +92,6 @@ public final class BenchmarkRunner {
     }
     double precision = 0, recall = 0, hitRate = 0, mrr = 0, faithful = 0;
     long ingestionMs = 0, recallMs = 0, totalMs = 0;
-    long promptTokens = 0, completionTokens = 0, totalTokens = 0;
     for (EvaluationReport report : reports) {
       EvaluationReport.Summary s = report.summary();
       precision += s.extractionPrecision();
@@ -137,9 +102,6 @@ public final class BenchmarkRunner {
       ingestionMs += s.latency().ingestionMs();
       recallMs += s.latency().recallMs();
       totalMs += s.latency().totalMs();
-      promptTokens += s.tokenUsage().promptTokens();
-      completionTokens += s.tokenUsage().completionTokens();
-      totalTokens += s.tokenUsage().totalTokens();
     }
     int n = reports.size();
     EvaluationReport.Summary averaged = new EvaluationReport.Summary(
@@ -150,8 +112,7 @@ public final class BenchmarkRunner {
       mrr / n,
       faithful / n,
       new EvaluationReport.Latency(ingestionMs / n, recallMs / n, totalMs / n),
-      new EvaluationReport.TokenUsage(promptTokens / n, completionTokens / n, totalTokens / n,
-        last.summary().tokenUsage().callsByStage()));
+      EvaluationReport.TokenUsage.zero());
     return new EvaluationReport(last.generatedAt(), last.fixtures(), averaged);
   }
 
@@ -161,9 +122,10 @@ public final class BenchmarkRunner {
    *   java -cp <classpath> dev.alvo.pieria.evaluation.BenchmarkRunner \
    *       <locomo|longmemeval> <dataset.json> [runCount]
    * }</pre>
-   * Wires the live model gateway via {@link LiveModelGatewayFactory#fromSpring(String...)} and writes the
-   * averaged report to {@code pieria-eval-reports/}. Requires a running model provider and a local
-   * dataset file; this method is never called in CI.
+   * Boots a real daemon on a throwaway DB ({@link LiveDaemon}), runs the benchmark against it, writes
+   * the averaged raw report, then judges answer faithfulness ({@link FaithfulnessJudgeRunner}) and
+   * writes a judged report. Requires a running model provider and a local dataset file; never called
+   * in CI.
    */
   static void main(String[] args) throws Exception {
     if (args.length < 2) {
@@ -178,8 +140,11 @@ public final class BenchmarkRunner {
     Path dataset = Path.of(args[1]);
     int runCount = args.length > 2 ? Integer.parseInt(args[2]) : DEFAULT_RUN_COUNT;
 
-    try (LiveModelGatewayFactory live = LiveModelGatewayFactory.fromSpring()) {
-      var runner = new BenchmarkRunner(live.properties(), live.gatewayFactory());
+    EvaluationReportWriter writer = new EvaluationReportWriter();
+
+    try (LiveDaemon daemon = LiveDaemon.start()) {
+      DaemonEvalClient client = new DaemonEvalClient(daemon.baseUrl());
+      BenchmarkRunner runner = new BenchmarkRunner(client);
 
       EvaluationReport report = switch (benchmark) {
         case "locomo" -> runner.runLoCoMo(dataset, runCount);
@@ -187,16 +152,24 @@ public final class BenchmarkRunner {
         default -> throw new IllegalArgumentException("unknown benchmark: " + benchmark);
       };
 
-      Path written = new EvaluationReportWriter().write(report, EvaluationReportWriter.DEFAULT_OUTPUT_DIRECTORY);
+      Path rawReport = writer.write(report, EvaluationReportWriter.DEFAULT_OUTPUT_DIRECTORY);
+      System.out.println("raw report: " + rawReport);
+
+      // Judge faithfulness as a separate pass so it can be re-run without re-driving the daemon.
+      EvaluationReport judged;
+      try (LiveModelGatewayFactory judge = LiveModelGatewayFactory.fromSpring()) {
+        judged = new FaithfulnessJudgeRunner(judge.gateway()).judge(report);
+      }
+      Path judgedReport = writer.write(judged, EvaluationReportWriter.DEFAULT_OUTPUT_DIRECTORY);
 
       Map<String, Object> summary = Map.of(
         "benchmark", benchmark,
-        "fixtures", report.summary().fixtureCount(),
-        "retrievalHitRate", report.summary().retrievalHitRate(),
-        "meanReciprocalRank", report.summary().meanReciprocalRank(),
-        "answerFaithfulness", report.summary().answerFaithfulness());
+        "fixtures", judged.summary().fixtureCount(),
+        "retrievalHitRate", judged.summary().retrievalHitRate(),
+        "meanReciprocalRank", judged.summary().meanReciprocalRank(),
+        "answerFaithfulness", judged.summary().answerFaithfulness());
 
-      System.out.println("report: " + written);
+      System.out.println("judged report: " + judgedReport);
       System.out.println("summary: " + summary);
     }
   }

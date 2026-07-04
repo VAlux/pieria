@@ -1,32 +1,31 @@
 # eval
 
-The `eval` module is an offline evaluation harness for Pieria's ingestion and retrieval pipelines. It runs the real `IngestionService` and `RetrievalService` — exactly as the daemon does — against controlled fixtures and benchmark datasets, then produces a structured `EvaluationReport` with precision, recall, MRR, answer faithfulness, latency, and token-usage metrics.
+The `eval` module is an evaluation harness for Pieria's ingestion and retrieval pipelines. It drives a **real running daemon** over HTTP — booting the full daemon web stack on a throwaway database and POSTing to `/ingest` and `/recall` exactly as a harness or the console would — then produces a structured `EvaluationReport` with precision, recall, MRR, answer faithfulness, latency, and token-usage metrics.
 
-The harness exists because prompt changes, RRF weight tuning, and model swaps all affect quality in non-obvious ways. Every such change should be measured, not guessed.
+The harness exists because prompt changes, RRF weight tuning, and model swaps all affect quality in non-obvious ways. Every such change should be measured, not guessed. Driving the real daemon (rather than instantiating the services against a stub store) is what makes the numbers reflect the deployed pipeline: sqlite-vec + FTS5 + graph + RRF fusion under the daemon's own configuration.
 
 ## Design
 
-The `eval` module has no web server and no Spring Boot application entry point of its own. It is a library of evaluation infrastructure that instantiates daemon internals directly by depending on the daemon's plain jar (`:daemon` publishes both a `bootJar` and a `jar` for this reason).
+The `eval` module has no application entry point of its own. It depends on the daemon's plain jar (`:daemon` publishes both a `bootJar` and a `jar`) to boot `PieriaApplication`, and on `:shared` for the HTTP request/response records it (de)serializes.
 
-Two run modes are supported:
+There is a **single run mode**: live, against a real daemon. `LiveDaemon` boots `PieriaApplication` as a web server on a random loopback port pointed at a fresh temp DB; `DaemonEvalClient` drives it over HTTP. It requires a reachable model provider (Ollama by default) and so is **never run in CI** — the live test self-disables unless `PIERIA_LIVE_EVAL` is set. The only tests that run in CI are the pure adapter/fixture-loader unit tests (`*BenchmarkAdapterTests`, `EvaluationFixtureLoaderTests`), which parse dataset/fixture JSON and touch no daemon.
 
-**Deterministic (CI default)** — uses `PinnedEvaluationModelGateway`, which replays expected answers from the fixture JSON instead of calling any model. No Ollama, no network, no randomness. This is the mode used by `./gradlew test`.
-
-**Live (explicit)** — uses the daemon's real `OpenAiModelGateway` (or any other `ModelGateway` implementation). Activated by setting `PIERIA_LIVE_EVAL=1` and running `:eval:test`. Benchmark tests filtered by `*Benchmark*` are excluded from the normal test run and must be triggered explicitly.
+Answer faithfulness is judged as a **separate pass**: the daemon run records each query's synthesized answer, and `FaithfulnessJudgeRunner` scores it afterwards with a judge `ModelGateway` (deliberately separate from the daemon under test). This means answers can be re-judged without re-driving the expensive end-to-end run.
 
 ## Key classes
 
 | Class | Role |
 |---|---|
-| `EvaluationRunner` | Orchestrates ingestion + retrieval for a list of `EvaluationFixture` objects and produces an `EvaluationReport` |
+| `LiveDaemon` | Boots the real `PieriaApplication` web stack on a random loopback port + throwaway temp DB; `AutoCloseable`, cleans up on close |
+| `DaemonEvalClient` | HTTP client that drives the daemon: `/ingest`, `/recall` (debug), and a `/stats`-based vectorization-outbox barrier |
+| `EvaluationRunner` | Per-fixture orchestration over `DaemonEvalClient` (ingest → await vectorization → recall) producing an `EvaluationReport` |
 | `EvaluationFixture` | A single test case: a conversation transcript, expected extracted memories, and recall queries with expected answers |
 | `EvaluationFixtureLoader` | Deserializes fixture JSON from `src/test/resources/evaluation/` |
 | `EvaluationReport` | Per-fixture and aggregate metrics: extraction precision/recall, retrieval hit rate, MRR, answer faithfulness, latency, token usage |
-| `EvaluationReportWriter` | Writes a `EvaluationReport` to a JSON file or stdout |
-| `PinnedEvaluationModelGateway` | Deterministic gateway that replays fixture-expected answers for CI |
-| `InMemoryEvaluationMemoryStore` | Ephemeral in-memory `MemoryStore` (backed by `SqliteMemoryStore` on a `:memory:` database); a fresh instance is created per fixture so memories never leak between tests |
-| `LiveModelGatewayFactory` | Boots a minimal Spring context to obtain the daemon's `OpenAiModelGateway` for live benchmark runs |
-| `BenchmarkRunner` | Entry point for running a full benchmark dataset end-to-end with a live model |
+| `EvaluationReportWriter` | Writes an `EvaluationReport` to a JSON file or stdout |
+| `FaithfulnessJudgeRunner` | Second pass: judges recorded answers with a judge `ModelGateway` and fills in faithfulness |
+| `LiveModelGatewayFactory` | Boots a minimal non-web Spring context to obtain the daemon's `OpenAiModelGateway` as the faithfulness judge |
+| `BenchmarkRunner` | Entry point for running a full benchmark dataset end-to-end against a `LiveDaemon` |
 | `LoCoMoBenchmarkAdapter` | Converts LoCoMo dataset entries to `EvaluationFixture` objects |
 | `LongMemEvalBenchmarkAdapter` | Converts LongMemEval dataset entries to `EvaluationFixture` objects |
 
@@ -66,21 +65,24 @@ Fixtures live in `src/test/resources/evaluation/`. Each file is a JSON object:
 | MRR | Mean Reciprocal Rank of the first expected evidence memory in the ranked result |
 | Answer faithfulness | fraction of recall queries where the synthesized answer is judged faithful to the expected answer |
 
-Faithfulness is judged by `ModelGateway.judgeAnswerFaithfulness`. In deterministic mode this falls back to a case-insensitive string match; in live mode it delegates to the model.
+Faithfulness is judged by `ModelGateway.judgeAnswerFaithfulness` in the `FaithfulnessJudgeRunner` pass, after the daemon run records each answer. Until that pass runs, the flag is `false` (unjudged).
 
 ## Running
 
 ```bash
-# Deterministic CI run (no Ollama required) — includes the offline *BenchmarkAdapterTests.
-# The live BenchmarkRunnerLiveTests self-skip here via @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL).
+# CI run: pure adapter/fixture-loader unit tests only (no daemon, no Ollama).
+# The live DaemonBenchmarkLiveTests self-skip via @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL).
 ./gradlew :eval:test
 
-# Live LoCoMo baseline run against local Ollama (requires Ollama running with configured models).
-# Uses datasets/locomo/locomo10.json at the repo root when present; skipped (not failed) if absent.
-PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*BenchmarkRunnerLiveTests*"
+# Live LoCoMo baseline against a real daemon (boots the daemon in-process on a temp DB; requires
+# Ollama running with the configured models). Uses datasets/locomo/locomo10.json at the repo root
+# when present; skipped (not failed) if absent.
+PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
 
 # LongMemEval stays opt-in behind its dataset env var.
-PIERIA_LIVE_EVAL=1 PIERIA_LONGMEMEVAL_DATASET=datasets/longmemeval/longmemeval_s.json ./gradlew :eval:test --tests "*BenchmarkRunnerLiveTests*"
+PIERIA_LIVE_EVAL=1 PIERIA_LONGMEMEVAL_DATASET=datasets/longmemeval/longmemeval_s.json ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
 ```
 
-Benchmark datasets (LoCoMo, LongMemEval) are not checked into the repository (`datasets/` is git-ignored). Place `locomo10.json` under `datasets/locomo/` at the repo root; the LoCoMo run reads it there by default (override with `PIERIA_LOCOMO_DATASET`). Sample files for unit testing the adapters live in `src/test/resources/evaluation/benchmarks/`. The averaged report is written to `pieria-eval-reports/`. See `docs/eval/BASELINE.md` for the baseline protocol.
+The live daemon boots against the daemon's own configuration (default: Ollama with the models in `application.properties`) on a throwaway temp DB, so results reflect the deployed pipeline. It resolves the sqlite-vec `vec0` extension from the classpath resources bundled by `:daemon`; if that fails on your platform, point `pieria.vec.extension-path` (or `PIERIA_VEC_EXTENSION`) at your installed `vec0`.
+
+Benchmark datasets (LoCoMo, LongMemEval) are not checked into the repository (`datasets/` is git-ignored). Place `locomo10.json` under `datasets/locomo/` at the repo root; the LoCoMo run reads it there by default (override with `PIERIA_LOCOMO_DATASET`). Sample files for unit testing the adapters live in `src/test/resources/evaluation/benchmarks/`. The averaged raw report and the judged report are written to `pieria-eval-reports/`. See `docs/eval/BASELINE.md` for the baseline protocol.

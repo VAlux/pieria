@@ -74,7 +74,7 @@ Requires Ollama running with the configured models and a local dataset file. Nev
 ```bash
 # Averaged LoCoMo run (runCount defaults to 3); reads datasets/locomo/locomo10.json, writes to
 # pieria-eval-reports/. Skipped (not failed) if the dataset file is absent.
-PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*BenchmarkRunnerLiveTests*"
+PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
 
 # Or invoke the runner directly:
 #   java -cp <classpath> dev.alvo.pieria.evaluation.BenchmarkRunner locomo datasets/locomo/locomo10.json 3
@@ -86,11 +86,12 @@ table below and commit *that* (not the raw report).
 
 ## Cadence — two loops
 
-- **Inner (every change, in CI):** deterministic hand fixtures via `./gradlew :eval:test`. No
-  network, cheap, catches mechanical regressions in extraction and retrieval. Grow this set.
-- **Outer (manual / periodic):** the live LoCoMo run above. Produces the headline correctness
-  number. Slow and costs tokens — run it on meaningful changes, then diff against the committed
-  baseline. Diagnostics explain any move in faithfulness.
+- **Inner (every change, in CI):** the adapter/fixture-loader unit tests via `./gradlew :eval:test`.
+  No network, cheap, catches mechanical regressions in dataset parsing and fixture loading.
+- **Outer (manual / periodic):** the live LoCoMo run above — a real daemon booted on a throwaway DB,
+  driven over HTTP. Produces the headline correctness number. Slow and costs tokens — run it on
+  meaningful changes, then diff against the committed baseline. Diagnostics explain any move in
+  faithfulness.
 
 ## Results
 

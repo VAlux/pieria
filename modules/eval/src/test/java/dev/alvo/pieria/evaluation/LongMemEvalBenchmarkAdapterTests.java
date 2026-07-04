@@ -57,15 +57,4 @@ class LongMemEvalBenchmarkAdapterTests {
 		// answer_session_ids empty and no has_answer flags ⇒ no evidence.
 		assertThat(recall.expectedEvidence()).isEmpty();
 	}
-
-	@Test
-	void runsParsedFixturesThroughDeterministicHarness() throws Exception {
-		EvaluationReport report = new EvaluationRunner().run(
-			parseSample(),
-			DeterministicBenchmarkGateway::new,
-			InMemoryEvaluationMemoryStore::new);
-
-		assertThat(report.fixtures()).hasSize(2);
-		assertThat(report.summary().retrievalHitRate()).isGreaterThanOrEqualTo(0.0);
-	}
 }

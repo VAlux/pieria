@@ -16,19 +16,23 @@ tasks.withType<Test> {
 	// Resolve relative paths (datasets/, pieria-eval-reports/) against the repo root so live
 	// benchmark runs find their dataset and write their report where the docs say they will.
 	workingDir = rootDir
-	// The live benchmark tests (BenchmarkRunnerLiveTests) self-disable via
-	// @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL), so no Gradle-level exclude is needed — and a
-	// broad "*Benchmark*" exclude would (a) also drop the offline *BenchmarkAdapterTests and (b) block
-	// `--tests "*BenchmarkRunner*"`, since Gradle excludes win over an explicit --tests filter.
+	// The live benchmark test (DaemonBenchmarkLiveTests) self-disables via
+	// @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL): it boots a real daemon and needs Ollama, so it
+	// never runs in CI. The remaining tests are pure adapter/fixture-loader unit tests.
 }
 
 dependencies {
-	// Evaluation code instantiates the real IngestionService and RetrievalService directly.
-	// daemon publishes a plain jar (jar.enabled = true) alongside its bootJar for this dependency.
+	// The harness drives a REAL daemon over HTTP: it boots PieriaApplication as a web server on a
+	// throwaway temp DB (LiveDaemon) and talks to it via the shared HTTP DTOs (DaemonEvalClient).
+	// daemon publishes a plain jar (jar.enabled = true) alongside its bootJar for this dependency;
+	// shared carries the request/response records the client (de)serializes.
 	implementation(project(":daemon"))
+	implementation(project(":shared"))
 	implementation("com.fasterxml.jackson.core:jackson-databind")
-	// The live benchmark entry point boots a Spring context to obtain the daemon's OpenAiModelGateway.
+	// Booting the in-process daemon (web) and the judge gateway (non-web) needs the Boot runtime.
 	implementation("org.springframework.boot:spring-boot")
+	// WebServerApplicationContext lives here (Boot 4 split); LiveDaemon reads the random port off it.
+	implementation("org.springframework.boot:spring-boot-web-server")
 	implementation("org.springframework.boot:spring-boot-autoconfigure")
 	implementation("org.springframework:spring-context")
 	implementation("org.slf4j:slf4j-api")

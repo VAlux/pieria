@@ -55,20 +55,4 @@ class LoCoMoBenchmarkAdapterTests {
 		// LoCoMo supplies no gold extraction set.
 		assertThat(fixture.expectedMemories()).isEmpty();
 	}
-
-	@Test
-	void runsParsedFixturesThroughDeterministicHarness() throws Exception {
-		List<EvaluationFixture> fixtures = parseSample();
-
-		EvaluationReport report = new EvaluationRunner().run(
-			fixtures,
-			DeterministicBenchmarkGateway::new,
-			InMemoryEvaluationMemoryStore::new);
-
-		assertThat(report.fixtures()).hasSize(1);
-		// Evidence ids are resolved to turn text and matched by token containment, so hit-rate is now
-		// meaningful; the harness runs both recall queries through the real retrieval pipeline.
-		assertThat(report.fixtures().getFirst().recalls()).hasSize(2);
-		assertThat(report.summary().retrievalHitRate()).isGreaterThanOrEqualTo(0.0);
-	}
 }
