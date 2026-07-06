@@ -1,6 +1,6 @@
-package dev.alvo.pieria.cli.modules.init;
+package dev.alvo.pieria.onboarding;
 
-import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
+import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 
 import java.io.IOException;
@@ -19,10 +19,11 @@ import java.util.stream.Stream;
  * filesystem walk is the fallback outside a git repo.
  *
  * <p>What is kept is driven by {@link DiscoveryConfig} (the {@code [discovery]} section of the
- * layered config files; code-baked defaults when absent): files with a recognized source
- * extension, plus build-marker files (so the daemon can detect module roots). Binary files and
- * files over the size cap are skipped. Language and content hash are left blank on the wire — the
- * daemon detects the language by extension and content-addresses by a hash of the content.
+ * layered config files, resolved by the client and carried in the source spec; code-baked defaults
+ * when absent): files with a recognized source extension, plus build-marker files (so the daemon can
+ * detect module roots). Binary files and files over the size cap are skipped. Language and content
+ * hash are left blank — the code index detects the language by extension and content-addresses by a
+ * hash of the content.
  *
  * <h2>Testability</h2>
  * Git enumeration is an injected seam ({@link MarkdownDiscovery.GitLsFiles}), so tests need no real
@@ -40,7 +41,9 @@ public final class CodeDiscovery {
     this.config = config;
   }
 
-  /** Test convenience: code-baked default discovery settings. */
+  /**
+   * Test convenience: code-baked default discovery settings.
+   */
   CodeDiscovery(Path projectDir, MarkdownDiscovery.GitLsFiles gitLsFiles) {
     this(projectDir, gitLsFiles, DiscoveryConfig.defaults());
   }
@@ -71,13 +74,13 @@ public final class CodeDiscovery {
    * Discover the source files to index, sorted by path for deterministic batching. Unreadable,
    * binary, or oversized files are skipped.
    */
-  public List<FileDto> discover() {
+  public List<SourceFile> discover() {
     List<String> relative = gitLsFiles.list(projectDir).orElseGet(() -> walkFilesystem(projectDir));
 
-    List<FileDto> files = new ArrayList<>();
+    List<SourceFile> files = new ArrayList<>();
     for (String rel : relative.stream().filter(this::isCandidate).sorted().toList()) {
       Optional<String> content = readText(projectDir.resolve(rel));
-      content.ifPresent(text -> files.add(new FileDto(rel, null, null, text)));
+      content.ifPresent(text -> files.add(new SourceFile(rel, null, null, text)));
     }
     return files;
   }

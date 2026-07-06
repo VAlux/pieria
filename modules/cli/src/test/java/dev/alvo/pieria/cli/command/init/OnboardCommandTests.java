@@ -15,9 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@code pieria onboard}: the markdown seeding path. The command talks to a
- * {@link StubDaemon} over HTTP via {@code --daemon-url}, exercising the real {@code HttpIngestClient};
- * {@code --config-dir} pins the global config dir to the temp project so tests never read the real
- * OS config dir.
+ * {@link StubDaemon} over HTTP via {@code --daemon-url}, exercising the real {@code HttpOnboardClient}.
+ * Discovery/reading now happen daemon-side, so the command only sends a {@code SourceSpec} and
+ * renders the task result; {@code --config-dir} pins the global config dir to the temp project so
+ * tests never read the real OS config dir.
  */
 class OnboardCommandTests {
 
@@ -50,7 +51,7 @@ class OnboardCommandTests {
   }
 
   @Test
-  void dryRunReportsDocsAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
+  void dryRunReportsSourcesAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
       OnboardCommand cmd = command(proj, daemon.baseUrl());
@@ -59,19 +60,26 @@ class OnboardCommandTests {
       Result r = run(cmd);
 
       assertThat(r.code()).isZero();
-      assertThat(r.out()).contains("Would seed").contains("README.md");
+      assertThat(r.out()).contains("Would seed").contains("markdown under");
       assertThat(daemon.requests()).isEmpty();
     }
   }
 
   @Test
-  void emptyDirSucceedsWithoutContactingDaemon(@TempDir Path proj) {
+  void sendsMarkdownSourceSpecWithProjectRoot(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":1,\"memoriesStored\":3}}");
+
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
-      assertThat(r.out()).contains("nothing to seed");
-      assertThat(daemon.requests()).isEmpty();
+      StubDaemon.Recorded posted = daemon.lastRequestTo("/onboard/async");
+      assertThat(posted.body())
+        .contains("\"type\":\"markdown\"")
+        .contains(proj.toAbsolutePath().normalize().toString());
     }
   }
 
@@ -79,8 +87,9 @@ class OnboardCommandTests {
   void successReportsStoredCount(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, "{\"status\":\"SUCCEEDED\",\"result\":{\"count\":5}}");
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":2,\"memoriesStored\":5}}");
 
       Result r = run(command(proj, daemon.baseUrl()));
 
@@ -102,7 +111,7 @@ class OnboardCommandTests {
   void modelUnavailableReturnsExit4(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
       daemon.stub("/tasks/t1", 200, "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\"}");
 
       Result r = run(command(proj, daemon.baseUrl()));
@@ -116,7 +125,7 @@ class OnboardCommandTests {
   void modelUnavailableSurfacesTheDaemonReason(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
       daemon.stub("/tasks/t1", 200,
         "{\"status\":\"FAILED\",\"errorKind\":\"model-unavailable\","
           + "\"errorMessage\":\"HTTP 404: model or deployment not found\"}");

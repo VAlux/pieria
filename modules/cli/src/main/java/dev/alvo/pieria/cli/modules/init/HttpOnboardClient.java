@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.modules.init;
 
-import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.SourceSpec;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.cli.log.ProgressListener;
@@ -11,6 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.ConnectException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
@@ -18,7 +19,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-public final class HttpIngestClient implements IngestClient {
+/**
+ * HTTP {@link OnboardClient}: POSTs a {@link SourceSpec} to {@code /onboard/async} and polls
+ * {@code /v1/tasks/{id}} until the onboarding task is terminal, forwarding progress along the way.
+ */
+public final class HttpOnboardClient implements OnboardClient {
 
   private static final Duration POLL_INTERVAL = Duration.ofSeconds(1);
 
@@ -27,22 +32,18 @@ public final class HttpIngestClient implements IngestClient {
   private final HttpClient http;
   private final ObjectMapper mapper;
 
-  public HttpIngestClient(String baseUrl) {
+  public HttpOnboardClient(String baseUrl) {
     this(baseUrl, null);
   }
 
   /**
    * @param label optional task label sent as {@code ?label=}, so the task surfaces in
-   *              {@code pieria task list} under a higher-level name (e.g. {@code "onboard"}) instead
-   *              of the default {@code "ingest"}.
+   *              {@code pieria task list} under a higher-level name (e.g. {@code "onboard"}).
    */
-  public HttpIngestClient(String baseUrl, String label) {
-    // Strip a trailing slash so path concatenation is predictable.
+  public HttpOnboardClient(String baseUrl, String label) {
     this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     this.label = label;
-    this.http = HttpClient.newBuilder()
-      .connectTimeout(Duration.ofSeconds(3))
-      .build();
+    this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     // Tolerate task bodies that omit numeric progress fields (treat absent done/total as 0).
     this.mapper = JsonMapper.builder()
       .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false)
@@ -56,7 +57,6 @@ public final class HttpIngestClient implements IngestClient {
       .GET()
       .build();
     try {
-      // Any HTTP response (even a 503) means the daemon is reachable; only transport failures count.
       http.send(request, HttpResponse.BodyHandlers.discarding());
       return Reachability.OK;
     } catch (Exception e) {
@@ -65,15 +65,16 @@ public final class HttpIngestClient implements IngestClient {
   }
 
   @Override
-  public IngestResult ingest(String profile, IngestRequest body, ProgressListener progress) {
+  public OnboardResult onboard(String profile, SourceSpec spec, ProgressListener progress) {
     String json;
     try {
-      json = mapper.writeValueAsString(body);
+      json = mapper.writeValueAsString(spec);
     } catch (RuntimeException e) {
       return new Failure(-1, "failed to serialize request: " + e.getMessage());
     }
 
-    HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + profile + "/ingest/async" + labelQuery()))
+    HttpRequest request = HttpRequest.newBuilder(
+        URI.create(baseUrl + "/v1/profiles/" + profile + "/onboard/async" + labelQuery()))
       .timeout(Duration.ofSeconds(10))
       .header("Content-Type", "application/json")
       .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
@@ -100,7 +101,7 @@ public final class HttpIngestClient implements IngestClient {
   }
 
   /** Poll {@code /v1/tasks/{id}} until terminal, forwarding progress and mapping the outcome. */
-  private IngestResult poll(String taskId, ProgressListener progress) {
+  private OnboardResult poll(String taskId, ProgressListener progress) {
     URI uri = URI.create(baseUrl + "/v1/tasks/" + taskId);
     while (true) {
       TaskStatusResponse task;
@@ -119,20 +120,17 @@ public final class HttpIngestClient implements IngestClient {
 
       switch (task.status()) {
         case "SUCCEEDED" -> {
-          JsonNode count = task.result() == null ? null : task.result().get("count");
-          return new Success(count != null ? count.asInt(0) : 0);
+          return success(task.result());
         }
         case "FAILED" -> {
           if ("model-unavailable".equals(task.errorKind())) {
             return new ModelUnavailable(task.errorMessage() == null ? "" : task.errorMessage());
           }
-          return new Failure(-1, task.errorMessage() == null ? "ingest task failed" : task.errorMessage());
+          return new Failure(-1, task.errorMessage() == null ? "onboard task failed" : task.errorMessage());
         }
         default -> {
-          // A freshly-submitted task is RUNNING with no phase yet; the first real tick ("extract")
-          // only lands after the first chunk finishes, which is tens of seconds on a CPU provider.
-          // Emit an indeterminate "starting" tick so the reporter shows a live elapsed line instead
-          // of sitting silent and looking frozen.
+          // A freshly-submitted task is RUNNING with no phase yet; emit an indeterminate "starting"
+          // tick so the reporter shows a live elapsed line instead of sitting silent.
           if (task.phase() != null) {
             progress.onProgress(task.phase(), task.done(), task.total());
           } else {
@@ -145,9 +143,38 @@ public final class HttpIngestClient implements IngestClient {
         Thread.sleep(POLL_INTERVAL.toMillis());
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        return new Failure(-1, "interrupted while waiting for the ingest task");
+        return new Failure(-1, "interrupted while waiting for the onboard task");
       }
     }
+  }
+
+  /** Map the terminal task result JSON (an {@code OnboardResult}) into a {@link Success}. */
+  private Success success(JsonNode result) {
+    if (result == null) {
+      return new Success("", 0, 0, null, null, null);
+    }
+    return new Success(
+      text(result, "sourceType"),
+      intOr(result, "documents"),
+      intOr(result, "memoriesStored"),
+      nullableInt(result, "symbols"),
+      nullableInt(result, "edges"),
+      nullableInt(result, "summariesStored"));
+  }
+
+  private static String text(JsonNode node, String field) {
+    JsonNode v = node.get(field);
+    return v == null || v.isNull() ? "" : v.asString();
+  }
+
+  private static int intOr(JsonNode node, String field) {
+    JsonNode v = node.get(field);
+    return v == null || v.isNull() ? 0 : v.asInt(0);
+  }
+
+  private static Integer nullableInt(JsonNode node, String field) {
+    JsonNode v = node.get(field);
+    return v == null || v.isNull() ? null : v.asInt(0);
   }
 
   /** {@code "?label=onboard"} when a label is set, otherwise empty. */
@@ -155,7 +182,7 @@ public final class HttpIngestClient implements IngestClient {
     if (label == null || label.isBlank()) {
       return "";
     }
-    return "?label=" + java.net.URLEncoder.encode(label, StandardCharsets.UTF_8);
+    return "?label=" + URLEncoder.encode(label, StandardCharsets.UTF_8);
   }
 
   /** Extract the {@code message} field from a daemon {@code ErrorResponse} body, or "" if absent. */

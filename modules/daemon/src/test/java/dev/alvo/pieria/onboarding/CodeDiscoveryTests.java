@@ -1,12 +1,11 @@
-package dev.alvo.pieria.cli.modules.init;
+package dev.alvo.pieria.onboarding;
 
-import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
+import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -41,9 +40,9 @@ class CodeDiscoveryTests {
     List<String> tracked = List.of("Main.java", "build.gradle.kts", "README.md", "Blob.java");
     CodeDiscovery discovery = new CodeDiscovery(proj, _ -> Optional.of(tracked));
 
-    List<FileDto> files = discovery.discover();
+    List<SourceFile> files = discovery.discover();
 
-    assertThat(files).extracting(FileDto::repoRelPath)
+    assertThat(files).extracting(SourceFile::repoRelPath)
       .containsExactly("Main.java", "build.gradle.kts"); // sorted, md + binary excluded
     assertThat(files.getFirst().content()).isEqualTo("class Main {}");
     assertThat(files.getFirst().language()).isNull();      // daemon detects
@@ -60,7 +59,7 @@ class CodeDiscoveryTests {
     CodeDiscovery discovery = new CodeDiscovery(proj,
       _ -> Optional.of(List.of("Big.java", "Small.java")));
 
-    assertThat(discovery.discover()).extracting(FileDto::repoRelPath).containsExactly("Small.java");
+    assertThat(discovery.discover()).extracting(SourceFile::repoRelPath).containsExactly("Small.java");
   }
 
   @Test
@@ -71,7 +70,7 @@ class CodeDiscoveryTests {
 
     CodeDiscovery discovery = new CodeDiscovery(proj, _ -> Optional.empty()); // git unavailable
 
-    assertThat(discovery.discover()).extracting(FileDto::repoRelPath).containsExactly("Kept.java");
+    assertThat(discovery.discover()).extracting(SourceFile::repoRelPath).containsExactly("Kept.java");
   }
 
   @Test
@@ -88,7 +87,7 @@ class CodeDiscoveryTests {
 
     // Only the configured extension and marker survive; the java default no longer applies and
     // the lowered size cap drops the larger sql file.
-    assertThat(discovery.discover()).extracting(FileDto::repoRelPath)
+    assertThat(discovery.discover()).extracting(SourceFile::repoRelPath)
       .containsExactly("Justfile", "query.sql");
   }
 
@@ -104,7 +103,7 @@ class CodeDiscoveryTests {
     DiscoveryConfig config = new DiscoveryConfig(null, null, java.util.Set.of("vendor"), null);
     CodeDiscovery discovery = new CodeDiscovery(proj, _ -> Optional.empty(), config);
 
-    assertThat(discovery.discover()).extracting(FileDto::repoRelPath)
+    assertThat(discovery.discover()).extracting(SourceFile::repoRelPath)
       .containsExactly("Kept.java", "build/Generated.java".replace('/', java.io.File.separatorChar));
   }
 }

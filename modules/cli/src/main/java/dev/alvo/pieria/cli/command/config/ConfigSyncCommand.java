@@ -4,7 +4,7 @@ import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.config.ConfigClient;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
-import dev.alvo.pieria.cli.modules.init.IngestClient;
+import dev.alvo.pieria.cli.modules.init.Reachability;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
@@ -69,7 +69,7 @@ public final class ConfigSyncCommand implements Callable<Integer> {
     }
 
     ConfigClient client = new HttpConfigClient(url);
-    if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
+    if (client.ping() == Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }
 

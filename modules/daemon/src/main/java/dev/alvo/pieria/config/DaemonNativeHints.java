@@ -2,6 +2,7 @@ package dev.alvo.pieria.config;
 
 import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
+import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
@@ -88,7 +89,8 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       DaemonOverrides.class,
       DaemonOverrides.Ingestion.class,
       DaemonOverrides.Retrieval.class,
-      PieriaConfigFile.class
+      PieriaConfigFile.class,
+      DiscoveryConfig.class
     };
   }
 }

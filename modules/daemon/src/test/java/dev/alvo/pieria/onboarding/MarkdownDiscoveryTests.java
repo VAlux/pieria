@@ -1,4 +1,4 @@
-package dev.alvo.pieria.cli.modules.init;
+package dev.alvo.pieria.onboarding;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

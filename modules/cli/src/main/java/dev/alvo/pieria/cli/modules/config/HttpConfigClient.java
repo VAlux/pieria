@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.modules.config;
 
-import dev.alvo.pieria.cli.modules.init.IngestClient;
+import dev.alvo.pieria.cli.modules.init.Reachability;
 
 import java.net.ConnectException;
 import java.net.URI;
@@ -22,16 +22,16 @@ public final class HttpConfigClient implements ConfigClient {
   }
 
   @Override
-  public IngestClient.Reachability ping() {
+  public Reachability ping() {
     HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/pieria-health"))
       .timeout(Duration.ofSeconds(3))
       .GET()
       .build();
     try {
       http.send(request, HttpResponse.BodyHandlers.discarding());
-      return IngestClient.Reachability.OK;
+      return Reachability.OK;
     } catch (Exception e) {
-      return IngestClient.Reachability.DAEMON_DOWN;
+      return Reachability.DAEMON_DOWN;
     }
   }
 

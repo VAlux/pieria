@@ -1,12 +1,8 @@
 package dev.alvo.pieria.cli.command.init;
 
-import dev.alvo.pieria.api.request.CodeIndexRequest;
-import dev.alvo.pieria.api.response.CodeIndexResponse;
 import dev.alvo.pieria.cli.testsupport.StubDaemon;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -18,27 +14,23 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for {@code pieria onboard --source-code}: the code step discovers tracked source files and
- * sends them to the daemon's code-index endpoint, and {@code --dry-run} lists without contacting the
- * daemon. The command talks to a {@link StubDaemon} over HTTP via {@code --daemon-url}, exercising the
- * real {@code HttpCodeIndexClient} / {@code HttpConfigClient}; {@code --config-dir} pins the global
- * config dir to the temp project.
+ * Tests for {@code pieria onboard --source-code}. Discovery now happens daemon-side, so the command
+ * only sends a {@code SourceSpec.SourceCode} (root + resolved {@code [discovery]} config) to the
+ * onboarding endpoint; the actual file enumeration is covered by the daemon's {@code CodeDiscovery}
+ * tests. Markdown always seeds too, so the command makes two {@code /onboard/async} calls — the task
+ * results are sequenced (markdown, then code). {@code --config-dir} pins the global config dir.
  */
 class OnboardSourceCodeTests {
 
-  private static final ObjectMapper MAPPER = JsonMapper.builder().build();
+  /** Terminal payload of a SUCCEEDED markdown task (the always-on first source). */
+  private static final String MARKDOWN_TASK =
+    "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":0,\"memoriesStored\":0}}";
 
-  private static String responseJson(CodeIndexResponse response) {
-    return MAPPER.writeValueAsString(response);
-  }
-
-  /** Wrap a code-index summary as the terminal payload of a SUCCEEDED task. */
-  private static String succeededTask(CodeIndexResponse response) {
-    return "{\"status\":\"SUCCEEDED\",\"result\":" + responseJson(response) + "}";
-  }
-
-  private static CodeIndexRequest parseCodeRequest(String body) {
-    return MAPPER.readValue(body, CodeIndexRequest.class);
+  /** Terminal payload of a SUCCEEDED source-code task. */
+  private static String codeTask(int files, int memories, int symbols, int edges, int summaries) {
+    return "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"source-code\""
+      + ",\"documents\":" + files + ",\"memoriesStored\":" + memories
+      + ",\"symbols\":" + symbols + ",\"edges\":" + edges + ",\"summariesStored\":" + summaries + "}}";
   }
 
   private static OnboardCommand command(Path proj, String daemonUrl) {
@@ -63,22 +55,23 @@ class OnboardSourceCodeTests {
   }
 
   @Test
-  void indexesDiscoveredSourceFiles(@TempDir Path proj) throws IOException {
+  void sendsSourceCodeSpecAndReportsIndexCounts(@TempDir Path proj) throws IOException {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0, 0, 0, 0)));
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 3, 1, 0));
 
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
-      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
-      assertThat(sent.files()).extracting(CodeIndexRequest.FileDto::repoRelPath).contains("Main.java");
+      String codeBody = daemon.lastRequestTo("/onboard/async").body();
+      assertThat(codeBody)
+        .contains("\"type\":\"source-code\"")
+        .contains(proj.toAbsolutePath().normalize().toString());
       // Without --summarize the flag is absent so the daemon's config decides.
-      assertThat(sent.summarize()).isNull();
-      assertThat(r.out()).contains("Parsed 1 file");
-      assertThat(r.out()).doesNotContain("Summaries:");
+      assertThat(codeBody).doesNotContain("\"summarize\":true");
+      assertThat(r.out()).contains("Indexed 1 file(s), 3 symbol(s), 1 edge(s)");
     }
   }
 
@@ -87,22 +80,21 @@ class OnboardSourceCodeTests {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 3, 1, 0, 1, 0, 1, 0, 2, 1, 0)));
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 3, 1, 2));
 
       OnboardCommand cmd = command(proj, daemon.baseUrl());
       cmd.summarize = true;
       Result r = run(cmd);
 
       assertThat(r.code()).isZero();
-      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
-      assertThat(sent.summarize()).isTrue();
-      assertThat(r.out()).contains("Summaries: 2 written, 1 unchanged, 0 failed.");
+      assertThat(daemon.lastRequestTo("/onboard/async").body()).contains("\"summarize\":true");
+      assertThat(r.out()).contains("2 summary memories written.");
     }
   }
 
   @Test
-  void dryRunListsSourceFilesWithoutContactingDaemon(@TempDir Path proj) throws IOException {
+  void dryRunListsSourcesWithoutContactingDaemon(@TempDir Path proj) throws IOException {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
@@ -112,15 +104,14 @@ class OnboardSourceCodeTests {
       Result r = run(cmd);
 
       assertThat(r.code()).isZero();
-      assertThat(r.out()).contains("Would index").contains("Main.java");
+      assertThat(r.out()).contains("Would seed").contains("source code under");
       assertThat(daemon.requests()).isEmpty();
     }
   }
 
   @Test
-  void projectConfigDrivesDiscoveryAndPushesOverrides(@TempDir Path proj) throws IOException {
+  void projectDiscoveryConfigTravelsInSpecAndOverridesArePushed(@TempDir Path proj) throws IOException {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
-    Files.writeString(proj.resolve("query.sql"), "SELECT 1;");
     Files.createDirectories(proj.resolve(".pieria"));
     Files.writeString(proj.resolve(".pieria").resolve("config.toml"), """
       [discovery]
@@ -131,16 +122,15 @@ class OnboardSourceCodeTests {
       """);
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0)));
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 0, 0, 0));
       daemon.stub("/config", 200, "{}");
 
       Result r = run(command(proj, daemon.baseUrl()));
 
       assertThat(r.code()).isZero();
-      // The project [discovery] override replaces the defaults: sql in, java out.
-      CodeIndexRequest sent = parseCodeRequest(daemon.lastRequestTo("/code/async").body());
-      assertThat(sent.files()).extracting(CodeIndexRequest.FileDto::repoRelPath).containsExactly("query.sql");
+      // The project [discovery] override travels in the source-code spec for the daemon to apply.
+      assertThat(daemon.lastRequestTo("/onboard/async").body()).contains("sql");
       // The [pieria] overrides were pushed to the profile.
       assertThat(daemon.lastRequestTo("/config").body()).contains("\"weight-graph\":0.0");
       assertThat(r.out()).contains("Pushed project config overrides");
@@ -152,8 +142,8 @@ class OnboardSourceCodeTests {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
 
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/code/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stub("/tasks/t1", 200, succeededTask(new CodeIndexResponse(1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0)));
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 0, 0, 0));
 
       Result r = run(command(proj, daemon.baseUrl()));
 

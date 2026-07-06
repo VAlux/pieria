@@ -3,9 +3,10 @@ package dev.alvo.pieria.config.model;
 import java.util.Set;
 
 /**
- * The {@code [discovery]} section of a Pieria config file: which files the CLI's source-code
- * discovery sends to the daemon's code index. Consumed client-side only — never pushed to the
- * daemon.
+ * The {@code [discovery]} section of a Pieria config file: which files count as source code for the
+ * source-code index. Resolved client-side from the layered config files and carried in the
+ * {@code SourceSpec.SourceCode} onboarding spec, so the daemon applies the project's rules when it
+ * enumerates files under the source root.
  *
  * <p>Every component is nullable on the wire; a {@code null} (absent key) inherits the code-baked
  * default, so a config file only needs to state what it changes. The compact constructor

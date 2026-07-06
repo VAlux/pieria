@@ -1,41 +1,33 @@
 package dev.alvo.pieria.cli.command.init;
 
-import dev.alvo.pieria.api.request.CodeIndexRequest;
-import dev.alvo.pieria.api.request.CodeIndexRequest.FileDto;
-import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.api.response.CodeIndexResponse;
+import dev.alvo.pieria.api.request.SourceSpec;
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.log.ProgressReporter;
 import dev.alvo.pieria.cli.modules.config.ConfigClient;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
-import dev.alvo.pieria.cli.modules.init.CodeDiscovery;
-import dev.alvo.pieria.cli.modules.init.CodeIndexClient;
-import dev.alvo.pieria.cli.modules.init.HttpCodeIndexClient;
-import dev.alvo.pieria.cli.modules.init.HttpIngestClient;
-import dev.alvo.pieria.cli.modules.init.IngestClient;
-import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery;
-import dev.alvo.pieria.cli.modules.init.MarkdownDiscovery.Doc;
-import dev.alvo.pieria.cli.modules.init.TranscriptBuilder;
+import dev.alvo.pieria.cli.modules.init.HttpOnboardClient;
+import dev.alvo.pieria.cli.modules.init.OnboardClient;
+import dev.alvo.pieria.cli.modules.init.Reachability;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria obboard} — seed a Pieria memory profile from the project's markdown documentation.
+ * {@code pieria onboard} — seed a Pieria memory profile from a project's sources.
  *
- * <p>Scans the repo for {@code .md} files (excluding the always-in-context {@code CLAUDE.md} /
- * {@code AGENTS.md}), packages them as a synthetic transcript, and POSTs them to the daemon's
- * ingest endpoint so the profile has useful memories from day one. Re-running is idempotent: the
- * fixed seed session id plus the daemon's content-addressed ids mean unchanged docs add no
- * duplicate memories.
+ * <p>Names one or more <em>onboarding sources</em> and hands them to the daemon, which does the
+ * discovery, reading, and fetching itself: markdown documentation (always), the source-code
+ * intelligence index ({@code --source-code}), and web pages ({@code --web <url>}). Each source runs
+ * as its own background task; re-running is idempotent (the daemon's content-addressed ids mean
+ * unchanged content adds no duplicate memories).
  */
 @Command(
   name = "onboard",
@@ -60,7 +52,7 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--config-dir", description = "Directory holding the global config.toml (default: $PIERIA_CONFIG_DIR or the OS config dir).")
   Path configDir;
 
-  @Option(names = "--dry-run", description = "List the docs and messages that would be sent, without contacting the daemon.")
+  @Option(names = "--dry-run", description = "List the sources that would be sent, without contacting the daemon.")
   boolean dryRun;
 
   @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
@@ -75,6 +67,9 @@ public final class OnboardCommand implements Callable<Integer> {
 
   @Option(names = "--source-code", description = "Also build a source-code intelligence index from the repo's tracked source files.")
   boolean sourceCode;
+
+  @Option(names = "--web", description = "Also seed from one or more web pages (repeatable).", paramLabel = "<url>")
+  List<String> webUrls = new ArrayList<>();
 
   @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
   boolean reindex;
@@ -98,10 +93,95 @@ public final class OnboardCommand implements Callable<Integer> {
       return 2;
     }
 
-    int markdownRc = seedMarkdown(dir, resolvedProfile, url);
-    int codeRc = sourceCode ? seedSourceCode(dir, resolvedProfile, url, config) : 0;
+    List<Source> sources = buildSources(dir, config);
+
+    if (dryRun) {
+      log.info("Would seed profile '{}' at {} from {} source(s):", resolvedProfile, url, sources.size());
+      for (Source source : sources) {
+        log.info("  {}", source.describe());
+      }
+      return 0;
+    }
+
+    OnboardClient client = new HttpOnboardClient(url, "onboard");
+    if (client.ping() == Reachability.DAEMON_DOWN) {
+      return daemonDown(url);
+    }
+
+    int firstFailure = 0;
+    for (Source source : sources) {
+      int rc = seed(client, resolvedProfile, source);
+      if (rc != 0 && firstFailure == 0) {
+        firstFailure = rc;
+      }
+    }
+
     pushConfigOverrides(resolvedProfile, url, config);
-    return markdownRc != 0 ? markdownRc : codeRc;
+    return firstFailure;
+  }
+
+  /**
+   * Assemble the sources to seed from the flags: markdown always, plus source-code / web when asked.
+   */
+  private List<Source> buildSources(Path dir, PieriaConfigFile config) {
+    int samples = Math.max(1, extractionSamples);
+    List<Source> sources = new ArrayList<>();
+    sources.add(new Source("markdown documentation",
+      new SourceSpec.Markdown(dir.toString(), includeAgentDocs, samples)));
+    if (sourceCode) {
+      sources.add(new Source("source-code index",
+        new SourceSpec.SourceCode(dir.toString(), reindex, summarize ? Boolean.TRUE : null, config.discovery())));
+    }
+    if (!webUrls.isEmpty()) {
+      sources.add(new Source("web pages (" + webUrls.size() + ")",
+        new SourceSpec.Web(List.copyOf(webUrls), samples)));
+    }
+    return sources;
+  }
+
+  /**
+   * Seed one source and map its outcome to an exit code, reporting progress and the terminal line.
+   */
+  private int seed(OnboardClient client, String profile, Source source) {
+    log.info("Seeding profile '{}' from {}…", profile, source.label());
+    ProgressReporter reporter = new ProgressReporter();
+    OnboardClient.OnboardResult result = client.onboard(profile, source.spec(), reporter);
+    reporter.finish();
+    return switch (result) {
+      case OnboardClient.Success s -> {
+        report(source, s);
+        yield 0;
+      }
+      case OnboardClient.ModelUnavailable mu -> {
+        log.error("The daemon is up but the model call failed ({}).", source.label());
+        if (mu.reason() != null && !mu.reason().isBlank()) {
+          log.error("Reason: {}", mu.reason());
+        } else {
+          log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
+        }
+        yield 4;
+      }
+      case OnboardClient.DaemonDown ignored -> daemonDown(resolveDaemonUrl());
+      case OnboardClient.Failure f -> {
+        log.error("Onboard failed for {} (HTTP {}): {}", source.label(), f.status(), f.body());
+        yield 1;
+      }
+    };
+  }
+
+  /** Terminal "done" line — richer for the code index (symbols/edges/summaries), plain for content. */
+  private void report(Source source, OnboardClient.Success s) {
+    if (s.symbols() != null) {
+      log.info("Done ({}). Indexed {} file(s), {} symbol(s), {} edge(s); stored {} memor{}.",
+        source.label(), s.documents(), s.symbols(), s.edges(),
+        s.memoriesStored(), s.memoriesStored() == 1 ? "y" : "ies");
+      if (s.summariesStored() != null && s.summariesStored() > 0) {
+        log.info("  {} summary memor{} written.", s.summariesStored(), s.summariesStored() == 1 ? "y" : "ies");
+      }
+    } else {
+      log.info("Done ({}). Stored {} memor{} from {} document(s) (vectorization runs asynchronously).",
+        source.label(), s.memoriesStored(), s.memoriesStored() == 1 ? "y" : "ies", s.documents());
+    }
   }
 
   /**
@@ -110,7 +190,7 @@ public final class OnboardCommand implements Callable<Integer> {
    * ({@code pieria config sync} can redo it), and nothing is pushed when no override is set.
    */
   private void pushConfigOverrides(String resolvedProfile, String url, PieriaConfigFile config) {
-    if (dryRun || config.pieria().isEmpty()) {
+    if (config.pieria().isEmpty()) {
       return;
     }
     ConfigClient client = new HttpConfigClient(url);
@@ -121,118 +201,6 @@ public final class OnboardCommand implements Callable<Integer> {
         log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");
       case ConfigClient.Failure f -> log.error("Could not push config overrides (HTTP {}): {}", f.status(), f.body());
     }
-  }
-
-  /**
-   * Seed the profile from project markdown (the default behavior).
-   */
-  private int seedMarkdown(Path dir, String resolvedProfile, String url) {
-    List<Doc> docs = MarkdownDiscovery.create(dir).discover(includeAgentDocs);
-    if (docs.isEmpty()) {
-      log.info("No markdown docs found under {} — nothing to seed.", dir);
-      return 0;
-    }
-
-    IngestRequest body;
-    try {
-      body = new TranscriptBuilder().build(docs, Math.max(1, extractionSamples));
-    } catch (IOException e) {
-      log.error("Failed to read project docs: {}", e.getMessage());
-      return 1;
-    }
-    if (body.messages().isEmpty()) {
-      log.info("Found {} markdown file(s) but no extractable content — nothing to seed.", docs.size());
-      return 0;
-    }
-
-    if (dryRun) {
-      log.info("Would seed profile '{}' at {} from {} markdown file(s) → {} message(s):",
-        resolvedProfile, url, docs.size(), body.messages().size());
-      for (Doc doc : docs) {
-        log.info("  {}", doc.relative());
-      }
-      return 0;
-    }
-
-    IngestClient client = new HttpIngestClient(url, "onboard");
-    if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
-      return daemonDown(url);
-    }
-
-    log.info("Seeding profile '{}' from {} markdown file(s) → {} message(s) ({} extraction sample(s) per chunk)…",
-      resolvedProfile, docs.size(), body.messages().size(), Math.max(1, extractionSamples));
-    ProgressReporter reporter = new ProgressReporter();
-    IngestClient.IngestResult result = client.ingest(resolvedProfile, body, reporter);
-    reporter.finish();
-    return switch (result) {
-      case IngestClient.Success s -> {
-        log.info("Done. Stored {} memor{} (vectorization runs asynchronously).",
-          s.count(), s.count() == 1 ? "y" : "ies");
-        yield 0;
-      }
-      case IngestClient.ModelUnavailable mu -> {
-        log.error("The daemon is up but the model call failed.");
-        if (mu.reason() != null && !mu.reason().isBlank()) {
-          log.error("Reason: {}", mu.reason());
-        } else {
-          log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
-        }
-        yield 4;
-      }
-      case IngestClient.DaemonDown ignored -> daemonDown(url);
-      case IngestClient.Failure f -> {
-        log.error("Ingest failed (HTTP {}): {}", f.status(), f.body());
-        yield 1;
-      }
-    };
-  }
-
-  /**
-   * Build the source-code intelligence index from the repo's tracked source files.
-   */
-  private int seedSourceCode(Path dir, String resolvedProfile, String url, PieriaConfigFile config) {
-    List<FileDto> files = CodeDiscovery.create(dir, config.discovery()).discover();
-    if (files.isEmpty()) {
-      log.info("No source files found under {} — skipping code index.", dir);
-      return 0;
-    }
-
-    if (dryRun) {
-      log.info("Would index {} source file(s) into profile '{}' at {}:", files.size(), resolvedProfile, url);
-      for (FileDto file : files) {
-        log.info("  {}", file.repoRelPath());
-      }
-      return 0;
-    }
-
-    CodeIndexClient client = new HttpCodeIndexClient(url, "onboard");
-    if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
-      return daemonDown(url);
-    }
-
-    log.info("Indexing {} source file(s) into profile '{}'…", files.size(), resolvedProfile);
-    ProgressReporter reporter = new ProgressReporter();
-    CodeIndexClient.CodeIndexResult result = client.index(resolvedProfile,
-      new CodeIndexRequest(null, reindex, summarize ? Boolean.TRUE : null, files), reporter);
-    reporter.finish();
-    return switch (result) {
-      case CodeIndexClient.Success s -> {
-        CodeIndexResponse r = s.response();
-        log.info("Done. Parsed {} file(s) ({} unchanged), {} symbol(s), {} edge(s); stored {} memor{}.",
-          r.filesParsed(), r.filesSkippedUnchanged(), r.symbols(), r.resolvedEdges() + r.heuristicEdges(),
-          r.memoriesStored(), r.memoriesStored() == 1 ? "y" : "ies");
-        if (r.summariesStored() + r.summariesSkipped() + r.summariesFailed() > 0) {
-          log.info("Summaries: {} written, {} unchanged, {} failed.",
-            r.summariesStored(), r.summariesSkipped(), r.summariesFailed());
-        }
-        yield 0;
-      }
-      case CodeIndexClient.DaemonDown ignored -> daemonDown(url);
-      case CodeIndexClient.Failure f -> {
-        log.error("Code index failed (HTTP {}): {}", f.status(), f.body());
-        yield 1;
-      }
-    };
   }
 
   private int daemonDown(String url) {
@@ -259,5 +227,18 @@ public final class OnboardCommand implements Callable<Integer> {
       return daemonUrl;
     }
     return System.getenv().getOrDefault("PIERIA_DAEMON_URL", DEFAULT_DAEMON_URL);
+  }
+
+  /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */
+  private record Source(String label, SourceSpec spec) {
+    String describe() {
+      return switch (spec) {
+        case SourceSpec.Markdown m -> "markdown under " + m.root()
+          + (m.includeAgentDocs() ? " (incl. agent docs)" : "");
+        case SourceSpec.SourceCode c -> "source code under " + c.root()
+          + (c.reindex() ? " (reindex)" : "") + (Boolean.TRUE.equals(c.summarize()) ? " (summarize)" : "");
+        case SourceSpec.Web w -> "web pages: " + String.join(", ", w.urls());
+      };
+    }
   }
 }

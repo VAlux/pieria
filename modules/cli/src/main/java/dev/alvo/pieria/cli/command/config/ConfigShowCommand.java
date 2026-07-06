@@ -6,7 +6,7 @@ import dev.alvo.pieria.cli.modules.config.ConfigClient.DaemonDown;
 import dev.alvo.pieria.cli.modules.config.ConfigClient.Failure;
 import dev.alvo.pieria.cli.modules.config.ConfigClient.Success;
 import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
-import dev.alvo.pieria.cli.modules.init.IngestClient;
+import dev.alvo.pieria.cli.modules.init.Reachability;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -45,7 +45,7 @@ public final class ConfigShowCommand implements Callable<Integer> {
     String url = resolveDaemonUrl();
 
     ConfigClient client = new HttpConfigClient(url);
-    if (client.ping() == IngestClient.Reachability.DAEMON_DOWN) {
+    if (client.ping() == Reachability.DAEMON_DOWN) {
       return daemonDown(url);
     }
 

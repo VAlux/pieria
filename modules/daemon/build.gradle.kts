@@ -22,6 +22,7 @@ dependencies {
 	// Tree-sitter (FFM/Panama binding). Version tracks the tree-sitter 0.25 core bundled in
 	// packaging/native/<os>-<arch>/libtree-sitter.*; keep them on the same minor line.
 	implementation("io.github.tree-sitter:jtreesitter:0.25.6")
+	implementation("org.jsoup:jsoup:1.16.1")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	testImplementation(project(":gateway"))
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")

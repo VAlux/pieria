@@ -1,18 +1,17 @@
 package dev.alvo.pieria.cli.modules.config;
 
-import dev.alvo.pieria.cli.modules.init.IngestClient;
+import dev.alvo.pieria.cli.modules.init.Reachability;
 
 /**
  * Seam between the config commands / onboard push and the daemon's
- * {@code /v1/profiles/{name}/config} endpoint. Reuses {@link IngestClient.Reachability} for the
- * pre-flight check, mirroring {@code CodeIndexClient}.
+ * {@code /v1/profiles/{name}/config} endpoint. Reuses {@link Reachability} for the pre-flight check.
  */
 public interface ConfigClient {
 
   /**
    * Cheap pre-flight check ({@code GET /pieria-health}).
    */
-  IngestClient.Reachability ping();
+  Reachability ping();
 
   /**
    * PUT the merged overrides JSON; the response body is the resulting effective config.
