@@ -85,6 +85,12 @@ Who has it: Letta MemFS, Voyager research, OpenRewrite recipes for code transfor
 What: Your instruction type is declarative text; competitors store reusable procedures/code recipes as versioned artifacts. Relevant specifically because you target coding agents. Examples: "release checklist", "debug native-image failure", "add a new Spring endpoint", "apply migration recipe X".
 Fit: Larger conceptual addition; could layer on the existing version-chain (supersedes) idea. For code-specific procedures, store both a human instruction and an executable artifact reference (script path, OpenRewrite recipe, Gradle task, command template) with provenance and versioning.
 
+20. Knowledge-graph wiki synthesis (human-readable project wiki)
+Phase: 15 | Status: pending
+Who has it: DeepWiki (Cognition) generates browsable wikis from a repo; Cognee exposes graph-derived documents; GitBook/Mintlify AI docs; Sourcegraph docs. None of them combine a *conversation-derived* memory graph with a code graph the way Pieria could.
+What: Turn the onboarded entity-relation graph (Phase 8) plus the code index and narrative summaries (Phases 13-14) into a synthesized, cross-linked wiki a human can read to learn the project. Entities become pages, edges become inter-page links, and the provenance memory behind every edge becomes the sourced prose — so each claim is traceable back to a `memory_id` rather than model-invented. A living document: because `graphSnapshot` only includes active (non-superseded) memories, regeneration reflects the current understanding.
+Fit: Read side already exists — `MemoryStore.graphSnapshot(profileId)` returns the connected entities + active edges + per-edge provenance snippet, exposed at `GET /v1/profiles/{name}/graph`. Missing piece is a page-composition + synthesis layer on top of it: rank entities by degree to pick pages, gather each page entity's neighborhood + provenance memories, and run the large (synthesis) tier to write a section per page. Architecturally this is Phase 14's `CodeSummarizationService` pattern at graph altitude — batch synthesis inside the async task, content-addressed skip keyed on the graph-snapshot hash, supersession on regeneration, best-effort per-page failure. Human-facing artifact (cached, regenerated on ingest), not an on-demand recall response.
+
 ---
 # Tier 3 — Quality-of-life & ops
 

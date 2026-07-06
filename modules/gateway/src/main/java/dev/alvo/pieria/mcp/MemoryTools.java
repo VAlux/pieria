@@ -1,5 +1,6 @@
 package dev.alvo.pieria.mcp;
 
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import org.springframework.ai.tool.annotation.Tool;
@@ -28,15 +29,32 @@ public class MemoryTools {
 
   @Tool(name = "recall", description = """
     Recall relevant memories — prior decisions, conventions, rejected approaches, and gotchas — \
-    for a query and return a synthesized answer. Call this BEFORE planning a non-trivial task, \
-    or when you hit a choice that earlier context might already settle, so you don't relitigate \
-    or contradict what was decided. Retrieval runs a full search-and-synthesis pipeline and can \
-    take tens of seconds, so call it deliberately at task boundaries, not on every turn.""")
+    for a query. Call this BEFORE planning a non-trivial task, or when you hit a choice that earlier \
+    context might already settle, so you don't relitigate or contradict what was decided. Call it \
+    deliberately at task boundaries, not on every turn. The 'mode' parameter trades latency/cost for \
+    answer richness — the default synthesizes a written answer and can take tens of seconds; the \
+    cheaper tiers return the raw memories with no synthesized answer in a few seconds.""")
   public String recall(
     @ToolParam(description = "Natural-language query describing what you need context on") String query,
     @ToolParam(required = false, description = "Max memories to consider") Integer limit,
+    @ToolParam(required = false, description = """
+      Inference tier (default 'synthesized'): 'synthesized' runs the full pipeline and returns a \
+      written answer synthesized from the memories (tens of seconds); 'analyzed' runs model-driven \
+      retrieval but returns only the raw memories, no answer (a few seconds); 'evidence' is the \
+      fastest — deterministic retrieval, raw memories, no answer (~1-3s). Use a cheaper tier when \
+      you just want the underlying memories rather than a composed answer.""") String mode,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.recall(profile(profile), new RecallRequest(query, limit, null, null)));
+    return guarded(() -> client.recall(profile(profile),
+      new RecallRequest(query, limit, null, parseMode(mode))));
+  }
+
+  /** Lenient tier parse for the model-facing tool: blank or unrecognized values defer to the default. */
+  private static RecallMode parseMode(String mode) {
+    try {
+      return RecallMode.fromWire(mode);
+    } catch (IllegalArgumentException unrecognized) {
+      return null;
+    }
   }
 
   @Tool(name = "remember", description = """

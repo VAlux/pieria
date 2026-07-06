@@ -84,7 +84,7 @@ class GatewayDaemonSmokeTests {
       .contains("Pieria runs as a local daemon");
 
     // recall -> retrieval runs end-to-end; the fake model's synthesized answer comes back.
-    String recalled = tools.recall("how does Pieria run?", 5, null);
+    String recalled = tools.recall("how does Pieria run?", 5, null, null);
     assertThat(recalled)
       .contains("\"answer\":")
       .contains("\"memories\":");
@@ -108,7 +108,7 @@ class GatewayDaemonSmokeTests {
     MemoryTools offline = new MemoryTools(new DaemonClient("http://127.0.0.1:1"),
       "smoke-proj");
 
-    String out = offline.recall("anything", null, null);
+    String out = offline.recall("anything", null, null, null);
 
     assertThat(out).isEqualTo("Pieria daemon is not running at http://127.0.0.1:1");
     assertThat(out).doesNotContain("Exception").doesNotContain("\tat ");

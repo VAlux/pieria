@@ -130,7 +130,8 @@ public class EffectiveConfigResolver {
       nvl(o.codeGraphDepth(), g.codeGraphDepth()),
       nvl(o.codeGraphFanout(), g.codeGraphFanout()),
       nvl(o.codeGraphSeedLimit(), g.codeGraphSeedLimit()),
-      nvl(o.codeGraphMinConfidence(), g.codeGraphMinConfidence()));
+      nvl(o.codeGraphMinConfidence(), g.codeGraphMinConfidence()),
+      nvl(o.recallMode(), g.recallMode()));
   }
 
   private static <T> T nvl(T override, T global) {

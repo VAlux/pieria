@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
@@ -11,7 +12,6 @@ import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
@@ -48,7 +48,7 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic");
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED);
   }
 
   private static PieriaProperties props() {
@@ -64,7 +64,7 @@ class RetrievalServiceTests {
   /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
   private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
-      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic");
+      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000), cfg, null);
     return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), codeStore,
@@ -239,25 +239,26 @@ class RetrievalServiceTests {
   }
 
   @Test
-  void unknownProfileIsNotFound() {
+  void unknownProfileReturnsEmptyResult() {
     FakeStore store = new FakeStore();
     store.profile = null;
-    assertThatThrownBy(() -> service(store, new FakeModelGateway()).recall("ghost", "tea", 10, false))
-      .isInstanceOf(NotFoundException.class);
+    RecallResult result = service(store, new FakeModelGateway()).recall("ghost", "tea", 10, false);
+    assertThat(result.candidates()).isEmpty();
+    assertThat(result.answer()).isNull();
   }
 
   @Test
-  void fastRecallSkipsModelAnalysisAndSynthesis() {
+  void evidenceModeSkipsModelAnalysisAndSynthesis() {
     Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
     FakeStore store = new FakeStore();
     store.exactKey = List.of(shared);
     store.ftsMemory = List.of(shared);
 
     ProbeGateway model = new ProbeGateway();
-    RecallResult result = service(store, model).recall("p", "tea", 10, false, true);
+    RecallResult result = service(store, model).recall("p", "tea", 10, false, RecallMode.EVIDENCE);
 
-    // Fast path returns the retrieved memories with no synthesized answer, and never touches the
-    // model for query analysis or synthesis (the expensive calls).
+    // The EVIDENCE tier returns the retrieved memories with no synthesized answer, and never touches
+    // the model for query analysis or synthesis (the expensive calls).
     assertThat(result.answer()).isNull();
     assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("m1");
     assertThat(result.temporalFacts()).isEmpty();
@@ -266,14 +267,14 @@ class RetrievalServiceTests {
   }
 
   @Test
-  void nonFastRecallStillAnalysesAndSynthesises() {
+  void synthesizedModeAnalysesAndSynthesises() {
     Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
     FakeStore store = new FakeStore();
     store.exactKey = List.of(shared);
     store.ftsMemory = List.of(shared);
 
     ProbeGateway model = new ProbeGateway();
-    RecallResult result = service(store, model).recall("p", "tea", 10, false, false);
+    RecallResult result = service(store, model).recall("p", "tea", 10, false, RecallMode.SYNTHESIZED);
 
     assertThat(result.answer()).isNotNull();
     assertThat(model.analyzeQueryCalled).isTrue();
@@ -281,7 +282,7 @@ class RetrievalServiceTests {
   }
 
   @Test
-  void fastRecallExcludesCodeIndexedMemories() {
+  void injectionPathExcludesCodeIndexedMemories() {
     Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
       "Source file Tokens.java defines class Tokens", "code:file:Tokens.java", null, false,
       "{\"source\":\"code\"}", null, T0);
@@ -290,7 +291,9 @@ class RetrievalServiceTests {
     FakeStore store = new FakeStore();
     store.ftsMemory = List.of(codeFact, designFact);
 
-    RecallResult result = service(store, new FakeModelGateway()).recall("p", "cost", 10, false, true);
+    // excludeCodeDerived=true is the injection path (text/plain context endpoint).
+    RecallResult result = service(store, new FakeModelGateway())
+      .recall("p", "cost", 10, false, RecallMode.EVIDENCE, true);
 
     // The code-indexer memory is dropped from the injection path; the conversational one survives.
     assertThat(result.candidates()).extracting(c -> c.memory().id())
@@ -299,16 +302,18 @@ class RetrievalServiceTests {
   }
 
   @Test
-  void nonFastRecallKeepsCodeIndexedMemories() {
+  void evidenceModeAloneKeepsCodeIndexedMemories() {
     Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
       "Source file Tokens.java defines class Tokens", "code:file:Tokens.java", null, false,
       "{\"source\":\"code\"}", null, T0);
     FakeStore store = new FakeStore();
     store.ftsMemory = List.of(codeFact);
 
-    RecallResult result = service(store, new FakeModelGateway()).recall("p", "tokens", 10, false, false);
+    // The EVIDENCE tier without excludeCodeDerived still surfaces code memories — the filter is
+    // decoupled from the tier and is an injection-only concern.
+    RecallResult result = service(store, new FakeModelGateway())
+      .recall("p", "tokens", 10, false, RecallMode.EVIDENCE, false);
 
-    // A normal (synthesized) recall still surfaces code memories — the filter is injection-only.
     assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("c1");
   }
 
@@ -338,7 +343,7 @@ class RetrievalServiceTests {
   }
 
   @Test
-  void fastRecallCollectsEvidenceButSkipsSynthesis() {
+  void evidenceModeCollectsEvidenceButSkipsSynthesis() {
     FakeStore store = new FakeStore();
     store.ftsMemory = List.of(mem("m1", "gpt is the forward pass", MemoryType.FACT, null, T0));
     CodeIndexStore codeStore = new EvidenceOnlyCodeIndexStore(
@@ -352,7 +357,8 @@ class RetrievalServiceTests {
         null));
 
     ProbeGateway model = new ProbeGateway();
-    RecallResult result = serviceWithCodeGraph(store, model, codeStore).recall("p", "gpt", 10, false, true);
+    RecallResult result = serviceWithCodeGraph(store, model, codeStore)
+      .recall("p", "gpt", 10, false, RecallMode.EVIDENCE);
 
     assertThat(result.answer()).isNull();
     assertThat(model.synthesizeCalled).isFalse();

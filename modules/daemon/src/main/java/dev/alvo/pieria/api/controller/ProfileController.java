@@ -1,6 +1,7 @@
 package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.GraphResponse;
@@ -176,8 +177,7 @@ public class ProfileController {
                                @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
     boolean debug = Boolean.TRUE.equals(request.debug());
-    boolean fast = Boolean.TRUE.equals(request.fast());
-    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, fast);
+    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode());
 
     List<MemoryResponse> memories = result.candidates().stream()
       .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()))
@@ -189,15 +189,16 @@ public class ProfileController {
   /**
    * Content-negotiated companion to {@link #recall}: returns a compact, injection-ready text block
    * (one line per memory) instead of JSON, for the auto-recall hooks that pipe stdout straight into a
-   * Claude Code session. Always runs the fast path (deterministic analysis, no synthesis) regardless
-   * of the request's {@code fast} flag — there is no answer to synthesize when the caller only wants
-   * the memories. Returns {@code 204 No Content} when nothing was recalled so the hook injects nothing.
+   * Claude Code session. Always runs the {@link RecallMode#EVIDENCE} tier (deterministic analysis, no
+   * synthesis) regardless of the request's {@code mode}/{@code fast} — there is no answer to synthesize
+   * when the caller only wants the memories — and excludes code-indexer memories from the injected
+   * block. Returns {@code 204 No Content} when nothing was recalled so the hook injects nothing.
    */
   @PostMapping(value = "/recall", produces = MediaType.TEXT_PLAIN_VALUE)
   public ResponseEntity<String> recallContext(@PathVariable String name,
                                               @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
-    RecallResult result = retrievalService.recall(name, request.query(), limit, false, true);
+    RecallResult result = retrievalService.recall(name, request.query(), limit, false, RecallMode.EVIDENCE, true);
 
     String block = renderContextBlock(name, result.candidates());
     return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);

@@ -140,6 +140,7 @@ public class DaemonClient {
       body.put("query", recall.query());
       putIfPresent(body, "limit", recall.limit());
       putIfPresent(body, "debug", recall.debug());
+      putIfPresent(body, "mode", recall.mode());
       return json.writeValueAsString(body);
     }
     if (request instanceof RememberRequest remember) {

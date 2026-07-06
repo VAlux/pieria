@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
@@ -33,7 +34,7 @@ import java.util.Objects;
  *
  * <p>Recall is always requested with {@code debug=true}: the debug block carries the fused candidates
  * in rank order with per-channel provenance, which is what the harness scores for retrieval hit-rate
- * / MRR. Answer synthesis still runs (fast=false) so the synthesized answer is recorded for the
+ * / MRR. Answer synthesis still runs (mode=SYNTHESIZED) so the synthesized answer is recorded for the
  * deferred faithfulness-judging pass.
  */
 public final class DaemonEvalClient {
@@ -96,7 +97,7 @@ public final class DaemonEvalClient {
 
   /** POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance. */
   public RecallResponse recall(String profile, String query, int limit) {
-    RecallRequest request = new RecallRequest(query, limit, true, false);
+    RecallRequest request = new RecallRequest(query, limit, true, RecallMode.SYNTHESIZED);
     return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class, recallTimeout);
   }
 

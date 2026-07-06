@@ -2,6 +2,7 @@ package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.api.controller.ProfileController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.ingestion.Chunker;
 import dev.alvo.pieria.ingestion.IngestionService;
@@ -165,10 +166,10 @@ class ApiContractTests {
   // ---- error body contract: not_found ---------------------------------------------------
 
   @Test
-  void recallOnUnknownProfileReturnsNotFoundShape() throws Exception {
-    mvc.perform(post("/v1/profiles/ghost/recall")
-        .contentType("application/json")
-        .content("{\"query\":\"hi\"}"))
+  void statsOnUnknownProfileReturnsNotFoundShape() throws Exception {
+    // Recall tolerates an unknown profile (returns empty); stats still 404s, so use it to exercise
+    // the not_found error-body contract.
+    mvc.perform(get("/v1/profiles/ghost/stats"))
       .andExpect(status().isNotFound())
       .andExpect(jsonPath("$.error", is("not_found")))
       .andExpect(jsonPath("$.message", notNullValue()));
@@ -230,7 +231,7 @@ class ApiContractTests {
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
-        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"),
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
       null);
     }
 

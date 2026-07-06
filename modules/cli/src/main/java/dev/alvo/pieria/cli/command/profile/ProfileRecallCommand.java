@@ -32,7 +32,7 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
 
   @Override
   protected int run(ProfileApiClient client) {
-    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, false));
+    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null));
 
     log.info(response.answer() == null ? "(no answer)" : response.answer());
 

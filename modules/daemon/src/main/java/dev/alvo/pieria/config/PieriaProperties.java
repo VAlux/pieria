@@ -1,5 +1,6 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.api.request.RecallMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -201,6 +202,8 @@ public record PieriaProperties(
    * @param codeGraphFanout    max newly-discovered symbols per hop during code-graph expansion
    * @param codeGraphSeedLimit max seed symbols taken from query terms and wave-1 candidates
    * @param codeGraphMinConfidence minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
+   * @param recallMode         default inference tier for recall (see {@link RecallMode}); a request may
+   *                           override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,
@@ -220,6 +223,7 @@ public record PieriaProperties(
                           @DefaultValue("2") int codeGraphDepth,
                           @DefaultValue("20") int codeGraphFanout,
                           @DefaultValue("8") int codeGraphSeedLimit,
-                          @DefaultValue("heuristic") String codeGraphMinConfidence) {
+                          @DefaultValue("heuristic") String codeGraphMinConfidence,
+                          @DefaultValue("SYNTHESIZED") RecallMode recallMode) {
   }
 }

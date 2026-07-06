@@ -137,7 +137,8 @@ public class ProfileConfigController {
         retrieval.codeGraphDepth(),
         retrieval.codeGraphFanout(),
         retrieval.codeGraphSeedLimit(),
-        retrieval.codeGraphMinConfidence()));
+        retrieval.codeGraphMinConfidence(),
+        retrieval.recallMode()));
   }
 
   /**

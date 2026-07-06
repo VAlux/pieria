@@ -64,7 +64,7 @@ class MemoryToolsTests {
   void recallForwardsPostWithQueryAndLimit() {
     responseBody = "{\"answer\":\"hi\",\"memories\":[]}";
 
-    String out = tools.recall("what is the db?", 5, null);
+    String out = tools.recall("what is the db?", 5, null, null);
 
     assertThat(lastMethod.get()).isEqualTo("POST");
     assertThat(lastPath.get()).isEqualTo("/v1/profiles/myproj/recall");
@@ -73,11 +73,25 @@ class MemoryToolsTests {
   }
 
   @Test
-  void recallOmitsLimitWhenNull() {
-    String out = tools.recall("q", null, null);
+  void recallOmitsLimitAndModeWhenNull() {
+    String out = tools.recall("q", null, null, null);
 
-    assertThat(lastBody.get()).contains("\"query\":\"q\"").doesNotContain("limit");
+    assertThat(lastBody.get()).contains("\"query\":\"q\"").doesNotContain("limit").doesNotContain("mode");
     assertThat(out).isNotNull();
+  }
+
+  @Test
+  void recallForwardsModeCaseInsensitively() {
+    tools.recall("q", null, "evidence", null);
+
+    assertThat(lastBody.get()).contains("\"mode\":\"EVIDENCE\"");
+  }
+
+  @Test
+  void recallOmitsModeWhenUnrecognized() {
+    tools.recall("q", null, "nonsense", null);
+
+    assertThat(lastBody.get()).doesNotContain("mode");
   }
 
   @Test
@@ -152,7 +166,7 @@ class MemoryToolsTests {
     DaemonClient closed = new DaemonClient("http://127.0.0.1:1");
     MemoryTools offline = new MemoryTools(closed, "myproj");
 
-    String out = offline.recall("anything", null, null);
+    String out = offline.recall("anything", null, null, null);
 
     assertThat(out).isEqualTo("Pieria daemon is not running at http://127.0.0.1:1");
     assertThat(out).doesNotContain("Exception").doesNotContain("\tat ");

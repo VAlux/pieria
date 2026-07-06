@@ -1,12 +1,12 @@
 package dev.alvo.pieria.retrieval;
 
 
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
-import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -144,30 +144,57 @@ public class RetrievalService {
    * answer.
    *
    * @param debug when true, collect and return per-channel diagnostics
-   * @throws NotFoundException if the profile does not exist
    */
   public RecallResult recall(String profileName, String query, int limit, boolean debug) {
-    return recall(profileName, query, limit, debug, false);
+    return recall(profileName, query, limit, debug, null, false);
   }
 
   /**
-   * As {@link #recall(String, String, int, boolean)}, but {@code fast} selects the low-latency
-   * injection path used by the auto-recall hooks: deterministic query analysis (skips the
-   * {@code analyzeQuery} model call) and no synthesis (skips the large model), returning the fused
-   * memories with a {@code null} answer. The direct-vector channel's query embedding is the only
-   * remaining model call, so a fast recall completes in ~1-3s instead of tens of seconds. Code-indexer
-   * memories are excluded (see {@link #isCodeDerived}) since this path feeds prompt-context injection.
+   * As {@link #recall(String, String, int, boolean)}, but {@code requestMode} selects the inference
+   * tier (see {@link RecallMode}); {@code null} defers to the profile's configured default. Does not
+   * exclude code-indexer memories.
    */
-  public RecallResult recall(String profileName, String query, int limit, boolean debug, boolean fast) {
-    long totalStart = System.nanoTime();
-    LOGGER.info("recall start profile={} limit={} debug={} fast={} queryChars={}",
-      profileName, limit, debug, fast, query == null ? 0 : query.length());
+  public RecallResult recall(String profileName, String query, int limit, boolean debug, RecallMode requestMode) {
+    return recall(profileName, query, limit, debug, requestMode, false);
+  }
 
-    var profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
+  /**
+   * Run recall at the given inference tier. {@code requestMode} ({@link RecallMode}, {@code null} ⇒
+   * the profile's configured default) governs how much of the model pipeline runs: {@code EVIDENCE}
+   * uses deterministic query analysis and no synthesis (the direct-vector query embedding is then the
+   * only model call, so it completes in ~1-3s and returns a {@code null} answer); {@code ANALYZED}
+   * adds model query-analysis + HyDE but still no synthesis; {@code SYNTHESIZED} runs the full
+   * pipeline including temporal facts and the large-model answer.
+   *
+   * <p>{@code excludeCodeDerived} drops code-indexer memories (see {@link #isCodeDerived}) from the
+   * results; it is an injection-only concern (the text/plain context endpoint), independent of the
+   * tier, so an {@code EVIDENCE} recall over JSON still surfaces code memories.
+   *
+   * <p>Recall against a profile that does not exist yet is not an error: it logs a warning and
+   * returns an {@linkplain RecallResult#empty() empty result} (no answer, no candidates).
+   */
+  public RecallResult recall(String profileName, String query, int limit, boolean debug,
+                             RecallMode requestMode, boolean excludeCodeDerived) {
+    long totalStart = System.nanoTime();
+
+    var maybeProfile = store.findProfile(profileName);
+    if (maybeProfile.isEmpty()) {
+      // A profile is created lazily on first ingest; recalling one that does not exist yet (e.g. a
+      // harness auto-recall before anything has been stored) is not an error — there is simply
+      // nothing to recall. Warn and return an empty result rather than throwing.
+      LOGGER.warn("recall on unknown profile name={} — no memories to recall, returning empty result", profileName);
+      return RecallResult.empty();
+    }
+    var profile = maybeProfile.get();
     LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
 
-    // Per-profile effective config: global properties overlaid with any pushed overrides.
-    Pipeline pipeline = buildPipeline(configResolver.resolve(profile.id()).retrieval());
+    // Per-profile effective config: global properties overlaid with any pushed overrides. The
+    // request's mode wins when set; otherwise the profile's configured default tier applies.
+    Retrieval cfg = configResolver.resolve(profile.id()).retrieval();
+    RecallMode mode = requestMode != null ? requestMode : cfg.recallMode();
+    Pipeline pipeline = buildPipeline(cfg);
+    LOGGER.info("recall start profile={} limit={} debug={} mode={} excludeCodeDerived={} queryChars={}",
+      profileName, limit, debug, mode, excludeCodeDerived, query == null ? 0 : query.length());
     LOGGER.debug("recall pipeline profile={} wave1Channels={} wave2Channels={} channelLimit={} channelTimeoutMs={}",
       profileName, channelTypes(pipeline.channels()), channelTypes(pipeline.secondWaveChannels()),
       pipeline.channelLimit(), pipeline.channelTimeoutMs());
@@ -178,9 +205,10 @@ public class RetrievalService {
     InferenceUsageSink.Binding usageBinding = InferenceUsageSink.bind(inferenceUsage);
     try {
 
-    // Fast path forces the deterministic analyzer (no analyzeQuery model call); the HyDE channel then
-    // drops out on its own since deterministic analysis produces no hyde statement.
-    Timed<QueryAnalysis> analysis = Timed.measure(() -> fast ? fallbackAnalyzer.analyze(query) : analyze(query));
+    // Tiers below ANALYZED force the deterministic analyzer (no analyzeQuery model call); the HyDE
+    // channel then drops out on its own since deterministic analysis produces no hyde statement.
+    Timed<QueryAnalysis> analysis = Timed.measure(
+      () -> mode.usesModelAnalysis() ? analyze(query) : fallbackAnalyzer.analyze(query));
     LOGGER.debug("recall analysis profile={} topicKeys={} ftsTerms={} entities={} hasHyde={} analysisMs={}",
       profileName, analysis.value().topicKeys().size(), analysis.value().ftsTerms().size(),
       analysis.value().entities().size(), analysis.value().hydeStatement() != null, analysis.millis());
@@ -198,11 +226,11 @@ public class RetrievalService {
     List<GraphEvidence> graphEvidence = new ArrayList<>();
     Timed<List<RetrievalCandidate>> hits =
       Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics, graphEvidence));
-    // Fast path is for prompt-context injection: drop code-indexer-derived memories (one-line symbol
-    // summaries the agent can grep for itself) so the limited slots go to the decisions/conventions it
-    // can't cheaply re-derive. Filtered before fusion so the limit still yields that many real hits.
+    // Injection path drops code-indexer-derived memories (one-line symbol summaries the agent can grep
+    // for itself) so the limited slots go to the decisions/conventions it can't cheaply re-derive.
+    // Filtered before fusion so the limit still yields that many real hits.
     Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
-      List<RetrievalCandidate> forFusion = fast
+      List<RetrievalCandidate> forFusion = excludeCodeDerived
         ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
         : hits.value();
       return fuse(pipeline, forFusion, limit);
@@ -210,16 +238,16 @@ public class RetrievalService {
     LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
       profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
 
-    // Fast path skips temporal facts + synthesis entirely: the answer is null and callers (the
-    // injection hooks) consume the raw memories directly.
+    // Non-synthesizing tiers skip temporal facts + synthesis entirely: the answer is null and callers
+    // (e.g. the injection hooks) consume the raw memories directly.
     Timed<List<TemporalFact>> temporal = Timed.measure(
-      () -> fast ? List.<TemporalFact>of() : extractTemporalFacts(query, fused.value()));
+      () -> mode.synthesizes() ? extractTemporalFacts(query, fused.value()) : List.<TemporalFact>of());
     LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
       profileName, temporal.value().size(), temporal.millis());
 
     List<GraphEvidence> evidence = graphEvidence.stream().distinct().toList();
     Timed<String> answer = Timed.measure(
-      () -> fast ? null : synthesize(query, fused.value(), temporal.value(), evidence));
+      () -> mode.synthesizes() ? synthesize(query, fused.value(), temporal.value(), evidence) : null);
     LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
       profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 

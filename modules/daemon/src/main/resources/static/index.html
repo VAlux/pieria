@@ -92,6 +92,11 @@
     <section class="view" id="view-recall">
       <div class="controls">
         <input id="recallQuery" class="grow" placeholder="Ask a question…" autocomplete="off">
+        <select id="recallMode" title="How much of the pipeline runs">
+          <option value="synthesized" selected>Synthesized — full answer</option>
+          <option value="analyzed">Analyzed — memories only</option>
+          <option value="evidence">Evidence — fastest, memories only</option>
+        </select>
         <select id="recallLimit" title="Max supporting memories">
           <option value="5">5</option>
           <option value="10" selected>10</option>
@@ -99,7 +104,7 @@
         </select>
         <button class="primary" id="recallBtn">Ask</button>
       </div>
-      <p class="hint">Recall runs the full retrieval + synthesis pipeline through the local model (Ollama) and can take tens of seconds.</p>
+      <p class="hint" id="recallHint">Synthesized runs the full retrieval + synthesis pipeline through the local model (Ollama) and can take tens of seconds. Analyzed and Evidence skip synthesis and return the supporting memories directly in a few seconds.</p>
       <div id="recallResult"></div>
     </section>
 

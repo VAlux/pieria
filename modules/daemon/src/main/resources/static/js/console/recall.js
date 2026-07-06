@@ -9,13 +9,15 @@ export function submitRecall() {
   const query = $("recallQuery").value.trim();
   if (!query) return;
   const limit = parseInt($("recallLimit").value, 10) || 10;
+  const mode = $("recallMode").value;
   const out = $("recallResult");
   const btn = $("recallBtn");
   btn.disabled = true;
-  out.innerHTML = '<div class="panel"><span class="spinner"></span> Recalling… this can take a while.</div>';
+  const loading = mode === "synthesized" ? "Recalling… this can take a while." : "Recalling…";
+  out.innerHTML = '<div class="panel"><span class="spinner"></span> ' + loading + "</div>";
   fetch(api(state.profile, "/recall"), {
     method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query: query, limit: limit })
+    body: JSON.stringify({ query: query, limit: limit, mode: mode })
   })
     .then(function (r) {
       if (r.status === 204) return null;

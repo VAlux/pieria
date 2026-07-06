@@ -3,6 +3,7 @@ package dev.alvo.pieria.api;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.api.controller.ProfileConfigController;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
+import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.model.FakeModelGateway;
@@ -45,7 +46,7 @@ class ProfileConfigApiTests {
   private static PieriaProperties globalProps() {
     return new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
-      new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 1.0, 1.0, 2, 20, 8, "heuristic"),
+      new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 1.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
       null);
   }
 
@@ -97,6 +98,23 @@ class ProfileConfigApiTests {
     RecallResult untouched = retrieval.recall("untouched", "anything", 10, true);
     assertThat(untouched.diagnostics().channels())
       .anyMatch(c -> c.channel() == RetrievalChannelType.GRAPH);
+  }
+
+  @Test
+  void putRecallModeSetsTheProfileDefaultTier() {
+    store.getOrCreateProfile("evidence-only");
+    store.getOrCreateProfile("full");
+
+    // Lowercase on the wire also exercises RecallMode's case-insensitive binding through ConfigCodec.
+    controller.put("evidence-only", json("{\"retrieval\":{\"recall-mode\":\"evidence\"}}"));
+
+    // No request-level mode ⇒ the profile's configured default applies: EVIDENCE skips synthesis.
+    RecallResult evidenceOnly = retrieval.recall("evidence-only", "anything", 10, false);
+    assertThat(evidenceOnly.answer()).isNull();
+
+    // An untouched profile keeps the global default (SYNTHESIZED) and still composes an answer.
+    RecallResult full = retrieval.recall("full", "anything", 10, false);
+    assertThat(full.answer()).isNotNull();
   }
 
   @Test

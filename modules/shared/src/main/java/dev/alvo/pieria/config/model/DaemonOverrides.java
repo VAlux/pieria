@@ -2,6 +2,7 @@ package dev.alvo.pieria.config.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import dev.alvo.pieria.api.request.RecallMode;
 
 /**
  * The daemon-overridable subset of {@code pieria.*} — the {@code [pieria]} tree of a Pieria config
@@ -49,7 +50,8 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
     Integer codeGraphDepth,
     Integer codeGraphFanout,
     Integer codeGraphSeedLimit,
-    String codeGraphMinConfidence) {
+    String codeGraphMinConfidence,
+    RecallMode recallMode) {
   }
 
   /** True when no override is set at all (PUTting this is equivalent to DELETE). */
@@ -62,7 +64,8 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
       retrieval.weightFtsMessage(), retrieval.weightGraph(), retrieval.graphDepth(), retrieval.graphFanout(),
       retrieval.graphSeedLimit(), retrieval.channelLimit(), retrieval.channelTimeoutMs(),
       retrieval.weightSymbolFts(), retrieval.weightCodeGraph(), retrieval.codeGraphDepth(),
-      retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence()));
+      retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence(),
+      retrieval.recallMode()));
   }
 
   private static boolean allNull(Object... values) {
