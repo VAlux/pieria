@@ -66,6 +66,13 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
   boolean includeAgentDocs;
 
+  @Option(names = "--extraction-samples",
+    description = """
+      How many independent extract passes to run per chunk (default: 1). Extraction is \
+      stochastic, so more samples catch more of each chunk's facts in one run; their union is \
+      de-duplicated. Higher = more complete but proportionally more model calls.""")
+  int extractionSamples = 1;
+
   @Option(names = "--source-code", description = "Also build a source-code intelligence index from the repo's tracked source files.")
   boolean sourceCode;
 
@@ -128,7 +135,7 @@ public final class OnboardCommand implements Callable<Integer> {
 
     IngestRequest body;
     try {
-      body = new TranscriptBuilder().build(docs);
+      body = new TranscriptBuilder().build(docs, Math.max(1, extractionSamples));
     } catch (IOException e) {
       log.error("Failed to read project docs: {}", e.getMessage());
       return 1;
@@ -152,8 +159,8 @@ public final class OnboardCommand implements Callable<Integer> {
       return daemonDown(url);
     }
 
-    log.info("Seeding profile '{}' from {} markdown file(s) → {} message(s)…",
-      resolvedProfile, docs.size(), body.messages().size());
+    log.info("Seeding profile '{}' from {} markdown file(s) → {} message(s) ({} extraction sample(s) per chunk)…",
+      resolvedProfile, docs.size(), body.messages().size(), Math.max(1, extractionSamples));
     ProgressReporter reporter = new ProgressReporter();
     IngestClient.IngestResult result = client.ingest(resolvedProfile, body, reporter);
     reporter.finish();

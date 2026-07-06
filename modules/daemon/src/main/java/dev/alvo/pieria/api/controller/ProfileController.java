@@ -106,7 +106,8 @@ public class ProfileController {
       .map(m -> Message.of(request.sessionId(), m.role(), m.content()))
       .toList();
 
-    List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages);
+    List<Memory> stored =
+      ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples());
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
   }
@@ -153,7 +154,8 @@ public class ProfileController {
 
     String kind = label == null || label.isBlank() ? "ingest" : label;
     UUID taskId = tasks.submit(kind, name, progress -> {
-      List<Memory> stored = ingestionService.ingest(name, request.sessionId(), messages, progress);
+      List<Memory> stored =
+        ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples(), progress);
       return objectMapper.valueToTree(Map.of("count", stored.size()));
     });
     return new TaskSubmitResponse(taskId.toString());

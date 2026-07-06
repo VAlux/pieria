@@ -68,6 +68,9 @@ public final class LiveDaemon implements AutoCloseable {
         "--server.port=0",
         "--server.address=127.0.0.1",
         "--pieria.daemon.host=127.0.0.1",
+        // Tear the server down immediately on close instead of a 30s graceful drain — the harness
+        // owns the daemon's whole lifecycle, so there is no external client to wait for.
+        "--server.shutdown=immediate",
         "--pieria.db.path=" + home.resolve("pieria.db"),
         "--pieria.app-data.root=" + home,
         "--pieria.app-data.database-dir=" + home.resolve("db"),

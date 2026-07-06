@@ -155,12 +155,20 @@ public record PieriaProperties(
 
   /**
    * Ingestion pipeline tuning. Chunk size/overlap, parallelism, the detail-pass message
-   * threshold, and vectorization-outbox batching/retry limits.
+   * threshold, extraction sampling, and vectorization-outbox batching/retry limits.
+   *
+   * <p>{@code extractionSamples} is how many independent extract passes to run per chunk (each
+   * full + optional detail pass): extraction is a stochastic model call, so each sample catches a
+   * slightly different subset of the facts in a chunk, and their union is de-duplicated by content
+   * before verification. The default of {@code 1} keeps the cheap single-pass behavior for the
+   * high-frequency transcript-hook ingests; callers that want saturation on a one-off bulk seed
+   * (notably {@code pieria onboard}) raise it per request rather than for every ingest.
    */
   public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
                           @DefaultValue("2") int chunkOverlapMessages,
                           @DefaultValue("4") int maxExtractionConcurrency,
                           @DefaultValue("9") int detailPassMinMessages,
+                          @DefaultValue("1") int extractionSamples,
                           @DefaultValue("32") int outboxBatchSize,
                           @DefaultValue("5") int outboxMaxAttempts,
                           @DefaultValue("true") boolean vectorizationSchedulerEnabled,

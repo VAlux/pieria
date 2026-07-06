@@ -133,11 +133,20 @@ public final class TranscriptBuilder {
    * no messages; the result may therefore have fewer messages than docs (or be empty).
    */
   public IngestRequest build(List<Doc> docs) throws IOException {
+    return build(docs, null);
+  }
+
+  /**
+   * As {@link #build(List)}, requesting {@code extractionSamples} independent extract passes per
+   * chunk (null ⇒ the daemon's configured default). Onboarding raises this so a single seed run
+   * saturates the stochastic extractor instead of needing repeated re-runs.
+   */
+  public IngestRequest build(List<Doc> docs, Integer extractionSamples) throws IOException {
     List<MessageDto> messages = new ArrayList<>();
     for (Doc doc : docs) {
       String content = Files.readString(doc.absolute());
       messages.addAll(toMessages(doc.relative(), content));
     }
-    return new IngestRequest(SESSION_ID, messages);
+    return new IngestRequest(SESSION_ID, messages, extractionSamples);
   }
 }

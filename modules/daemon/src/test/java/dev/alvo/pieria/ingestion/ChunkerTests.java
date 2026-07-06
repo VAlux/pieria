@@ -20,7 +20,7 @@ class ChunkerTests {
 
   private Chunks chunker(int chunkSizeChars, int overlapMessages) {
     PieriaProperties.Ingestion ingestion =
-      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 32, 5, false, 5000);
+      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 1, 32, 5, false, 5000);
     Chunker chunker = new Chunker(normalizer);
     return messages -> chunker.chunk(messages, ingestion);
   }

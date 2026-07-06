@@ -99,6 +99,7 @@ public class EffectiveConfigResolver {
       nvl(o.chunkOverlapMessages(), g.chunkOverlapMessages()),
       nvl(o.maxExtractionConcurrency(), g.maxExtractionConcurrency()),
       nvl(o.detailPassMinMessages(), g.detailPassMinMessages()),
+      g.extractionSamples(),
       g.outboxBatchSize(),
       g.outboxMaxAttempts(),
       g.vectorizationSchedulerEnabled(),

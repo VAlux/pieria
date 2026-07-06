@@ -1,10 +1,8 @@
 package dev.alvo.pieria.evaluation;
 
 import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
-import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.evaluation.EvaluationFixture.ExpectedMemory;
 import dev.alvo.pieria.evaluation.EvaluationFixture.RecallExpectation;
 import dev.alvo.pieria.evaluation.EvaluationReport.ExtractionReport;
@@ -51,7 +49,7 @@ public final class EvaluationRunner {
     "to", "of", "in", "on", "at", "for", "with", "and", "or", "but", "so", "just", "this", "that",
     "these", "those", "as", "from", "by", "about", "last", "next", "here", "there");
 
-  private static final Duration DEFAULT_VECTORIZE_TIMEOUT = Duration.ofMinutes(5);
+  private static final Duration DEFAULT_VECTORIZE_TIMEOUT = Duration.ofMinutes(10);
   private static final int DEFAULT_RECALL_LIMIT = 10;
 
   private final DaemonEvalClient client;
@@ -94,13 +92,12 @@ public final class EvaluationRunner {
     log.info("[{}/{}] {} — ingesting {} messages (profile {})",
       index, total, fixture.name(), messages.size(), profile);
     long ingestStart = System.nanoTime();
-    IngestResponse ingested = client.ingest(profile, fixture.sessionId(), messages);
+    int stored = client.ingest(profile, fixture.sessionId(), messages);
     long ingestPostMs = elapsedMs(ingestStart);
     long vectorizeMs = client.awaitVectorized(profile, vectorizeTimeout);
     long ingestionMs = ingestPostMs + vectorizeMs;
-    List<MemoryResponse> stored = ingested.memories();
     log.info("[{}/{}] {} — ingest done ({} memories, {}ms extract + {}ms vectorize)",
-      index, total, fixture.name(), stored.size(), ingestPostMs, vectorizeMs);
+      index, total, fixture.name(), stored, ingestPostMs, vectorizeMs);
 
     ExtractionReport extraction = extractionReport(fixture, stored);
     List<RecallReport> recallReports = new ArrayList<>();
@@ -159,29 +156,24 @@ public final class EvaluationRunner {
     return value == null ? "" : value.strip().replaceAll("[^A-Za-z0-9._-]+", "-");
   }
 
-  private static ExtractionReport extractionReport(EvaluationFixture fixture, List<MemoryResponse> stored) {
+  /**
+   * Async ingest returns only the stored count, not the memory contents, so a content-level
+   * true-positive match is not computed here. That is fine for the current benchmarks: LoCoMo and
+   * LongMemEval carry no gold extraction set ({@code expectedMemories} is empty), so extraction
+   * precision/recall are vacuous by construction — the report records the stored count for context.
+   */
+  private static ExtractionReport extractionReport(EvaluationFixture fixture, int actualCount) {
     Set<String> expected = new HashSet<>();
     for (ExpectedMemory memory : fixture.expectedMemories()) {
       expected.add(memory.key());
     }
 
-    Set<String> actual = new HashSet<>();
-    for (MemoryResponse memory : stored) {
-      actual.add(EvaluationFixture.memoryKey(MemoryType.fromWire(memory.type()), memory.content(), memory.topicKey()));
-    }
-
     int truePositive = 0;
-    for (String key : actual) {
-      if (expected.contains(key)) {
-        truePositive++;
-      }
-    }
-
     return new ExtractionReport(
       expected.size(),
-      actual.size(),
+      actualCount,
       truePositive,
-      ratio(truePositive, actual.size()),
+      ratio(truePositive, actualCount),
       ratio(truePositive, expected.size()));
   }
 

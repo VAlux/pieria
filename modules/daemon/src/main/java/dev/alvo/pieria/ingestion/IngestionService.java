@@ -102,7 +102,7 @@ public class IngestionService {
    * reported in the latency log line; vectorization is enqueued, not awaited.
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages) {
-    return ingest(profileName, sessionId, messages, IngestProgressListener.noop());
+    return ingest(profileName, sessionId, messages, null, IngestProgressListener.noop());
   }
 
   /**
@@ -111,6 +111,25 @@ public class IngestionService {
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
                              IngestProgressListener progress) {
+    return ingest(profileName, sessionId, messages, null, progress);
+  }
+
+  /**
+   * As {@link #ingest(String, String, List)}, overriding the number of extraction samples per chunk
+   * for this one call (null ⇒ the profile's configured default). Used by bulk seeds that want
+   * saturated extraction without raising the cost of every ingest.
+   */
+  public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
+                             Integer extractionSamplesOverride) {
+    return ingest(profileName, sessionId, messages, extractionSamplesOverride, IngestProgressListener.noop());
+  }
+
+  /**
+   * As {@link #ingest(String, String, List, IngestProgressListener)}, additionally overriding the
+   * per-chunk extraction sample count ({@code extractionSamplesOverride}; null ⇒ profile default).
+   */
+  public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
+                             Integer extractionSamplesOverride, IngestProgressListener progress) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
     log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
@@ -138,19 +157,22 @@ public class IngestionService {
     PieriaProperties.Ingestion tuning = configResolver.resolve(profile.id()).ingestion();
 
     boolean detailPass = normalized.size() >= Math.max(1, tuning.detailPassMinMessages());
+    int extractionSamples = Math.max(1,
+      extractionSamplesOverride != null ? extractionSamplesOverride : tuning.extractionSamples());
     Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized, tuning));
     List<Chunk> chunks = chunk.value();
     log.info(
-      "ingest chunked profile={} session={} chunks={} detailPass={} detailPassMinMessages={} maxExtractionConcurrency={} chunkMs={}",
+      "ingest chunked profile={} session={} chunks={} detailPass={} detailPassMinMessages={} extractionSamples={} maxExtractionConcurrency={} chunkMs={}",
       profileName, sessionId, chunks.size(), detailPass, tuning.detailPassMinMessages(),
-      Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
+      extractionSamples, Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
     // One accumulator for this whole ingest: every model call (extract/verify/classify/graph),
     // whether on this thread or a virtual-thread worker, reports its real provider token usage here.
     InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
 
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(chunks, detailPass, Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
+      () -> extractCandidates(chunks, detailPass, extractionSamples,
+        Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
@@ -296,9 +318,11 @@ public class IngestionService {
    * Run extraction over the chunks (full pass, plus the detail pass when enabled) and merge the
    * candidates, retaining the raw count for logging.
    */
-  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
+  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int extractionSamples,
+                                       int maxExtractionConcurrency,
                                        InferenceUsageAccumulator usage, IngestProgressListener progress) {
-    List<ExtractedCandidate> extracted = runExtraction(chunks, detailPass, maxExtractionConcurrency, usage, progress);
+    List<ExtractedCandidate> extracted =
+      runExtraction(chunks, detailPass, extractionSamples, maxExtractionConcurrency, usage, progress);
     List<ExtractedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -519,15 +543,23 @@ public class IngestionService {
   /**
    * Run the full pass over all chunks, plus the detail pass when enabled, with parallelism bounded
    * by {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
+   *
+   * <p>When {@code extractionSamples > 1} each pass is repeated that many times per chunk: extraction
+   * is stochastic, so independent samples catch overlapping-but-different subsets of a chunk's facts,
+   * and their union (de-duplicated downstream by {@link #mergeCandidates}) is more complete than any
+   * single pass. All samples are submitted together and share the same concurrency gate.
    */
-  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int maxExtractionConcurrency,
+  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int extractionSamples,
+                                                 int maxExtractionConcurrency,
                                                  InferenceUsageAccumulator usage, IngestProgressListener progress) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
     }
-    log.info("ingest extraction start chunks={} detailPass={} maxConcurrency={} modelCalls={}",
-      chunks.size(), detailPass, maxExtractionConcurrency, detailPass ? chunks.size() * 2 : chunks.size());
+    int samples = Math.max(1, extractionSamples);
+    int passesPerChunk = (detailPass ? 2 : 1) * samples;
+    log.info("ingest extraction start chunks={} detailPass={} samples={} maxConcurrency={} modelCalls={}",
+      chunks.size(), detailPass, samples, maxExtractionConcurrency, chunks.size() * passesPerChunk);
 
     Semaphore gate = new Semaphore(maxExtractionConcurrency);
     List<ExtractedCandidate> results = new ArrayList<>();
@@ -535,11 +567,13 @@ public class IngestionService {
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<ExtractionPassResult>> futures = new ArrayList<>();
       for (Chunk chunk : chunks) {
-        futures.add(exec.submit(tracked(usage,
-          () -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk)))));
-        if (detailPass) {
+        for (int sample = 0; sample < samples; sample++) {
           futures.add(exec.submit(tracked(usage,
-            () -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk)))));
+            () -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk)))));
+          if (detailPass) {
+            futures.add(exec.submit(tracked(usage,
+              () -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk)))));
+          }
         }
       }
       int total = futures.size();

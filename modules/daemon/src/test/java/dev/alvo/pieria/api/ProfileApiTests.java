@@ -383,7 +383,7 @@ class ProfileApiTests {
     @Bean("profileApiPieriaProperties")
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
-        new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
+        new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
         new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic"),
         new PieriaProperties.Stats(0.0, 200000, java.util.Map.of(
           "extraction", new PieriaProperties.Stats.TierPrice(0.30, 0.60),

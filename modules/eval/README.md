@@ -67,6 +67,8 @@ Fixtures live in `src/test/resources/evaluation/`. Each file is a JSON object:
 
 Faithfulness is judged by `ModelGateway.judgeAnswerFaithfulness` in the `FaithfulnessJudgeRunner` pass, after the daemon run records each answer. Until that pass runs, the flag is `false` (unjudged).
 
+Ingestion is driven through the daemon's async endpoint (`POST /ingest/async` + task polling), because a fixture's extraction pipeline can take minutes on a local model — too long for a single blocking request. The async task reports only the stored **count**, not the memory contents, so content-level extraction true-positives are not computed; LoCoMo and LongMemEval carry no gold extraction set anyway, so extraction precision/recall are vacuous for them and only the count is informative.
+
 ## Running
 
 ```bash

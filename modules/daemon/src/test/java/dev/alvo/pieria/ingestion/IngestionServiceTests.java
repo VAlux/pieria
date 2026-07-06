@@ -6,6 +6,8 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.model.FakeModelGateway;
@@ -21,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,7 +45,7 @@ class IngestionServiceTests {
   private static PieriaProperties props() {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, null),
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 32, 5, false, 5000),
+      new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
       null,
       null);
   }
@@ -199,6 +202,31 @@ class IngestionServiceTests {
       assertTrue(last.total() >= 1, phase + " total should be positive");
       assertEquals(last.total(), last.done(), phase + " should finish fully complete");
     }
+  }
+
+  @Test
+  void extractionSamplesRunMultiplePassesButDedupe() {
+    // A per-request override of 3 samples must invoke the extract pass 3× for the single chunk, yet
+    // the identical deterministic candidates dedupe down to one stored memory (union semantics).
+    AtomicInteger extractCalls = new AtomicInteger();
+    FakeModelGateway counting = new FakeModelGateway() {
+      @Override
+      public List<ExtractedCandidate> extract(Chunk chunk) {
+        extractCalls.incrementAndGet();
+        return super.extract(chunk);
+      }
+    };
+    TranscriptNormalizer normalizer = new TranscriptNormalizer();
+    Chunker chunker = new Chunker(normalizer);
+    IngestionService sampled = new IngestionService(store, counting, normalizer, chunker,
+      EffectiveConfigResolver.withoutOverrides(props()));
+
+    // Two messages → one chunk, detail pass off (<9 messages), so passes == samples.
+    List<Memory> stored = sampled.ingest("proj", "s1",
+      List.of(msg("user", "I love coffee"), msg("assistant", "noted")), 3);
+
+    assertEquals(3, extractCalls.get(), "each of the 3 samples should run one full extract pass");
+    assertEquals(1, stored.size(), "identical samples must dedupe to a single stored memory");
   }
 
   @Test

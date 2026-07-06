@@ -1,12 +1,12 @@
 package dev.alvo.pieria.evaluation;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
-import dev.alvo.pieria.api.response.IngestResponse;
-import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,27 +25,42 @@ import java.util.Objects;
  * contract a harness or the console uses. It reuses the {@code shared} request/response records so
  * the benchmark exercises the real wire contract, not an internal seam.
  *
- * <p>Retrieval is always requested with {@code debug=true}: the debug block carries the fused
- * candidates in rank order with per-channel provenance, which is what the harness scores for
- * retrieval hit-rate / MRR. Answer synthesis still runs (fast=false) so the synthesized answer is
- * recorded for the deferred faithfulness-judging pass.
+ * <p><strong>Ingestion is async.</strong> A conversation's extraction pipeline (extract → verify →
+ * classify → graph) runs through the local model and can take many minutes per fixture, so the
+ * client submits to {@code POST /ingest/async} and polls {@code GET /v1/tasks/{id}} to completion
+ * rather than holding one blocking HTTP request open (which would time out mid-ingest). Retrieval,
+ * by contrast, is a single bounded synthesis call and stays synchronous with a generous timeout.
+ *
+ * <p>Recall is always requested with {@code debug=true}: the debug block carries the fused candidates
+ * in rank order with per-channel provenance, which is what the harness scores for retrieval hit-rate
+ * / MRR. Answer synthesis still runs (fast=false) so the synthesized answer is recorded for the
+ * deferred faithfulness-judging pass.
  */
 public final class DaemonEvalClient {
 
   private static final Logger log = LoggerFactory.getLogger(DaemonEvalClient.class);
 
+  /** Short requests: async submit and each status/stats poll return promptly. */
+  private static final Duration POLL_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+  /** How long to poll an ingest task before giving up (a slow fixture can take many minutes). */
+  private static final Duration DEFAULT_INGEST_TASK_TIMEOUT = Duration.ofMinutes(30);
+  /** A single synthesized recall is bounded but can be slow on CPU; keep the ceiling generous. */
+  private static final Duration DEFAULT_RECALL_TIMEOUT = Duration.ofMinutes(15);
+
   private final String baseUrl;
   private final HttpClient http;
   private final ObjectMapper mapper;
-  private final Duration requestTimeout;
+  private final Duration ingestTaskTimeout;
+  private final Duration recallTimeout;
 
   public DaemonEvalClient(String baseUrl) {
-    this(baseUrl, Duration.ofMinutes(5));
+    this(baseUrl, DEFAULT_INGEST_TASK_TIMEOUT, DEFAULT_RECALL_TIMEOUT);
   }
 
-  public DaemonEvalClient(String baseUrl, Duration requestTimeout) {
+  public DaemonEvalClient(String baseUrl, Duration ingestTaskTimeout, Duration recallTimeout) {
     this.baseUrl = stripTrailingSlash(Objects.requireNonNull(baseUrl, "baseUrl"));
-    this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+    this.ingestTaskTimeout = Objects.requireNonNull(ingestTaskTimeout, "ingestTaskTimeout");
+    this.recallTimeout = Objects.requireNonNull(recallTimeout, "recallTimeout");
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     this.mapper = new ObjectMapper()
       .findAndRegisterModules() // picks up jsr310 (MemoryResponse.createdAt is an Instant)
@@ -65,16 +80,24 @@ public final class DaemonEvalClient {
     }
   }
 
-  /** POST /v1/profiles/{profile}/ingest — extract + store memories from a conversation. */
-  public IngestResponse ingest(String profile, String sessionId, List<IngestRequest.MessageDto> messages) {
+  /**
+   * Ingest a conversation and block until extraction has stored its memories. Submits to
+   * {@code POST /ingest/async} and polls the returned task to a terminal state; returns the number of
+   * memories stored (from the task result). Throws if the task fails, is cancelled, or does not
+   * finish within the ingest-task timeout.
+   */
+  public int ingest(String profile, String sessionId, List<IngestRequest.MessageDto> messages) {
     IngestRequest request = new IngestRequest(sessionId, messages);
-    return post("/v1/profiles/" + encode(profile) + "/ingest", request, IngestResponse.class);
+    TaskSubmitResponse submit = post(
+      "/v1/profiles/" + encode(profile) + "/ingest/async?label=eval-ingest",
+      request, TaskSubmitResponse.class, POLL_REQUEST_TIMEOUT);
+    return awaitIngestTask(submit.taskId());
   }
 
   /** POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance. */
   public RecallResponse recall(String profile, String query, int limit) {
     RecallRequest request = new RecallRequest(query, limit, true, false);
-    return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class);
+    return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class, recallTimeout);
   }
 
   /**
@@ -97,39 +120,86 @@ public final class DaemonEvalClient {
           profile, backlog, timeout);
         return (System.nanoTime() - start) / 1_000_000L;
       }
-      try {
-        Thread.sleep(pollMs);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return (System.nanoTime() - start) / 1_000_000L;
-      }
+      sleep(pollMs);
       pollMs = Math.min(pollMs * 2, 2000);
+    }
+  }
+
+  /**
+   * Poll {@code GET /v1/tasks/{id}} until terminal. Returns the {@code result.count} on success;
+   * throws on FAILED/CANCELLED or timeout. Phase transitions are logged so a long ingest shows
+   * progress. The status DTO carries a Jackson-3 {@code JsonNode} field, so we parse into a generic
+   * tree rather than the shared record.
+   */
+  private int awaitIngestTask(String taskId) {
+    long deadline = System.nanoTime() + ingestTaskTimeout.toNanos();
+    long pollMs = 1000;
+    String lastPhase = null;
+    while (true) {
+      JsonNode task = getJson("/v1/tasks/" + encode(taskId), POLL_REQUEST_TIMEOUT);
+      if (task == null) {
+        // Transient read failure; retry until the deadline rather than aborting the whole run.
+        if (System.nanoTime() >= deadline) {
+          throw new IllegalStateException("ingest task " + taskId + " status unreadable before timeout");
+        }
+        sleep(pollMs);
+        continue;
+      }
+      String status = task.path("status").asText("");
+      String phase = task.path("phase").asText(null);
+      if (phase != null && !phase.equals(lastPhase)) {
+        log.info("ingest task {} — phase {} ({}/{})", taskId, phase, task.path("done").asInt(), task.path("total").asInt());
+        lastPhase = phase;
+      }
+      switch (status) {
+        case "SUCCEEDED" -> {
+          return task.path("result").path("count").asInt(0);
+        }
+        case "FAILED", "CANCELLED" -> throw new IllegalStateException(
+          "ingest task " + taskId + " " + status + ": "
+            + task.path("errorKind").asText("") + " " + task.path("errorMessage").asText(""));
+        default -> {
+          if (System.nanoTime() >= deadline) {
+            throw new IllegalStateException("ingest task " + taskId + " did not finish within " + ingestTaskTimeout);
+          }
+          sleep(pollMs);
+          pollMs = Math.min(pollMs + 500, 5000);
+        }
+      }
     }
   }
 
   /** Pending outbox depth for the profile, or {@code null} when unavailable (e.g. stats 404). */
   private Long vectorizationBacklog(String profile) {
+    JsonNode stats = getJson("/v1/profiles/" + encode(profile) + "/stats", POLL_REQUEST_TIMEOUT);
+    if (stats == null) {
+      return null;
+    }
+    JsonNode backlog = stats.get("vectorizationBacklog");
+    return backlog == null || backlog.isNull() ? null : backlog.asLong();
+  }
+
+  /** GET a JSON body as a tree, or {@code null} on any non-2xx / transport error. */
+  private JsonNode getJson(String path, Duration timeout) {
     try {
       HttpResponse<String> resp = http.send(
-        HttpRequest.newBuilder(URI.create(baseUrl + "/v1/profiles/" + encode(profile) + "/stats"))
-          .timeout(requestTimeout).GET().build(),
+        HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout).GET().build(),
         HttpResponse.BodyHandlers.ofString());
       if (resp.statusCode() / 100 != 2) {
         return null;
       }
-      ProfileStatsResponse stats = mapper.readValue(resp.body(), ProfileStatsResponse.class);
-      return stats.vectorizationBacklog();
+      return mapper.readTree(resp.body());
     } catch (Exception e) {
       return null;
     }
   }
 
-  private <T> T post(String path, Object body, Class<T> responseType) {
+  private <T> T post(String path, Object body, Class<T> responseType, Duration timeout) {
     try {
       String json = mapper.writeValueAsString(body);
       HttpResponse<String> resp = http.send(
         HttpRequest.newBuilder(URI.create(baseUrl + path))
-          .timeout(requestTimeout)
+          .timeout(timeout)
           .header("Content-Type", "application/json")
           .header("Accept", "application/json")
           .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
@@ -144,6 +214,15 @@ public final class DaemonEvalClient {
       throw e;
     } catch (Exception e) {
       throw new IllegalStateException("POST " + path + " failed: " + e.getMessage(), e);
+    }
+  }
+
+  private static void sleep(long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("interrupted while waiting on the daemon", e);
     }
   }
 
