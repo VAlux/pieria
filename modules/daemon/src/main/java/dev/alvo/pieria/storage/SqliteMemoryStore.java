@@ -180,6 +180,34 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  @Transactional
+  public void deleteProfile(String profileId) {
+    // Drop the sqlite-vec index rows first (they are not synchronized by triggers) while the
+    // owning memory rows still exist to resolve the sub-select. No-op when vector search is off.
+    if (isVectorSearchAvailable()) {
+      jdbc.sql("DELETE FROM memories_vec WHERE memory_id IN (SELECT id FROM memories WHERE profile_id = ?)")
+        .param(profileId)
+        .update();
+    }
+    // Delete children before parents so the schema's REFERENCES stay satisfiable even if foreign
+    // keys are ever enforced. memories/messages deletes fire the FTS-sync triggers automatically.
+    jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id IN (SELECT id FROM memories WHERE profile_id = ?)")
+      .param(profileId).update();
+    jdbc.sql("DELETE FROM edges WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM entities WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM code_edges WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM code_symbols WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM code_files WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM code_modules WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM memories WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM messages WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM profile_usage WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM profile_inference_usage WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("DELETE FROM profiles WHERE id = ?").param(profileId).update();
+  }
+
+  @Override
   public Optional<Profile> findProfile(String name) {
     return jdbc.sql("SELECT id, name, created_at FROM profiles WHERE name = ?")
       .param(name)

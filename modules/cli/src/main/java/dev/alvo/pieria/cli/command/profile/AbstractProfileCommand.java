@@ -38,6 +38,10 @@ abstract class AbstractProfileCommand implements Callable<Integer> {
       String detail = e.getMessage();
       log.error(detail == null || detail.isBlank() ? "Not found." : detail);
       return 4;
+    } catch (ProfileApiClient.ConflictException e) {
+      String detail = e.getMessage();
+      log.error(detail == null || detail.isBlank() ? "Already exists." : detail);
+      return 1;
     } catch (ProfileApiClient.ApiException e) {
       log.error(e.getMessage());
       return 1;

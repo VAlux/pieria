@@ -10,6 +10,7 @@ import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
+import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
 import dev.alvo.pieria.api.response.RecallResponse;
@@ -25,6 +26,7 @@ import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.ingestion.IngestionService;
@@ -46,6 +48,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -98,6 +101,29 @@ public class ProfileController {
     this.memoryResponseConverter = memoryResponseConverter;
     this.properties = properties;
     this.transcriptParsers = transcriptParsers;
+  }
+
+  /**
+   * Create a brand-new, empty profile named {@code name}. Idempotency is intentionally <em>not</em>
+   * offered here: creating a profile that already exists is a {@code 409} conflict, so the caller
+   * always learns whether it created the profile or hit an existing one.
+   */
+  @PutMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public ProfileSummary create(@PathVariable String name) {
+    Profile profile = store.createProfile(name);
+    return new ProfileSummary(profile.name(), profile.createdAt(), 0);
+  }
+
+  /**
+   * Delete a profile and every memory it owns. Hard, irreversible physical delete (not the logical
+   * supersession used by {@code forget}). A {@code 404} when there is no such profile.
+   */
+  @DeleteMapping
+  public ResponseEntity<Void> delete(@PathVariable String name) {
+    Profile profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
+    store.deleteProfile(profile.id());
+    return ResponseEntity.noContent().build();
   }
 
   @PostMapping("/ingest")

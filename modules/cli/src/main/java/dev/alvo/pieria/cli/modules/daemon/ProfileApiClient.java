@@ -6,6 +6,7 @@ import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileListResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
+import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.RecallResponse;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -55,6 +56,27 @@ public final class ProfileApiClient {
 
   public ProfileListResponse listProfiles() {
     return parse(get("/v1/profiles"), ProfileListResponse.class);
+  }
+
+  /**
+   * Create an empty profile; throws {@link ConflictException} when one with that name already exists.
+   */
+  public ProfileSummary createProfile(String profile) {
+    String body = send(HttpRequest.newBuilder(uri(profilePath(profile)))
+      .timeout(Duration.ofSeconds(10))
+      .PUT(HttpRequest.BodyPublishers.noBody())
+      .build());
+    return parse(body, ProfileSummary.class);
+  }
+
+  /**
+   * Delete a profile and all its memories; throws {@link NotFoundException} when the daemon reports 404.
+   */
+  public void deleteProfile(String profile) {
+    send(HttpRequest.newBuilder(uri(profilePath(profile)))
+      .timeout(Duration.ofSeconds(30))
+      .DELETE()
+      .build());
   }
 
   public ProfileStatsResponse stats(String profile) {
@@ -138,9 +160,34 @@ public final class ProfileApiClient {
       return response.body();
     }
     if (code == 404) {
-      throw new NotFoundException(response.body());
+      throw new NotFoundException(errorMessage(response.body(), "Not found."));
+    }
+    if (code == 409) {
+      throw new ConflictException(errorMessage(response.body(), "Already exists."));
     }
     throw new ApiException(code, response.body());
+  }
+
+  /**
+   * Best-effort extraction of the daemon's sanitized error {@code message}, falling back to the raw
+   * body (or {@code fallback} when the body is blank) so the CLI never surfaces a raw JSON envelope.
+   */
+  private String errorMessage(String body, String fallback) {
+    if (body == null || body.isBlank()) {
+      return fallback;
+    }
+    try {
+      ErrorBody parsed = mapper.readValue(body, ErrorBody.class);
+      if (parsed != null && parsed.message() != null && !parsed.message().isBlank()) {
+        return parsed.message();
+      }
+    } catch (RuntimeException ignored) {
+      // Not a JSON error envelope; fall through to the raw body.
+    }
+    return body;
+  }
+
+  private record ErrorBody(String error, String message) {
   }
 
   private <T> T parse(String body, Class<T> type) {
@@ -169,6 +216,15 @@ public final class ProfileApiClient {
    */
   public static final class NotFoundException extends RuntimeException {
     public NotFoundException(String message) {
+      super(message);
+    }
+  }
+
+  /**
+   * The daemon returned 409 (a create collided with an existing profile). Exit code 1.
+   */
+  public static final class ConflictException extends RuntimeException {
+    public ConflictException(String message) {
       super(message);
     }
   }

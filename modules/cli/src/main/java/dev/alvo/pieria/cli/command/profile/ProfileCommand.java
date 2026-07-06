@@ -14,6 +14,8 @@ import picocli.CommandLine.Command;
   mixinStandardHelpOptions = true,
   subcommands = {
     ProfileListCommand.class,
+    ProfileCreateCommand.class,
+    ProfileDeleteCommand.class,
     ProfileStatsCommand.class,
     ProfileMemoriesCommand.class,
     ProfileRecallCommand.class,

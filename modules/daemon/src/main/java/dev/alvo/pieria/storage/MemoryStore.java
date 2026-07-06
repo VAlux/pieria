@@ -34,6 +34,28 @@ public interface MemoryStore {
   Profile getOrCreateProfile(String name);
 
   /**
+   * Create a brand-new, empty profile with this name. Unlike {@link #getOrCreateProfile}, this is
+   * <em>not</em> idempotent: if a profile with that name already exists it throws
+   * {@link dev.alvo.pieria.domain.error.ConflictException} rather than returning the existing one.
+   */
+  default Profile createProfile(String name) {
+    if (findProfile(name).isPresent()) {
+      throw dev.alvo.pieria.domain.error.ConflictException.profileExists(name);
+    }
+    return getOrCreateProfile(name);
+  }
+
+  /**
+   * Permanently delete a profile and everything owned by it — memories, raw messages, the
+   * entity-relation graph, the code index, per-profile config and usage counters, and any vector
+   * index rows. Unlike memory {@code forget} (logical supersession), this is a hard, irreversible
+   * physical delete. No-op for a profile id that does not exist.
+   */
+  default void deleteProfile(String profileId) {
+    throw new UnsupportedOperationException("deleteProfile(...) not implemented");
+  }
+
+  /**
    * Find a profile by name, or {@code null} if it does not exist.
    */
   Optional<Profile> findProfile(String name);

@@ -2,6 +2,7 @@ package dev.alvo.pieria.api.error;
 
 
 import dev.alvo.pieria.api.response.ErrorResponse;
+import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
@@ -46,6 +47,12 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
       .body(new ErrorResponse("not_found", ex.getMessage()));
+  }
+
+  @ExceptionHandler(ConflictException.class)
+  public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+      .body(new ErrorResponse("conflict", ex.getMessage()));
   }
 
   @ExceptionHandler(ModelUnavailableException.class)

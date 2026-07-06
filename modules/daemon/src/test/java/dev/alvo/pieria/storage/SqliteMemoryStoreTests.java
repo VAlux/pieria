@@ -595,4 +595,48 @@ class SqliteMemoryStoreTests {
     assertTrue(hasOutbox(s.stored().id()), "outbox row must survive a failed completion");
     assertNull(embeddingOf(s.stored().id()), "no embedding must be written on failure");
   }
+
+  // ---- createProfile / deleteProfile ----
+
+  @Test
+  void createProfileRejectsDuplicateName() {
+    store.createProfile("dup");
+    assertTrue(store.findProfile("dup").isPresent());
+    assertThrows(dev.alvo.pieria.domain.error.ConflictException.class, () -> store.createProfile("dup"));
+  }
+
+  @Test
+  void deleteProfileRemovesProfileAndAllItsMemories() {
+    Profile victim = store.getOrCreateProfile("victim");
+    store.store(victim.id(), Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", "location", null));
+    store.store(victim.id(), Memory.of(MemoryType.FACT, "User lives in Munich", "s1", "location", null)); // supersedes the first
+    store.insertMessages(victim.id(), "s1",
+      List.of(Message.of("s1", "user", "please remember where I live")));
+    store.putProfileConfig(victim.id(), "{\"foo\":true}");
+
+    // A second profile that must survive the delete untouched.
+    Profile keep = store.getOrCreateProfile("keeper");
+    store.store(keep.id(), Memory.of(MemoryType.FACT, "Keeper likes Berlin too", "s2", null, null));
+
+    store.deleteProfile(victim.id());
+
+    assertTrue(store.findProfile("victim").isEmpty(), "profile row must be gone");
+    assertTrue(store.exportProfile(victim.id()).isEmpty(), "no memories may remain");
+    assertTrue(store.getProfileConfig(victim.id()).isEmpty(), "profile config must be gone");
+    // FTS delete-triggers must have fired: the victim's content is no longer searchable.
+    assertTrue(store.searchMemoriesFts(victim.id(), "Munich", 10).isEmpty());
+    assertEquals(0, countRows("messages", victim.id()));
+
+    // The keeper profile and its memory are untouched.
+    assertTrue(store.findProfile("keeper").isPresent());
+    assertEquals(1, store.exportProfile(keep.id()).size());
+    assertTrue(store.listProfiles().stream().noneMatch(pc -> pc.profile().name().equals("victim")));
+  }
+
+  private long countRows(String table, String profileId) {
+    return jdbc.sql("SELECT COUNT(*) FROM " + table + " WHERE profile_id = ?")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+  }
 }

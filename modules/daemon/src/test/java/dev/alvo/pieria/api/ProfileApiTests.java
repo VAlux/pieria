@@ -30,6 +30,7 @@ import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -157,6 +158,44 @@ class ProfileApiTests {
     // ensure profile exists
     remember();
     mvc.perform(delete("/v1/profiles/alice/memories/does-not-exist"))
+      .andExpect(status().isNotFound())
+      .andExpect(jsonPath("$.error", is("not_found")));
+  }
+
+  @Test
+  void createProfileThenDeleteRemovesItAndItsMemories() throws Exception {
+    // create -> 201 with an empty memory count
+    mvc.perform(put("/v1/profiles/crd1"))
+      .andExpect(status().isCreated())
+      .andExpect(jsonPath("$.name", is("crd1")))
+      .andExpect(jsonPath("$.memoryCount", is(0)));
+
+    // give it a memory, then delete the whole profile
+    mvc.perform(post("/v1/profiles/crd1/memories")
+        .contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"disposable fact\",\"sessionId\":\"s1\"}"))
+      .andExpect(status().isCreated());
+
+    mvc.perform(delete("/v1/profiles/crd1"))
+      .andExpect(status().isNoContent());
+
+    // the profile no longer exists: listing its memories is a 404
+    mvc.perform(get("/v1/profiles/crd1/memories"))
+      .andExpect(status().isNotFound())
+      .andExpect(jsonPath("$.error", is("not_found")));
+  }
+
+  @Test
+  void createDuplicateProfileIsConflict() throws Exception {
+    mvc.perform(put("/v1/profiles/dupe")).andExpect(status().isCreated());
+    mvc.perform(put("/v1/profiles/dupe"))
+      .andExpect(status().isConflict())
+      .andExpect(jsonPath("$.error", is("conflict")));
+  }
+
+  @Test
+  void deleteMissingProfileIsNotFound() throws Exception {
+    mvc.perform(delete("/v1/profiles/never-existed"))
       .andExpect(status().isNotFound())
       .andExpect(jsonPath("$.error", is("not_found")));
   }

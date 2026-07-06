@@ -75,6 +75,15 @@ class StubMemoryStore implements MemoryStore {
   }
 
   @Override
+  public void deleteProfile(String profileId) {
+    profilesByName.values().removeIf(p -> p.id().equals(profileId));
+    memories.remove(profileId);
+    entities.remove(profileId);
+    edges.remove(profileId);
+    inferenceUsage.remove(profileId);
+  }
+
+  @Override
   public List<ProfileCount> listProfiles() {
     return profilesByName.values().stream()
       .sorted(Comparator.comparing(Profile::name))
