@@ -1,7 +1,9 @@
 package dev.alvo.pieria.cli.command.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
+import dev.alvo.pieria.client.HealthClient;
+import dev.alvo.pieria.client.exception.DaemonInterruptedException;
+import java.time.Duration;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import picocli.CommandLine.Command;
@@ -73,9 +75,13 @@ public final class DaemonRestartCommand implements Callable<Integer> {
 
   private int awaitHealthy(String url, String startedMessage) {
     log.info(startedMessage);
-    if (new DaemonClient(url).awaitHealthy(timeoutSeconds)) {
-      log.info("Pieria daemon is up at {}.", url);
-      return 0;
+    try {
+      if (new HealthClient(url).awaitReachable(Duration.ofSeconds(timeoutSeconds))) {
+        log.info("Pieria daemon is up at {}.", url);
+        return 0;
+      }
+    } catch (DaemonInterruptedException ignored) {
+      // Preserve the command's existing timeout/failure result after restoring interruption.
     }
     log.error("Daemon did not become healthy within {}s. Check the daemon logs.", timeoutSeconds);
     return 1;

@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.command.profile;
 
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -27,7 +27,7 @@ public final class ProfileExportCommand extends AbstractProfileCommand {
   Path out;
 
   @Override
-  protected int run(ProfileApiClient client) throws Exception {
+  protected int run(ProfileClient client) throws Exception {
     String ndjson = client.export(name);
 
     if (out == null) {

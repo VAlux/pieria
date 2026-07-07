@@ -3,7 +3,8 @@ package dev.alvo.pieria.cli.command.profile;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.api.response.RecallResponse.CodeEvidence;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -31,7 +32,7 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
   Integer limit;
 
   @Override
-  protected int run(ProfileApiClient client) {
+  protected int run(ProfileClient client) {
     RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null));
 
     log.info(response.answer() == null ? "(no answer)" : response.answer());
@@ -40,19 +41,19 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
     if (memories != null && !memories.isEmpty()) {
       log.info("");
       log.info("Evidence:");
-      for (MemoryResponse m : memories) {
-        log.info("  - [{}] {}", m.type(), m.content());
+      for (MemoryResponse memory : memories) {
+        log.info("  - [{}] {}", memory.type(), memory.content());
       }
     }
 
-    List<RecallResponse.CodeEvidence> codeEvidence = response.codeEvidence();
+    List<CodeEvidence> codeEvidence = response.codeEvidence();
     if (codeEvidence != null && !codeEvidence.isEmpty()) {
       log.info("");
       log.info("Code graph evidence:");
-      for (RecallResponse.CodeEvidence e : codeEvidence) {
-        String target = e.dstPath() == null ? e.dst() : e.dst() + " (" + e.dstPath() + ")";
+      for (CodeEvidence evidence : codeEvidence) {
+        String target = evidence.dstPath() == null ? evidence.dst() : "%s (%s)".formatted(evidence.dst(), evidence.dstPath());
         log.info("  - {} ({}) {} {} [{}]",
-          e.src(), e.srcPath(), e.relation().replace('-', ' '), target, e.confidence());
+          evidence.src(), evidence.srcPath(), evidence.relation().replace('-', ' '), target, evidence.confidence());
       }
     }
     return 0;

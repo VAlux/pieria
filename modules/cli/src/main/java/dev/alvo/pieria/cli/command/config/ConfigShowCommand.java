@@ -1,12 +1,12 @@
 package dev.alvo.pieria.cli.command.config;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.config.ConfigClient;
-import dev.alvo.pieria.cli.modules.config.ConfigClient.DaemonDown;
-import dev.alvo.pieria.cli.modules.config.ConfigClient.Failure;
-import dev.alvo.pieria.cli.modules.config.ConfigClient.Success;
-import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
-import dev.alvo.pieria.cli.modules.init.Reachability;
+import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.client.ConfigClient;
+import dev.alvo.pieria.client.HealthClient;
+import dev.alvo.pieria.client.exception.DaemonHttpException;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
+import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -25,8 +25,6 @@ import java.util.concurrent.Callable;
 )
 public final class ConfigShowCommand implements Callable<Integer> {
 
-  private static final String DEFAULT_DAEMON_URL = "http://127.0.0.1:8077";
-
   private final Logger log = new Logger();
 
   @Option(names = "--project-dir", description = "Project directory (default: current directory).")
@@ -44,23 +42,20 @@ public final class ConfigShowCommand implements Callable<Integer> {
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
 
-    ConfigClient client = new HttpConfigClient(url);
-    if (client.ping() == Reachability.DAEMON_DOWN) {
+    if (!new HealthClient(url).reachable()) {
       return daemonDown(url);
     }
-
-    return switch (client.get(resolvedProfile)) {
-      case Success success -> {
-        log.info("Effective config for profile '{}':", resolvedProfile);
-        log.info("{}", success.body());
-        yield 0;
-      }
-      case DaemonDown ignored -> daemonDown(url);
-      case Failure failure -> {
-        log.error("Config fetch failed (HTTP {}): {}", failure.status(), failure.body());
-        yield 1;
-      }
-    };
+    try {
+      var effective = new ConfigClient(url).get(resolvedProfile);
+      log.info("Effective config for profile '{}':", resolvedProfile);
+      log.info("{}", ConfigCodec.toJson(effective));
+      return 0;
+    } catch (DaemonUnavailableException e) {
+      return daemonDown(url);
+    } catch (DaemonHttpException e) {
+      log.error("Config fetch failed (HTTP {}): {}", e.status(), e.body());
+      return 1;
+    }
   }
 
   private int daemonDown(String url) {
@@ -77,9 +72,6 @@ public final class ConfigShowCommand implements Callable<Integer> {
   }
 
   private String resolveDaemonUrl() {
-    if (daemonUrl != null && !daemonUrl.isBlank()) {
-      return daemonUrl;
-    }
-    return System.getenv().getOrDefault("PIERIA_DAEMON_URL", DEFAULT_DAEMON_URL);
+    return DaemonUrls.resolve(daemonUrl);
   }
 }

@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.command.profile;
 
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -19,8 +19,8 @@ public final class ProfileDeleteCommand extends AbstractProfileCommand {
   String name;
 
   @Override
-  protected int run(ProfileApiClient client) {
-    client.deleteProfile(name);
+  protected int run(ProfileClient client) {
+    client.delete(name);
     log.info("Deleted profile {} and all of its memories", name);
     return 0;
   }

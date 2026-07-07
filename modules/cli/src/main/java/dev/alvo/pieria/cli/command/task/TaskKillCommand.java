@@ -1,7 +1,7 @@
 package dev.alvo.pieria.cli.command.task;
 
 import dev.alvo.pieria.api.response.TaskStatusResponse;
-import dev.alvo.pieria.cli.modules.task.HttpTaskClient;
+import dev.alvo.pieria.client.TaskClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -21,8 +21,8 @@ public final class TaskKillCommand extends AbstractTaskCommand {
   String taskId;
 
   @Override
-  protected int run(HttpTaskClient client) {
-    TaskStatusResponse task = client.kill(taskId);
+  protected int run(TaskClient client) {
+    TaskStatusResponse task = client.cancel(taskId);
     switch (task.status()) {
       case "RUNNING" ->
         log.info("Cancelling task {} — it will stop at its next checkpoint. Already-stored memories are kept.", taskId);

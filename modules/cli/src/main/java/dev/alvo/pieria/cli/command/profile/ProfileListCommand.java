@@ -2,7 +2,7 @@ package dev.alvo.pieria.cli.command.profile;
 
 import dev.alvo.pieria.api.response.ProfileListResponse;
 import dev.alvo.pieria.api.response.ProfileSummary;
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 
 import java.util.List;
@@ -18,8 +18,8 @@ import java.util.List;
 public final class ProfileListCommand extends AbstractProfileCommand {
 
   @Override
-  protected int run(ProfileApiClient client) {
-    ProfileListResponse response = client.listProfiles();
+  protected int run(ProfileClient client) {
+    ProfileListResponse response = client.list();
     List<ProfileSummary> profiles = response.profiles();
 
     if (profiles == null || profiles.isEmpty()) {

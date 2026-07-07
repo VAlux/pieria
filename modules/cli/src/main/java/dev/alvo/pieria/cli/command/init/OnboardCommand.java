@@ -1,16 +1,17 @@
 package dev.alvo.pieria.cli.command.init;
 
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.TaskStatusResponse;
+import dev.alvo.pieria.client.*;
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.log.ProgressReporter;
-import dev.alvo.pieria.cli.modules.config.ConfigClient;
-import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
-import dev.alvo.pieria.cli.modules.init.HttpOnboardClient;
-import dev.alvo.pieria.cli.modules.init.OnboardClient;
-import dev.alvo.pieria.cli.modules.init.Reachability;
+import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.cli.modules.task.TaskPoller;
+import dev.alvo.pieria.client.exception.DaemonClientException;
+import dev.alvo.pieria.client.exception.DaemonHttpException;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
-import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -46,8 +47,6 @@ import java.util.concurrent.Callable;
   mixinStandardHelpOptions = true
 )
 public final class OnboardCommand implements Callable<Integer> {
-
-  private static final String DEFAULT_DAEMON_URL = "http://127.0.0.1:8077";
 
   private final Logger log = new Logger();
 
@@ -122,20 +121,21 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    OnboardClient client = new HttpOnboardClient(url, "onboard");
-    if (client.ping() == Reachability.DAEMON_DOWN) {
+    if (!new HealthClient(url).reachable()) {
       return daemonDown(url);
     }
+    OnboardingClient onboarding = new OnboardingClient(url);
+    TaskClient tasks = new TaskClient(url);
 
     int firstFailure = 0;
     for (Source source : sources) {
-      int rc = seed(client, resolvedProfile, source);
+      int rc = seed(onboarding, tasks, resolvedProfile, source);
       if (rc != 0 && firstFailure == 0) {
         firstFailure = rc;
       }
     }
 
-    pushConfigOverrides(resolvedProfile, url, config);
+    pushConfigOverrides(url, resolvedProfile, config);
     return firstFailure;
   }
 
@@ -240,35 +240,53 @@ public final class OnboardCommand implements Callable<Integer> {
   /**
    * Seed one source and map its outcome to an exit code, reporting progress and the terminal line.
    */
-  private int seed(OnboardClient client, String profile, Source source) {
+  private int seed(OnboardingClient onboarding, TaskClient tasks, String profile, Source source) {
     log.info("Seeding profile '{}' from {}…", profile, source.label());
     ProgressReporter reporter = new ProgressReporter();
-    OnboardClient.OnboardResult result = client.onboard(profile, source.spec(), reporter);
-    reporter.finish();
-    return switch (result) {
-      case OnboardClient.Success s -> {
-        report(source, s);
-        yield 0;
+    try {
+      String taskId = onboarding.submit(profile, source.spec(), "onboard").taskId();
+      TaskStatusResponse task = new TaskPoller(tasks).await(taskId, reporter);
+      reporter.finish();
+      if ("SUCCEEDED".equals(task.status())) {
+        Success success = success(task.result());
+        report(source, success);
+        return 0;
       }
-      case OnboardClient.ModelUnavailable mu -> {
+      if ("model-unavailable".equals(task.errorKind())) {
         log.error("The daemon is up but the model call failed ({}).", source.label());
-        if (mu.reason() != null && !mu.reason().isBlank()) {
-          log.error("Reason: {}", mu.reason());
+        if (task.errorMessage() != null && !task.errorMessage().isBlank()) {
+          log.error("Reason: {}", task.errorMessage());
         } else {
           log.error("Start your model provider (e.g. Ollama or LM Studio) and re-run 'pieria onboard'.");
         }
-        yield 4;
+        return 4;
       }
-      case OnboardClient.DaemonDown ignored -> daemonDown(resolveDaemonUrl());
-      case OnboardClient.Failure f -> {
-        log.error("Onboard failed for {} (HTTP {}): {}", source.label(), f.status(), f.body());
-        yield 1;
+      log.error("Onboard failed for {} (HTTP -1): {}", source.label(),
+        task.errorMessage() == null ? "onboard task failed" : task.errorMessage());
+      return 1;
+    } catch (DaemonUnavailableException e) {
+      reporter.finish();
+      return daemonDown(resolveDaemonUrl());
+    } catch (DaemonHttpException e) {
+      reporter.finish();
+      if (e.status() == 503) {
+        log.error("The daemon is up but the model call failed ({}).", source.label());
+        if (e.daemonMessage() != null && !e.daemonMessage().isBlank()) {
+          log.error("Reason: {}", e.daemonMessage());
+        }
+        return 4;
       }
-    };
+      log.error("Onboard failed for {} (HTTP {}): {}", source.label(), e.status(), e.body());
+      return 1;
+    } catch (DaemonClientException e) {
+      reporter.finish();
+      log.error("Onboard failed for {} (HTTP -1): {}", source.label(), e.getMessage());
+      return 1;
+    }
   }
 
   /** Terminal "done" line — richer for the code index (symbols/edges/summaries), plain for content. */
-  private void report(Source source, OnboardClient.Success s) {
+  private void report(Source source, Success s) {
     if (s.symbols() != null) {
       log.info("Done ({}). Indexed {} file(s), {} symbol(s), {} edge(s); stored {} memor{}.",
         source.label(), s.documents(), s.symbols(), s.edges(),
@@ -287,17 +305,17 @@ public final class OnboardCommand implements Callable<Integer> {
    * project config from day one. Best-effort: onboarding succeeds even when the push fails
    * ({@code pieria config sync} can redo it), and nothing is pushed when no override is set.
    */
-  private void pushConfigOverrides(String resolvedProfile, String url, PieriaConfigFile config) {
+  private void pushConfigOverrides(String url, String resolvedProfile, PieriaConfigFile config) {
     if (config.pieria().isEmpty()) {
       return;
     }
-    ConfigClient client = new HttpConfigClient(url);
-    switch (client.put(resolvedProfile, ConfigCodec.toJson(config.pieria()))) {
-      case ConfigClient.Success ignored ->
-        log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
-      case ConfigClient.DaemonDown ignored ->
-        log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");
-      case ConfigClient.Failure f -> log.error("Could not push config overrides (HTTP {}): {}", f.status(), f.body());
+    try {
+      new ConfigClient(url).put(resolvedProfile, config.pieria());
+      log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
+    } catch (DaemonUnavailableException e) {
+      log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");
+    } catch (DaemonHttpException e) {
+      log.error("Could not push config overrides (HTTP {}): {}", e.status(), e.body());
     }
   }
 
@@ -321,11 +339,32 @@ public final class OnboardCommand implements Callable<Integer> {
    * {@code --daemon-url} wins, then $PIERIA_DAEMON_URL, then the localhost default.
    */
   private String resolveDaemonUrl() {
-    if (daemonUrl != null && !daemonUrl.isBlank()) {
-      return daemonUrl;
-    }
-    return System.getenv().getOrDefault("PIERIA_DAEMON_URL", DEFAULT_DAEMON_URL);
+    return DaemonUrls.resolve(daemonUrl);
   }
+
+  private static Success success(tools.jackson.databind.JsonNode result) {
+    if (result == null) {
+      return new Success("", 0, 0, null, null, null);
+    }
+    return new Success(text(result, "sourceType"), integer(result, "documents", 0),
+      integer(result, "memoriesStored", 0), integer(result, "symbols", null),
+      integer(result, "edges", null), integer(result, "summariesStored", null));
+  }
+
+  private static String text(tools.jackson.databind.JsonNode node, String field) {
+    var value = node.get(field); return value == null || value.isNull() ? "" : value.asString();
+  }
+
+  private static Integer integer(tools.jackson.databind.JsonNode node, String field, Integer fallback) {
+    var value = node.get(field);
+    if (value == null || value.isNull()) {
+      return fallback;
+    }
+    return value.asInt(0);
+  }
+
+  private record Success(String sourceType, int documents, int memoriesStored,
+                         Integer symbols, Integer edges, Integer summariesStored) { }
 
   /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */
   private record Source(String label, SourceSpec spec) {

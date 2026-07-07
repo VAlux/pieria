@@ -1,10 +1,12 @@
 package dev.alvo.pieria.cli.command.config;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.config.ConfigClient;
-import dev.alvo.pieria.cli.modules.config.HttpConfigClient;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
-import dev.alvo.pieria.cli.modules.init.Reachability;
+import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.client.ConfigClient;
+import dev.alvo.pieria.client.HealthClient;
+import dev.alvo.pieria.client.exception.DaemonHttpException;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.mapping.ProfileResolver;
@@ -25,8 +27,6 @@ import java.util.concurrent.Callable;
   mixinStandardHelpOptions = true
 )
 public final class ConfigSyncCommand implements Callable<Integer> {
-
-  private static final String DEFAULT_DAEMON_URL = "http://127.0.0.1:8077";
 
   private final Logger log = new Logger();
 
@@ -68,23 +68,20 @@ public final class ConfigSyncCommand implements Callable<Integer> {
       return 0;
     }
 
-    ConfigClient client = new HttpConfigClient(url);
-    if (client.ping() == Reachability.DAEMON_DOWN) {
+    if (!new HealthClient(url).reachable()) {
       return daemonDown(url);
     }
-
-    return switch (client.put(resolvedProfile, overridesJson)) {
-      case ConfigClient.Success s -> {
-        log.info("Synced config overrides to profile '{}'. Effective config:", resolvedProfile);
-        log.info("{}", s.body());
-        yield 0;
-      }
-      case ConfigClient.DaemonDown ignored -> daemonDown(url);
-      case ConfigClient.Failure f -> {
-        log.error("Config sync failed (HTTP {}): {}", f.status(), f.body());
-        yield 1;
-      }
-    };
+    try {
+      var effective = new ConfigClient(url).put(resolvedProfile, config.pieria());
+      log.info("Synced config overrides to profile '{}'. Effective config:", resolvedProfile);
+      log.info("{}", ConfigCodec.toJson(effective));
+      return 0;
+    } catch (DaemonUnavailableException e) {
+      return daemonDown(url);
+    } catch (DaemonHttpException e) {
+      log.error("Config sync failed (HTTP {}): {}", e.status(), e.body());
+      return 1;
+    }
   }
 
   private int daemonDown(String url) {
@@ -101,9 +98,6 @@ public final class ConfigSyncCommand implements Callable<Integer> {
   }
 
   private String resolveDaemonUrl() {
-    if (daemonUrl != null && !daemonUrl.isBlank()) {
-      return daemonUrl;
-    }
-    return System.getenv().getOrDefault("PIERIA_DAEMON_URL", DEFAULT_DAEMON_URL);
+    return DaemonUrls.resolve(daemonUrl);
   }
 }

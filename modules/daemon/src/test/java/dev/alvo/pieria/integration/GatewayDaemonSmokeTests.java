@@ -1,6 +1,6 @@
 package dev.alvo.pieria.integration;
 
-import dev.alvo.pieria.mcp.DaemonClient;
+import dev.alvo.pieria.client.ProfileClient;
 import dev.alvo.pieria.mcp.MemoryTools;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelGateway;
@@ -15,12 +15,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestClient;
 
-import tools.jackson.databind.ObjectMapper;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end smoke test: the gateway's real {@link DaemonClient} +
+ * End-to-end smoke test: the shared daemon client +
  * {@link MemoryTools} driven against a REAL daemon booted on a random local port. The embedded
  * SQLite store is the real throwaway DB (application-test.properties), so storage is exercised
  * end-to-end; only the {@link ModelGateway} is faked (no model provider, no network egress).
@@ -52,7 +50,7 @@ class GatewayDaemonSmokeTests {
   void wireGatewayToLivePort() {
     baseUrl = "http://127.0.0.1:" + port;
     // The gateway's real forwarder, pointed at the live daemon — no test seam.
-    tools = new MemoryTools(new DaemonClient(baseUrl), "smoke-proj");
+    tools = new MemoryTools(new ProfileClient(baseUrl), "smoke-proj");
   }
 
   @Test
@@ -105,12 +103,12 @@ class GatewayDaemonSmokeTests {
    */
   @Test
   void daemonDownSurfacesConciseStringNotException() {
-    MemoryTools offline = new MemoryTools(new DaemonClient("http://127.0.0.1:1"),
+    MemoryTools offline = new MemoryTools(new ProfileClient("http://127.0.0.1:1"),
       "smoke-proj");
 
     String out = offline.recall("anything", null, null, null);
 
-    assertThat(out).isEqualTo("Pieria daemon is not running at http://127.0.0.1:1");
+    assertThat(out).isEqualTo("Pieria daemon is not reachable at http://127.0.0.1:1.");
     assertThat(out).doesNotContain("Exception").doesNotContain("\tat ");
   }
 

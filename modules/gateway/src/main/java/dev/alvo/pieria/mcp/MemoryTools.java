@@ -3,12 +3,15 @@ package dev.alvo.pieria.mcp;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.client.exception.DaemonHttpException;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
+import dev.alvo.pieria.client.ProfileClient;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 /**
  * Model-facing MCP tools. Each tool forwards to the daemon's REST surface via
- * {@link DaemonClient}; the gateway itself holds no state. {@code ingest} is intentionally absent —
+ * {@link ProfileClient}; the gateway itself holds no state. {@code ingest} is intentionally absent —
  * bulk ingestion is a harness hook, not a model tool, to keep the model's surface narrow.
  *
  * <p>The profile name defaults to the resolved profile (git remote / cwd / {@code PIERIA_PROFILE},
@@ -19,10 +22,10 @@ import org.springframework.ai.tool.annotation.ToolParam;
  */
 public class MemoryTools {
 
-  private final DaemonClient client;
+  private final ProfileClient client;
   private final String defaultProfile;
 
-  public MemoryTools(DaemonClient client, String defaultProfile) {
+  public MemoryTools(ProfileClient client, String defaultProfile) {
     this.client = client;
     this.defaultProfile = defaultProfile;
   }
@@ -44,8 +47,8 @@ public class MemoryTools {
       fastest — deterministic retrieval, raw memories, no answer (~1-3s). Use a cheaper tier when \
       you just want the underlying memories rather than a composed answer.""") String mode,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.recall(profile(profile),
-      new RecallRequest(query, limit, null, parseMode(mode))));
+    return guarded(() -> client.toJson(client.recall(profile(profile),
+      new RecallRequest(query, limit, null, parseMode(mode)))));
   }
 
   /** Lenient tier parse for the model-facing tool: blank or unrecognized values defer to the default. */
@@ -75,7 +78,8 @@ public class MemoryTools {
       duplicate. Use it for facts whose value changes over time.""") String topicKey,
     @ToolParam(required = false, description = "Opaque payload string") String payload,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.remember(profile(profile), new RememberRequest(type, content, sessionId, topicKey, payload)));
+    return guarded(() -> client.toJson(client.remember(
+      profile(profile), new RememberRequest(type, content, sessionId, topicKey, payload))));
   }
 
   @Tool(name = "list", description = """
@@ -85,7 +89,7 @@ public class MemoryTools {
     @ToolParam(required = false, description = "Filter by memory type") String type,
     @ToolParam(required = false, description = "Filter by session id") String session,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.list(profile(profile), type, session));
+    return guarded(() -> client.toJson(client.memories(profile(profile), type, session)));
   }
 
   @Tool(name = "forget", description = """
@@ -94,7 +98,7 @@ public class MemoryTools {
   public String forget(
     @ToolParam(description = "Memory id to forget") String id,
     @ToolParam(required = false, description = "Profile name override") String profile) {
-    return guarded(() -> client.forget(profile(profile), id));
+    return guarded(() -> { client.forget(profile(profile), id); return "204 No Content"; });
   }
 
   private String profile(String override) {
@@ -109,6 +113,8 @@ public class MemoryTools {
       return call.get();
     } catch (DaemonUnavailableException e) {
       return e.getMessage();
+    } catch (DaemonHttpException e) {
+      return e.body().isBlank() ? e.getMessage() : e.body();
     }
   }
 }

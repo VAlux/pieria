@@ -1,7 +1,7 @@
 package dev.alvo.pieria.cli.command.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
+import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.daemon.StartupSummary;
@@ -56,9 +56,9 @@ public final class DaemonStartCommand implements Callable<Integer> {
   @Override
   public Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    DaemonClient client = new DaemonClient(url);
+    HealthClient client = new HealthClient(url);
 
-    if (!dryRun && client.ping() == DaemonClient.Reachability.OK) {
+    if (!dryRun && client.reachable()) {
       log.info("Pieria daemon is already running at {}.", url);
       return 0;
     }
@@ -97,10 +97,10 @@ public final class DaemonStartCommand implements Callable<Integer> {
   /**
    * Wait for the daemon to answer {@code /pieria-health}, then print the readiness banner.
    */
-  private int awaitHealthy(DaemonClient client, String url) {
+  private int awaitHealthy(HealthClient client, String url) {
     long deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L;
     while (System.nanoTime() < deadline) {
-      if (client.ping() == DaemonClient.Reachability.OK) {
+      if (client.reachable()) {
         log.info("Pieria daemon is up at {}.", url);
         log.print(StartupSummary.render(url, PathResolver.create().gatewayCommand()));
         return 0;

@@ -2,14 +2,18 @@ package dev.alvo.pieria.cli.command.profile;
 
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
+import dev.alvo.pieria.client.exception.DaemonClientException;
+import dev.alvo.pieria.client.exception.DaemonConflictException;
+import dev.alvo.pieria.client.exception.DaemonNotFoundException;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import picocli.CommandLine.Option;
 
 import java.util.concurrent.Callable;
 
 /**
  * Shared plumbing for the {@code pieria profile} sub-commands that talk to the daemon: resolves the
- * daemon URL, builds a {@link ProfileApiClient}, and maps the client's typed failures to consistent
+ * daemon URL, builds a {@link ProfileClient}, and maps the client's typed failures to consistent
  * exit codes ({@code 0} ok, {@code 1} error, {@code 3} daemon unreachable, {@code 4} not found).
  */
 abstract class AbstractProfileCommand implements Callable<Integer> {
@@ -22,27 +26,27 @@ abstract class AbstractProfileCommand implements Callable<Integer> {
   /**
    * Do the command's work against the daemon; may throw the client's typed exceptions.
    */
-  protected abstract int run(ProfileApiClient client) throws Exception;
+  protected abstract int run(ProfileClient client) throws Exception;
 
   @Override
   public final Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    ProfileApiClient client = new ProfileApiClient(url);
+    ProfileClient client = new ProfileClient(url);
     try {
       return run(client);
-    } catch (ProfileApiClient.DaemonDownException e) {
+    } catch (DaemonUnavailableException e) {
       log.error("Pieria daemon is not reachable at {}.", url);
       log.error("Start it with 'pieria start'.");
       return 3;
-    } catch (ProfileApiClient.NotFoundException e) {
-      String detail = e.getMessage();
+    } catch (DaemonNotFoundException e) {
+      String detail = e.daemonMessage();
       log.error(detail == null || detail.isBlank() ? "Not found." : detail);
       return 4;
-    } catch (ProfileApiClient.ConflictException e) {
-      String detail = e.getMessage();
+    } catch (DaemonConflictException e) {
+      String detail = e.daemonMessage();
       log.error(detail == null || detail.isBlank() ? "Already exists." : detail);
       return 1;
-    } catch (ProfileApiClient.ApiException e) {
+    } catch (DaemonClientException e) {
       log.error(e.getMessage());
       return 1;
     } catch (Exception e) {

@@ -3,7 +3,8 @@ package dev.alvo.pieria.cli.command.daemon;
 import dev.alvo.pieria.api.response.HealthResponse;
 import dev.alvo.pieria.api.response.StatusResponse;
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
+import dev.alvo.pieria.client.exception.DaemonUnavailableException;
+import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -37,25 +38,21 @@ public final class DaemonStatusCommand implements Callable<Integer> {
   @Override
   public Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    DaemonClient client = new DaemonClient(url);
-
-    return switch (client.status()) {
-      case DaemonClient.Reachable r -> {
+    try {
+      HealthClient.HealthStatusSnapshot snapshot = new HealthClient(url).snapshot();
+      if (snapshot.healthy()) {
         log.info("Pieria daemon: UP ({})", url);
-        printReport(r.health(), r.status());
-        yield 0;
+        printReport(snapshot.health(), snapshot.status());
+        return 0;
       }
-      case DaemonClient.Degraded d -> {
-        log.info("Pieria daemon: DEGRADED ({})", url);
-        printReport(d.health(), d.status());
-        yield 5;
-      }
-      case DaemonClient.Down ignored -> {
-        log.error("Pieria daemon is not reachable at {}.", url);
-        log.error("Start it with 'pieria start'.");
-        yield 3;
-      }
-    };
+      log.info("Pieria daemon: DEGRADED ({})", url);
+      printReport(snapshot.health(), snapshot.status());
+      return 5;
+    } catch (DaemonUnavailableException e) {
+      log.error("Pieria daemon is not reachable at {}.", url);
+      log.error("Start it with 'pieria start'.");
+      return 3;
+    }
   }
 
   private void printReport(HealthResponse health, StatusResponse status) {

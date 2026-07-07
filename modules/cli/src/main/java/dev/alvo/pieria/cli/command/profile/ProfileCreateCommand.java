@@ -1,7 +1,7 @@
 package dev.alvo.pieria.cli.command.profile;
 
 import dev.alvo.pieria.api.response.ProfileSummary;
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -20,8 +20,8 @@ public final class ProfileCreateCommand extends AbstractProfileCommand {
   String name;
 
   @Override
-  protected int run(ProfileApiClient client) {
-    ProfileSummary created = client.createProfile(name);
+  protected int run(ProfileClient client) {
+    ProfileSummary created = client.create(name);
     log.info("Created profile {}", created.name());
     return 0;
   }

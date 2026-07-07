@@ -4,7 +4,7 @@ import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -31,7 +31,7 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
   }
 
   @Override
-  protected int run(ProfileApiClient client) {
+  protected int run(ProfileClient client) {
     ProfileStatsResponse s = client.stats(name);
 
     log.info("Profile: {}", s.name());

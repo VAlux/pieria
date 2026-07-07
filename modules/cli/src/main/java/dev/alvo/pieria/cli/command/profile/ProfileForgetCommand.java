@@ -1,6 +1,6 @@
 package dev.alvo.pieria.cli.command.profile;
 
-import dev.alvo.pieria.cli.modules.daemon.ProfileApiClient;
+import dev.alvo.pieria.client.ProfileClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -21,7 +21,7 @@ public final class ProfileForgetCommand extends AbstractProfileCommand {
   String id;
 
   @Override
-  protected int run(ProfileApiClient client) {
+  protected int run(ProfileClient client) {
     client.forget(name, id);
     log.info("Forgot {}", id);
     return 0;

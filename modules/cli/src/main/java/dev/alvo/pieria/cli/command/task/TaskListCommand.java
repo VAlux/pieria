@@ -3,7 +3,7 @@ package dev.alvo.pieria.cli.command.task;
 import dev.alvo.pieria.api.response.TaskListResponse;
 import dev.alvo.pieria.api.response.TaskSummary;
 import dev.alvo.pieria.cli.log.Durations;
-import dev.alvo.pieria.cli.modules.task.HttpTaskClient;
+import dev.alvo.pieria.client.TaskClient;
 import picocli.CommandLine.Command;
 
 import java.util.List;
@@ -21,7 +21,7 @@ import java.util.List;
 public final class TaskListCommand extends AbstractTaskCommand {
 
   @Override
-  protected int run(HttpTaskClient client) {
+  protected int run(TaskClient client) {
     TaskListResponse response = client.list();
     List<TaskSummary> tasks = response.tasks();
     if (tasks == null || tasks.isEmpty()) {

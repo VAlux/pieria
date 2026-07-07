@@ -1,7 +1,8 @@
 package dev.alvo.pieria.cli.command.update;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.daemon.DaemonClient;
+import dev.alvo.pieria.client.exception.DaemonInterruptedException;
+import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.harness.HarnessRegistry;
@@ -20,6 +21,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
@@ -134,7 +136,7 @@ public final class UpdateCommand implements Callable<Integer> {
     }
 
     String url = DaemonUrls.resolve(daemonUrl);
-    DaemonClient client = new DaemonClient(url);
+    HealthClient client = new HealthClient(url);
     DaemonProcess daemon = new DaemonProcess();
     boolean restart = !noRestart;
 
@@ -215,7 +217,7 @@ public final class UpdateCommand implements Callable<Integer> {
     }
   }
 
-  private void startDaemon(DaemonProcess daemon, DaemonClient client, String url) {
+  private void startDaemon(DaemonProcess daemon, HealthClient client, String url) {
     DaemonProcess.StartOptions opts = new DaemonProcess.StartOptions(null, null, host(url), port(url), false);
     switch (daemon.start(opts)) {
       case DaemonProcess.StartedViaService s -> log.info("Started daemon via {}.", s.detail());
@@ -224,11 +226,15 @@ public final class UpdateCommand implements Callable<Integer> {
       case DaemonProcess.NoMechanism n -> log.error("warning: {}", n.guidance());
       case DaemonProcess.Failed f -> log.error("warning: could not start daemon: {}", f.detail());
     }
-    if (client.awaitHealthy(timeoutSeconds)) {
-      log.info("Daemon healthy at {}.", url);
-    } else {
-      log.error("warning: daemon did not become healthy within {}s; check its logs.", timeoutSeconds);
+    try {
+      if (client.awaitReachable(Duration.ofSeconds(timeoutSeconds))) {
+        log.info("Daemon healthy at {}.", url);
+        return;
+      }
+    } catch (DaemonInterruptedException ignored) {
+      // The shared client restored the interrupt flag; retain the command's warning-only behavior.
     }
+    log.error("warning: daemon did not become healthy within {}s; check its logs.", timeoutSeconds);
   }
 
   private void refreshHooks(InstallLayout install, boolean dryRun) {

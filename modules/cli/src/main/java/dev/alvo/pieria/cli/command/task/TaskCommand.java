@@ -2,7 +2,8 @@ package dev.alvo.pieria.cli.command.task;
 
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.cli.log.ProgressReporter;
-import dev.alvo.pieria.cli.modules.task.HttpTaskClient;
+import dev.alvo.pieria.client.TaskClient;
+import dev.alvo.pieria.cli.modules.task.TaskPoller;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -31,14 +32,14 @@ public final class TaskCommand extends AbstractTaskCommand {
   String taskId;
 
   @Override
-  protected int run(HttpTaskClient client) {
+  protected int run(TaskClient client) {
     if (taskId == null || taskId.isBlank()) {
       CommandLine.usage(this, System.out);
       return 0;
     }
 
     ProgressReporter reporter = new ProgressReporter();
-    TaskStatusResponse terminal = client.attach(taskId, reporter);
+    TaskStatusResponse terminal = new TaskPoller(client).await(taskId, reporter);
     reporter.finish();
     return reportTerminal(terminal);
   }

@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Exercises {@code pieria task} (list / attach / kill) end-to-end against a {@link StubDaemon},
- * driving the real {@link dev.alvo.pieria.cli.modules.task.HttpTaskClient} through {@code --daemon-url}.
+ * driving the shared daemon task client through {@code --daemon-url}.
  * Network-free (loopback only).
  */
 class TaskCommandTests {
