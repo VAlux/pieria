@@ -71,6 +71,9 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--web", description = "Also seed from one or more web pages (repeatable).", paramLabel = "<url>")
   List<String> webUrls = new ArrayList<>();
 
+  @Option(names = "--pdf", description = "Also seed from PDF documents found under the project dir.")
+  boolean pdf;
+
   @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
   boolean reindex;
 
@@ -135,6 +138,9 @@ public final class OnboardCommand implements Callable<Integer> {
     if (!webUrls.isEmpty()) {
       sources.add(new Source("web pages (" + webUrls.size() + ")",
         new SourceSpec.Web(List.copyOf(webUrls), samples)));
+    }
+    if (pdf) {
+      sources.add(new Source("PDF documents", new SourceSpec.Pdf(dir.toString(), samples)));
     }
     return sources;
   }
@@ -238,6 +244,7 @@ public final class OnboardCommand implements Callable<Integer> {
         case SourceSpec.SourceCode c -> "source code under " + c.root()
           + (c.reindex() ? " (reindex)" : "") + (Boolean.TRUE.equals(c.summarize()) ? " (summarize)" : "");
         case SourceSpec.Web w -> "web pages: " + String.join(", ", w.urls());
+        case SourceSpec.Pdf p -> "PDFs under " + p.root();
       };
     }
   }

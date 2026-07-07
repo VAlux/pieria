@@ -25,6 +25,7 @@ import java.util.List;
   @JsonSubTypes.Type(value = SourceSpec.Markdown.class, name = "markdown"),
   @JsonSubTypes.Type(value = SourceSpec.SourceCode.class, name = "source-code"),
   @JsonSubTypes.Type(value = SourceSpec.Web.class, name = "web"),
+  @JsonSubTypes.Type(value = SourceSpec.Pdf.class, name = "pdf"),
 })
 public sealed interface SourceSpec {
 
@@ -70,6 +71,19 @@ public sealed interface SourceSpec {
    */
   record Web(
     @NotEmpty List<@NotBlank String> urls,
+    @Positive Integer extractionSamples) implements SourceSpec {
+  }
+
+  /**
+   * Seed a profile from a project's PDF documents. The daemon enumerates {@code *.pdf} under
+   * {@code root} (via {@code git ls-files}, filesystem-walk fallback), extracts each document's text,
+   * and feeds it through the memory-extraction pipeline.
+   *
+   * @param root              absolute path to the project directory to scan
+   * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   */
+  record Pdf(
+    @NotBlank String root,
     @Positive Integer extractionSamples) implements SourceSpec {
   }
 }

@@ -23,6 +23,11 @@ dependencies {
 	// packaging/native/<os>-<arch>/libtree-sitter.*; keep them on the same minor line.
 	implementation("io.github.tree-sitter:jtreesitter:0.25.6")
 	implementation("org.jsoup:jsoup:1.16.1")
+	// Apache Tika for PDF text extraction (pulls PDFBox transitively). tika-parsers-standard-package
+	// discovers parsers via ServiceLoader and loads resources reflectively — see the daemon's
+	// native-image notes if the GraalVM build needs reachability metadata / a scoped tika-config.
+	implementation("org.apache.tika:tika-core:3.3.1")
+	implementation("org.apache.tika:tika-parsers-standard-package:3.3.1")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	testImplementation(project(":gateway"))
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")

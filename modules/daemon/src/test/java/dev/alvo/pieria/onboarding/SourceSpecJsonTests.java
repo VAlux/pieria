@@ -50,4 +50,14 @@ class SourceSpecJsonTests {
 
     assertThat(mapper.readValue(json, SourceSpec.class)).isEqualTo(spec);
   }
+
+  @Test
+  void pdfRoundTripsWithTypeDiscriminator() {
+    SourceSpec spec = new SourceSpec.Pdf("/abs/proj", 2);
+
+    String json = mapper.writeValueAsString(spec);
+    assertThat(json).contains("\"type\":\"pdf\"");
+
+    assertThat(mapper.readValue(json, SourceSpec.class)).isEqualTo(spec);
+  }
 }

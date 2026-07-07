@@ -84,6 +84,26 @@ class OnboardCommandTests {
   }
 
   @Test
+  void pdfFlagSendsPdfSourceSpecWithProjectRoot(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"pdf\",\"documents\":1,\"memoriesStored\":2}}");
+
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.pdf = true;
+      Result r = run(cmd);
+
+      assertThat(r.code()).isZero();
+      StubDaemon.Recorded posted = daemon.lastRequestTo("/onboard/async");
+      assertThat(posted.body())
+        .contains("\"type\":\"pdf\"")
+        .contains(proj.toAbsolutePath().normalize().toString());
+    }
+  }
+
+  @Test
   void successReportsStoredCount(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {

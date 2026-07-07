@@ -53,6 +53,20 @@ class OnboardingServiceTests {
   }
 
   @Test
+  void routesPdfSpecToThePdfSource() {
+    StubSource<SourceSpec.Markdown> markdown = new StubSource<>(SourceSpec.Markdown.class, "md");
+    StubSource<SourceSpec.Pdf> pdf = new StubSource<>(SourceSpec.Pdf.class, "pdf");
+    OnboardingService service = new OnboardingService(List.of(markdown, pdf));
+
+    OnboardResult result = service.ingest("p",
+      new SourceSpec.Pdf("/abs/proj", null), IngestProgressListener.noop());
+
+    assertThat(result.sourceType()).isEqualTo("pdf");
+    assertThat(pdf.ingested).isTrue();
+    assertThat(markdown.ingested).isFalse();
+  }
+
+  @Test
   void unhandledSpecTypeIsRejected() {
     OnboardingService service = new OnboardingService(
       List.of(new StubSource<>(SourceSpec.Markdown.class, "md")));
