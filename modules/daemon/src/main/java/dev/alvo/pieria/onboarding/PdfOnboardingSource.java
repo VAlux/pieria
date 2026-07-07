@@ -38,7 +38,7 @@ public class PdfOnboardingSource implements OnboardingSource<SourceSpec.Pdf> {
 
   @Override
   public OnboardResult ingest(String profile, SourceSpec.Pdf spec, IngestProgressListener progress) {
-    Path root = Roots.require(spec.root());
+    Path root = Roots.requireFileOrDirectory(spec.root());
     List<Doc> docs = PdfDiscovery.create(root).discover();
 
     List<ContentDocument> documents = new ArrayList<>();

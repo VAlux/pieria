@@ -26,6 +26,7 @@ import java.util.List;
   @JsonSubTypes.Type(value = SourceSpec.SourceCode.class, name = "source-code"),
   @JsonSubTypes.Type(value = SourceSpec.Web.class, name = "web"),
   @JsonSubTypes.Type(value = SourceSpec.Pdf.class, name = "pdf"),
+  @JsonSubTypes.Type(value = SourceSpec.Text.class, name = "text"),
 })
 public sealed interface SourceSpec {
 
@@ -34,7 +35,8 @@ public sealed interface SourceSpec {
    * {@code root} (via {@code git ls-files}, filesystem-walk fallback) and feeds each doc through the
    * memory-extraction pipeline.
    *
-   * @param root              absolute path to the project directory to scan
+   * @param root              absolute path to a directory to scan, or to a single {@code *.md} file
+   *                          to ingest
    * @param includeAgentDocs  when true, also seed {@code CLAUDE.md}/{@code AGENTS.md} (excluded by
    *                          default as already-in-context for harnesses)
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
@@ -79,10 +81,25 @@ public sealed interface SourceSpec {
    * {@code root} (via {@code git ls-files}, filesystem-walk fallback), extracts each document's text,
    * and feeds it through the memory-extraction pipeline.
    *
-   * @param root              absolute path to the project directory to scan
+   * @param root              absolute path to a directory to scan, or to a single {@code *.pdf} file
+   *                          to ingest
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
    */
   record Pdf(
+    @NotBlank String root,
+    @Positive Integer extractionSamples) implements SourceSpec {
+  }
+
+  /**
+   * Seed a profile from a project's plain-text documents. The daemon enumerates {@code *.txt} under
+   * {@code root} (via {@code git ls-files}, filesystem-walk fallback), reads each document's text,
+   * and feeds it through the memory-extraction pipeline.
+   *
+   * @param root              absolute path to a directory to scan, or to a single {@code *.txt} file
+   *                          to ingest
+   * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   */
+  record Text(
     @NotBlank String root,
     @Positive Integer extractionSamples) implements SourceSpec {
   }

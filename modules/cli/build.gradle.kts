@@ -85,3 +85,38 @@ graalvmNative {
 		}
 	}
 }
+
+// Fast CLI-only redeploy: native-compile just the `pieria` binary and drop it into the installed
+// bin/ without rebuilding the daemon and gateway. Uses Copy (not Sync) so it never deletes the
+// sibling daemon/gateway binaries, version stamp, or harness assets already in PIERIA_HOME. For a
+// full, consistent distribution (all three binaries + harness) use :daemon:deployLocal instead.
+val deployLocal by tasks.registering(Copy::class) {
+	group = "distribution"
+	description = "Native-compile only the CLI and copy the pieria binary into ~/.local/share/pieria/bin."
+	dependsOn(tasks.named("nativeCompile"))
+	from(tasks.named("nativeCompile")) {
+		include("pieria", "pieria.exe")
+	}
+	val home = providers.environmentVariable("PIERIA_HOME").orElse(
+		providers.systemProperty("user.home").map { "$it/.local/share/pieria" }
+	)
+	into(home.map { "$it/bin" })
+	// Replacing the installed binary invalidates AMFI's signature cache for that path, so macOS SIGKILLs
+	// the next exec (`Killed: 9`). Re-sign the fresh `pieria` ad-hoc so it launches without a manual
+	// codesign step. Mirrors :daemon reSignAdhocMacOs; ProcessBuilder keeps it configuration-cache safe.
+	doLast {
+		if (System.getProperty("os.name").lowercase().contains("mac")) {
+			val bin = destinationDir.resolve("pieria")
+			if (bin.isFile) {
+				val proc = ProcessBuilder("codesign", "--force", "--sign", "-", bin.absolutePath)
+					.redirectErrorStream(true)
+					.start()
+				val output = proc.inputStream.bufferedReader().readText()
+				if (proc.waitFor() != 0) {
+					throw GradleException("codesign failed for ${bin.name}: $output")
+				}
+				logger.lifecycle("pieria: re-signed ${bin.name} ad-hoc (macOS AMFI)")
+			}
+		}
+	}
+}

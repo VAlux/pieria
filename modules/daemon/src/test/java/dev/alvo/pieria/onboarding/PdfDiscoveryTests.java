@@ -58,4 +58,26 @@ class PdfDiscoveryTests {
 
     assertThat(discovery.discover()).isEmpty();
   }
+
+  @Test
+  void singlePdfFileRootIsIngestedDirectlyBypassingGit(@TempDir Path proj) throws IOException {
+    Path file = proj.resolve("paper.pdf");
+    Files.writeString(file, "%PDF-1.4");
+    PdfDiscovery discovery = new PdfDiscovery(file, dir -> {
+      throw new AssertionError("git seam must not be consulted for a single file");
+    });
+
+    List<PdfDiscovery.Doc> docs = discovery.discover();
+    assertThat(relatives(docs)).containsExactly("paper.pdf");
+    assertThat(docs.get(0).absolute()).isEqualTo(file);
+  }
+
+  @Test
+  void singleFileWithWrongExtensionYieldsNothing(@TempDir Path proj) throws IOException {
+    Path file = proj.resolve("notes.txt");
+    Files.writeString(file, "plain");
+    PdfDiscovery discovery = new PdfDiscovery(file, dir -> Optional.of(List.of()));
+
+    assertThat(discovery.discover()).isEmpty();
+  }
 }

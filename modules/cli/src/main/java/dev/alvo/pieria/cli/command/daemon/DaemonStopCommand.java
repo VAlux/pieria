@@ -8,7 +8,7 @@ import picocli.CommandLine.Option;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria daemon stop} — stop a running daemon.
+ * {@code pieria stop} — stop a running daemon.
  *
  * <p>Hybrid: if an OS service is installed the stop is delegated to it; otherwise the PID file
  * written by a CLI-spawned daemon is used to send SIGTERM (escalating to a forced kill if needed).

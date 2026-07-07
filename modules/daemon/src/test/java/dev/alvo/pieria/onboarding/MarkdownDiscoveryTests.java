@@ -67,4 +67,35 @@ class MarkdownDiscoveryTests {
 
     assertThat(discovery.discover(false)).isEmpty();
   }
+
+  @Test
+  void singleMarkdownFileRootIsIngestedDirectlyBypassingGit(@TempDir Path proj) throws IOException {
+    Path file = proj.resolve("guide.md");
+    Files.writeString(file, "# Guide");
+    MarkdownDiscovery discovery = new MarkdownDiscovery(file, dir -> {
+      throw new AssertionError("git seam must not be consulted for a single file");
+    });
+
+    List<MarkdownDiscovery.Doc> docs = discovery.discover(false);
+    assertThat(relatives(docs)).containsExactly("guide.md");
+    assertThat(docs.get(0).absolute()).isEqualTo(file);
+  }
+
+  @Test
+  void explicitlyNamedAgentDocFileBypassesTheExclusion(@TempDir Path proj) throws IOException {
+    Path file = proj.resolve("CLAUDE.md");
+    Files.writeString(file, "# Agent");
+    MarkdownDiscovery discovery = new MarkdownDiscovery(file, dir -> Optional.of(List.of()));
+
+    assertThat(relatives(discovery.discover(false))).containsExactly("CLAUDE.md");
+  }
+
+  @Test
+  void singleFileWithWrongExtensionYieldsNothing(@TempDir Path proj) throws IOException {
+    Path file = proj.resolve("notes.txt");
+    Files.writeString(file, "plain");
+    MarkdownDiscovery discovery = new MarkdownDiscovery(file, dir -> Optional.of(List.of()));
+
+    assertThat(discovery.discover(false)).isEmpty();
+  }
 }

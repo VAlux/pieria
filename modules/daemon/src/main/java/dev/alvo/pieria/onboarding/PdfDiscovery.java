@@ -108,6 +108,14 @@ public final class PdfDiscovery {
    * Discover the PDF docs to seed, sorted by relative path for deterministic output.
    */
   public List<Doc> discover() {
+    // A root that names a single file is ingested directly (no scan).
+    if (Files.isRegularFile(projectDir)) {
+      Path name = projectDir.getFileName();
+      return name != null && name.toString().toLowerCase(Locale.ROOT).endsWith(".pdf")
+        ? List.of(new Doc(name, projectDir))
+        : List.of();
+    }
+
     List<String> relative = gitLsFiles.list(projectDir)
       .orElseGet(() -> walkFilesystem(projectDir));
 

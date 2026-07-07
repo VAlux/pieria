@@ -11,27 +11,19 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * Enumerates the markdown documentation of a project to seed a Pieria profile.
+ * Enumerates the plain-text ({@code *.txt}) documents of a project to seed a Pieria profile.
  *
- * <p>Primary source is {@code git ls-files '*.md'}, which naturally excludes build output,
+ * <p>Primary source is {@code git ls-files '*.txt'}, which naturally excludes build output,
  * {@code .git/}, {@code node_modules/}, and anything gitignored. When the directory is not a git
- * repository (or git is unavailable), it falls back to a filesystem walk that filters {@code *.md}
+ * repository (or git is unavailable), it falls back to a filesystem walk that filters {@code *.txt}
  * and skips the obvious non-source directories.
- *
- * <p>{@code CLAUDE.md} and {@code AGENTS.md} are excluded by default: harnesses already load those
- * into context every session, so seeding them as memories is redundant. Pass {@code includeAgentDocs}
- * to opt them back in.
  *
  * <h2>Testability</h2>
  * Git enumeration is an injected seam ({@link GitLsFiles}), so tests need no real repository.
  * Use {@link #create(Path)} for production wiring.
  */
-public final class MarkdownDiscovery {
+public final class TextDiscovery {
 
-  /**
-   * Agent docs that are always-in-context for harnesses; excluded unless explicitly requested.
-   */
-  private static final Set<String> AGENT_DOCS = Set.of("CLAUDE.md", "AGENTS.md");
   /**
    * Directories skipped by the non-git fallback walk (git enumeration excludes these for free).
    */
@@ -42,7 +34,7 @@ public final class MarkdownDiscovery {
   /**
    * Test constructor: inject the git enumeration seam.
    */
-  MarkdownDiscovery(Path projectDir, GitLsFiles gitLsFiles) {
+  TextDiscovery(Path projectDir, GitLsFiles gitLsFiles) {
     this.projectDir = projectDir;
     this.gitLsFiles = gitLsFiles;
   }
@@ -50,26 +42,18 @@ public final class MarkdownDiscovery {
   /**
    * Production factory: wires a {@link ProcessBuilder}-based {@code git ls-files} reader.
    */
-  public static MarkdownDiscovery create(Path projectDir) {
-    return new MarkdownDiscovery(projectDir, realGitReader());
+  public static TextDiscovery create(Path projectDir) {
+    return new TextDiscovery(projectDir, realGitReader());
   }
 
   /**
-   * True when the path's file name is one of the always-in-context agent docs.
-   */
-  static boolean isAgentDoc(Path relative) {
-    Path name = relative.getFileName();
-    return name != null && AGENT_DOCS.contains(name.toString());
-  }
-
-  /**
-   * Fallback when not in a git repo: walk the tree for {@code *.md}, skipping non-source dirs.
+   * Fallback when not in a git repo: walk the tree for {@code *.txt}, skipping non-source dirs.
    */
   private static List<String> walkFilesystem(Path root) {
     try (Stream<Path> stream = Files.walk(root)) {
       return stream
         .filter(Files::isRegularFile)
-        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".md"))
+        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".txt"))
         .filter(p -> !isUnderSkippedDir(root.relativize(p)))
         .map(p -> root.relativize(p).toString())
         .toList();
@@ -88,12 +72,12 @@ public final class MarkdownDiscovery {
   }
 
   /**
-   * Production reader: {@code git ls-files -z '*.md'}, fail-closed to empty on any error.
+   * Production reader: {@code git ls-files -z '*.txt'}, fail-closed to empty on any error.
    */
   private static GitLsFiles realGitReader() {
     return projectDir -> {
       try {
-        Process process = new ProcessBuilder("git", "ls-files", "-z", "*.md")
+        Process process = new ProcessBuilder("git", "ls-files", "-z", "*.txt")
           .directory(projectDir.toFile())
           .redirectErrorStream(true)
           .start();
@@ -121,16 +105,13 @@ public final class MarkdownDiscovery {
   }
 
   /**
-   * Discover the markdown docs to seed, sorted by relative path for deterministic output.
-   *
-   * @param includeAgentDocs when false (default), drop {@code CLAUDE.md}/{@code AGENTS.md}
+   * Discover the text docs to seed, sorted by relative path for deterministic output.
    */
-  public List<Doc> discover(boolean includeAgentDocs) {
-    // A root that names a single file is ingested directly (no scan). The agent-doc exclusion is
-    // deliberately bypassed here: an explicitly named CLAUDE.md/AGENTS.md was asked for on purpose.
+  public List<Doc> discover() {
+    // A root that names a single file is ingested directly (no scan).
     if (Files.isRegularFile(projectDir)) {
       Path name = projectDir.getFileName();
-      return name != null && name.toString().toLowerCase(Locale.ROOT).endsWith(".md")
+      return name != null && name.toString().toLowerCase(Locale.ROOT).endsWith(".txt")
         ? List.of(new Doc(name, projectDir))
         : List.of();
     }
@@ -141,9 +122,6 @@ public final class MarkdownDiscovery {
     List<Doc> docs = new ArrayList<>();
     for (String rel : relative) {
       Path relPath = Path.of(rel);
-      if (!includeAgentDocs && isAgentDoc(relPath)) {
-        continue;
-      }
       docs.add(new Doc(relPath, projectDir.resolve(relPath)));
     }
     docs.sort((a, b) -> a.relative().toString().compareTo(b.relative().toString()));
@@ -151,7 +129,7 @@ public final class MarkdownDiscovery {
   }
 
   /**
-   * Lists repo-relative {@code *.md} paths for a directory, or empty when not a git repo / git failed.
+   * Lists repo-relative {@code *.txt} paths for a directory, or empty when not a git repo / git failed.
    */
   @FunctionalInterface
   public interface GitLsFiles {
@@ -159,7 +137,7 @@ public final class MarkdownDiscovery {
   }
 
   /**
-   * A discovered markdown document: its repo-relative path (for provenance) and absolute path (for reading).
+   * A discovered text document: its repo-relative path (for provenance) and absolute path (for reading).
    */
   public record Doc(Path relative, Path absolute) {
   }

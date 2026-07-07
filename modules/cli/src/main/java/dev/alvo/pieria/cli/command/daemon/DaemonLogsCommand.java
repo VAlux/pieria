@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria daemon logs} — tail the current daemon log to the terminal.
+ * {@code pieria logs} — tail the current daemon log to the terminal.
  *
  * <p>Reads the on-disk log files directly rather than streaming over the daemon API, so it keeps
  * working when the daemon is down or has crashed. Tailing is pure Java (no {@code tail -f}), so it
@@ -64,7 +64,7 @@ public final class DaemonLogsCommand implements Callable<Integer> {
     if (target == null || !Files.isRegularFile(target)) {
       if (!follow) {
         log.error("No daemon log file found in {}.", dir);
-        log.error("The daemon may not have started yet — try 'pieria daemon start'.");
+        log.error("The daemon may not have started yet — try 'pieria start'.");
         return 1;
       }
       target = (target != null) ? target : dir.resolve(CANDIDATES.get(0));

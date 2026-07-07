@@ -89,7 +89,7 @@ public final class ConfigSyncCommand implements Callable<Integer> {
 
   private int daemonDown(String url) {
     log.error("Pieria daemon is not reachable at {}.", url);
-    log.error("Start it with 'pieria daemon start' and re-run 'pieria config sync'.");
+    log.error("Start it with 'pieria start' and re-run 'pieria config sync'.");
     return 3;
   }
 

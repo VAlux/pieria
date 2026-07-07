@@ -13,7 +13,7 @@ import java.net.URI;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria daemon start} — start the daemon if it is not already running.
+ * {@code pieria start} — start the daemon if it is not already running.
  *
  * <p>Hybrid: if an OS service is installed (launchd / systemd --user) the start is delegated to it;
  * otherwise a detached daemon process is spawned and tracked by a PID file. After triggering a

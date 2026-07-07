@@ -32,7 +32,7 @@ abstract class AbstractProfileCommand implements Callable<Integer> {
       return run(client);
     } catch (ProfileApiClient.DaemonDownException e) {
       log.error("Pieria daemon is not reachable at {}.", url);
-      log.error("Start it with 'pieria daemon start'.");
+      log.error("Start it with 'pieria start'.");
       return 3;
     } catch (ProfileApiClient.NotFoundException e) {
       String detail = e.getMessage();

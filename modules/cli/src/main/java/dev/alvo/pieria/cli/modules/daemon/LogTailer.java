@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Portable, pure-Java tailing primitives for the daemon log files, used by
- * {@code pieria daemon logs}. Deliberately free of system tools ({@code tail -f},
+ * {@code pieria logs}. Deliberately free of system tools ({@code tail -f},
  * PowerShell {@code Get-Content}) so it behaves identically on macOS, Linux, and Windows and is
  * safe under GraalVM native image (plain file IO, no reflection).
  *

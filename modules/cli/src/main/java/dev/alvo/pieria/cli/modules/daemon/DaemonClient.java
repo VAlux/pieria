@@ -13,7 +13,7 @@ import java.time.Duration;
 
 /**
  * Talks to the local daemon's introspection endpoints ({@code GET /pieria-health}, {@code GET /pieria-status})
- * with short timeouts so the {@code pieria daemon} commands stay snappy.
+ * with short timeouts so the {@code pieria} daemon lifecycle commands stay snappy.
  */
 public final class DaemonClient {
 
@@ -49,7 +49,7 @@ public final class DaemonClient {
 
   /**
    * Poll {@code /pieria-health} until the daemon answers or {@code timeoutSeconds} elapses. Shared
-   * by {@code daemon start} and {@code update} so both wait the same way.
+   * by {@code start} and {@code update} so both wait the same way.
    *
    * @return {@code true} if the daemon became reachable within the budget
    */

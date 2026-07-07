@@ -65,7 +65,7 @@ public final class ConfigShowCommand implements Callable<Integer> {
 
   private int daemonDown(String url) {
     log.error("Pieria daemon is not reachable at {}.", url);
-    log.error("Start it with 'pieria daemon start' and re-run 'pieria config show'.");
+    log.error("Start it with 'pieria start' and re-run 'pieria config show'.");
     return 3;
   }
 

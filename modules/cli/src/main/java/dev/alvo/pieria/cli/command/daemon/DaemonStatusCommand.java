@@ -11,7 +11,7 @@ import picocli.CommandLine.Option;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria daemon status} — report whether the daemon is running and, when it is, a rich
+ * {@code pieria status} — report whether the daemon is running and, when it is, a rich
  * operational snapshot drawn from {@code /pieria-health} (overall health, db, model provider) and
  * {@code /pieria-status} (backend, models, paths, vectorization backlog).
  *
@@ -52,7 +52,7 @@ public final class DaemonStatusCommand implements Callable<Integer> {
       }
       case DaemonClient.Down ignored -> {
         log.error("Pieria daemon is not reachable at {}.", url);
-        log.error("Start it with 'pieria daemon start'.");
+        log.error("Start it with 'pieria start'.");
         yield 3;
       }
     };

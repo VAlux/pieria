@@ -24,6 +24,12 @@
       },
       {
         "pattern": "prompts/.*\\.txt"
+      },
+      {
+        "pattern": "org/apache/pdfbox/resources/.*"
+      },
+      {
+        "pattern": "org/apache/fontbox/.*\\.txt"
       }
     ]
   }

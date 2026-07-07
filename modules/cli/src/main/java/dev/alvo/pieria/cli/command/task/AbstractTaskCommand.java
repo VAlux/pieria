@@ -29,7 +29,7 @@ abstract class AbstractTaskCommand implements Callable<Integer> {
       return run(client);
     } catch (HttpTaskClient.DaemonDownException e) {
       log.error("Pieria daemon is not reachable at {}.", url);
-      log.error("Start it with 'pieria daemon start'.");
+      log.error("Start it with 'pieria start'.");
       return 3;
     } catch (HttpTaskClient.NotFoundException e) {
       log.error("No such task. It may have finished and been evicted, or the daemon was restarted.");

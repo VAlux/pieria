@@ -1,0 +1,65 @@
+package dev.alvo.pieria.onboarding;
+
+import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.ingestion.IngestProgressListener;
+import dev.alvo.pieria.onboarding.TextDiscovery.Doc;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Onboarding source that seeds a profile from a project's plain-text ({@code *.txt}) documents.
+ * Discovers text files under the spec's {@code root} and feeds each doc through the
+ * memory-extraction pipeline via {@link ContentIngestor}.
+ */
+@Component
+public class TextOnboardingSource implements OnboardingSource<SourceSpec.Text> {
+
+  private static final Logger log = LoggerFactory.getLogger(TextOnboardingSource.class);
+
+  private final ContentIngestor ingestor;
+
+  public TextOnboardingSource(ContentIngestor ingestor) {
+    this.ingestor = ingestor;
+  }
+
+  @Override
+  public Class<SourceSpec.Text> specType() {
+    return SourceSpec.Text.class;
+  }
+
+  @Override
+  public OnboardResult ingest(String profile, SourceSpec.Text spec, IngestProgressListener progress) {
+    Path root = Roots.requireFileOrDirectory(spec.root());
+    List<Doc> docs = TextDiscovery.create(root).discover();
+
+    List<ContentDocument> documents = new ArrayList<>();
+    for (Doc doc : docs) {
+      String text = readDoc(doc.absolute());
+      if (text != null && !text.isBlank()) {
+        documents.add(new ContentDocument("Text document — " + doc.relative(), text));
+      }
+    }
+    return ingestor.ingest(profile, "text", documents, spec.extractionSamples(), progress);
+  }
+
+  /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */
+  private String readDoc(Path absolute) {
+    try {
+      return Files.readString(absolute);
+    } catch (IOException e) {
+      log.warn("onboard text: failed to read {} ({}); skipping", absolute.getFileName(), e.toString());
+      return null;
+    } catch (UncheckedIOException e) {
+      log.warn("onboard text: failed to read a doc ({}); skipping", e.toString());
+      return null;
+    }
+  }
+}

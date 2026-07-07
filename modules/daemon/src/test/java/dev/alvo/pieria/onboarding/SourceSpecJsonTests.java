@@ -60,4 +60,14 @@ class SourceSpecJsonTests {
 
     assertThat(mapper.readValue(json, SourceSpec.class)).isEqualTo(spec);
   }
+
+  @Test
+  void textRoundTripsWithTypeDiscriminator() {
+    SourceSpec spec = new SourceSpec.Text("/abs/proj", 2);
+
+    String json = mapper.writeValueAsString(spec);
+    assertThat(json).contains("\"type\":\"text\"");
+
+    assertThat(mapper.readValue(json, SourceSpec.class)).isEqualTo(spec);
+  }
 }

@@ -11,7 +11,7 @@ import java.net.URI;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria daemon restart} — stop the daemon (if running) and start it again, waiting for it to
+ * {@code pieria restart} — stop the daemon (if running) and start it again, waiting for it to
  * come healthy. A convenience over {@code stop} + {@code start}; delegates to the same
  * service-aware {@link DaemonProcess}.
  */

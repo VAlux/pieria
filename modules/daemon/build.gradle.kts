@@ -23,11 +23,25 @@ dependencies {
 	// packaging/native/<os>-<arch>/libtree-sitter.*; keep them on the same minor line.
 	implementation("io.github.tree-sitter:jtreesitter:0.25.6")
 	implementation("org.jsoup:jsoup:1.16.1")
-	// Apache Tika for PDF text extraction (pulls PDFBox transitively). tika-parsers-standard-package
-	// discovers parsers via ServiceLoader and loads resources reflectively — see the daemon's
-	// native-image notes if the GraalVM build needs reachability metadata / a scoped tika-config.
+	// Apache Tika for PDF text extraction (pulls PDFBox transitively). We depend on the scoped
+	// tika-parser-pdf-module rather than tika-parsers-standard-package: the standard package drags in
+	// the mail module, whose transitive org.eclipse.angus:angus-activation ships a native-image Feature
+	// (AngusActivationFeature) that aborts the GraalVM build with NoClassDefFoundError:
+	// jakarta/mail/MessagingException (no jakarta.mail on the classpath). The pdf module is all the PDF
+	// path needs; AutoDetectParser still discovers PDFParser via ServiceLoader and tika-core supplies
+	// PDF magic-byte detection.
 	implementation("org.apache.tika:tika-core:3.3.1")
-	implementation("org.apache.tika:tika-parsers-standard-package:3.3.1")
+	implementation("org.apache.tika:tika-parser-pdf-module:3.3.1") {
+		// jaxb-runtime (used for PDF XMP metadata) drags in org.eclipse.angus:angus-activation, whose
+		// native-image Feature (AngusActivationFeature) aborts the GraalVM build:
+		// NoClassDefFoundError: jakarta/mail/MessagingException. Its default mailcap registers mail
+		// DataContentHandlers reflectively, which need jakarta.mail — absent here, and not needed:
+		// XMP is unmarshalled straight to beans and never touches the activation DataHandler path.
+		// Drop the activation impl; jakarta.activation-api (below) stays for JAXB's link-time refs.
+		exclude(group = "org.eclipse.angus", module = "angus-activation")
+	}
+	// JAXB links against the activation API; keep it even though the angus impl is excluded above.
+	implementation("jakarta.activation:jakarta.activation-api:2.1.4")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	testImplementation(project(":gateway"))
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")

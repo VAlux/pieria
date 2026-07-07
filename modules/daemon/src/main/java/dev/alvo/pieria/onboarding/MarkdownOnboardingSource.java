@@ -37,7 +37,7 @@ public class MarkdownOnboardingSource implements OnboardingSource<SourceSpec.Mar
 
   @Override
   public OnboardResult ingest(String profile, SourceSpec.Markdown spec, IngestProgressListener progress) {
-    Path root = Roots.require(spec.root());
+    Path root = Roots.requireFileOrDirectory(spec.root());
     List<Doc> docs = MarkdownDiscovery.create(root).discover(spec.includeAgentDocs());
 
     List<ContentDocument> documents = new ArrayList<>();
