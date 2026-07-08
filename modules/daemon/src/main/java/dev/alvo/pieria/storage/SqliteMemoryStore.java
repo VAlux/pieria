@@ -977,6 +977,44 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public List<Memory> findGraphOrphans(String profileId, int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    return jdbc.sql("""
+        SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
+        FROM memories m \
+        WHERE m.profile_id = ? AND m.superseded = 0 AND m.type != ? AND m.graph_adopted_at IS NULL \
+        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.memory_id = m.id) \
+        ORDER BY m.created_at ASC \
+        LIMIT ?""")
+      .params(profileId, MemoryType.TASK.wire(), limit)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  public long countGraphOrphans(String profileId) {
+    Long count = jdbc.sql("""
+        SELECT COUNT(*) FROM memories m \
+        WHERE m.profile_id = ? AND m.superseded = 0 AND m.type != ? AND m.graph_adopted_at IS NULL \
+        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.memory_id = m.id)""")
+      .params(profileId, MemoryType.TASK.wire())
+      .query(Long.class)
+      .single();
+    return count == null ? 0L : count;
+  }
+
+  @Override
+  @Transactional
+  public void attachGraph(String profileId, String memoryId, GraphFragment graph) {
+    persistGraph(profileId, memoryId, graph);
+    jdbc.sql("UPDATE memories SET graph_adopted_at = ? WHERE id = ? AND profile_id = ?")
+      .params(Instant.now().toString(), memoryId, profileId)
+      .update();
+  }
+
+  @Override
   @Transactional
   public Entity upsertEntity(String profileId, Entity entity) {
     String id = entity.id() != null

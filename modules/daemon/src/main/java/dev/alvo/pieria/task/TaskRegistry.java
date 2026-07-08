@@ -98,6 +98,7 @@ public class TaskRegistry {
       try {
         JsonNode result = work.apply(listener);
         ref.updateAndGet(s -> s.succeeded(result, Instant.now()));
+        log.info("task {} succeeded ({})", id, kind);
       } catch (TaskCancelledException e) {
         log.info("task {} cancelled", id);
         ref.updateAndGet(s -> s.cancelled(Instant.now()));
@@ -107,14 +108,19 @@ public class TaskRegistry {
         String reason = ModelFailures.describe(e);
         log.warn("task {} failed: model unavailable: {}", id, reason, e);
         ref.updateAndGet(s -> s.failed("model-unavailable", reason, Instant.now()));
-      } catch (RuntimeException e) {
+      } catch (Throwable e) {
+        // Catch Throwable, not just RuntimeException: the work runs via executor.submit(Runnable),
+        // so any escaping Throwable (e.g. a GraalVM MissingReflectionRegistrationError from
+        // serializing an unregistered result record) is otherwise captured silently in the unread
+        // Future and the task is stranded RUNNING forever. A task boundary must always end terminal.
         // An interrupt backstop may surface as a wrapped interruption rather than our cancel signal.
         if (entry.cancelRequested) {
           log.info("task {} cancelled", id);
           ref.updateAndGet(s -> s.cancelled(Instant.now()));
         } else {
           log.warn("task {} failed", id, e);
-          ref.updateAndGet(s -> s.failed("failure", e.getMessage(), Instant.now()));
+          String message = e.getMessage() == null ? e.toString() : e.getMessage();
+          ref.updateAndGet(s -> s.failed("failure", message, Instant.now()));
         }
       }
     });

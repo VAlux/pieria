@@ -8,6 +8,7 @@ import dev.alvo.pieria.cli.command.daemon.DaemonStatusCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonStopCommand;
 import dev.alvo.pieria.cli.command.harness.HarnessCommand;
 import dev.alvo.pieria.cli.command.init.OnboardCommand;
+import dev.alvo.pieria.cli.command.init.ReminisceCommand;
 import dev.alvo.pieria.cli.command.profile.ProfileCommand;
 import dev.alvo.pieria.cli.command.task.TaskCommand;
 import dev.alvo.pieria.cli.command.update.UpdateCommand;
@@ -29,6 +30,7 @@ import picocli.CommandLine.Command;
     HarnessCommand.class,
     ProfileCommand.class,
     OnboardCommand.class,
+    ReminisceCommand.class,
     TaskCommand.class,
     DaemonStatusCommand.class,
     DaemonStartCommand.class,

@@ -232,4 +232,52 @@ class SqliteMemoryStoreGraphTests {
     assertEquals(first.stored().id(), ordered.get(0).id());
     assertEquals(second.stored().id(), ordered.get(1).id());
   }
+
+  @Test
+  void findGraphOrphansReturnsEdgelessActiveNonTaskMemories() {
+    Profile p = store.getOrCreateProfile("g-orphans");
+    // Edgeless (stored 2-arg) → orphan.
+    MemoryStore.StoreOutcome orphan =
+      store.store(p.id(), Memory.of(MemoryType.FACT, "orphan fact", "s1", null, null));
+    // Has a graph fragment → not an orphan.
+    store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s2", null, null), frag("alpha", "uses", "beta"));
+    // TASK memories are excluded from graph extraction, so never orphans.
+    store.store(p.id(), Memory.of(MemoryType.TASK, "do the thing", "s3", null, null));
+
+    assertEquals(1L, store.countGraphOrphans(p.id()));
+    List<Memory> orphans = store.findGraphOrphans(p.id(), 100);
+    assertEquals(1, orphans.size());
+    assertEquals(orphan.stored().id(), orphans.get(0).id());
+  }
+
+  @Test
+  void attachGraphAddsEdgesStampsAdoptionAndIsIdempotent() {
+    Profile p = store.getOrCreateProfile("g-attach");
+    MemoryStore.StoreOutcome orphan =
+      store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s1", null, null));
+
+    store.attachGraph(p.id(), orphan.stored().id(), frag("alpha", "uses", "beta"));
+    // Re-attaching the same fragment is idempotent (content-addressed insert-or-ignore).
+    store.attachGraph(p.id(), orphan.stored().id(), frag("alpha", "uses", "beta"));
+
+    assertEquals(1L, edgeCount(p.id()));
+    assertEquals(1, store.graphSnapshot(p.id()).links().size());
+    // Adopted → no longer an orphan.
+    assertEquals(0L, store.countGraphOrphans(p.id()));
+    assertTrue(store.findGraphOrphans(p.id(), 100).isEmpty());
+  }
+
+  @Test
+  void attachGraphEmptyFragmentStillStampsSoItIsNeverReprocessed() {
+    Profile p = store.getOrCreateProfile("g-attach-empty");
+    MemoryStore.StoreOutcome orphan =
+      store.store(p.id(), Memory.of(MemoryType.FACT, "trivial fact", "s1", null, null));
+
+    assertEquals(1L, store.countGraphOrphans(p.id()));
+    store.attachGraph(p.id(), orphan.stored().id(), GraphFragment.empty());
+
+    // No edges created, but the memory is stamped and drops out of the orphan set.
+    assertEquals(0L, edgeCount(p.id()));
+    assertEquals(0L, store.countGraphOrphans(p.id()));
+  }
 }

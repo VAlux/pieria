@@ -81,6 +81,13 @@ public class FakeModelGateway implements ModelGateway {
     }
   }
 
+  /** Reflects {@link #setUnavailable(boolean)} so a test can simulate a down provider for pre-flight
+   *  reachability checks (e.g. {@code ReminiscenceService}). */
+  @Override
+  public boolean isModelProviderReachable() {
+    return !unavailable;
+  }
+
   @Override
   public List<Memory> extractMemories(List<Message> messages) {
     failIfUnavailable();

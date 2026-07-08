@@ -4,6 +4,8 @@ import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
+import dev.alvo.pieria.onboarding.OnboardResult;
+import dev.alvo.pieria.reminiscence.ReminiscenceResult;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -22,6 +24,17 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
   @Override
   public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
     for (Class<?> type : configModelTypes()) {
+      hints.reflection().registerType(type,
+        MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
+        MemberCategory.INVOKE_PUBLIC_METHODS);
+    }
+    // Async task result payloads serialized to JSON via ObjectMapper.valueToTree inside the task body
+    // (OnboardController / ReminiscenceController). Unlike CodeIndexResponse — an api.response DTO
+    // auto-registered by ApiContractFeature — these live in daemon domain packages, so without a hint
+    // Jackson cannot reflect over their record accessors: valueToTree throws
+    // MissingReflectionRegistrationError, which (escaping into the task's unread Future) strands the
+    // task RUNNING forever. Register the public accessors/constructors Jackson serializes over.
+    for (Class<?> type : taskResultTypes()) {
       hints.reflection().registerType(type,
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
         MemberCategory.INVOKE_PUBLIC_METHODS);
@@ -91,6 +104,13 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       DaemonOverrides.Retrieval.class,
       PieriaConfigFile.class,
       DiscoveryConfig.class
+    };
+  }
+
+  private static Class<?>[] taskResultTypes() {
+    return new Class<?>[] {
+      OnboardResult.class,
+      ReminiscenceResult.class
     };
   }
 }

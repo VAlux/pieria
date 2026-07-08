@@ -61,6 +61,21 @@ class TaskRegistryTests {
   }
 
   @Test
+  void errorFromWorkIsRecordedAsFailureNotStrandedRunning() throws InterruptedException {
+    // A non-RuntimeException Throwable (e.g. a GraalVM MissingReflectionRegistrationError from
+    // serializing an unregistered result record) must still drive the task to a terminal state,
+    // never leave it stuck RUNNING with the Throwable swallowed by the unread Future.
+    UUID id = registry.submit("ingest", "p", progress -> {
+      throw new AssertionError("simulated Error escaping the work body");
+    });
+
+    TaskSnapshot s = awaitTerminal(id);
+    assertThat(s.status()).isEqualTo(TaskStatus.FAILED);
+    assertThat(s.errorKind()).isEqualTo("failure");
+    assertThat(s.errorMessage()).contains("simulated Error");
+  }
+
+  @Test
   void modelUnavailableIsClassified() throws InterruptedException {
     UUID id = registry.submit("ingest", "p", progress -> {
       throw new ModelUnavailableException("provider down");

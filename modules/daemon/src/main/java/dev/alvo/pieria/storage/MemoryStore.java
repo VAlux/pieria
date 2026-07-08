@@ -411,4 +411,34 @@ public interface MemoryStore {
   default GraphSnapshot graphSnapshot(String profileId) {
     throw new UnsupportedOperationException("graphSnapshot(...) not implemented");
   }
+
+  /**
+   * Active, non-{@code TASK} memories that carry no graph edges and have not yet been through orphan
+   * adoption ({@code graph_adopted_at IS NULL}), oldest first, capped at {@code limit}. These are the
+   * "orphans" the reminiscence task retroactively weaves into the graph (typically {@code remember}-
+   * authored memories, which are stored with an empty fragment). See
+   * {@link dev.alvo.pieria.reminiscence.ReminiscenceService}.
+   */
+  default List<Memory> findGraphOrphans(String profileId, int limit) {
+    throw new UnsupportedOperationException("findGraphOrphans(...) not implemented");
+  }
+
+  /**
+   * Count of the same set {@link #findGraphOrphans} returns, for a cheap dry-run and a stable
+   * progress total.
+   */
+  default long countGraphOrphans(String profileId) {
+    throw new UnsupportedOperationException("countGraphOrphans(...) not implemented");
+  }
+
+  /**
+   * Retroactively attach an already-extracted fragment to an existing memory, then stamp
+   * {@code graph_adopted_at} so a genuinely-edgeless memory is never re-extracted. No re-store of the
+   * memory occurs (so no {@code topic_key} supersession is re-triggered and no vectorization is
+   * re-enqueued). Idempotent: entity/edge upserts are insert-or-ignore, and an empty fragment only
+   * stamps the marker. Runs in one transaction.
+   */
+  default void attachGraph(String profileId, String memoryId, GraphFragment graph) {
+    throw new UnsupportedOperationException("attachGraph(...) not implemented");
+  }
 }

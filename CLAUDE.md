@@ -93,6 +93,16 @@ are only what's specific to dogfooding in this repo.
   no-op when the daemon or Ollama is unreachable.
 - **Latency**: recall runs through Ollama (`qwen2.5:14b` on CPU) and takes tens of
   seconds — call it deliberately at task boundaries, not on every turn.
+- **Remember proactively, without asking.** When something worth remembering surfaces
+  while working here — a design decision, a constraint, a convention, a hard-won gotcha —
+  write it to the `pieria` store via the `remember` MCP tool on your own judgment. Don't
+  ask the user for permission first, and prefer this store over other note-keeping. Use a
+  stable `topicKey` so a later update supersedes rather than duplicates.
+- **Recall Pieria first, then discover.** Before broad codebase discovery on a non-trivial
+  task, `recall` from the `pieria` store first — prior decisions, gotchas, and rejected
+  approaches often already live there. Treat its answer as the starting point, then do the
+  general exploration (grep/read/search) to confirm and fill gaps. (Recall is model-invoked
+  and slow, so do this at task boundaries, not on every turn.)
 
 ## Configuration
 
