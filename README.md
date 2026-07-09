@@ -15,8 +15,9 @@ one tool learns, the next one already knows.
 
 It runs entirely on your own machine. No cloud account, no API key, and no network
 round-trip are required for a recall: the default setup pairs an embedded database with a
-local model runtime (Ollama). Hosted models (Anthropic, OpenAI) and a multi-user server
-mode are opt-in, the same code with a different backend.
+local model runtime (Ollama). Any OpenAI-compatible endpoint works — LM Studio, llama.cpp,
+vLLM, OpenRouter, OpenAI, Azure OpenAI — and a multi-user server mode is opt-in, the same
+code with a different backend.
 
 ---
 
@@ -40,8 +41,15 @@ the durable memory that survives compaction and restarts:
   or `task`, with per-type fields.
 - **Smart ingestion** — content-addressed IDs make ingest idempotent; parallel extraction,
   verification, classification, and supersession keep the store clean.
-- **Multi-modal retrieval** — five parallel channels (full-text search, exact key lookup,
-  raw-message search, direct vector, and HyDE vector) fused with Reciprocal Rank Fusion.
+- **Multi-modal retrieval** — seven parallel channels (memory full-text search, exact key
+  lookup, raw-message search, direct vector, HyDE vector, symbol search, and graph
+  traversal) fused with weighted Reciprocal Rank Fusion.
+- **Knowledge graph** — ingestion extracts entities and relations alongside memories, so
+  recall can traverse from a first-wave hit to what it's connected to.
+- **Code intelligence** — `pieria onboard --source-code` builds a tree-sitter symbol and
+  call graph over the repo, making the codebase itself a retrieval channel.
+- **Tunable recall cost** — three inference tiers (`evidence`, `analyzed`, `synthesized`)
+  trade latency and model calls against answer richness, per call or per profile.
 - **Deterministic temporal reasoning** — date math is computed in code, not guessed by a
   model.
 - **Vendor-neutral & exportable** — your memories export to NDJSON; swap model providers or
@@ -50,29 +58,41 @@ the durable memory that survives compaction and restarts:
 ## How it works
 
 ```
-  Agent harnesses ──► MCP stdio gateways ──► Local daemon ──► Embedded store (SQLite + vec + FTS5)
-  (any MCP harness)    (thin clients)       (binds 127.0.0.1)  └─► Local models (Ollama, default)
+  Agent harnesses ──► MCP stdio gateways ─┐
+  (any MCP harness)    (thin clients)     │
+                                          ├─► Local daemon ──► Embedded store (SQLite + vec + FTS5)
+  pieria CLI ─────────────────────────────┘  (binds 127.0.0.1)  └─► Models (Ollama, default)
+  (onboard / config / tasks)
 ```
 
 A single background **daemon** owns the embedded database and pipelines and binds an HTTP
 API to `127.0.0.1`. Each harness launches a tiny **MCP stdio gateway** that forwards tool
 calls to the daemon. Because the embedded database is single-writer, funnelling every
 harness through one daemon both avoids write-lock contention and delivers the shared-memory
-goal.
+goal. The `pieria` CLI is a third, short-lived client of the same HTTP API.
 
 The daemon runs two pipelines over a pluggable storage backend:
 
-- **Write path (ingest):** conversation → parallel extraction → verification → classification
-  → supersession → store → async vectorization.
-- **Read path (recall):** query analysis + embedding → five parallel retrieval channels →
-  RRF fusion → synthesis.
+- **Write path (ingest):** conversation → normalize → chunk → parallel full + detail
+  extraction → verification against the source chunk → classification and enrichment
+  (topic key, interrogative queries) → graph extraction → supersession → store → async
+  vectorization. The call returns before vectorization completes; a virtual-thread worker
+  drains the outbox.
+- **Read path (recall):** query analysis + embedding → parallel retrieval channels →
+  weighted RRF fusion → deterministic temporal facts → synthesis.
+
+Long-running work (onboarding, code indexing, reminiscence, async ingest) is submitted as a
+**daemon task** and polled — `pieria task list` shows what's in flight.
 
 ### Retrieval pipeline
 
 ```mermaid
 flowchart TD
-    Q["recall(query)"] --> A{"Query analysis<br/>(model · deterministic fallback)"}
-    A --> E["Embed query + HyDE statement"]
+    Q["recall(query, mode)"] --> A{"Query analysis"}
+    A -- "evidence" --> AD["Deterministic analyzer<br/>(no model call)"]
+    A -- "analyzed · synthesized" --> AM["Model analyzer<br/>(+ HyDE statement)"]
+    AD --> E["Embed query<br/>(+ HyDE, when analyzed)"]
+    AM --> E
 
     E --> W1
 
@@ -96,35 +116,51 @@ flowchart TD
 
     W1 --> RRF["Weighted Reciprocal Rank Fusion → top-N evidence"]
     W2 --> RRF
-    RRF --> T["Temporal facts<br/>(deterministic, computed in Java)"]
+    RRF --> M{"mode"}
+    M -- "evidence · analyzed" --> RE["RecallResult<br/>evidence memories, null answer"]
+    M -- "synthesized" --> T["Temporal facts<br/>(deterministic, computed in Java)"]
     T --> S["Synthesis (large model)"]
     S --> R["RecallResult<br/>answer + evidence memories"]
 
     classDef stage fill:#1f2933,stroke:#9aa5b1,color:#f5f7fa;
-    class Q,A,E,RRF,T,S,R stage;
+    class Q,AD,AM,E,RRF,T,S,R,RE stage;
 ```
 
-> **Fast path:** the auto-recall hooks skip query analysis and synthesis (and drop
-> code-indexer memories), returning the fused evidence with a `null` answer in ~1–3 s
-> instead of tens of seconds. Channel failure is graceful: a critical local-storage channel
-> (FTS / exact-key) failing aborts the recall, while a best-effort vector or graph channel
-> that fails or times out is logged and contributes nothing.
+**Recall tiers.** Each tier is a superset of the one above it, so a caller trades latency and
+inference cost against answer richness:
+
+| Mode | Query analysis | Synthesis | Typical latency |
+|------|----------------|-----------|-----------------|
+| `evidence` | Deterministic (no model call) | No — `null` answer | ~1–3 s |
+| `analyzed` | Model-driven, plus HyDE | No — `null` answer | seconds |
+| `synthesized` (default) | Model-driven, plus HyDE | Yes — large model | tens of seconds |
+
+The auto-recall injection hooks use `evidence`. Set a profile-wide default with
+`pieria.retrieval.recall-mode` in `.pieria/config.toml`, or override per call via the
+`mode` field on `POST /recall` and the `recall` MCP tool.
+
+> **Channel failure is graceful:** a critical local-storage channel (FTS / exact-key) failing
+> aborts the recall, while a best-effort vector or graph channel that fails or exceeds
+> `channel-timeout-ms` is logged and contributes nothing.
 
 ## Stack
 
 - **Java 25**, **Spring Boot 4.0.6**, Gradle (Kotlin DSL)
-- **Spring AI** for provider-agnostic chat + embeddings (Ollama default; Anthropic/OpenAI opt-in)
+- **Spring AI** for provider-agnostic chat + embeddings over any OpenAI-compatible endpoint
+  (Ollama default) or Azure OpenAI
 - **SQLite + sqlite-vec + FTS5** embedded backend (default); **PostgreSQL + pgvector** for server mode
-- **Flyway** migrations, **JUnit 5** tests, **GraalVM native-image** packaging (JVM fallback)
+- **tree-sitter** for the source-code symbol and call-graph index
+- **picocli** for the CLI, **Flyway** migrations, **JUnit 5** tests, **GraalVM native-image**
+  packaging (JVM fallback)
 
 The repository is split into Gradle modules under `modules/`:
 
 | Module    | Responsibility                                                        |
 |-----------|-----------------------------------------------------------------------|
-| `shared`  | HTTP request/response DTOs and `ProfileResolver`.                     |
-| `daemon`  | REST controllers, domain, storage, ingestion, retrieval, model gateway.|
-| `gateway` | stdio MCP tools and the HTTP client that forwards to the daemon.      |
-| `cli`     | the `pieria` command — harness wiring and profile management.         |
+| `shared`  | HTTP DTOs, the daemon HTTP client, config model + TOML codec, `ProfileResolver`. |
+| `daemon`  | REST controllers, domain, storage, ingestion, retrieval, code index, model gateway. |
+| `gateway` | stdio MCP tools that forward to the daemon.                          |
+| `cli`     | the `pieria` command — harness wiring, onboarding, profiles, tasks, self-update. |
 | `eval`    | offline evaluation harness — fixtures, runner, benchmark adapters.    |
 
 ---
@@ -133,9 +169,9 @@ The repository is split into Gradle modules under `modules/`:
 
 ### Quick install (macOS / Linux)
 
-The installer downloads the native daemon + gateway binaries for your platform, links them
-onto your `PATH`, and registers the daemon as a per-user OS service (launchd on macOS,
-systemd on Linux). Re-running is safe — every step is idempotent.
+The installer downloads the native `pieria`, `pieria-daemon`, and `pieria-gateway` binaries
+for your platform, links them onto your `PATH`, and registers the daemon as a per-user OS
+service (launchd on macOS, systemd on Linux). Re-running is safe — every step is idempotent.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash
@@ -167,7 +203,7 @@ default Ollama models if they are absent.
 From inside a project, register the MCP gateway and lifecycle hooks for your tool:
 
 ```bash
-pieria harness install claude-code        # or: codex
+pieria harness install claude-code        # or: codex, opencode
 pieria harness install claude-code --user # wire ~/.claude instead of this repo
 ```
 
@@ -179,30 +215,74 @@ pieria harness list                            # see what's wired
 pieria harness uninstall claude-code           # undo
 ```
 
+Installing wires three things: the MCP gateway server, the lifecycle hooks (session-start
+recall injection, PreCompact/Stop ingest), and `/pieria-recall` + `/pieria-remember` slash
+commands. The hooks fail closed — if the daemon or the model provider is unreachable they
+silently no-op rather than blocking your session.
+
 The default convention is **profile-per-repo**: the profile name is derived from the git
 remote or project directory, so pointing every harness at the same profile gives shared
 memory across tools.
 
-### Seed the profile from project docs
+### Seed the profile from project sources
 
 A fresh profile starts empty, so `recall` returns nothing until a few sessions have
-accumulated. `pieria onboard` solves this cold start by seeding the profile from the project's
-existing markdown documentation:
+accumulated. `pieria onboard` solves this cold start by seeding the profile from sources you
+already have:
 
 ```bash
-pieria onboard             # seed from every .md in the repo (except CLAUDE.md / AGENTS.md)
-pieria onboard --dry-run   # list the docs and messages that would be sent, contact nothing
+pieria onboard                      # scan the project dir: markdown, plain-text, and PDF docs
+pieria onboard --source-code        # ...and build the tree-sitter code index too
+pieria onboard --dry-run            # list the sources that would be sent, contact nothing
 ```
 
-It enumerates docs via `git ls-files` (so build output and gitignored files are skipped),
-packages them as a transcript, and runs them through the normal ingest pipeline — the
-daemon's extraction, verification, and supersession keep low-signal content out.
-`CLAUDE.md` and `AGENTS.md` are excluded by default since harnesses already load them into
-context every session; pass `--include-agent-docs` to seed them too. Re-running is
-idempotent: unchanged docs add no duplicate memories.
+With no positional argument it scans the project directory. Give it **targets** and it
+onboards only those, dispatching each by type:
 
-> Requires the daemon to be running (and a model provider reachable). Useful flags:
-> `--profile <slug>`, `--daemon-url <url>`.
+```bash
+pieria onboard docs/SPEC.md               # a single .md / .txt / .pdf file
+pieria onboard ./docs ./adr               # directories, scanned
+pieria onboard https://example.com/guide  # an http(s) URL → fetched web page
+```
+
+Documents are enumerated via `git ls-files` (so build output and gitignored files are
+skipped) and run through the normal ingest pipeline — the daemon's extraction, verification,
+and supersession keep low-signal content out. `CLAUDE.md` and `AGENTS.md` are excluded by
+default since harnesses already load them into context every session; pass
+`--include-agent-docs` to seed them too. Re-running is idempotent: unchanged content adds no
+duplicate memories.
+
+Useful flags:
+
+| Flag | Effect |
+|------|--------|
+| `--source-code` | Also build a symbol + call-graph index from tracked source files, powering the symbol-FTS and code-graph retrieval channels. |
+| `--summarize` | After indexing, write LLM-synthesized architecture and per-module summary memories. |
+| `--reindex` | Re-parse every source file even if unchanged. Use after a parser upgrade. |
+| `--extraction-samples <n>` | Run `n` independent extract passes per chunk and union the results. Extraction is stochastic, so more samples catch more facts — at proportionally more model calls. |
+| `--include-agent-docs` | Also seed `CLAUDE.md` / `AGENTS.md`. |
+| `--profile`, `--daemon-url`, `--config-dir` | Standard overrides. |
+
+Each source runs as its own background daemon task; the CLI streams progress and you can
+re-attach with `pieria task <id>`.
+
+> Requires the daemon to be running and a model provider reachable.
+
+### Weave orphan memories into the graph
+
+Memories written directly (via the `remember` tool, or `pieria profile remember`) skip the
+ingest pipeline's graph-extraction stage, so they land in the store with no entity-relation
+edges — invisible to the graph retrieval channel. `pieria reminisce` retroactively adopts
+them:
+
+```bash
+pieria reminisce             # extract graph fragments for every edgeless memory
+pieria reminisce --dry-run   # count the orphans a run would adopt; no model calls
+```
+
+Adoption runs as a background daemon task and is model-heavy, batched to keep each
+`extractGraph` call inside the model's context window. Run it after a bulk `remember` spree,
+or occasionally as maintenance.
 
 ### Update
 
@@ -235,45 +315,95 @@ Requires JDK 25 (and GraalVM 25+ for native images).
 ./gradlew :gateway:bootJar      # → modules/gateway/build/libs/pieria-gateway.jar
 ./gradlew :daemon:nativeCompile # GraalVM daemon executable
 ./gradlew :gateway:nativeCompile
+./gradlew :cli:nativeCompile
+./gradlew :daemon:nativeDist    # assemble the full native distribution
 ```
 
-For the local dev loop, `./gradlew deployLocal` builds the native distribution and updates your
-installed Pieria from it in one step (`deployLocalJar` uses the JVM distribution to skip the slow
-native compile, for a JVM-style install).
+For the local dev loop, `./gradlew :daemon:deployLocal` builds the native distribution and syncs it
+into `$PIERIA_HOME`, updating your installed Pieria in one step. It is slow and overwrites the
+installed binaries — `./gradlew test` is the fast way to check a change.
 
 ---
 
 ## Usage
 
-Harnesses interact through MCP tools that mirror the ingestion/retrieval split:
+### MCP tools
 
-| MCP tool   | Purpose                                          | Model-facing? |
-|------------|--------------------------------------------------|---------------|
-| `recall`   | Run retrieval, return a synthesized answer.      | Yes           |
-| `remember` | Store a single memory explicitly.                | Yes           |
-| `list`     | List memories (filter by type/session).          | Yes           |
-| `forget`   | Mark a memory as no longer valid.                | Yes           |
-| `ingest`   | Bulk-extract memories from a conversation.       | No (hook)     |
+Harnesses interact through four model-facing MCP tools:
 
-`ingest` is driven by harness lifecycle hooks (e.g. at compaction), not by the model — the
-primary agent shouldn't burn context designing storage queries.
+| MCP tool   | Purpose                                                              |
+|------------|----------------------------------------------------------------------|
+| `recall`   | Run retrieval; returns a synthesized answer, or raw evidence in the cheaper `mode` tiers. |
+| `remember` | Store a single memory explicitly (bypasses the model pipeline).      |
+| `list`     | List memories (filter by type/session).                              |
+| `forget`   | Mark a memory as no longer valid.                                    |
 
-The daemon also exposes a REST API on `localhost`, scoped by profile:
+`ingest` is deliberately **not** a tool. Bulk ingestion is driven by harness lifecycle hooks
+(at compaction, on stop, at session end), so the primary agent never burns context designing
+storage queries.
 
-| Method | Path                                  | Purpose                                   |
-|--------|---------------------------------------|-------------------------------------------|
-| POST   | `/v1/profiles/{name}/ingest`          | Bulk-extract memories from a conversation.|
-| POST   | `/v1/profiles/{name}/memories`        | Store a single memory explicitly.         |
-| POST   | `/v1/profiles/{name}/recall`          | Run retrieval, return a synthesized answer.|
-| GET    | `/v1/profiles/{name}/memories`        | List memories (filter by type/session).   |
-| DELETE | `/v1/profiles/{name}/memories/{id}`   | Forget a memory.                          |
-| GET    | `/v1/profiles/{name}/export`          | Export all memories (NDJSON).             |
+### Command line
+
+```bash
+pieria status | start | stop | restart | logs      # daemon lifecycle
+pieria harness install | uninstall | list          # wire an agent harness
+pieria onboard [TARGET...]                         # seed a profile from docs / PDFs / URLs / code
+pieria reminisce                                   # adopt orphan memories into the graph
+pieria task [<id>] | task list | task kill <id>    # inspect and control daemon tasks
+pieria config show | config sync                   # inspect / push layered configuration
+pieria update                                      # self-update binaries and restart
+```
+
+Profile management and direct store access live under `pieria profile`:
+
+```bash
+pieria profile list                    # every profile the daemon knows about
+pieria profile resolve                 # which profile this directory maps to
+pieria profile create <name>           # create an empty profile
+pieria profile delete <name>           # delete a profile and all its memories
+pieria profile stats <name>            # counts, storage, and inference spend
+pieria profile memories <name>         # list memories (filter by type/session)
+pieria profile recall <name> <query>   # run retrieval from the shell
+pieria profile remember <name> ...     # store one memory explicitly
+pieria profile forget <name> <id>      # mark a memory invalid
+pieria profile export <name>           # export all memories as NDJSON
+```
+
+### REST API
+
+The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by profile.
+
+| Method | Path                                  | Purpose                                     |
+|--------|---------------------------------------|---------------------------------------------|
+| GET    | `/v1/profiles`                        | List profiles.                              |
+| PUT    | `/v1/profiles/{name}`                 | Create a profile.                           |
+| DELETE | `/v1/profiles/{name}`                 | Delete a profile and its memories.          |
+| POST   | `/v1/profiles/{name}/ingest`          | Bulk-extract memories from a conversation.  |
+| POST   | `/v1/profiles/{name}/ingest/transcript` | Stream a transcript as NDJSON.            |
+| POST   | `/v1/profiles/{name}/ingest/async`    | Same, submitted as a background task.       |
+| POST   | `/v1/profiles/{name}/memories`        | Store a single memory explicitly.           |
+| POST   | `/v1/profiles/{name}/recall`          | Run retrieval (JSON, or `text/plain`).      |
+| GET    | `/v1/profiles/{name}/memories`        | List memories (filter by type/session).     |
+| DELETE | `/v1/profiles/{name}/memories/{id}`   | Forget a memory.                            |
+| GET    | `/v1/profiles/{name}/stats`           | Counts, storage, and inference spend.       |
+| GET    | `/v1/profiles/{name}/graph`           | The entity-relation graph as JSON.          |
+| GET    | `/v1/profiles/{name}/graph/view`      | A browsable HTML view of the graph.         |
+| GET    | `/v1/profiles/{name}/export`          | Export all memories (NDJSON).               |
+| GET/PUT/DELETE | `/v1/profiles/{name}/config`  | Read, push, or clear per-profile overrides. |
+| POST   | `/v1/profiles/{name}/code`            | Index source files (deterministic, model-free). |
+| POST   | `/v1/profiles/{name}/code/async`      | Index as a background task, optional summarization. |
+| GET    | `/v1/profiles/{name}/code/status`     | Code-index counts.                          |
+| POST   | `/v1/profiles/{name}/onboard/async`   | Onboard a source as a background task.      |
+| POST   | `/v1/profiles/{name}/reminisce/async` | Adopt orphan memories as a background task. |
+| GET    | `/v1/profiles/{name}/reminisce/orphans` | Count edgeless memories (no model call).  |
+| GET/DELETE | `/v1/tasks`, `/v1/tasks/{id}`     | List, inspect, and cancel daemon tasks.     |
+| GET    | `/pieria-health`, `/pieria-status`    | Liveness and daemon status.                 |
 
 Example recall:
 
 ```http
 POST /v1/profiles/my-project/recall
-{ "query": "What package manager does the user prefer?" }
+{ "query": "What package manager does the user prefer?", "mode": "synthesized" }
 
 200 OK
 { "answer": "The user prefers pnpm over npm.", "memories": [ ... ] }
@@ -285,12 +415,78 @@ POST /v1/profiles/my-project/recall
 
 The daemon binds to `127.0.0.1` by default and never exposes a public interface in local
 mode. The embedded database and config live under an OS-appropriate data directory
-(`~/.local/share/pieria/` by default). Key settings: database path, daemon host/port,
-Ollama base URL, chat and embedding model names, and embedding dimension.
+(`~/.local/share/pieria/` by default).
 
-Model access sits behind a swappable gateway with two tiers — a small/fast model for
-structured stages (extract/verify/classify) and a larger model for synthesis only. Hosted
-providers (Anthropic, OpenAI) are a config change away.
+### Layers
+
+Configuration is resolved in three layers, most specific winning:
+
+1. **Code defaults** — the daemon's built-in `application.properties`.
+2. **Global config** — `config.toml` in the OS config directory (`$PIERIA_CONFIG_DIR` to
+   override). Process-global settings live only here: provider connection, embedding model
+   and dimension, database path, daemon host/port, the vectorization worker.
+3. **Project config** — `.pieria/config.toml` in the repo. Only the request-time tuning
+   subset (`[pieria.ingestion]`, `[pieria.retrieval]`) is accepted here; the daemon
+   whitelists it and rejects anything else.
+
+`pieria config sync` deep-merges the global and project layers and pushes the result to the
+daemon as this profile's overrides. `pieria config show` prints what the daemon is actually
+using for the current profile.
+
+### Models
+
+Model access sits behind a swappable gateway with two tiers — a small/fast model for the
+structured stages (extract, verify, classify, graph, query analysis) and a larger model for
+synthesis only — plus a separate embedding model.
+
+```properties
+pieria.provider.base-url=http://127.0.0.1:11434   # API root, without /v1
+pieria.provider.type=openai                       # openai (any compatible endpoint) | azure
+pieria.provider.api-key=ollama                    # local providers ignore this
+pieria.model.extraction-model=qwen3.5:9b-mlx
+pieria.model.synthesis-model=gemma4:12b-mlx
+pieria.model.embedding=mxbai-embed-large
+pieria.model.embedding-dimension=1024             # fixes the vector column width — set once
+```
+
+Any OpenAI-compatible endpoint works by pointing `base-url` at it: LM Studio, llama.cpp,
+vLLM, OpenRouter, OpenAI itself. For Azure OpenAI set `pieria.provider.type=azure`, use the
+resource endpoint as `base-url`, and give deployment names as the `pieria.model.*` values.
+
+Reasoning is controlled per stage: off for the structured stages, on for synthesis
+(`pieria.model.reasoning.*`). Setting `logging.level.dev.alvo.pieria.model=DEBUG` in the
+runtime `pieria.properties` traces each model call with stage, model, prompt size, and
+latency — the fastest way to watch a slow onboarding ingest make progress.
+
+> **Changing `embedding-dimension` invalidates every stored vector.** Decide it once, before
+> you accumulate memories, or you'll have to re-embed the whole store.
+
+### Retrieval tuning
+
+Each channel carries a weight; setting a weight to `0` disables that channel entirely. The
+graph and code channels are the usual ones to turn off if you haven't run
+`onboard --source-code` or `reminisce`.
+
+```toml
+# .pieria/config.toml
+[pieria.retrieval]
+recall-mode = "analyzed"    # profile-wide default tier
+weight-exact-key = 3.0      # exact topic-key hits dominate
+weight-fts-memory = 1.0
+weight-direct-vector = 1.0
+weight-hyde-vector = 1.0
+weight-fts-message = 0.5    # raw messages are noisy — deliberately down-weighted
+weight-graph = 1.0
+weight-symbol-fts = 1.0
+weight-code-graph = 1.0
+channel-timeout-ms = 3000
+```
+
+### Spend
+
+`pieria profile stats` shows the tokens Pieria actually spent, per tier. Fill in your
+provider's prices (`pieria.stats.spend.<tier>.{input,output}-price`, dollars per 1M tokens)
+and it costs them too; left at `0.0`, only token counts show.
 
 ## Data portability
 
