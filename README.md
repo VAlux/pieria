@@ -84,6 +84,55 @@ The daemon runs two pipelines over a pluggable storage backend:
 Long-running work (onboarding, code indexing, reminiscence, async ingest) is submitted as a
 **daemon task** and polled — `pieria task list` shows what's in flight.
 
+### Ingestion pipeline
+
+```mermaid
+flowchart TD
+    C["ingest(sessionId, messages)"] --> N["Normalize transcript"]
+    N --> RM["Store raw messages<br/>(content-addressed, insert-or-ignore)"]
+    RM --> CH["Chunk on message boundaries<br/>(overlapping)"]
+
+    CH --> X1
+
+    subgraph X1["Extraction — parallel, virtual threads (chunks × passes × samples)"]
+        direction LR
+        FP["Full pass"]
+        DP["Detail pass<br/>(if transcript long enough)"]
+    end
+
+    X1 --> MG["Merge + de-duplicate by content"]
+    MG --> V["Verify against source chunk<br/>(one batched call per chunk)"]
+    V --> VD{"verdict"}
+    VD -- "drop" --> DR["Discarded"]
+    VD -- "pass · correct" --> CL["Classify + enrich<br/>(type, topic key, interrogative queries)"]
+
+    CL --> GT{"type"}
+    GT -- "task" --> ST
+    GT -- "fact · event · instruction" --> GX["Graph extraction<br/>(entities + relations, batched)"]
+    GX --> ST["Store (single writer)<br/>supersede prior topic_key"]
+
+    ST --> TQ{"type"}
+    TQ -- "task" --> DONE["Return stored memories"]
+    TQ -- "other" --> OB["Vectorization outbox"]
+    OB -.-> DONE
+    OB --> VW["VectorizationWorker<br/>(async, drains outbox)"]
+    VW --> EMB["Embeddings written"]
+
+    RE["remember(memory)"] --> ST
+
+    classDef stage fill:#1f2933,stroke:#9aa5b1,color:#f5f7fa;
+    class C,N,RM,CH,MG,V,CL,GX,ST,OB,VW,EMB,DONE,DR,RE stage;
+```
+
+Each chunk is verified, classified, graph-extracted, and stored before the next one starts, so an
+interrupted ingest keeps every memory it finished. The call returns once the last chunk is stored —
+`OB -.-> DONE` marks that vectorization is enqueued, not awaited. `task` memories skip both graph
+extraction and the vector index; explicit `remember` writes join at the store stage, bypassing the
+model entirely.
+
+> **Extraction is stochastic:** `--extraction-samples n` repeats each pass `n` times per chunk and
+> unions the results, catching more facts at proportionally more model calls.
+
 ### Retrieval pipeline
 
 ```mermaid
