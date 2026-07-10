@@ -97,7 +97,7 @@ class DaemonClientsTests {
     assertThat(tasks.status("task/1").status()).isEqualTo("RUNNING");
     assertThat(tasks.cancel("task/1").status()).isEqualTo("CANCELLED");
     assertThat(onboarding
-      .submit("my profile", new SourceSpec.Markdown("/tmp", false, 1), "on board").taskId())
+      .submit("my profile", new SourceSpec.Markdown("/tmp", false, 1, null), "on board").taskId())
       .isEqualTo("task-1");
 
     DaemonOverrides empty = new DaemonOverrides(null, null);

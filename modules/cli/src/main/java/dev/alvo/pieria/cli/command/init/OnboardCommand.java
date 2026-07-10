@@ -88,6 +88,9 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
   boolean reindex;
 
+  @Option(names = "--refresh", description = "Re-ingest all content documents even if unchanged since the last onboard (bypass the ingest ledger). Affects markdown/text/pdf/web sources.")
+  boolean refresh;
+
   @Option(names = "--summarize", description = "After indexing, write LLM-synthesized architecture/module summary memories (uses the daemon's synthesis model; unchanged code is skipped). Only affects --source-code.")
   boolean summarize;
 
@@ -155,9 +158,9 @@ public final class OnboardCommand implements Callable<Integer> {
   private List<Source> scanDirectory(Path dir, PieriaConfigFile config, int samples) {
     List<Source> sources = new ArrayList<>();
     sources.add(new Source("markdown documentation",
-      new SourceSpec.Markdown(dir.toString(), includeAgentDocs, samples)));
-    sources.add(new Source("text documents", new SourceSpec.Text(dir.toString(), samples)));
-    sources.add(new Source("PDF documents", new SourceSpec.Pdf(dir.toString(), samples)));
+      new SourceSpec.Markdown(dir.toString(), includeAgentDocs, samples, refreshOrNull())));
+    sources.add(new Source("text documents", new SourceSpec.Text(dir.toString(), samples, refreshOrNull())));
+    sources.add(new Source("PDF documents", new SourceSpec.Pdf(dir.toString(), samples, refreshOrNull())));
     if (sourceCode) {
       sources.add(new Source("source-code index",
         new SourceSpec.SourceCode(dir.toString(), reindex, summarize ? Boolean.TRUE : null, config.discovery())));
@@ -200,7 +203,8 @@ public final class OnboardCommand implements Callable<Integer> {
     }
 
     if (!urls.isEmpty()) {
-      sources.add(new Source("web pages (" + urls.size() + ")", new SourceSpec.Web(List.copyOf(urls), samples)));
+      sources.add(new Source("web pages (" + urls.size() + ")",
+        new SourceSpec.Web(List.copyOf(urls), samples, refreshOrNull())));
     }
     if (sourceCode && !sawDirectory) {
       log.error("--source-code needs a directory target; ignoring.");
@@ -211,15 +215,20 @@ public final class OnboardCommand implements Callable<Integer> {
   /** A single-file source spec for a known documentation extension, or null when unsupported. */
   private SourceSpec fileSpec(Path abs, String lowerName, int samples) {
     if (lowerName.endsWith(".md")) {
-      return new SourceSpec.Markdown(abs.toString(), includeAgentDocs, samples);
+      return new SourceSpec.Markdown(abs.toString(), includeAgentDocs, samples, refreshOrNull());
     }
     if (lowerName.endsWith(".txt")) {
-      return new SourceSpec.Text(abs.toString(), samples);
+      return new SourceSpec.Text(abs.toString(), samples, refreshOrNull());
     }
     if (lowerName.endsWith(".pdf")) {
-      return new SourceSpec.Pdf(abs.toString(), samples);
+      return new SourceSpec.Pdf(abs.toString(), samples, refreshOrNull());
     }
     return null;
+  }
+
+  /** The wire form of {@code --refresh}: true when set, null (daemon default: false) otherwise. */
+  private Boolean refreshOrNull() {
+    return refresh ? Boolean.TRUE : null;
   }
 
   private static boolean isUrl(String target) {
@@ -297,6 +306,10 @@ public final class OnboardCommand implements Callable<Integer> {
     } else {
       log.info("Done ({}). Stored {} memor{} from {} document(s) (vectorization runs asynchronously).",
         source.label(), s.memoriesStored(), s.memoriesStored() == 1 ? "y" : "ies", s.documents());
+      if (s.documentsSkipped() != null && s.documentsSkipped() > 0) {
+        log.info("  {} document(s) unchanged since the last onboard were skipped (--refresh to force).",
+          s.documentsSkipped());
+      }
     }
   }
 
@@ -344,10 +357,11 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private static Success success(tools.jackson.databind.JsonNode result) {
     if (result == null) {
-      return new Success("", 0, 0, null, null, null);
+      return new Success("", 0, 0, null, null, null, null);
     }
     return new Success(text(result, "sourceType"), integer(result, "documents", 0),
-      integer(result, "memoriesStored", 0), integer(result, "symbols", null),
+      integer(result, "memoriesStored", 0), integer(result, "documentsSkipped", null),
+      integer(result, "symbols", null),
       integer(result, "edges", null), integer(result, "summariesStored", null));
   }
 
@@ -363,7 +377,7 @@ public final class OnboardCommand implements Callable<Integer> {
     return value.asInt(0);
   }
 
-  private record Success(String sourceType, int documents, int memoriesStored,
+  private record Success(String sourceType, int documents, int memoriesStored, Integer documentsSkipped,
                          Integer symbols, Integer edges, Integer summariesStored) { }
 
   /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */

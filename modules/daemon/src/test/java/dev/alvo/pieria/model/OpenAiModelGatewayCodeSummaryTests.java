@@ -56,7 +56,7 @@ class OpenAiModelGatewayCodeSummaryTests {
   private static Harness harness(boolean failSynthesis) {
     PromptCapturingChatModel synthesis = new PromptCapturingChatModel(failSynthesis);
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null),
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null, null),
       null, null, null);
     OpenAiModelGateway gateway = new OpenAiModelGateway(
       ChatClient.builder(new PromptCapturingChatModel(false))

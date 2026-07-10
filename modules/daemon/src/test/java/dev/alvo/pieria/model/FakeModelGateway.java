@@ -3,11 +3,9 @@ package dev.alvo.pieria.model;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.domain.graph.Entity;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
@@ -36,8 +34,8 @@ import java.util.Locale;
  *   <li>otherwise {@link #classify} assigns {@link MemoryType#FACT}.</li>
  * </ul>
  * For keyed types (FACT, INSTRUCTION) the topicKey is {@code "topic." + firstWordLowercased}.
- * {@link #extract} yields one candidate per chunk (content {@code "chunk:<index>:" + transcript});
- * {@link #extractDetail} yields one candidate suffixed with {@code " [detail]"}.
+ * {@link #extractUnified} yields one candidate per chunk (content
+ * {@code "chunk:<index>:" + transcript}) classified via {@link #classify}.
  * {@link #classify} always returns 3 interrogative queries.
  * {@link #analyzeQuery} lowercases + splits the query on non-alphanumerics into terms; it returns
  * those terms as {@code ftsTerms}, a single topicKey {@code "topic." + firstTerm} (empty list if no
@@ -89,53 +87,21 @@ public class FakeModelGateway implements ModelGateway {
   }
 
   @Override
-  public List<Memory> extractMemories(List<Message> messages) {
-    failIfUnavailable();
-    if (messages == null || messages.isEmpty()) {
-      return List.of();
-    }
-    // Echo the last user message (or the last message) as a single FACT.
-    Message chosen = null;
-    for (Message m : messages) {
-      if ("user".equalsIgnoreCase(m.role())) {
-        chosen = m;
-      }
-    }
-    if (chosen == null) {
-      chosen = messages.get(messages.size() - 1);
-    }
-    String sessionId = messages.get(0).sessionId();
-    Memory memory = Memory.of(MemoryType.FACT, chosen.content(), sessionId, null, "{}");
-    return List.of(memory);
-  }
-
-  @Override
-  public List<ExtractedCandidate> extract(Chunk chunk) {
+  public List<UnifiedCandidate> extractUnified(Chunk chunk) {
     failIfUnavailable();
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
     String content = "chunk:" + chunk.index() + ":" + chunk.transcript();
-    return List.of(new ExtractedCandidate(content, MemoryType.FACT, chunk.index(), "extract"));
+    return List.of(new UnifiedCandidate(content, classify(content), chunk.index(), "extract"));
   }
 
   @Override
-  public List<ExtractedCandidate> extractDetail(Chunk chunk) {
+  public VerificationResult verify(String content, String transcript) {
     failIfUnavailable();
-    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
-      return List.of();
-    }
-    String content = "chunk:" + chunk.index() + ":" + chunk.transcript() + " [detail]";
-    return List.of(new ExtractedCandidate(content, MemoryType.FACT, chunk.index(), "extractDetail"));
-  }
-
-  @Override
-  public VerificationResult verify(ExtractedCandidate candidate, String transcript) {
-    failIfUnavailable();
-    if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+    if (content == null || content.isBlank()) {
       return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
     }
-    String content = candidate.content();
     String upper = content.toUpperCase(Locale.ROOT);
     if (upper.contains("UNSUPPORTED")) {
       return new VerificationResult(VerificationVerdict.DROP, "", "unsupported by transcript");

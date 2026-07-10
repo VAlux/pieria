@@ -15,9 +15,7 @@ class PromptTemplatesTests {
 
   @ParameterizedTest
   @ValueSource(strings = {
-    "extract-memories",
-    "extract-full-pass",
-    "extract-detail-pass",
+    "extract-unified",
     "verify-single",
     "verify-batch",
     "classify-single",

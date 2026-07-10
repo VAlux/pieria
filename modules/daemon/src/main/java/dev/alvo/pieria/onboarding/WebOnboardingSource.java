@@ -46,7 +46,8 @@ public class WebOnboardingSource implements OnboardingSource<SourceSpec.Web> {
         log.warn("onboard web: failed to fetch {} ({}); skipping", url, e.toString());
       }
     }
-    return ingestor.ingest(profile, "web", documents, spec.extractionSamples(), progress);
+    return ingestor.ingest(profile, "web", documents, spec.extractionSamples(),
+      Boolean.TRUE.equals(spec.refresh()), progress);
   }
 
   /** Provenance line for a fetched page: URL plus title when the page has one. */

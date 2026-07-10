@@ -3,8 +3,9 @@ package dev.alvo.pieria.model;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.provider.OllamaModelProviderAdapter;
@@ -53,14 +54,18 @@ class OpenAiModelGatewayBatchTests {
 
   private static OpenAiModelGateway gateway(CountingChatModel model) {
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null), null, null, null);
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null, null), null, null, null);
     ChatClient client = ChatClient.builder(model)
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
     return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());
   }
 
-  private static ExtractedCandidate candidate(int n) {
-    return new ExtractedCandidate("candidate " + n, null, 0, "extract");
+  private static String candidate(int n) {
+    return "candidate " + n;
+  }
+
+  private static Chunk chunk(String transcript) {
+    return new Chunk(0, 0, 0, List.of(), transcript);
   }
 
   @Test
@@ -133,6 +138,62 @@ class OpenAiModelGatewayBatchTests {
 
     assertThat(results).hasSize(2);
     assertThat(results).allSatisfy(r -> assertThat(r.verdict()).isEqualTo(VerificationVerdict.DROP));
+  }
+
+  @Test
+  void extractUnifiedParsesBareArrayWithClassification() {
+    CountingChatModel model = new CountingChatModel(
+      "[{\"content\":\"The editor is Zed\",\"type\":\"fact\",\"topicKey\":\"User Editor\","
+        + "\"interrogativeQueries\":[\"which editor?\"],\"payload\":\"{}\"},"
+        + "{\"content\":\"Ship the release\",\"type\":\"task\"}]");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<UnifiedCandidate> candidates = gateway.extractUnified(chunk("user: I use Zed"));
+
+    assertThat(model.calls).hasValue(1);
+    assertThat(candidates).hasSize(2);
+    assertThat(candidates.get(0).content()).isEqualTo("The editor is Zed");
+    assertThat(candidates.get(0).classification().type()).isEqualTo(MemoryType.FACT);
+    assertThat(candidates.get(0).classification().topicKey()).isEqualTo("user.editor");
+    assertThat(candidates.get(0).classification().interrogativeQueries()).containsExactly("which editor?");
+    assertThat(candidates.get(1).classification().type()).isEqualTo(MemoryType.TASK);
+    assertThat(candidates.get(1).classification().topicKey()).isNull(); // tasks are never keyed
+  }
+
+  @Test
+  void extractUnifiedParsesWrappedObjectAndCodeFences() {
+    CountingChatModel model = new CountingChatModel(
+      "```json\n{\"candidates\":[{\"content\":\"A fact\",\"type\":\"fact\"}]}\n```");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<UnifiedCandidate> candidates = gateway.extractUnified(chunk("user: hi"));
+
+    assertThat(candidates).hasSize(1);
+    assertThat(candidates.get(0).content()).isEqualTo("A fact");
+    assertThat(candidates.get(0).classification().type()).isEqualTo(MemoryType.FACT);
+  }
+
+  @Test
+  void extractUnifiedSalvagesMarkdownOutputThroughClassify() {
+    // Non-JSON output with content: lines → the salvage path scrapes the contents and enriches them
+    // with a batched classify call (which here also returns non-JSON, degrading to per-item classify
+    // that also fails → plain FACTs). The candidates must still come back rather than being lost.
+    CountingChatModel model = new CountingChatModel("- content: The user prefers dark mode\n  type: fact");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<UnifiedCandidate> candidates = gateway.extractUnified(chunk("user: dark mode please"));
+
+    assertThat(candidates).hasSize(1);
+    assertThat(candidates.get(0).content()).isEqualTo("The user prefers dark mode");
+    assertThat(candidates.get(0).classification().type()).isEqualTo(MemoryType.FACT);
+  }
+
+  @Test
+  void extractUnifiedTreatsUnparseableOutputAsEmpty() {
+    CountingChatModel model = new CountingChatModel("no structured output at all");
+    OpenAiModelGateway gateway = gateway(model);
+
+    assertThat(gateway.extractUnified(chunk("user: hi"))).isEmpty();
   }
 
   @Test

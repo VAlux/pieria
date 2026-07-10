@@ -2,9 +2,10 @@ package dev.alvo.pieria.ingestion;
 
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.VerifyMode;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -38,10 +39,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 
 /**
- * Write path: normalize the transcript, store raw messages, chunk, run parallel
- * full + detail extraction, verify each candidate against its source chunk, classify and enrich
- * (topic key + interrogative queries → {@code embed_text}), then store with supersession and
- * enqueue vectorization. Returns to the caller before vectorization completes (async worker).
+ * Write path: normalize the transcript, store raw messages, chunk, run parallel unified
+ * extraction (one model call per chunk emits candidates <em>with</em> their classification),
+ * verify suspect candidates against their source chunk (grounded candidates skip the model
+ * verifier per {@link VerifyMode}), then store with supersession and enqueue vectorization.
+ * Returns to the caller before vectorization completes (async worker).
  * Explicit single-memory writes ({@link #remember}) bypass the model entirely.
  */
 @Service
@@ -58,15 +60,16 @@ public class IngestionService {
   /**
    * Merged extraction output: the raw candidate count (for logging) and the de-duplicated list.
    */
-  private record Extraction(int rawCount, List<ExtractedCandidate> merged) {
+  private record Extraction(int rawCount, List<UnifiedCandidate> merged) {
   }
 
   /**
-   * Combined verify+classify+store output: per-verdict counts plus the persisted memories and their
+   * Combined verify+store output: per-verdict counts (with {@code autoPassed} counting candidates
+   * the grounding filter cleared without a model call) plus the persisted memories and their
    * supersession / vectorization-enqueue / graph tallies.
    */
-  private record VerifyStoreResult(List<Memory> stored, int passed, int corrected, int dropped,
-                                   int superseded, int enqueued,
+  private record VerifyStoreResult(List<Memory> stored, int passed, int autoPassed, int corrected,
+                                   int dropped, int superseded, int enqueued,
                                    int graphExtracted, int graphSkipped, int graphFailed) {
   }
 
@@ -78,9 +81,9 @@ public class IngestionService {
   private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED}
 
   /**
-   * Result of one extraction model call, keeping pass/chunk metadata for detailed logging.
+   * Result of one extraction model call, keeping chunk metadata for detailed logging.
    */
-  private record ExtractionPassResult(String pass, int chunkIndex, List<ExtractedCandidate> candidates, long millis) {
+  private record ExtractionPassResult(int chunkIndex, List<UnifiedCandidate> candidates, long millis) {
   }
 
   public IngestionService(MemoryStore store,
@@ -156,22 +159,21 @@ public class IngestionService {
     // Per-profile effective tuning: global properties overlaid with any pushed overrides.
     PieriaProperties.Ingestion tuning = configResolver.resolve(profile.id()).ingestion();
 
-    boolean detailPass = normalized.size() >= Math.max(1, tuning.detailPassMinMessages());
     int extractionSamples = Math.max(1,
       extractionSamplesOverride != null ? extractionSamplesOverride : tuning.extractionSamples());
     Timed<List<Chunk>> chunk = Timed.measure(() -> chunker.chunk(normalized, tuning));
     List<Chunk> chunks = chunk.value();
     log.info(
-      "ingest chunked profile={} session={} chunks={} detailPass={} detailPassMinMessages={} extractionSamples={} maxExtractionConcurrency={} chunkMs={}",
-      profileName, sessionId, chunks.size(), detailPass, tuning.detailPassMinMessages(),
-      extractionSamples, Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
+      "ingest chunked profile={} session={} chunks={} extractionSamples={} verifyMode={} maxExtractionConcurrency={} chunkMs={}",
+      profileName, sessionId, chunks.size(), extractionSamples, tuning.verifyMode(),
+      Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
     // One accumulator for this whole ingest: every model call (extract/verify/classify/graph),
     // whether on this thread or a virtual-thread worker, reports its real provider token usage here.
     InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
 
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(chunks, detailPass, extractionSamples,
+      () -> extractCandidates(chunks, extractionSamples,
         Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
@@ -183,17 +185,18 @@ public class IngestionService {
         profileName, sessionId);
     }
 
-    // Verify + classify + store as one stage: each candidate is classified and persisted the moment
-    // its verification passes, so an interrupted run keeps every memory it finished (the task is
-    // in-memory and dies on daemon restart — incremental storage is what makes partial progress
-    // durable). Verification model calls run bounded-parallel; the store write stays single-threaded.
-    Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyClassifyStore(
-      extraction.merged(), chunks, profile.id(), sessionId,
+    // Verify + store as one stage: each candidate is persisted the moment its verification passes,
+    // so an interrupted run keeps every memory it finished (the task is in-memory and dies on
+    // daemon restart — incremental storage is what makes partial progress durable). Candidates the
+    // grounding filter clears skip the model verifier entirely (per verifyMode); the suspect
+    // verification calls run bounded-parallel; the store write stays single-threaded.
+    Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
+      extraction.merged(), chunks, profile.id(), sessionId, tuning.verifyMode(),
       Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     VerifyStoreResult result = verifyStore.value();
-    log.info("ingest verified profile={} session={} passed={} corrected={} dropped={} stored={} verifyStoreMs={}",
-      profileName, sessionId, result.passed(), result.corrected(), result.dropped(),
-      result.stored().size(), verifyStore.millis());
+    log.info("ingest verified profile={} session={} passed={} autoPassed={} corrected={} dropped={} stored={} verifyStoreMs={}",
+      profileName, sessionId, result.passed(), result.autoPassed(), result.corrected(),
+      result.dropped(), result.stored().size(), verifyStore.millis());
     if (!extraction.merged().isEmpty() && result.stored().isEmpty()) {
       log.warn("ingest verification dropped every candidate profile={} session={} merged={} — see per-candidate"
         + " drop reasons above; nothing was stored", profileName, sessionId, extraction.merged().size());
@@ -315,34 +318,49 @@ public class IngestionService {
   }
 
   /**
-   * Run extraction over the chunks (full pass, plus the detail pass when enabled) and merge the
-   * candidates, retaining the raw count for logging.
+   * Run unified extraction over the chunks and merge the candidates, retaining the raw count for
+   * logging.
    */
-  private Extraction extractCandidates(List<Chunk> chunks, boolean detailPass, int extractionSamples,
+  private Extraction extractCandidates(List<Chunk> chunks, int extractionSamples,
                                        int maxExtractionConcurrency,
                                        InferenceUsageAccumulator usage, IngestProgressListener progress) {
-    List<ExtractedCandidate> extracted =
-      runExtraction(chunks, detailPass, extractionSamples, maxExtractionConcurrency, usage, progress);
-    List<ExtractedCandidate> merged = mergeCandidates(extracted);
+    List<UnifiedCandidate> extracted =
+      runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress);
+    List<UnifiedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
 
+  /** One verified survivor ready to store: resolved content plus its classification. */
+  private record Survivor(String content, Classification classification) {
+  }
+
+  /** A chunk's candidates split by the grounding pre-filter (per {@link VerifyMode}). */
+  private record ChunkPartition(List<UnifiedCandidate> autoPassed, List<UnifiedCandidate> suspects) {
+  }
+
   /**
-   * Verify each candidate against its source chunk, then classify and store every survivor
-   * <em>immediately</em> — so each memory is durably persisted the moment its verification passes,
-   * and an interrupted run keeps everything it finished.
+   * Verify each candidate against its source chunk, then store every survivor <em>immediately</em> —
+   * so each memory is durably persisted the moment its verification passes, and an interrupted run
+   * keeps everything it finished.
    *
-   * <p>Verification model calls are independent and read-only, so they run bounded-parallel on
+   * <p>Candidates arrive already classified (unified extraction), so there is no classify stage:
+   * only a {@code CORRECT} verdict re-classifies, because the corrected content invalidates the
+   * original enrichment. Per {@code verifyMode}, candidates that pass the deterministic
+   * {@link GroundingFilter} skip the model verifier entirely; the remaining suspects of each chunk
+   * are verified in ONE batched call (the transcript is sent once, not re-sent per candidate).
+   * Suspect verification calls are independent and read-only, so they run bounded-parallel on
    * virtual threads (gated by {@code maxConcurrency}, like extraction). Results are folded back in
-   * submission order on this single thread, which also performs the classify + store for each
-   * survivor — keeping the daemon's single-writer invariant and deterministic supersession ordering.
+   * submission order on this single thread, which also performs the graph extraction + store for
+   * each survivor — keeping the daemon's single-writer invariant and deterministic supersession
+   * ordering.
    */
-  private VerifyStoreResult verifyClassifyStore(List<ExtractedCandidate> merged, List<Chunk> chunks,
-                                                String profileId, String sessionId, int maxConcurrency,
-                                                InferenceUsageAccumulator usage, IngestProgressListener progress) {
+  private VerifyStoreResult verifyStore(List<UnifiedCandidate> merged, List<Chunk> chunks,
+                                        String profileId, String sessionId, VerifyMode verifyMode,
+                                        int maxConcurrency,
+                                        InferenceUsageAccumulator usage, IngestProgressListener progress) {
     int total = merged.size();
     if (total == 0) {
-      return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0);
+      return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     Map<Integer, String> transcriptByChunk = new HashMap<>();
@@ -350,15 +368,20 @@ public class IngestionService {
       transcriptByChunk.put(c.index(), c.transcript());
     }
 
-    // Group candidates by source chunk (first-seen order). Each chunk is verified in ONE batched
-    // call — the transcript is sent once, not re-sent per candidate — which is what collapses the
-    // verify phase from one call per candidate to one call per chunk.
-    LinkedHashMap<Integer, List<ExtractedCandidate>> byChunk = new LinkedHashMap<>();
-    for (ExtractedCandidate candidate : merged) {
+    // Group candidates by source chunk (first-seen order), then split each group into auto-passed
+    // (grounded) and suspects that need the model verifier.
+    LinkedHashMap<Integer, List<UnifiedCandidate>> byChunk = new LinkedHashMap<>();
+    for (UnifiedCandidate candidate : merged) {
       byChunk.computeIfAbsent(candidate.chunkIndex(), k -> new ArrayList<>()).add(candidate);
+    }
+    LinkedHashMap<Integer, ChunkPartition> partitions = new LinkedHashMap<>();
+    for (var entry : byChunk.entrySet()) {
+      partitions.put(entry.getKey(),
+        partition(entry.getValue(), transcriptByChunk.getOrDefault(entry.getKey(), ""), verifyMode));
     }
 
     int passed = 0;
+    int autoPassed = 0;
     int corrected = 0;
     int dropped = 0;
     int superseded = 0;
@@ -373,74 +396,77 @@ public class IngestionService {
     // the verify calls run on worker threads and bind via tracked(...).
     try (InferenceUsageSink.Binding ignored = InferenceUsageSink.bind(usage);
          ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      // One batched verify call per chunk, bounded-parallel across chunks.
-      List<Integer> chunkOrder = new ArrayList<>(byChunk.keySet());
+      // One batched verify call per chunk over its suspects only, bounded-parallel across chunks.
+      List<Integer> chunkOrder = new ArrayList<>(partitions.keySet());
       Map<Integer, Future<List<VerificationResult>>> verifyFutures = new LinkedHashMap<>();
       for (Integer chunkIndex : chunkOrder) {
-        List<ExtractedCandidate> group = byChunk.get(chunkIndex);
+        List<UnifiedCandidate> suspects = partitions.get(chunkIndex).suspects();
+        if (suspects.isEmpty()) {
+          continue;
+        }
+        List<String> contents = suspects.stream().map(UnifiedCandidate::content).toList();
         String transcript = transcriptByChunk.getOrDefault(chunkIndex, "");
         verifyFutures.put(chunkIndex,
-          exec.submit(tracked(usage, () -> bounded(gate, () -> modelGateway.verifyAll(group, transcript)))));
+          exec.submit(tracked(usage, () -> bounded(gate, () -> modelGateway.verifyAll(contents, transcript)))));
       }
 
       // Announce the phase up front (see extraction) and fold per chunk in submission order.
       progress.onPhase("verify", 0, total);
       int done = 0;
       for (Integer chunkIndex : chunkOrder) {
-        List<ExtractedCandidate> group = byChunk.get(chunkIndex);
-        List<VerificationResult> verdicts = awaitVerification(verifyFutures.get(chunkIndex));
+        ChunkPartition part = partitions.get(chunkIndex);
+        List<Survivor> survivors = new ArrayList<>();
 
-        // Resolve this chunk's survivors, counting verdicts and logging drops.
-        List<String> survivors = new ArrayList<>();
-        for (int j = 0; j < group.size(); j++) {
-          ExtractedCandidate candidate = group.get(j);
-          VerificationResult result = j < verdicts.size() ? verdicts.get(j)
-            : new VerificationResult(VerificationVerdict.DROP, "", "no verdict returned");
-
-          String content = null;
-          switch (result.verdict()) {
-            case DROP -> dropped++;
-            case PASS -> {
-              passed++;
-              content = candidate.content();
-            }
-            case CORRECT -> {
-              corrected++;
-              content = result.content() != null && !result.content().isBlank()
-                ? result.content()
-                : candidate.content();
-            }
-          }
-          // Drops are the usual reason a profile stays empty, so log them at info with the model's
-          // reason; pass/correct stay at debug to keep healthy runs quiet.
-          if (result.verdict() == VerificationVerdict.DROP) {
-            log.info("ingest verification dropped chunk={} reason={} content=\"{}\"",
-              candidate.chunkIndex(), result.reason(), abbreviate(candidate.content()));
-          } else {
-            log.debug("ingest verification chunk={} verdict={} reason={}",
-              candidate.chunkIndex(), result.verdict(), result.reason());
-          }
-          if (content != null && !content.isBlank()) {
-            survivors.add(content);
-          }
+        for (UnifiedCandidate candidate : part.autoPassed()) {
+          autoPassed++;
+          survivors.add(new Survivor(candidate.content(), candidate.classification()));
+          log.debug("ingest verification chunk={} verdict=AUTO_PASS (grounded)", chunkIndex);
           progress.onPhase("verify", ++done, total);
         }
 
-        // Batch-classify this chunk's survivors (one call), batch graph-extract the non-task ones
-        // (one call), then store each. Storing per chunk keeps progress durable: a finished chunk's
-        // memories survive an interrupted run.
-        if (!survivors.isEmpty()) {
-          List<Classification> classifications = new ArrayList<>(modelGateway.classifyAll(survivors));
-          while (classifications.size() < survivors.size()) {
-            classifications.add(modelGateway.classify(survivors.get(classifications.size())));
-          }
+        List<UnifiedCandidate> suspects = part.suspects();
+        if (!suspects.isEmpty()) {
+          List<VerificationResult> verdicts = awaitVerification(verifyFutures.get(chunkIndex));
+          for (int j = 0; j < suspects.size(); j++) {
+            UnifiedCandidate candidate = suspects.get(j);
+            VerificationResult result = j < verdicts.size() ? verdicts.get(j)
+              : new VerificationResult(VerificationVerdict.DROP, "", "no verdict returned");
 
+            switch (result.verdict()) {
+              case DROP -> {
+                dropped++;
+                // Drops are the usual reason a profile stays empty, so log them at info with the
+                // model's reason; pass/correct stay at debug to keep healthy runs quiet.
+                log.info("ingest verification dropped chunk={} reason={} content=\"{}\"",
+                  chunkIndex, result.reason(), abbreviate(candidate.content()));
+              }
+              case PASS -> {
+                passed++;
+                survivors.add(new Survivor(candidate.content(), candidate.classification()));
+                log.debug("ingest verification chunk={} verdict=PASS reason={}", chunkIndex, result.reason());
+              }
+              case CORRECT -> {
+                corrected++;
+                String content = result.content() != null && !result.content().isBlank()
+                  ? result.content()
+                  : candidate.content();
+                survivors.add(new Survivor(content, reclassify(content, candidate.classification())));
+                log.debug("ingest verification chunk={} verdict=CORRECT reason={}", chunkIndex, result.reason());
+              }
+            }
+            progress.onPhase("verify", ++done, total);
+          }
+        }
+
+        // Batch graph-extract the non-task survivors (one call), then store each. Storing per
+        // chunk keeps progress durable: a finished chunk's memories survive an interrupted run.
+        if (!survivors.isEmpty()) {
           // Tasks are excluded from the graph (as from the vector index); the rest are graph-extracted
           // in one batched, degradable call.
           List<String> graphContents = new ArrayList<>();
-          for (int k = 0; k < survivors.size(); k++) {
-            if (classifications.get(k).type() != MemoryType.TASK) {
-              graphContents.add(survivors.get(k));
+          for (Survivor survivor : survivors) {
+            if (survivor.classification().type() != MemoryType.TASK) {
+              graphContents.add(survivor.content());
             }
           }
           List<GraphFragment> graphs;
@@ -455,11 +481,10 @@ public class IngestionService {
 
           int g = 0;
           for (int k = 0; k < survivors.size(); k++) {
-            String content = survivors.get(k);
-            Classification classification = classifications.get(k);
+            Survivor survivor = survivors.get(k);
             GraphFragment graph = GraphFragment.empty();
             GraphOutcome graphOutcome;
-            if (classification.type() == MemoryType.TASK) {
+            if (survivor.classification().type() == MemoryType.TASK) {
               graphOutcome = GraphOutcome.SKIPPED;
             } else if (graphBatchFailed) {
               graphOutcome = GraphOutcome.FAILED;
@@ -470,8 +495,8 @@ public class IngestionService {
               g++;
             }
 
-            StoredOne s = storeMemory(profileId, sessionId, content, classification, graph, graphOutcome,
-              k + 1, survivors.size());
+            StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
+              graph, graphOutcome, k + 1, survivors.size());
             stored.add(s.stored());
             if (s.superseded()) {
               superseded++;
@@ -489,8 +514,48 @@ public class IngestionService {
       }
     }
 
-    return new VerifyStoreResult(stored, passed, corrected, dropped,
+    return new VerifyStoreResult(stored, passed, autoPassed, corrected, dropped,
       superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
+  }
+
+  /**
+   * Split a chunk's candidates per {@code verifyMode}: {@code NEVER} auto-passes everything,
+   * {@code ALWAYS} sends everything to the model verifier, {@code GROUNDED} auto-passes only the
+   * candidates the {@link GroundingFilter} clears against the chunk transcript.
+   */
+  private static ChunkPartition partition(List<UnifiedCandidate> candidates, String transcript,
+                                          VerifyMode verifyMode) {
+    return switch (verifyMode) {
+      case NEVER -> new ChunkPartition(candidates, List.of());
+      case ALWAYS -> new ChunkPartition(List.of(), candidates);
+      case GROUNDED -> {
+        List<UnifiedCandidate> auto = new ArrayList<>();
+        List<UnifiedCandidate> suspects = new ArrayList<>();
+        for (UnifiedCandidate candidate : candidates) {
+          if (GroundingFilter.grounded(candidate.content(), transcript)) {
+            auto.add(candidate);
+          } else {
+            suspects.add(candidate);
+          }
+        }
+        yield new ChunkPartition(auto, suspects);
+      }
+    };
+  }
+
+  /**
+   * Re-classify content the verifier corrected: the original enrichment (type, topic key,
+   * interrogative queries) was computed for the uncorrected statement. Degradable — on a model
+   * failure the stale classification is kept (corrected content with slightly-off enrichment beats
+   * losing the memory).
+   */
+  private Classification reclassify(String content, Classification stale) {
+    try {
+      return modelGateway.classify(content);
+    } catch (RuntimeException e) {
+      log.warn("re-classify of corrected content failed ({}); keeping the original classification", e.toString());
+      return stale;
+    }
   }
 
   private static List<VerificationResult> awaitVerification(Future<List<VerificationResult>> future) {
@@ -541,39 +606,34 @@ public class IngestionService {
   }
 
   /**
-   * Run the full pass over all chunks, plus the detail pass when enabled, with parallelism bounded
-   * by {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
+   * Run the unified extraction pass over all chunks with parallelism bounded by
+   * {@code maxExtractionConcurrency}. Blocking model calls run on virtual threads.
    *
-   * <p>When {@code extractionSamples > 1} each pass is repeated that many times per chunk: extraction
+   * <p>When {@code extractionSamples > 1} the pass is repeated that many times per chunk: extraction
    * is stochastic, so independent samples catch overlapping-but-different subsets of a chunk's facts,
    * and their union (de-duplicated downstream by {@link #mergeCandidates}) is more complete than any
    * single pass. All samples are submitted together and share the same concurrency gate.
    */
-  private List<ExtractedCandidate> runExtraction(List<Chunk> chunks, boolean detailPass, int extractionSamples,
-                                                 int maxExtractionConcurrency,
-                                                 InferenceUsageAccumulator usage, IngestProgressListener progress) {
+  private List<UnifiedCandidate> runExtraction(List<Chunk> chunks, int extractionSamples,
+                                               int maxExtractionConcurrency,
+                                               InferenceUsageAccumulator usage, IngestProgressListener progress) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
     }
     int samples = Math.max(1, extractionSamples);
-    int passesPerChunk = (detailPass ? 2 : 1) * samples;
-    log.info("ingest extraction start chunks={} detailPass={} samples={} maxConcurrency={} modelCalls={}",
-      chunks.size(), detailPass, samples, maxExtractionConcurrency, chunks.size() * passesPerChunk);
+    log.info("ingest extraction start chunks={} samples={} maxConcurrency={} modelCalls={}",
+      chunks.size(), samples, maxExtractionConcurrency, chunks.size() * samples);
 
     Semaphore gate = new Semaphore(maxExtractionConcurrency);
-    List<ExtractedCandidate> results = new ArrayList<>();
+    List<UnifiedCandidate> results = new ArrayList<>();
 
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       List<Future<ExtractionPassResult>> futures = new ArrayList<>();
       for (Chunk chunk : chunks) {
         for (int sample = 0; sample < samples; sample++) {
           futures.add(exec.submit(tracked(usage,
-            () -> extractWithTiming(gate, "full", chunk, () -> modelGateway.extract(chunk)))));
-          if (detailPass) {
-            futures.add(exec.submit(tracked(usage,
-              () -> extractWithTiming(gate, "detail", chunk, () -> modelGateway.extractDetail(chunk)))));
-          }
+            () -> extractWithTiming(gate, chunk, () -> modelGateway.extractUnified(chunk)))));
         }
       }
       int total = futures.size();
@@ -584,8 +644,8 @@ public class IngestionService {
       progress.onPhase("extract", 0, total);
       for (Future<ExtractionPassResult> f : futures) {
         ExtractionPassResult result = awaitExtraction(f);
-        log.info("ingest extraction pass={} chunk={} candidates={} done={}/{} ms={}",
-          result.pass(), result.chunkIndex(), result.candidates().size(), done + 1, total, result.millis());
+        log.info("ingest extraction chunk={} candidates={} done={}/{} ms={}",
+          result.chunkIndex(), result.candidates().size(), done + 1, total, result.millis());
         results.addAll(result.candidates());
         progress.onPhase("extract", ++done, total);
       }
@@ -593,17 +653,17 @@ public class IngestionService {
     return results;
   }
 
-  private static ExtractionPassResult extractWithTiming(Semaphore gate, String pass, Chunk chunk,
-                                                        Callable<List<ExtractedCandidate>> task) throws Exception {
-    Timed<List<ExtractedCandidate>> timed = Timed.measure(() -> {
+  private static ExtractionPassResult extractWithTiming(Semaphore gate, Chunk chunk,
+                                                        Callable<List<UnifiedCandidate>> task) throws Exception {
+    Timed<List<UnifiedCandidate>> timed = Timed.measure(() -> {
       try {
         return bounded(gate, task);
       } catch (Exception e) {
         throw new ExtractionCallException(e);
       }
     });
-    List<ExtractedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
-    return new ExtractionPassResult(pass, chunk.index(), candidates, timed.millis());
+    List<UnifiedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
+    return new ExtractionPassResult(chunk.index(), candidates, timed.millis());
   }
 
   private static <T> T bounded(Semaphore gate, Callable<T> task) throws Exception {
@@ -645,12 +705,12 @@ public class IngestionService {
   }
 
   /**
-   * Merge full- and detail-pass candidates, de-duplicating by normalized content (case-insensitive,
-   * trimmed) while keeping the first occurrence and its provenance.
+   * Merge candidates across samples, de-duplicating by normalized content (case-insensitive,
+   * trimmed) while keeping the first occurrence with its classification and provenance.
    */
-  private static List<ExtractedCandidate> mergeCandidates(List<ExtractedCandidate> candidates) {
-    Map<String, ExtractedCandidate> byContent = new LinkedHashMap<>();
-    for (ExtractedCandidate candidate : candidates) {
+  private static List<UnifiedCandidate> mergeCandidates(List<UnifiedCandidate> candidates) {
+    Map<String, UnifiedCandidate> byContent = new LinkedHashMap<>();
+    for (UnifiedCandidate candidate : candidates) {
       if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
         continue;
       }

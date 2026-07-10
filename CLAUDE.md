@@ -37,7 +37,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 
 - `MemoryStore` — single interface behind both storage backends (SQLite and Postgres). All retrieval channels and ingestion writes are defined against this interface. This is what makes the local→server transition a backend swap.
 - `ModelGateway` — provider-agnostic chat + embedding; backed by Spring AI. Two tiers: small/fast model for structured stages (extract/verify/classify), large model for synthesis only.
-- `IngestionService` — write path: content-addressed IDs → parallel extraction → verification → classification → supersession → store → async vectorization outbox.
+- `IngestionService` — write path: content-addressed IDs → parallel unified extraction (one call per chunk emits candidates with their classification) → grounding pre-filter + model verification of suspects → supersession → store → async vectorization outbox.
 - `RetrievalService` — read path: query analysis + embedding → five parallel channels (FTS, exact key, raw message FTS, direct vector, HyDE vector) → RRF fusion → synthesis.
 - `VectorizationWorker` — virtual-thread worker that drains the outbox and writes embeddings.
 
@@ -81,28 +81,14 @@ All modules live under `modules/`:
 
 ## Dogfooding: use Pieria as your own memory
 
-This repo is wired to its own daemon via the `pieria` MCP server (profile `pieria`).
-Use it actively while working here — recall is model-invoked, not a passive backdrop.
-The `recall`/`remember` MCP tool descriptions carry the guidance on when and how to
-call them (task boundaries, type mapping, `topicKey` supersession); the notes below
-are only what's specific to dogfooding in this repo.
+This repo is wired to its own daemon via the `pieria` MCP server (profile `pieria`),
+so working here exercises the product. Use it actively — recall is model-invoked, not a
+passive backdrop. Changes to the ingestion or retrieval path change what this session
+itself can remember and recall; a broken daemon means no memory tools until it's back up.
 
-- Don't pass `profile` explicitly — the gateway resolves it from the git remote (`pieria`).
-- **Prerequisite**: Ollama must be running (launch Ollama.app) or recall/ingest hang.
-  Session-start recall and the PreCompact/Stop ingest hooks fail-closed and silently
-  no-op when the daemon or Ollama is unreachable.
-- **Latency**: recall runs through Ollama (`qwen2.5:14b` on CPU) and takes tens of
-  seconds — call it deliberately at task boundaries, not on every turn.
-- **Remember proactively, without asking.** When something worth remembering surfaces
-  while working here — a design decision, a constraint, a convention, a hard-won gotcha —
-  write it to the `pieria` store via the `remember` MCP tool on your own judgment. Don't
-  ask the user for permission first, and prefer this store over other note-keeping. Use a
-  stable `topicKey` so a later update supersedes rather than duplicates.
-- **Recall Pieria first, then discover.** Before broad codebase discovery on a non-trivial
-  task, `recall` from the `pieria` store first — prior decisions, gotchas, and rejected
-  approaches often already live there. Treat its answer as the starting point, then do the
-  general exploration (grep/read/search) to confirm and fill gaps. (Recall is model-invoked
-  and slow, so do this at task boundaries, not on every turn.)
+The standing `recall`/`remember` policy lives in the user-level `CLAUDE.md`, and the MCP
+tool descriptions carry the mechanics (task boundaries, type mapping, `topicKey`
+supersession).
 
 ## Configuration
 

@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
+import dev.alvo.pieria.config.VerifyMode;
+
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
@@ -7,8 +9,9 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.model.Chunk;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
@@ -43,9 +46,13 @@ class IngestionServiceTests {
   private IngestionService service;
 
   private static PieriaProperties props() {
+    return props(VerifyMode.ALWAYS);
+  }
+
+  private static PieriaProperties props(VerifyMode verifyMode) {
     return new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("small", "large", "embed", 1024, null),
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
+      new PieriaProperties.Model("small", "large", "embed", 1024, null, null),
+      new PieriaProperties.Ingestion(10000, 2, 4, verifyMode, 1, 32, 5, false, 5000),
       null,
       null);
   }
@@ -206,36 +213,117 @@ class IngestionServiceTests {
 
   @Test
   void extractionSamplesRunMultiplePassesButDedupe() {
-    // A per-request override of 3 samples must invoke the extract pass 3× for the single chunk, yet
-    // the identical deterministic candidates dedupe down to one stored memory (union semantics).
+    // A per-request override of 3 samples must invoke the unified extraction 3× for the single
+    // chunk, yet the identical deterministic candidates dedupe down to one stored memory (union
+    // semantics).
     AtomicInteger extractCalls = new AtomicInteger();
     FakeModelGateway counting = new FakeModelGateway() {
       @Override
-      public List<ExtractedCandidate> extract(Chunk chunk) {
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
         extractCalls.incrementAndGet();
-        return super.extract(chunk);
+        return super.extractUnified(chunk);
       }
     };
-    TranscriptNormalizer normalizer = new TranscriptNormalizer();
-    Chunker chunker = new Chunker(normalizer);
-    IngestionService sampled = new IngestionService(store, counting, normalizer, chunker,
-      EffectiveConfigResolver.withoutOverrides(props()));
+    IngestionService sampled = service(counting, VerifyMode.ALWAYS);
 
-    // Two messages → one chunk, detail pass off (<9 messages), so passes == samples.
+    // Two messages → one chunk, so calls == samples.
     List<Memory> stored = sampled.ingest("proj", "s1",
       List.of(msg("user", "I love coffee"), msg("assistant", "noted")), 3);
 
-    assertEquals(3, extractCalls.get(), "each of the 3 samples should run one full extract pass");
+    assertEquals(3, extractCalls.get(), "each of the 3 samples should run one unified extraction");
     assertEquals(1, stored.size(), "identical samples must dedupe to a single stored memory");
   }
 
   @Test
-  void longConversationTriggersDetailPassWithoutError() {
+  void longConversationIngestsWithoutError() {
     List<Message> many = new ArrayList<>();
     for (int i = 0; i < 9; i++) {
       many.add(msg(i % 2 == 0 ? "user" : "assistant", "message number " + i));
     }
     List<Memory> stored = service.ingest("proj", "s1", many);
-    assertFalse(stored.isEmpty(), "the >=9 message detail pass should still produce memories");
+    assertFalse(stored.isEmpty(), "a long conversation should still produce memories");
+  }
+
+  /** Gateway whose extraction emits one fixed, pre-classified candidate and counts verify calls. */
+  private static class ScriptedGateway extends FakeModelGateway {
+    final AtomicInteger verifyCalls = new AtomicInteger();
+    final AtomicInteger classifyCalls = new AtomicInteger();
+    private final String candidateContent;
+
+    ScriptedGateway(String candidateContent) {
+      this.candidateContent = candidateContent;
+    }
+
+    @Override
+    public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+      return List.of(new UnifiedCandidate(candidateContent, super.classify(candidateContent),
+        chunk.index(), "extract"));
+    }
+
+    @Override
+    public VerificationResult verify(String content, String transcript) {
+      verifyCalls.incrementAndGet();
+      return super.verify(content, transcript);
+    }
+
+    @Override
+    public dev.alvo.pieria.ingestion.model.Classification classify(String content) {
+      classifyCalls.incrementAndGet();
+      return super.classify(content);
+    }
+  }
+
+  private IngestionService service(FakeModelGateway gateway, VerifyMode verifyMode) {
+    TranscriptNormalizer normalizer = new TranscriptNormalizer();
+    return new IngestionService(store, gateway, normalizer, new Chunker(normalizer),
+      EffectiveConfigResolver.withoutOverrides(props(verifyMode)));
+  }
+
+  @Test
+  void groundedCandidateSkipsModelVerify() {
+    // The candidate repeats the transcript's words exactly, so the grounding filter clears it and
+    // the model verifier must never be called; the memory is still stored.
+    ScriptedGateway gateway = new ScriptedGateway("alpha bravo charlie delta");
+    List<Memory> stored = service(gateway, VerifyMode.GROUNDED).ingest("proj", "s1",
+      List.of(msg("user", "alpha bravo charlie delta")));
+
+    assertEquals(1, stored.size());
+    assertEquals(0, gateway.verifyCalls.get(), "a grounded candidate must not reach the model verifier");
+  }
+
+  @Test
+  void ungroundedCandidateGoesToModelVerify() {
+    // The candidate shares no words with the transcript, so it is suspect and must be model-verified
+    // (the fake verifier passes it).
+    ScriptedGateway gateway = new ScriptedGateway("fabricated nonsense statement entirely");
+    List<Memory> stored = service(gateway, VerifyMode.GROUNDED).ingest("proj", "s1",
+      List.of(msg("user", "alpha bravo charlie delta")));
+
+    assertEquals(1, stored.size());
+    assertTrue(gateway.verifyCalls.get() >= 1, "an ungrounded candidate must be model-verified");
+  }
+
+  @Test
+  void correctedCandidateIsReclassified() {
+    // TYPO forces a CORRECT verdict; the corrected content invalidates the extraction-time
+    // classification, so classify must run again and the corrected content is stored.
+    ScriptedGateway gateway = new ScriptedGateway("statement with a TYPO inside");
+    List<Memory> stored = service(gateway, VerifyMode.ALWAYS).ingest("proj", "s1",
+      List.of(msg("user", "alpha bravo charlie delta")));
+
+    assertEquals(1, stored.size());
+    assertTrue(stored.getFirst().content().startsWith("corrected: "),
+      "the corrected content must be what gets stored");
+    assertTrue(gateway.classifyCalls.get() >= 1, "a CORRECT verdict must re-classify the corrected content");
+  }
+
+  @Test
+  void verifyModeNeverStoresWithoutModelVerify() {
+    ScriptedGateway gateway = new ScriptedGateway("fabricated nonsense statement entirely");
+    List<Memory> stored = service(gateway, VerifyMode.NEVER).ingest("proj", "s1",
+      List.of(msg("user", "alpha bravo charlie delta")));
+
+    assertEquals(1, stored.size());
+    assertEquals(0, gateway.verifyCalls.get(), "verify-mode=never must skip verification entirely");
   }
 }

@@ -1,5 +1,7 @@
 package dev.alvo.pieria.setup;
 
+import dev.alvo.pieria.config.VerifyMode;
+
 import dev.alvo.pieria.config.AppDataPathResolver;
 import dev.alvo.pieria.config.AppDataProperties;
 import dev.alvo.pieria.config.FirstRunProperties;
@@ -119,18 +121,13 @@ class BootstrapServiceTests {
       new PieriaProperties.Daemon("127.0.0.1", 8077),
       new PieriaProperties.Db(dbPath.toString()),
       new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
-      new PieriaProperties.Model("small", "large", "embed", 1024, null),
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
+      new PieriaProperties.Model("small", "large", "embed", 1024, null, null),
+      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000),
       new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
       null);
   }
 
   private static class NoopModelGateway implements ModelGateway {
-    @Override
-    public List<Memory> extractMemories(List<Message> messages) {
-      return List.of();
-    }
-
     @Override
     public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
       return "";

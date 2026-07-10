@@ -8,7 +8,7 @@ package dev.alvo.pieria.model.usage;
  */
 public enum InferenceTier {
 
-  /** Small/fast structured stages: extract, extractDetail, verify, classify, extractGraph, analyzeQuery. */
+  /** Small/fast structured stages: extract (unified), verify, classify, extractGraph, analyzeQuery. */
   EXTRACTION,
 
   /** Large model: synthesizeRecall (and the eval-only judgeAnswerFaithfulness). */

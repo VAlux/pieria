@@ -123,6 +123,36 @@ class OnboardCommandTests {
   }
 
   @Test
+  void refreshFlagLandsInEveryContentSpec(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.refresh = true;
+
+      Result r = run(cmd);
+
+      assertThat(r.code()).isZero();
+      List<String> bodies = onboardBodies(daemon);
+      assertThat(bodies).hasSize(3);
+      assertThat(bodies).allSatisfy(b -> assertThat(b).contains("\"refresh\":true"));
+    }
+  }
+
+  @Test
+  void refreshIsOmittedFromSpecsByDefault(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+
+      Result r = run(command(proj, daemon.baseUrl()));
+
+      assertThat(r.code()).isZero();
+      assertThat(onboardBodies(daemon)).allSatisfy(b -> assertThat(b).doesNotContain("refresh"));
+    }
+  }
+
+  @Test
   void urlTargetsCoalesceIntoOneWebSpec(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {

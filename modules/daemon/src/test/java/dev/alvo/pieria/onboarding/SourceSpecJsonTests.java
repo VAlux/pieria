@@ -20,7 +20,7 @@ class SourceSpecJsonTests {
 
   @Test
   void markdownRoundTripsWithTypeDiscriminator() {
-    SourceSpec spec = new SourceSpec.Markdown("/abs/proj", true, 3);
+    SourceSpec spec = new SourceSpec.Markdown("/abs/proj", true, 3, Boolean.TRUE);
 
     String json = mapper.writeValueAsString(spec);
     assertThat(json).contains("\"type\":\"markdown\"");
@@ -43,7 +43,7 @@ class SourceSpecJsonTests {
 
   @Test
   void webRoundTripsWithUrls() {
-    SourceSpec spec = new SourceSpec.Web(List.of("https://example.com/a", "https://example.com/b"), null);
+    SourceSpec spec = new SourceSpec.Web(List.of("https://example.com/a", "https://example.com/b"), null, null);
 
     String json = mapper.writeValueAsString(spec);
     assertThat(json).contains("\"type\":\"web\"");
@@ -53,7 +53,7 @@ class SourceSpecJsonTests {
 
   @Test
   void pdfRoundTripsWithTypeDiscriminator() {
-    SourceSpec spec = new SourceSpec.Pdf("/abs/proj", 2);
+    SourceSpec spec = new SourceSpec.Pdf("/abs/proj", 2, null);
 
     String json = mapper.writeValueAsString(spec);
     assertThat(json).contains("\"type\":\"pdf\"");
@@ -63,7 +63,7 @@ class SourceSpecJsonTests {
 
   @Test
   void textRoundTripsWithTypeDiscriminator() {
-    SourceSpec spec = new SourceSpec.Text("/abs/proj", 2);
+    SourceSpec spec = new SourceSpec.Text("/abs/proj", 2, null);
 
     String json = mapper.writeValueAsString(spec);
     assertThat(json).contains("\"type\":\"text\"");

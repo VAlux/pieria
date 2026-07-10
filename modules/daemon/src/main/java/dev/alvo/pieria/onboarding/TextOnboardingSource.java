@@ -47,7 +47,8 @@ public class TextOnboardingSource implements OnboardingSource<SourceSpec.Text> {
         documents.add(new ContentDocument("Text document — " + doc.relative(), text));
       }
     }
-    return ingestor.ingest(profile, "text", documents, spec.extractionSamples(), progress);
+    return ingestor.ingest(profile, "text", documents, spec.extractionSamples(),
+      Boolean.TRUE.equals(spec.refresh()), progress);
   }
 
   /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */

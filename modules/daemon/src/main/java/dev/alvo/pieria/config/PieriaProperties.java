@@ -86,17 +86,50 @@ public record PieriaProperties(
                       String synthesisModel,
                       String embedding,
                       @DefaultValue("1024") int embeddingDimension,
-                      @DefaultValue Reasoning reasoning) {
+                      @DefaultValue Reasoning reasoning,
+                      @DefaultValue Retry retry) {
 
     public Model {
       if (reasoning == null) {
         reasoning = Reasoning.DEFAULT;
       }
+      if (retry == null) {
+        retry = Retry.DEFAULT;
+      }
+    }
+
+    /**
+     * Bounded retry-with-backoff for transient model-call failures (rate limits, 5xx, brief provider
+     * outages — see {@code ModelFailures.isTransient}). Applies to every chat and embedding call, so a
+     * momentary blip no longer aborts a multi-hour onboard: the failing call is retried in place
+     * before the exception surfaces. Deterministic failures (a 400 on a poison chunk, auth errors)
+     * are never retried.
+     *
+     * <p>{@code maxAttempts} counts the <em>total</em> tries including the first (so {@code 1} disables
+     * retry). Backoff for retry {@code n} (1-based) is {@code min(maxBackoffMs, initialBackoffMs *
+     * multiplier^(n-1))}, then randomized by up to ±{@code jitter} (a fraction, {@code 0.2} = ±20%) to
+     * avoid synchronized retry storms across the concurrent extraction workers.
+     */
+    public record Retry(@DefaultValue("3") int maxAttempts,
+                        @DefaultValue("500") long initialBackoffMs,
+                        @DefaultValue("8000") long maxBackoffMs,
+                        @DefaultValue("2.0") double multiplier,
+                        @DefaultValue("0.2") double jitter) {
+
+      public static final Retry DEFAULT = new Retry(3, 500, 8000, 2.0, 0.2);
+
+      public Retry {
+        maxAttempts = Math.max(1, maxAttempts);
+        initialBackoffMs = Math.max(0, initialBackoffMs);
+        maxBackoffMs = Math.max(initialBackoffMs, maxBackoffMs);
+        multiplier = multiplier < 1.0 ? 1.0 : multiplier;
+        jitter = Math.min(1.0, Math.max(0.0, jitter));
+      }
     }
 
     /**
      * Per-stage reasoning ("thinking") control. Reasoning is pure latency/cost overhead on the
-     * structured pipeline stages (extract, extractDetail, verify, classify, extractGraph,
+     * structured pipeline stages (extract, verify, classify, extractGraph,
      * analyzeQuery) — they emit structured JSON, not a chain of thought — so it is disabled there by
      * default. It is also disabled for synthesis by default: the reasoning chain over already-retrieved
      * memories rarely earns its latency. Enable it (per stage or via the tier flag) when answer quality
@@ -155,20 +188,25 @@ public record PieriaProperties(
   }
 
   /**
-   * Ingestion pipeline tuning. Chunk size/overlap, parallelism, the detail-pass message
-   * threshold, extraction sampling, and vectorization-outbox batching/retry limits.
+   * Ingestion pipeline tuning. Chunk size/overlap, parallelism, verification mode,
+   * extraction sampling, and vectorization-outbox batching/retry limits.
    *
-   * <p>{@code extractionSamples} is how many independent extract passes to run per chunk (each
-   * full + optional detail pass): extraction is a stochastic model call, so each sample catches a
-   * slightly different subset of the facts in a chunk, and their union is de-duplicated by content
-   * before verification. The default of {@code 1} keeps the cheap single-pass behavior for the
+   * <p>{@code verifyMode} controls the verification stage: {@code grounded} (default) sends only
+   * candidates that fail the deterministic {@code GroundingFilter} to the model verifier;
+   * {@code always} model-verifies every candidate; {@code never} trusts extraction outright.
+   * Process-global on purpose (not per-profile overridable).
+   *
+   * <p>{@code extractionSamples} is how many independent unified-extraction passes to run per
+   * chunk: extraction is a stochastic model call, so each sample catches a slightly different
+   * subset of the facts in a chunk, and their union is de-duplicated by content before
+   * verification. The default of {@code 1} keeps the cheap single-pass behavior for the
    * high-frequency transcript-hook ingests; callers that want saturation on a one-off bulk seed
    * (notably {@code pieria onboard}) raise it per request rather than for every ingest.
    */
   public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
                           @DefaultValue("2") int chunkOverlapMessages,
                           @DefaultValue("4") int maxExtractionConcurrency,
-                          @DefaultValue("9") int detailPassMinMessages,
+                          @DefaultValue("grounded") VerifyMode verifyMode,
                           @DefaultValue("1") int extractionSamples,
                           @DefaultValue("32") int outboxBatchSize,
                           @DefaultValue("5") int outboxMaxAttempts,

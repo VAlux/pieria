@@ -311,6 +311,25 @@ public interface MemoryStore {
   }
 
   /**
+   * The incremental-onboarding ledger for one {@code (profile, scope)}: content hashes keyed by
+   * document provenance. A document whose current hash matches its ledger entry was fully
+   * processed by a previous onboard and can skip the model pipeline entirely. Empty when nothing
+   * was onboarded yet.
+   */
+  default Map<String, String> ingestLedger(String profileId, String scope) {
+    throw new UnsupportedOperationException("ingestLedger(...) not implemented");
+  }
+
+  /**
+   * Upsert ledger entries for documents whose memories are now durably stored ({@code hashesByKey}:
+   * content hash by document provenance). Callers write per completed batch — never ahead of the
+   * store — so the ledger only ever claims work that actually finished.
+   */
+  default void recordIngestLedger(String profileId, String scope, Map<String, String> hashesByKey) {
+    throw new UnsupportedOperationException("recordIngestLedger(...) not implemented");
+  }
+
+  /**
    * List active (non-superseded) memories, optionally filtered by type and/or session.
    * Null filters mean "no filter on that dimension". Convenience overload of
    * {@link #listMemories(String, MemoryType, String, boolean)} with {@code includeSuperseded=false}.

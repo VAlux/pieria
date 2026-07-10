@@ -2,10 +2,8 @@ package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.memory.Memory;
-import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -24,50 +22,39 @@ import java.util.List;
 public interface ModelGateway {
 
   /**
-   * Extract candidate memories: a single small-model call that returns candidates
-   * (type + content, optional topic key/payload), to be verified and classified.
+   * Unified extraction: one small-model call per chunk that extracts candidate memories
+   * <em>with</em> their classification (type, topic key, interrogative queries, payload) in a single
+   * structured output — broad statements and concrete values alike. This is the only extraction
+   * stage; candidates still go through verification, and a {@code CORRECT} verdict re-classifies
+   * the corrected content via {@link #classify}.
    */
-  List<Memory> extractMemories(List<Message> messages);
-
-  /**
-   * Full-pass extraction: extract candidate memories from a single rendered
-   * chunk transcript. Returns raw candidates (content + optional suggested type) for verification.
-   */
-  default List<ExtractedCandidate> extract(Chunk chunk) {
-    throw new UnsupportedOperationException("extract(Chunk) not implemented");
+  default List<UnifiedCandidate> extractUnified(Chunk chunk) {
+    throw new UnsupportedOperationException("extractUnified(Chunk) not implemented");
   }
 
   /**
-   * Detail-pass extraction: focus on concrete values (names, versions, prices,
-   * paths, entity attributes, dates) that the broad full pass tends to miss.
-   */
-  default List<ExtractedCandidate> extractDetail(Chunk chunk) {
-    throw new UnsupportedOperationException("extractDetail(Chunk) not implemented");
-  }
-
-  /**
-   * Verification: check one extracted candidate against the source transcript,
+   * Verification: check one extracted candidate's content against the source transcript,
    * returning a pass/correct/drop verdict (with corrected content when applicable).
    */
-  default VerificationResult verify(ExtractedCandidate candidate, String transcript) {
+  default VerificationResult verify(String content, String transcript) {
     throw new UnsupportedOperationException("verify(...) not implemented");
   }
 
   /**
-   * Batch verification: verify every candidate of a single chunk against the shared source
-   * {@code transcript} in one model call, returning verdicts aligned 1:1 with {@code candidates} (same
+   * Batch verification: verify every candidate content of a single chunk against the shared source
+   * {@code transcript} in one model call, returning verdicts aligned 1:1 with {@code contents} (same
    * order, same size). This sends the transcript once instead of re-sending it per candidate, which is
-   * the dominant cost of the verify phase. The default delegates to per-candidate {@link #verify} so
+   * the dominant cost of the verify phase. The default delegates to per-content {@link #verify} so
    * stubs and gateways without batch support keep working; production implementations override with a
-   * single batched call and must fall back to per-candidate verification on any batch parse failure.
+   * single batched call and must fall back to per-content verification on any batch parse failure.
    */
-  default List<VerificationResult> verifyAll(List<ExtractedCandidate> candidates, String transcript) {
-    if (candidates == null || candidates.isEmpty()) {
+  default List<VerificationResult> verifyAll(List<String> contents, String transcript) {
+    if (contents == null || contents.isEmpty()) {
       return List.of();
     }
-    List<VerificationResult> results = new ArrayList<>(candidates.size());
-    for (ExtractedCandidate candidate : candidates) {
-      results.add(verify(candidate, transcript));
+    List<VerificationResult> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
+      results.add(verify(content, transcript));
     }
     return results;
   }

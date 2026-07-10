@@ -1,5 +1,7 @@
 package dev.alvo.pieria.api;
 
+import dev.alvo.pieria.config.VerifyMode;
+
 import dev.alvo.pieria.api.controller.StatusController;
 import dev.alvo.pieria.config.AppDataPathResolver;
 import dev.alvo.pieria.config.AppDataProperties;
@@ -61,8 +63,8 @@ class StatusControllerTests {
       new PieriaProperties.Daemon("127.0.0.1", 8077),
       new PieriaProperties.Db(root.resolve("db").resolve("pieria.db").toString()),
       new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
-      new PieriaProperties.Model("small", "large", "embed", 1024, null),
-      new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, false, 5000),
+      new PieriaProperties.Model("small", "large", "embed", 1024, null, null),
+      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000),
       new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
       null);
 

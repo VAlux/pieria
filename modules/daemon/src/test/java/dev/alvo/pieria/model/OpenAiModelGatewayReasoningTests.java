@@ -2,7 +2,6 @@ package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.PieriaProperties.Model.Reasoning;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
 import dev.alvo.pieria.model.provider.AzureModelProviderAdapter;
 import dev.alvo.pieria.model.provider.ModelProviderAdapter;
 import dev.alvo.pieria.model.provider.OllamaModelProviderAdapter;
@@ -66,7 +65,7 @@ class OpenAiModelGatewayReasoningTests {
     CapturingChatModel extraction = new CapturingChatModel("{\"verdict\":\"drop\",\"content\":\"\",\"reason\":\"x\"}");
     CapturingChatModel synthesis = new CapturingChatModel("an answer");
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, reasoning),
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, reasoning, null),
       null, null, null);
     // Mirror ModelGatewayConfig: OpenAI-typed default options, so the ChatClient merges the runtime
     // reasoning_effort into an OpenAiChatOptions (a generic default would drop the OpenAI-only field).
@@ -81,8 +80,8 @@ class OpenAiModelGatewayReasoningTests {
     return ((OpenAiChatOptions) options).getReasoningEffort();
   }
 
-  private static ExtractedCandidate candidate() {
-    return new ExtractedCandidate("the user prefers dark roast coffee", null, 0, "extract");
+  private static String candidate() {
+    return "the user prefers dark roast coffee";
   }
 
   @Test

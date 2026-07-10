@@ -116,11 +116,6 @@ class HealthControllerTests {
     ModelGateway modelGateway() {
       return new ModelGateway() {
         @Override
-        public List<Memory> extractMemories(List<Message> messages) {
-          return List.of();
-        }
-
-        @Override
         public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
           return "";
         }

@@ -1,5 +1,7 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.config.VerifyMode;
+
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.api.request.RecallMode;
@@ -124,8 +126,8 @@ class SqliteMemoryStoreVectorTests {
         new PieriaProperties.Daemon("127.0.0.1", 8077),
         new PieriaProperties.Db("ignored"),
         new PieriaProperties.Provider("http://localhost:11434", "test-key", "test-provider", "openai", "2024-10-21"),
-        new PieriaProperties.Model("small", "large", "embed", dimension, null),
-        new PieriaProperties.Ingestion(10000, 2, 4, 9, 1, 32, 5, true, 5000),
+        new PieriaProperties.Model("small", "large", "embed", dimension, null, null),
+        new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, true, 5000),
         new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
       null);
     } catch (Throwable t) {

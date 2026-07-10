@@ -40,11 +40,14 @@ public sealed interface SourceSpec {
    * @param includeAgentDocs  when true, also seed {@code CLAUDE.md}/{@code AGENTS.md} (excluded by
    *                          default as already-in-context for harnesses)
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   * @param refresh           re-ingest every document even when unchanged since the last onboard
+   *                          (null ⇒ false)
    */
   record Markdown(
     @NotBlank String root,
     boolean includeAgentDocs,
-    @Positive Integer extractionSamples) implements SourceSpec {
+    @Positive Integer extractionSamples,
+    Boolean refresh) implements SourceSpec {
   }
 
   /**
@@ -70,10 +73,13 @@ public sealed interface SourceSpec {
    *
    * @param urls              the pages to fetch (each an absolute http(s) URL)
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   * @param refresh           re-ingest every page even when its content is unchanged since the
+   *                          last onboard (null ⇒ false)
    */
   record Web(
     @NotEmpty List<@NotBlank String> urls,
-    @Positive Integer extractionSamples) implements SourceSpec {
+    @Positive Integer extractionSamples,
+    Boolean refresh) implements SourceSpec {
   }
 
   /**
@@ -84,10 +90,13 @@ public sealed interface SourceSpec {
    * @param root              absolute path to a directory to scan, or to a single {@code *.pdf} file
    *                          to ingest
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   * @param refresh           re-ingest every document even when unchanged since the last onboard
+   *                          (null ⇒ false)
    */
   record Pdf(
     @NotBlank String root,
-    @Positive Integer extractionSamples) implements SourceSpec {
+    @Positive Integer extractionSamples,
+    Boolean refresh) implements SourceSpec {
   }
 
   /**
@@ -98,9 +107,12 @@ public sealed interface SourceSpec {
    * @param root              absolute path to a directory to scan, or to a single {@code *.txt} file
    *                          to ingest
    * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   * @param refresh           re-ingest every document even when unchanged since the last onboard
+   *                          (null ⇒ false)
    */
   record Text(
     @NotBlank String root,
-    @Positive Integer extractionSamples) implements SourceSpec {
+    @Positive Integer extractionSamples,
+    Boolean refresh) implements SourceSpec {
   }
 }

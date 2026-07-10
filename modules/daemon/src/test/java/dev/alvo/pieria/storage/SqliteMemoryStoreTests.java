@@ -596,6 +596,40 @@ class SqliteMemoryStoreTests {
     assertNull(embeddingOf(s.stored().id()), "no embedding must be written on failure");
   }
 
+  // ---- findCodeMemoriesBySymbolIds ----
+
+  @Test
+  void findCodeMemoriesBySymbolIdsIgnoresRowsWithMalformedPayload() {
+    // A model-extracted memory can carry a payload that is not valid JSON. Such a row must not
+    // abort the whole symbol lookup: json_each() raises "malformed JSON" and takes the channel
+    // down for every other memory in the profile.
+    Profile p = store.getOrCreateProfile("symbol-malformed");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Audit task", "s1", null,
+      "{\"requirements\":[\"a\",\"output_file\":\"docs/x.md\"]}"));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Bar.java overview", "s1", null,
+      "{\"source\":\"code\",\"symbolIds\":[\"sym-bar\"]}"));
+
+    List<Memory> hits = store.findCodeMemoriesBySymbolIds(p.id(), List.of("sym-bar"), 10);
+
+    assertEquals(1, hits.size());
+    assertEquals("Bar.java overview", hits.get(0).content());
+  }
+
+  @Test
+  void findCodeMemoriesBySymbolIdsIgnoresRowsWhosePayloadIsNotAnObject() {
+    // Valid JSON that is not an object (scalar/array) has no $.symbolIds and must simply not match.
+    Profile p = store.getOrCreateProfile("symbol-nonobject");
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "scalar payload", "s1", null, "5"));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "array payload", "s1", null, "[1,2]"));
+    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "Bar.java overview", "s1", null,
+      "{\"source\":\"code\",\"symbolIds\":[\"sym-bar\"]}"));
+
+    List<Memory> hits = store.findCodeMemoriesBySymbolIds(p.id(), List.of("sym-bar"), 10);
+
+    assertEquals(1, hits.size());
+    assertEquals("Bar.java overview", hits.get(0).content());
+  }
+
   // ---- createProfile / deleteProfile ----
 
   @Test

@@ -47,7 +47,8 @@ public class MarkdownOnboardingSource implements OnboardingSource<SourceSpec.Mar
         documents.add(new ContentDocument("Project documentation — " + doc.relative(), text));
       }
     }
-    return ingestor.ingest(profile, "markdown", documents, spec.extractionSamples(), progress);
+    return ingestor.ingest(profile, "markdown", documents, spec.extractionSamples(),
+      Boolean.TRUE.equals(spec.refresh()), progress);
   }
 
   /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */

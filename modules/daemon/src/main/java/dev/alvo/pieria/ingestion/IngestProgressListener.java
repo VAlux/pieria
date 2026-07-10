@@ -7,12 +7,14 @@ package dev.alvo.pieria.ingestion;
  *
  * <p>Phases are reported in order: {@code "extract"} (one tick per model call),
  * {@code "verify"} (one tick per candidate), {@code "store"} (one tick per stored candidate).
+ * Batched content onboarding additionally reports a corpus-level {@code "documents"} phase
+ * (one tick per completed batch) between the per-batch pipeline phases.
  */
 @FunctionalInterface
 public interface IngestProgressListener {
 
   /**
-   * @param phase the current phase ({@code "extract"} | {@code "verify"} | {@code "store"})
+   * @param phase the current phase ({@code "documents"} | {@code "extract"} | {@code "verify"} | {@code "store"})
    * @param done  units completed so far in this phase
    * @param total total units in this phase
    */

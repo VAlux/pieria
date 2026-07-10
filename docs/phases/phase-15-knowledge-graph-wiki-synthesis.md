@@ -149,9 +149,43 @@ context. Follows the batch-synthesis pattern established by Phase 14's `CodeSumm
   `maxExtractionConcurrency`) is future work.
 - **Prompt-size blowup** on high-degree hub entities; cap neighborhood size fed per page and
   truncate deterministically, mirroring Phase 14's caps.
-- **Injectable overview.** The generated project-overview page overlaps with POTENTIAL_FEATURES #12
-  (rolling profile compaction) — a compacted overview page would be excellent session-start injection
-  material; coordinate rather than duplicate.
+- **Injectable overview.** The generated project-overview page is the raw material for the
+  standing-summary session primer (see *Follow-Up Feature* below and POTENTIAL_FEATURES #12); build
+  the overview page here so the primer is a small compaction step on top rather than a duplicate
+  synthesis path.
 - **Console viewer.** A force-directed / browsable renderer in `static/` is a natural follow-up but
   intentionally out of scope here; this phase ships the synthesized document + API only.
 - Postgres parity for `wiki_pages` is deferred to and coordinated with Phase 6 server mode.
+
+## Follow-Up Feature — Standing-Summary Session Primer
+
+Realized immediately after this phase, once a synthesized project-overview page exists. Fulfills
+POTENTIAL_FEATURES #12 (rolling user/project profile compaction) on the session-start injection path.
+
+**Problem it fixes.** Session-start injection today fires a *fixed generic recall query*
+(`harness/claude-code/session-start.sh` → the shared `recall.sh`, `EVIDENCE` tier). With no task in
+hand at session start, semantic similarity to a generic "summarize the project" string surfaces
+whichever memories read most like that string — in practice the planning/spec meta-facts — rather
+than the active tasks, standing conventions, and recent decisions a fresh agent actually needs. The
+retrieval is correct; the query is a poor proxy for "prime a new session."
+
+**The feature.** Maintain one injectable **standing summary** per profile and inject *that* at
+session start, instead of an ad-hoc recall:
+
+- Compact the wiki's project-overview page (the high-degree `project` entity page), enriched with the
+  Phase 14 `code:summary:*` architecture/module summaries, into a single bounded primer. Extend it
+  with the standing context #12 enumerates: architecture map, module responsibilities, public entry
+  points, test/build commands, generated-code boundaries, and known risky files.
+- Content-address the primer on the same graph-snapshot hash the wiki uses, so it regenerates only
+  when the project changes and costs zero model calls otherwise — reusing this phase's skip
+  machinery.
+- Add a primer read path the SessionStart hook calls directly (e.g. a `RecallMode.PRIMER` or a
+  dedicated `GET /v1/profiles/{name}/primer` returning ready-to-inject text), independent of the
+  generic recall query. When no standing summary exists yet (graph not onboarded), fall back to the
+  current recall so the hook degrades gracefully.
+- Keep the standing summary out of the recall/embedding path, matching how wiki pages and code
+  summaries are already excluded from injection recall (`CODE_SESSION` / `excludeCodeDerived`
+  precedent).
+
+Depends on this phase's project-overview page plus the Phase 14 summaries; coordinate with #12 rather
+than duplicating its synthesis.

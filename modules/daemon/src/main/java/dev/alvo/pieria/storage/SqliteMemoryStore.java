@@ -394,6 +394,34 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public Map<String, String> ingestLedger(String profileId, String scope) {
+    Map<String, String> ledger = new HashMap<>();
+    jdbc.sql("SELECT item_key, content_hash FROM ingest_ledger WHERE profile_id = ? AND scope = ?")
+      .params(profileId, scope)
+      .query((rs, _) -> ledger.put(rs.getString("item_key"), rs.getString("content_hash")))
+      .list();
+    return ledger;
+  }
+
+  @Override
+  @Transactional
+  public void recordIngestLedger(String profileId, String scope, Map<String, String> hashesByKey) {
+    if (hashesByKey == null || hashesByKey.isEmpty()) {
+      return;
+    }
+    String now = Instant.now().toString();
+    for (var entry : hashesByKey.entrySet()) {
+      jdbc.sql("""
+          INSERT INTO ingest_ledger (profile_id, scope, item_key, content_hash, processed_at) \
+          VALUES (?, ?, ?, ?, ?) \
+          ON CONFLICT (profile_id, scope, item_key) DO UPDATE SET \
+          content_hash = excluded.content_hash, processed_at = excluded.processed_at""")
+        .params(profileId, scope, entry.getKey(), entry.getValue(), now)
+        .update();
+    }
+  }
+
+  @Override
   @Transactional
   public void insertMessages(String profileId, String sessionId, List<Message> messages) {
     if (messages == null || messages.isEmpty()) {
@@ -1229,11 +1257,15 @@ public class SqliteMemoryStore implements MemoryStore {
     params.add(profileId);
     params.addAll(distinct);
     params.add(limit);
-    // json_each over payload.$.symbolIds; payload defaults to '{}', so files without the key match
-    // zero rows rather than erroring. GROUP BY collapses a memory matched by several symbol ids.
+    // json_each over payload.$.symbolIds; any valid JSON without the key matches zero rows. Model-
+    // written payloads are not guaranteed to be JSON at all, and json_each aborts the whole
+    // statement on a malformed one, so substitute '{}' for those rows. The guard has to live in the
+    // json_each argument rather than the WHERE clause: a WHERE predicate only filters rows json_each
+    // has already been stepped over. GROUP BY collapses a memory matched by several symbol ids.
     return jdbc.sql("SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, "
         + "m.superseded, m.payload, m.embed_text, m.created_at "
-        + "FROM memories m, json_each(m.payload, '$.symbolIds') je "
+        + "FROM memories m, "
+        + "json_each(CASE WHEN json_valid(m.payload) THEN m.payload ELSE '{}' END, '$.symbolIds') je "
         + "WHERE m.profile_id = ? AND m.superseded = 0 AND je.value IN (" + placeholders + ") "
         + "GROUP BY m.id ORDER BY m.created_at DESC LIMIT ?")
       .params(params)

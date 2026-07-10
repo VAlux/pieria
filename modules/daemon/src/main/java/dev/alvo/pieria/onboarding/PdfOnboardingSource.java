@@ -52,7 +52,8 @@ public class PdfOnboardingSource implements OnboardingSource<SourceSpec.Pdf> {
         log.warn("onboard pdf: failed to extract {} ({}); skipping", doc.relative(), e.toString());
       }
     }
-    return ingestor.ingest(profile, "pdf", documents, spec.extractionSamples(), progress);
+    return ingestor.ingest(profile, "pdf", documents, spec.extractionSamples(),
+      Boolean.TRUE.equals(spec.refresh()), progress);
   }
 
   /** Provenance line for a PDF: relative path plus title when the document has one. */

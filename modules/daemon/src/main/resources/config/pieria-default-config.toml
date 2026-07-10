@@ -34,7 +34,6 @@
 # chunk-size-chars = 10000
 # chunk-overlap-messages = 2
 # max-extraction-concurrency = 4
-# detail-pass-min-messages = 9
 
 # [pieria.retrieval]
 # vector-enabled = true

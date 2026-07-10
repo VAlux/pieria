@@ -2,10 +2,8 @@ package dev.alvo.pieria.api;
 
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
-import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
@@ -30,17 +28,6 @@ class StubModelGateway implements ModelGateway {
   }
 
   @Override
-  public List<Memory> extractMemories(List<Message> messages) {
-    if (unavailable) {
-      throw new ModelUnavailableException("model down");
-    }
-    return messages.stream()
-      .filter(m -> "user".equalsIgnoreCase(m.role()))
-      .map(m -> Memory.of(MemoryType.FACT, m.content(), m.sessionId(), null, null))
-      .toList();
-  }
-
-  @Override
   public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
     if (unavailable) {
       throw new ModelUnavailableException("model down");
@@ -56,42 +43,29 @@ class StubModelGateway implements ModelGateway {
   }
 
   @Override
-  public List<ExtractedCandidate> extract(Chunk chunk) {
+  public List<UnifiedCandidate> extractUnified(Chunk chunk) {
     if (unavailable) {
       throw new ModelUnavailableException("model down");
     }
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
-    return List.of(new ExtractedCandidate(
-      "chunk:" + chunk.index() + ":" + chunk.transcript(), MemoryType.FACT, chunk.index(), "extract"));
+    String content = "chunk:" + chunk.index() + ":" + chunk.transcript();
+    return List.of(new UnifiedCandidate(content, classify(content), chunk.index(), "extract"));
   }
 
   @Override
-  public List<ExtractedCandidate> extractDetail(Chunk chunk) {
+  public VerificationResult verify(String content, String transcript) {
     if (unavailable) {
       throw new ModelUnavailableException("model down");
     }
-    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
-      return List.of();
-    }
-    return List.of(new ExtractedCandidate(
-      "chunk:" + chunk.index() + ":" + chunk.transcript() + " [detail]",
-      MemoryType.FACT, chunk.index(), "extractDetail"));
-  }
-
-  @Override
-  public VerificationResult verify(ExtractedCandidate candidate, String transcript) {
-    if (unavailable) {
-      throw new ModelUnavailableException("model down");
-    }
-    if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+    if (content == null || content.isBlank()) {
       return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
     }
-    if (candidate.content().toUpperCase(Locale.ROOT).contains("UNSUPPORTED")) {
+    if (content.toUpperCase(Locale.ROOT).contains("UNSUPPORTED")) {
       return new VerificationResult(VerificationVerdict.DROP, "", "unsupported by transcript");
     }
-    return new VerificationResult(VerificationVerdict.PASS, candidate.content(), "supported");
+    return new VerificationResult(VerificationVerdict.PASS, content, "supported");
   }
 
   @Override

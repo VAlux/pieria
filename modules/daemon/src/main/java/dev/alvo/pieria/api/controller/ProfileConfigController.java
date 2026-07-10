@@ -115,8 +115,7 @@ public class ProfileConfigController {
       new Ingestion(
         ingestion.chunkSizeChars(),
         ingestion.chunkOverlapMessages(),
-        ingestion.maxExtractionConcurrency(),
-        ingestion.detailPassMinMessages()),
+        ingestion.maxExtractionConcurrency()),
 
       new Retrieval(
         retrieval.vectorEnabled(),

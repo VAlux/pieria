@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion;
 
+import dev.alvo.pieria.config.VerifyMode;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.alvo.pieria.config.PieriaProperties;
@@ -20,7 +22,7 @@ class ChunkerTests {
 
   private Chunks chunker(int chunkSizeChars, int overlapMessages) {
     PieriaProperties.Ingestion ingestion =
-      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, 9, 1, 32, 5, false, 5000);
+      new PieriaProperties.Ingestion(chunkSizeChars, overlapMessages, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000);
     Chunker chunker = new Chunker(normalizer);
     return messages -> chunker.chunk(messages, ingestion);
   }

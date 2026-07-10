@@ -6,11 +6,9 @@ import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.EntityNormalizer;
-import dev.alvo.pieria.ingestion.model.ExtractedCandidate;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -65,6 +63,7 @@ public class OpenAiModelGateway implements ModelGateway {
   private final EmbeddingModel embeddingModel;
   private final PieriaProperties properties;
   private final ModelProviderAdapter providerAdapter;
+  private final ModelCallRetry retry;
 
   public OpenAiModelGateway(@Qualifier("extractionChatClient") ChatClient extractionChatClient,
                             @Qualifier("synthesisChatClient") ChatClient synthesisChatClient,
@@ -76,29 +75,52 @@ public class OpenAiModelGateway implements ModelGateway {
     this.embeddingModel = embeddingModel;
     this.properties = properties;
     this.providerAdapter = providerAdapter;
+    this.retry = new ModelCallRetry(properties.model().retry());
   }
 
-  private final ObjectMapper objectMapper = new ObjectMapper();
+  private static final ObjectMapper objectMapper = new ObjectMapper();
 
   private static String blankToNull(String value) {
     return (value == null || value.isBlank()) ? null : value.strip();
   }
 
   /**
+   * The classifier prompt asks the model to hand-write {@code payload} as a JSON object *string*, so
+   * Jackson binds it opaquely and never validates it. Anything but a JSON object is dropped to
+   * {@code "{}"}: the column feeds SQLite's {@code json_each}, which aborts the whole statement on
+   * malformed JSON, so one bad row would otherwise take down retrieval for the entire profile.
+   */
+  private static String sanitizePayload(String payloadRaw) {
+    String payload = blankToNull(payloadRaw);
+    if (payload == null) {
+      return "{}";
+    }
+    try {
+      if (objectMapper.readTree(payload).isObject()) {
+        return payload;
+      }
+    } catch (RuntimeException e) {
+      // fall through to the empty payload below
+    }
+    LOGGER.warn("dropping non-object model payload ({} chars)", payload.length());
+    return "{}";
+  }
+
+  /**
    * Run a structured-output chat call on the extraction client, log the per-stage token usage at
    * INFO, and return the bound entity. Usage capture is best-effort and never NPEs: if the provider
    * does not report usage, token counts are logged as zero. {@code stage} names the pipeline stage
-   * (extract, extractDetail, verify, classify, analyzeQuery) for the log line.
+   * (verify, classify, extractGraph, analyzeQuery) for the log line.
    */
   private <T> T callExtractionEntity(String prompt, String stage, Class<T> type) {
     LOGGER.debug("model call start stage={} model={} promptChars={}",
       stage, properties.model().extractionModel(), prompt.length());
     long start = System.nanoTime();
-    var response = extractionChatClient.prompt()
+    var response = retry.execute(stage, () -> extractionChatClient.prompt()
       .user(prompt)
       .options(reasoningOptions(stage, properties.model().extractionModel()))
       .call()
-      .responseEntity(type);
+      .responseEntity(type));
     LOGGER.debug("model call done stage={} model={} ms={}",
       stage, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
 
@@ -139,116 +161,63 @@ public class OpenAiModelGateway implements ModelGateway {
     return providerAdapter.chatOptions(stage, modelName, properties.model().reasoning());
   }
 
-  @Override
-  public List<Memory> extractMemories(List<Message> messages) {
-    if (messages == null || messages.isEmpty()) {
-      return List.of();
-    }
-
-    String sessionId = messages.getFirst().sessionId();
-    String transcript = messages.stream()
-      .map(m -> m.role() + ": " + m.content())
-      .collect(Collectors.joining("\n"));
-
-    String prompt = PromptTemplateLoader.render("extract-memories", Map.of("transcript", transcript));
-
-    ExtractionResult result;
-    try {
-      result = callExtractionEntity(prompt, "extractMemories", ExtractionResult.class);
-    } catch (RuntimeException e) {
-      throw new ModelUnavailableException("model extraction failed", e);
-    }
-
-    if (result == null || result.memories() == null) {
-      return List.of();
-    }
-
-    List<Memory> memories = new ArrayList<>();
-    for (ExtractedMemory extracted : result.memories()) {
-      if (extracted == null || extracted.content() == null || extracted.content().isBlank()) {
-        continue;
-      }
-      MemoryType type;
-      try {
-        type = MemoryType.fromWire(extracted.type());
-      } catch (IllegalArgumentException | NullPointerException ignored) {
-        continue;
-      }
-      memories.add(Memory.of(type, extracted.content().strip(), sessionId,
-        blankToNull(extracted.topicKey()), extracted.payload()));
-    }
-    return memories;
-  }
-
   // --- Pipeline stages: extraction, verification, classification ----
   // All stages below run on the small/fast extraction client for structured output.
   // The prompts (resources under prompts/) and the structured-output record shapes below are part
   // of the stable contract the ingestion + test layers rely on; bump a version note here if the
-  // JSON shapes change. Prompt/shape version: v1.
+  // JSON shapes change. Prompt/shape version: v1 (unified extraction — one call emits candidates
+  // with their classification; there is no separate full/detail/classify cascade).
 
   @Override
-  public List<ExtractedCandidate> extract(Chunk chunk) {
+  public List<UnifiedCandidate> extractUnified(Chunk chunk) {
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
-    String prompt = PromptTemplateLoader.render("extract-full-pass", Map.of("transcript", chunk.transcript()));
-    return callExtraction(prompt, chunk.index(), "extract");
-  }
-
-  @Override
-  public List<ExtractedCandidate> extractDetail(Chunk chunk) {
-    if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
-      return List.of();
-    }
-    String prompt = PromptTemplateLoader.render("extract-detail-pass", Map.of("transcript", chunk.transcript()));
-    return callExtraction(prompt, chunk.index(), "extractDetail");
-  }
-
-  private List<ExtractedCandidate> callExtraction(String prompt, int chunkIndex, String stage) {
+    String stage = "extract";
+    String prompt = PromptTemplateLoader.render("extract-unified", Map.of("transcript", chunk.transcript()));
     LOGGER.debug("model call start stage={} chunk={} model={} promptChars={}",
-      stage, chunkIndex, properties.model().extractionModel(), prompt.length());
+      stage, chunk.index(), properties.model().extractionModel(), prompt.length());
     long start = System.nanoTime();
     ChatResponse chatResponse;
     try {
-      chatResponse = extractionChatClient.prompt()
+      chatResponse = retry.execute(stage, () -> extractionChatClient.prompt()
         .user(prompt)
         .options(reasoningOptions(stage, properties.model().extractionModel()))
         .call()
-        .chatResponse();
+        .chatResponse());
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model " + stage + " failed", e);
     }
     LOGGER.debug("model call done stage={} chunk={} model={} ms={}",
-      stage, chunkIndex, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
+      stage, chunk.index(), properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
     logTokenUsage(stage, chatResponse);
 
     String rawText = chatResponse != null && chatResponse.getResult() != null
       && chatResponse.getResult().getOutput() != null
       ? chatResponse.getResult().getOutput().getText() : null;
 
-    List<ExtractedCandidate> candidates = new ArrayList<>();
-    for (RawCandidate raw : parseCandidatesResilient(rawText, stage)) {
+    List<UnifiedCandidate> candidates = new ArrayList<>();
+    for (UnifiedCandidateDto raw : parseUnifiedResilient(rawText, chunk.index())) {
       if (raw == null || raw.content() == null || raw.content().isBlank()) {
         continue;
       }
-      MemoryType suggested = parseTypeOrNull(raw.suggestedType());
-      candidates.add(new ExtractedCandidate(raw.content().strip(), suggested, chunkIndex, stage));
+      Classification classification =
+        buildClassification(raw.type(), raw.topicKey(), raw.interrogativeQueries(), raw.payload());
+      candidates.add(new UnifiedCandidate(raw.content().strip(), classification, chunk.index(), stage));
     }
     return candidates;
   }
 
   /**
-   * Parses model output into a list of {@link RawCandidate}s tolerating two shapes:
-   * the expected wrapped object {@code {"candidates":[...]}} and a bare array {@code [...]}.
-   * Also strips markdown code fences that some models emit around JSON.
+   * Parses unified-extraction output tolerating two shapes: the expected bare array {@code [...]}
+   * and a wrapped object {@code {"candidates":[...]}}. Strips markdown code fences that some models
+   * emit around JSON. When neither parses, salvages content lines from markdown-style output and
+   * enriches them through {@link #classifyAll} so a JSON-shy model still yields usable candidates.
    */
   private static final Pattern MD_CONTENT = Pattern.compile(
     "(?im)^[-*\\d.]*\\s*\\*{0,2}(?:content)\\*{0,2}:?\\s*(.+)$");
-  private static final Pattern MD_TYPE = Pattern.compile(
-    "(?im)^[-*\\s]*\\*{0,2}suggested(?:type)?\\*{0,2}:?\\s*([a-z/]+)",
-    Pattern.CASE_INSENSITIVE);
 
-  private List<RawCandidate> parseCandidatesResilient(String rawText, String stage) {
+  private List<UnifiedCandidateDto> parseUnifiedResilient(String rawText, int chunkIndex) {
     if (rawText == null || rawText.isBlank()) {
       return List.of();
     }
@@ -256,7 +225,7 @@ public class OpenAiModelGateway implements ModelGateway {
 
     // Try wrapped object {"candidates": [...]}
     try {
-      CandidateList wrapped = objectMapper.readValue(json, CandidateList.class);
+      UnifiedCandidateList wrapped = objectMapper.readValue(json, UnifiedCandidateList.class);
       if (wrapped != null && wrapped.candidates() != null) {
         return wrapped.candidates();
       }
@@ -265,47 +234,53 @@ public class OpenAiModelGateway implements ModelGateway {
 
     // Try bare array [...]
     try {
-      return objectMapper.readValue(json, new TypeReference<List<RawCandidate>>() {
+      return objectMapper.readValue(json, new TypeReference<List<UnifiedCandidateDto>>() {
       });
     } catch (Exception ignored) {
     }
 
-    // Fallback: parse markdown bullet/numbered output the model emits when it ignores JSON instructions
-    List<RawCandidate> markdown = parseMarkdownCandidates(rawText);
-    if (!markdown.isEmpty()) {
-      return markdown;
+    // Salvage: scrape content lines from markdown-style output, then classify them in one batched
+    // call so the salvaged candidates carry the same enrichment as a clean parse. The classify is
+    // itself best-effort — salvage must never lose the contents it already recovered.
+    List<String> salvaged = scrapeMarkdownContents(rawText);
+    if (!salvaged.isEmpty()) {
+      LOGGER.warn("stage=extract chunk={} output was not JSON; salvaged {} candidates via markdown scrape + classify",
+        chunkIndex, salvaged.size());
+      List<Classification> classifications;
+      try {
+        classifications = classifyAll(salvaged);
+      } catch (RuntimeException e) {
+        LOGGER.warn("salvage classify failed ({}); storing salvaged candidates as plain facts", e.toString());
+        classifications = List.of();
+      }
+      List<UnifiedCandidateDto> recovered = new ArrayList<>(salvaged.size());
+      for (int i = 0; i < salvaged.size(); i++) {
+        Classification c = i < classifications.size()
+          ? classifications.get(i)
+          : buildClassification(null, null, null, null);
+        recovered.add(new UnifiedCandidateDto(salvaged.get(i), c.type().wire(), c.topicKey(),
+          c.interrogativeQueries(), c.payload()));
+      }
+      return recovered;
     }
 
-    LOGGER.warn("stage={} model returned unparseable candidates output; treating as empty. Raw response: {}", stage, rawText);
+    LOGGER.warn("stage=extract chunk={} model returned unparseable candidates output; treating as empty. Raw response: {}",
+      chunkIndex, rawText);
     return List.of();
   }
 
-  private static List<RawCandidate> parseMarkdownCandidates(String text) {
-    List<RawCandidate> candidates = new ArrayList<>();
-    String[] lines = text.split("\n");
-    String pendingContent = null;
-    for (String line : lines) {
+  private static List<String> scrapeMarkdownContents(String text) {
+    List<String> contents = new ArrayList<>();
+    for (String line : text.split("\n")) {
       Matcher cm = MD_CONTENT.matcher(line);
       if (cm.find()) {
-        pendingContent = cm.group(1).strip().replaceAll("\\*+", "").strip();
-        continue;
-      }
-      if (pendingContent != null) {
-        Matcher tm = MD_TYPE.matcher(line);
-        if (tm.find()) {
-          String rawType = tm.group(1).strip().toLowerCase(Locale.ROOT);
-          // normalize "instruction/preference" → "instruction", etc.
-          String type = rawType.contains("instruction") ? "instruction"
-            : rawType.contains("event") ? "event"
-              : rawType.contains("task") ? "task"
-                : rawType.contains("fact") ? "fact"
-                  : rawType;
-          candidates.add(new RawCandidate(pendingContent, type));
-          pendingContent = null;
+        String content = cm.group(1).strip().replaceAll("\\*+", "").strip();
+        if (!content.isBlank()) {
+          contents.add(content);
         }
       }
     }
-    return candidates;
+    return contents;
   }
 
   private static String stripCodeFences(String text) {
@@ -323,13 +298,13 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   @Override
-  public VerificationResult verify(ExtractedCandidate candidate, String transcript) {
-    if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+  public VerificationResult verify(String content, String transcript) {
+    if (content == null || content.isBlank()) {
       return new VerificationResult(VerificationVerdict.DROP, "", "empty candidate");
     }
     String safeTranscript = transcript == null ? "" : transcript;
     String prompt = PromptTemplateLoader.render("verify-single",
-      Map.of("candidate", candidate.content(), "transcript", safeTranscript));
+      Map.of("candidate", content, "transcript", safeTranscript));
 
     VerificationDto dto;
     try {
@@ -346,26 +321,26 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (IllegalArgumentException e) {
       return new VerificationResult(VerificationVerdict.DROP, "", "unparseable verdict");
     }
-    String content = switch (verdict) {
-      case PASS -> candidate.content();
-      case CORRECT -> blankToNull(dto.content()) == null ? candidate.content() : dto.content().strip();
+    String resolved = switch (verdict) {
+      case PASS -> content;
+      case CORRECT -> blankToNull(dto.content()) == null ? content : dto.content().strip();
       case DROP -> "";
     };
-    return new VerificationResult(verdict, content, blankToNull(dto.reason()));
+    return new VerificationResult(verdict, resolved, blankToNull(dto.reason()));
   }
 
   @Override
-  public List<VerificationResult> verifyAll(List<ExtractedCandidate> candidates, String transcript) {
-    if (candidates == null || candidates.isEmpty()) {
+  public List<VerificationResult> verifyAll(List<String> contents, String transcript) {
+    if (contents == null || contents.isEmpty()) {
       return List.of();
     }
-    if (candidates.size() == 1) {
-      return List.of(verify(candidates.getFirst(), transcript));
+    if (contents.size() == 1) {
+      return List.of(verify(contents.getFirst(), transcript));
     }
     String safeTranscript = transcript == null ? "" : transcript;
     StringBuilder numbered = new StringBuilder();
-    for (int i = 0; i < candidates.size(); i++) {
-      numbered.append(i + 1).append(". ").append(candidates.get(i).content()).append('\n');
+    for (int i = 0; i < contents.size(); i++) {
+      numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
     }
     String prompt = PromptTemplateLoader.render("verify-batch",
       Map.of("transcript", safeTranscript, "candidates", numbered.toString()));
@@ -377,18 +352,18 @@ public class OpenAiModelGateway implements ModelGateway {
       // A malformed batch response (e.g. the model emitting invalid JSON) must not abort the whole
       // chunk — fall back to per-candidate verification, isolating any bad item.
       LOGGER.warn("stage=verify batch call failed ({}); falling back to per-candidate verify", e.toString());
-      return verifyEachTolerant(candidates, safeTranscript);
+      return verifyEachTolerant(contents, safeTranscript);
     }
 
-    List<VerificationResult> mapped = mapBatchVerdicts(dto, candidates);
+    List<VerificationResult> mapped = mapBatchVerdicts(dto, contents);
     if (mapped != null) {
       return mapped;
     }
     // Batch result unusable (null/empty/no indices): fall back to per-candidate verify so a single
     // malformed batch response never silently drops a whole chunk's candidates.
     LOGGER.warn("stage=verify batch result unusable for {} candidates; falling back to per-candidate verify",
-      candidates.size());
-    return verifyEachTolerant(candidates, safeTranscript);
+      contents.size());
+    return verifyEachTolerant(contents, safeTranscript);
   }
 
   /**
@@ -396,11 +371,11 @@ public class OpenAiModelGateway implements ModelGateway {
    * rather than aborting the chunk. (A full provider outage is already caught loudly at the extract
    * stage; by here the provider was reachable, so failures are transient/parse issues to isolate.)
    */
-  private List<VerificationResult> verifyEachTolerant(List<ExtractedCandidate> candidates, String transcript) {
-    List<VerificationResult> results = new ArrayList<>(candidates.size());
-    for (ExtractedCandidate candidate : candidates) {
+  private List<VerificationResult> verifyEachTolerant(List<String> contents, String transcript) {
+    List<VerificationResult> results = new ArrayList<>(contents.size());
+    for (String content : contents) {
       try {
-        results.add(verify(candidate, transcript));
+        results.add(verify(content, transcript));
       } catch (RuntimeException e) {
         LOGGER.warn("verify failed for one candidate ({}); dropping it", e.toString());
         results.add(new VerificationResult(VerificationVerdict.DROP, "", "verification error"));
@@ -410,11 +385,11 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Map a batched verify response onto {@code candidates} by 1-based index. Returns {@code null} when
+   * Map a batched verify response onto {@code contents} by 1-based index. Returns {@code null} when
    * the response is structurally unusable (so the caller falls back to per-candidate verify); a
    * candidate with no matching item becomes a DROP.
    */
-  private List<VerificationResult> mapBatchVerdicts(BatchVerificationDto dto, List<ExtractedCandidate> candidates) {
+  private List<VerificationResult> mapBatchVerdicts(BatchVerificationDto dto, List<String> contents) {
     if (dto == null || dto.verdicts() == null || dto.verdicts().isEmpty()) {
       return null;
     }
@@ -427,14 +402,14 @@ public class OpenAiModelGateway implements ModelGateway {
     if (byIndex.isEmpty()) {
       return null;
     }
-    List<VerificationResult> results = new ArrayList<>(candidates.size());
-    for (int i = 0; i < candidates.size(); i++) {
-      results.add(toVerificationResult(byIndex.get(i + 1), candidates.get(i)));
+    List<VerificationResult> results = new ArrayList<>(contents.size());
+    for (int i = 0; i < contents.size(); i++) {
+      results.add(toVerificationResult(byIndex.get(i + 1), contents.get(i)));
     }
     return results;
   }
 
-  private static VerificationResult toVerificationResult(VerificationItemDto item, ExtractedCandidate candidate) {
+  private static VerificationResult toVerificationResult(VerificationItemDto item, String content) {
     if (item == null || item.verdict() == null) {
       return new VerificationResult(VerificationVerdict.DROP, "", "no verdict in batch result");
     }
@@ -444,12 +419,12 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (IllegalArgumentException e) {
       return new VerificationResult(VerificationVerdict.DROP, "", "unparseable verdict");
     }
-    String content = switch (verdict) {
-      case PASS -> candidate.content();
-      case CORRECT -> blankToNull(item.content()) == null ? candidate.content() : item.content().strip();
+    String resolved = switch (verdict) {
+      case PASS -> content;
+      case CORRECT -> blankToNull(item.content()) == null ? content : item.content().strip();
       case DROP -> "";
     };
-    return new VerificationResult(verdict, content, blankToNull(item.reason()));
+    return new VerificationResult(verdict, resolved, blankToNull(item.reason()));
   }
 
   @Override
@@ -551,8 +526,9 @@ public class OpenAiModelGateway implements ModelGateway {
 
   /**
    * Build a {@link Classification} from raw model fields: default the type to {@code fact}, keep a
-   * normalized topic key only for keyed types, strip blank queries, and default the payload to
-   * {@code "{}"}. Shared by single- and batch-classify so both produce identical shapes.
+   * normalized topic key only for keyed types, strip blank queries, and reduce a payload that is not
+   * a JSON object to {@code "{}"}. Shared by single- and batch-classify so both produce identical
+   * shapes.
    */
   private static Classification buildClassification(String typeWire, String topicKeyRaw,
                                                     List<String> queriesRaw, String payloadRaw) {
@@ -572,8 +548,7 @@ public class OpenAiModelGateway implements ModelGateway {
         }
       }
     }
-    String payload = blankToNull(payloadRaw) == null ? "{}" : payloadRaw.strip();
-    return new Classification(type, topicKey, List.copyOf(queries), payload);
+    return new Classification(type, topicKey, List.copyOf(queries), sanitizePayload(payloadRaw));
   }
 
   @Override
@@ -835,11 +810,11 @@ public class OpenAiModelGateway implements ModelGateway {
       "memories", context));
 
     try {
-      ChatResponse chatResponse = synthesisChatClient.prompt()
+      ChatResponse chatResponse = retry.execute("synthesizeRecall", () -> synthesisChatClient.prompt()
         .user(prompt)
         .options(reasoningOptions("synthesizeRecall", properties.model().synthesisModel()))
         .call()
-        .chatResponse();
+        .chatResponse());
       logTokenUsage("synthesizeRecall", chatResponse);
       if (chatResponse == null || chatResponse.getResult() == null) {
         return "";
@@ -870,11 +845,11 @@ public class OpenAiModelGateway implements ModelGateway {
     };
 
     try {
-      ChatResponse chatResponse = synthesisChatClient.prompt()
+      ChatResponse chatResponse = retry.execute("summarizeCode", () -> synthesisChatClient.prompt()
         .user(prompt)
         .options(reasoningOptions("summarizeCode", properties.model().synthesisModel()))
         .call()
-        .chatResponse();
+        .chatResponse());
       logTokenUsage("summarizeCode", chatResponse);
       if (chatResponse == null || chatResponse.getResult() == null) {
         return "";
@@ -902,11 +877,11 @@ public class OpenAiModelGateway implements ModelGateway {
     LOGGER.info("judge actual='{}'", truncate(actualAnswer, 120));
 
     try {
-      String response = synthesisChatClient.prompt()
+      String response = retry.execute("judgeAnswerFaithfulness", () -> synthesisChatClient.prompt()
         .user(prompt)
         .options(reasoningOptions("judgeAnswerFaithfulness", properties.model().synthesisModel()))
         .call()
-        .content();
+        .content());
 
       boolean verdict = response != null && response.strip().toLowerCase(Locale.ROOT).startsWith("true");
 
@@ -935,7 +910,8 @@ public class OpenAiModelGateway implements ModelGateway {
   @Override
   public float[] embed(String text) {
     try {
-      EmbeddingResponse response = embeddingModel.embedForResponse(List.of(text == null ? "" : text));
+      EmbeddingResponse response = retry.execute("embed",
+        () -> embeddingModel.embedForResponse(List.of(text == null ? "" : text)));
       logEmbeddingUsage(response);
       response.getResult();
       return response.getResult().getOutput();
@@ -1001,27 +977,18 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Structured-output target for one extracted memory.
+   * Structured-output target for one unified-extraction candidate: content plus its
+   * classification fields, all from the single extraction call. Shape v1.
    */
-  private record ExtractedMemory(String type, String content, String topicKey, String payload) {
+  private record UnifiedCandidateDto(String content, String type, String topicKey,
+                                     List<String> interrogativeQueries, String payload) {
   }
 
   /**
-   * Wrapper so Spring AI can bind a top-level object (list-of-records is awkward to bind).
+   * Wrapper tolerated by the unified-extraction parser when the model emits
+   * {@code {"candidates":[...]}} instead of a bare array. Shape v1.
    */
-  private record ExtractionResult(List<ExtractedMemory> memories) {
-  }
-
-  /**
-   * Structured-output target for one extracted candidate (extract / extractDetail). Shape v1.
-   */
-  private record RawCandidate(String content, String suggestedType) {
-  }
-
-  /**
-   * Wrapper so Spring AI binds a top-level object for the extraction passes. Shape v1.
-   */
-  private record CandidateList(List<RawCandidate> candidates) {
+  private record UnifiedCandidateList(List<UnifiedCandidateDto> candidates) {
   }
 
   /**

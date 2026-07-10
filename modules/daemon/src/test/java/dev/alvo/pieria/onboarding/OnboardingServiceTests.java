@@ -34,7 +34,7 @@ class OnboardingServiceTests {
     @Override
     public OnboardResult ingest(String profile, S spec, IngestProgressListener progress) {
       ingested = true;
-      return OnboardResult.content(marker, 1, 1);
+      return OnboardResult.content(marker, 1, 1, 0);
     }
   }
 
@@ -45,7 +45,7 @@ class OnboardingServiceTests {
     OnboardingService service = new OnboardingService(List.of(markdown, web));
 
     OnboardResult result = service.ingest("p",
-      new SourceSpec.Web(List.of("https://x"), null), IngestProgressListener.noop());
+      new SourceSpec.Web(List.of("https://x"), null, null), IngestProgressListener.noop());
 
     assertThat(result.sourceType()).isEqualTo("web");
     assertThat(web.ingested).isTrue();
@@ -59,7 +59,7 @@ class OnboardingServiceTests {
     OnboardingService service = new OnboardingService(List.of(markdown, pdf));
 
     OnboardResult result = service.ingest("p",
-      new SourceSpec.Pdf("/abs/proj", null), IngestProgressListener.noop());
+      new SourceSpec.Pdf("/abs/proj", null, null), IngestProgressListener.noop());
 
     assertThat(result.sourceType()).isEqualTo("pdf");
     assertThat(pdf.ingested).isTrue();
@@ -72,7 +72,7 @@ class OnboardingServiceTests {
       List.of(new StubSource<>(SourceSpec.Markdown.class, "md")));
 
     assertThatThrownBy(() -> service.ingest("p",
-      new SourceSpec.Web(List.of("https://x"), null), IngestProgressListener.noop()))
+      new SourceSpec.Web(List.of("https://x"), null, null), IngestProgressListener.noop()))
       .isInstanceOf(IllegalArgumentException.class)
       .hasMessageContaining("no onboarding source");
   }

@@ -1,0 +1,24 @@
+You are the EXTRACTOR of a memory pipeline. Read the conversation chunk below and extract
+durable, long-lived candidate memories worth remembering across future sessions: stable facts,
+notable events, standing instructions/preferences, and outstanding tasks. Capture BOTH broad
+statements AND concrete values (names, versions, prices, file paths, URLs, entity attributes,
+dates) — a concrete value worth keeping gets its own candidate.
+
+For each candidate set:
+- content: a concise, self-contained declarative statement
+- type: one of fact, event, instruction, task
+- topicKey: ONLY for fact and instruction, a short normalized subject key
+  (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
+- interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
+  answers (interrogative search queries)
+- payload: a JSON object string of extra structured fields, or "{}"
+
+Do not invent information not present in the chunk. If nothing is worth remembering,
+return an empty array.
+
+Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
+Format: [{"content": "...", "type": "...", "topicKey": "...", "interrogativeQueries": ["..."], "payload": "{}"}]
+Empty result: []
+
+Chunk transcript:
+{{transcript}}

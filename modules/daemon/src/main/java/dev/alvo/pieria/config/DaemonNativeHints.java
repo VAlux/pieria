@@ -58,6 +58,19 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,
         MemberCategory.INVOKE_PUBLIC_METHODS);
     }
+    // OpenAI SDK error-body model, deserialized by com.openai.core.handlers.ErrorHandler on any
+    // non-2xx provider response (400/422/429/5xx). Its @JsonCreator constructor is non-public and its
+    // @JsonAnySetter (putAdditionalProperty) is a *private* method, so INVOKE_PUBLIC_* cannot reach
+    // them — Jackson's reflective invoke then throws MissingReflectionRegistrationError. Because that
+    // is an Error (not an Exception), the SDK's `catch (Exception)` in errorBodyHandler does NOT catch
+    // it: it escapes and masks the real HTTP error as an opaque "extraction failed". Register declared
+    // members so the true provider error surfaces (as the SDK's typed RateLimit/BadRequest/… exception)
+    // instead of crashing the call.
+    for (String type : openAiErrorModelTypes()) {
+      hints.reflection().registerType(TypeReference.of(type),
+        MemberCategory.INVOKE_DECLARED_CONSTRUCTORS,
+        MemberCategory.INVOKE_DECLARED_METHODS);
+    }
     // The Tree-sitter NativeLibraryLookup SPI is instantiated reflectively by jtreesitter's
     // ServiceLoader at runtime (to point it at the bundled libtree-sitter core); register its
     // constructor so the lookup survives in the native image.
@@ -75,13 +88,17 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
     };
   }
 
+  private static String[] openAiErrorModelTypes() {
+    return new String[] {
+      "com.openai.models.ErrorObject"
+    };
+  }
+
   private static String[] modelGatewayDtoTypes() {
     String owner = "dev.alvo.pieria.model.OpenAiModelGateway$";
     return new String[] {
-      owner + "ExtractedMemory",
-      owner + "ExtractionResult",
-      owner + "RawCandidate",
-      owner + "CandidateList",
+      owner + "UnifiedCandidateDto",
+      owner + "UnifiedCandidateList",
       owner + "VerificationDto",
       owner + "VerificationItemDto",
       owner + "BatchVerificationDto",
