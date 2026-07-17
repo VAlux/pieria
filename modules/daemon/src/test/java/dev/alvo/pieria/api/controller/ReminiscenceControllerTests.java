@@ -53,7 +53,7 @@ class ReminiscenceControllerTests {
     tasks = new TaskRegistry();
     ReminiscenceService service =
       new ReminiscenceService(store, new FakeModelGateway(), new ReminiscenceProperties(8, 6000, 500));
-    controller = new ReminiscenceController(service, store, tasks, JsonMapper.builder().build());
+    controller = new ReminiscenceController(service, tasks, JsonMapper.builder().build());
   }
 
   @AfterEach

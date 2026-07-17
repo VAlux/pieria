@@ -10,6 +10,7 @@ import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.StorageProperties;
 import dev.alvo.pieria.setup.BootstrapService;
+import dev.alvo.pieria.status.StatusService;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,6 +96,12 @@ class StatusControllerTests {
         new StorageProperties("sqlite"), pieria, new StubModelGateway());
       service.initialize();
       return service;
+    }
+
+    @Bean
+    StatusService statusService(BootstrapService setupService, StorageProperties storage,
+                                PieriaProperties pieria, MemoryStore store) {
+      return new StatusService(setupService, storage, pieria, store);
     }
 
     private static Path createTempRoot() {

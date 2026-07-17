@@ -252,5 +252,15 @@ class ApiContractTests {
       return new com.fasterxml.jackson.databind.ObjectMapper()
         .findAndRegisterModules();
     }
+
+    @Bean("apiContractProfileService")
+    dev.alvo.pieria.profile.ProfileService profileService(MemoryStore store) {
+      return new dev.alvo.pieria.profile.ProfileService(store);
+    }
+
+    @Bean("apiContractProfileStatsService")
+    dev.alvo.pieria.profile.ProfileStatsService profileStatsService(MemoryStore store, PieriaProperties properties) {
+      return new dev.alvo.pieria.profile.ProfileStatsService(store, properties);
+    }
   }
 }

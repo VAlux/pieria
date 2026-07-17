@@ -4,6 +4,7 @@ import dev.alvo.pieria.api.controller.HealthController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.health.HealthService;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.model.ModelGateway;
 import org.junit.jupiter.api.Test;
@@ -130,6 +131,11 @@ class HealthControllerTests {
           return modelReachable.get();
         }
       };
+    }
+
+    @Bean
+    HealthService healthService(DataSource dataSource, ModelGateway modelGateway) {
+      return new HealthService(dataSource, modelGateway);
     }
   }
 }

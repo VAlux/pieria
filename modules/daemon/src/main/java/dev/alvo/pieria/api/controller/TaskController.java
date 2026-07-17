@@ -43,7 +43,7 @@ public class TaskController {
   @GetMapping("/{taskId}")
   public TaskStatusResponse status(@PathVariable String taskId) {
     UUID id = parse(taskId);
-    TaskInfo info = find(id, taskId);
+    TaskInfo info = tasks.findInfo(id).orElseThrow(() -> NotFoundException.task(taskId));
     TaskSnapshot s = info.snapshot();
     return new TaskStatusResponse(
       s.status().name(), info.kind(), info.profile(), s.phase(), s.done(), s.total(),
@@ -62,13 +62,6 @@ public class TaskController {
       throw NotFoundException.task(taskId);
     }
     return status(taskId);
-  }
-
-  private TaskInfo find(UUID id, String taskId) {
-    return tasks.all().stream()
-      .filter(i -> i.id().equals(id))
-      .findFirst()
-      .orElseThrow(() -> NotFoundException.task(taskId));
   }
 
   private static TaskSummary toSummary(TaskInfo info) {

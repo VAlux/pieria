@@ -138,6 +138,16 @@ public class TaskRegistry {
   }
 
   /**
+   * The full {@link TaskInfo} (display metadata plus snapshot) for {@code id}, or empty if unknown
+   * or already evicted.
+   */
+  public Optional<TaskInfo> findInfo(UUID id) {
+    evictExpired();
+    Entry entry = tasks.get(id);
+    return Optional.ofNullable(entry).map(e -> new TaskInfo(id, e.kind, e.profile, e.ref.get()));
+  }
+
+  /**
    * All known tasks (running and recently-finished within the TTL window), newest first.
    */
   public List<TaskInfo> all() {

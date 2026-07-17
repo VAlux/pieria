@@ -5,6 +5,7 @@ import dev.alvo.pieria.config.VerifyMode;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.api.controller.ProfileConfigController;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
+import dev.alvo.pieria.config.ProfileConfigService;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.toml.ConfigCodec;
@@ -65,7 +66,7 @@ class ProfileConfigApiTests {
 
     store = new SqliteMemoryStore(JdbcClient.create(dataSource));
     resolver = new EffectiveConfigResolver(globalProps(), store);
-    controller = new ProfileConfigController(store, resolver);
+    controller = new ProfileConfigController(new ProfileConfigService(store, resolver));
     retrieval = new RetrievalService(store, new FakeModelGateway(), new DeterministicQueryAnalyzer(),
       new NoOpCodeIndexStore(), resolver);
   }
@@ -149,7 +150,8 @@ class ProfileConfigApiTests {
 
     // Fresh resolver over the same store simulates a daemon restart.
     EffectiveConfigResolver restarted = new EffectiveConfigResolver(globalProps(), store);
-    ProfileConfigController restartedController = new ProfileConfigController(store, restarted);
+    ProfileConfigController restartedController =
+      new ProfileConfigController(new ProfileConfigService(store, restarted));
     assertThat(restartedController.get("p").at("/ingestion/chunk-size-chars").asInt()).isEqualTo(8000);
   }
 

@@ -2,6 +2,7 @@ package dev.alvo.pieria.reminiscence;
 
 import dev.alvo.pieria.config.ReminiscenceProperties;
 import dev.alvo.pieria.code.CodeIndexingService;
+import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
@@ -70,6 +71,16 @@ public class ReminiscenceService {
   public long countOnboardingOrphans(String profileName) {
     String profileId = store.getOrCreateProfile(profileName).id();
     return store.countGraphOrphans(profileId, ONBOARDING_SESSIONS);
+  }
+
+  /**
+   * Cheap dry-run for the {@code /reminisce/orphans} endpoint: how many orphans a run would adopt,
+   * via a plain store count (no model call). A {@code 404} when there is no such profile.
+   */
+  public long orphanCount(String profileName) {
+    var profile = store.findProfile(profileName)
+      .orElseThrow(() -> NotFoundException.profile(profileName));
+    return store.countGraphOrphans(profile.id());
   }
 
   private ReminiscenceResult adoptOrphans(String profileName, List<String> sessions, String phase,

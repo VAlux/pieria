@@ -5,15 +5,12 @@ import dev.alvo.pieria.api.response.CodeIndexResponse;
 import dev.alvo.pieria.api.response.CodeStatusResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.code.CodeIndexingService;
+import dev.alvo.pieria.code.CodeIndexingService.CodeIndexStatus;
 import dev.alvo.pieria.code.CodeIndexingService.CodeIndexSummary;
 import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.code.CodeSummarizationService;
 import dev.alvo.pieria.code.CodeSummarizationService.SummarizationResult;
 import dev.alvo.pieria.config.CodeSummarizationProperties;
-import dev.alvo.pieria.domain.profile.Profile;
-import dev.alvo.pieria.storage.CodeIndexStore;
-import dev.alvo.pieria.storage.CodeIndexStore.CodeIndexCounts;
-import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -50,21 +47,16 @@ public class CodeController {
   private final CodeIndexingService indexing;
   private final CodeSummarizationService summarization;
   private final CodeSummarizationProperties summarizationProperties;
-  private final CodeIndexStore codeStore;
-  private final MemoryStore store;
   private final ObjectMapper objectMapper;
   private final TaskRegistry tasks;
 
   public CodeController(CodeIndexingService indexing,
                         CodeSummarizationService summarization,
                         CodeSummarizationProperties summarizationProperties,
-                        CodeIndexStore codeStore, MemoryStore store,
                         ObjectMapper objectMapper, TaskRegistry tasks) {
     this.indexing = indexing;
     this.summarization = summarization;
     this.summarizationProperties = summarizationProperties;
-    this.codeStore = codeStore;
-    this.store = store;
     this.objectMapper = objectMapper;
     this.tasks = tasks;
   }
@@ -139,16 +131,9 @@ public class CodeController {
 
   @GetMapping("/code/status")
   public CodeStatusResponse status(@PathVariable String name) {
-    return store.findProfile(name).map(Profile::id).map(profileId -> {
-      CodeIndexCounts counts = codeStore.counts(profileId);
-
-      return new CodeStatusResponse(
-        codeStore.isCodeIndexPresent(profileId),
-        counts.files(),
-        counts.symbols(),
-        counts.resolvedEdges(),
-        counts.heuristicEdges(),
-        counts.edges());
-    }).orElse(EMPTY_STATUS);
+    return indexing.status(name)
+      .map(s -> new CodeStatusResponse(
+        s.present(), s.files(), s.symbols(), s.resolvedEdges(), s.heuristicEdges(), s.edges()))
+      .orElse(EMPTY_STATUS);
   }
 }

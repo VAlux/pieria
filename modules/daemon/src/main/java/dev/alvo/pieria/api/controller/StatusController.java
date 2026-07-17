@@ -1,15 +1,12 @@
 package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.response.StatusResponse;
-import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.config.StorageProperties;
-import dev.alvo.pieria.setup.BootstrapService;
-import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.api.response.StatusResponse.Setup;
+import dev.alvo.pieria.status.StatusService;
+import dev.alvo.pieria.status.StatusService.StatusView;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.OptionalLong;
 
 /**
  * Local status endpoint for first-run and operational checks. It deliberately omits provider URLs,
@@ -19,52 +16,33 @@ import java.util.OptionalLong;
 @RequestMapping("/pieria-status")
 public class StatusController {
 
-  private final BootstrapService setupService;
-  private final StorageProperties storage;
-  private final PieriaProperties pieria;
-  private final MemoryStore store;
+  private final StatusService statusService;
 
-  public StatusController(BootstrapService setupService,
-                          StorageProperties storage,
-                          PieriaProperties pieria,
-                          MemoryStore store) {
-    this.setupService = setupService;
-    this.storage = storage;
-    this.pieria = pieria;
-    this.store = store;
+  public StatusController(StatusService statusService) {
+    this.statusService = statusService;
   }
 
   @GetMapping
   public StatusResponse status() {
-    BootstrapService.SetupState state = setupService.setupState();
-    PieriaProperties.Model model = pieria.model();
-    OptionalLong outboxDepth = outboxDepth();
+    StatusView status = statusService.status();
 
     return new StatusResponse(
-      state.directoriesReady() && state.databaseParentReady() ? "ready" : "initializing",
-      state.paths().databaseFile().toString(),
-      storage.backend(),
-      pieria.provider().name(),
-      model.extractionModel(),
-      model.synthesisModel(),
-      model.embedding(),
-      outboxDepth.isPresent() ? outboxDepth.getAsLong() : null,
-      new StatusResponse.Setup(
-        state.enabled(),
-        state.directoriesReady(),
-        state.databaseParentReady(),
-        state.modelStatus(),
-        state.modelPullPolicy(),
-        state.paths().configDir().toString(),
-        state.paths().logsDir().toString(),
-        state.paths().runtimeDir().toString()));
-  }
-
-  private OptionalLong outboxDepth() {
-    try {
-      return store.vectorizationOutboxDepth();
-    } catch (RuntimeException e) {
-      return OptionalLong.empty();
-    }
+      status.status(),
+      status.databaseFile(),
+      status.backend(),
+      status.provider(),
+      status.extractionModel(),
+      status.synthesisModel(),
+      status.embedding(),
+      status.outboxDepth(),
+      new Setup(
+        status.setup().enabled(),
+        status.setup().directoriesReady(),
+        status.setup().databaseParentReady(),
+        status.setup().modelStatus(),
+        status.setup().modelPullPolicy(),
+        status.setup().paths().configDir().toString(),
+        status.setup().paths().logsDir().toString(),
+        status.setup().paths().runtimeDir().toString()));
   }
 }

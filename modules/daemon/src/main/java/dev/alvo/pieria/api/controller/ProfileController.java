@@ -4,6 +4,7 @@ import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.response.ExportLineResponse;
 import dev.alvo.pieria.api.response.GraphResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
@@ -19,25 +20,21 @@ import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
-import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
-import dev.alvo.pieria.domain.profile.ProfileStats;
-import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
-import dev.alvo.pieria.model.usage.InferenceTier;
-import dev.alvo.pieria.model.usage.TierUsage;
+import dev.alvo.pieria.profile.ProfileService;
+import dev.alvo.pieria.profile.ProfileStatsService;
+import dev.alvo.pieria.profile.ProfileStatsService.ProfileStatsView;
 import dev.alvo.pieria.retrieval.RecallResult;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
-import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
 import org.springframework.core.convert.converter.Converter;
@@ -59,9 +56,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -78,28 +73,31 @@ public class ProfileController {
 
   private final IngestionService ingestionService;
   private final RetrievalService retrievalService;
-  private final MemoryStore store;
+  private final ProfileService profileService;
+  private final ProfileStatsService profileStatsService;
   private final ObjectMapper objectMapper;
   private final TaskRegistry tasks;
   private final Converter<Memory, MemoryResponse> memoryResponseConverter;
-  private final PieriaProperties properties;
+  private final Converter<ExportRow, ExportLineResponse> exportLineConverter;
   private final TranscriptParserRegistry transcriptParsers;
 
   public ProfileController(IngestionService ingestionService,
                            RetrievalService retrievalService,
-                           MemoryStore store,
+                           ProfileService profileService,
+                           ProfileStatsService profileStatsService,
                            ObjectMapper objectMapper,
                            TaskRegistry tasks,
                            Converter<Memory, MemoryResponse> memoryResponseConverter,
-                           PieriaProperties properties,
+                           Converter<ExportRow, ExportLineResponse> exportLineConverter,
                            TranscriptParserRegistry transcriptParsers) {
     this.ingestionService = ingestionService;
     this.retrievalService = retrievalService;
-    this.store = store;
+    this.profileService = profileService;
+    this.profileStatsService = profileStatsService;
     this.objectMapper = objectMapper;
     this.tasks = tasks;
     this.memoryResponseConverter = memoryResponseConverter;
-    this.properties = properties;
+    this.exportLineConverter = exportLineConverter;
     this.transcriptParsers = transcriptParsers;
   }
 
@@ -111,7 +109,7 @@ public class ProfileController {
   @PutMapping
   @ResponseStatus(HttpStatus.CREATED)
   public ProfileSummary create(@PathVariable String name) {
-    Profile profile = store.createProfile(name);
+    Profile profile = profileService.create(name);
     return new ProfileSummary(profile.name(), profile.createdAt(), 0);
   }
 
@@ -121,8 +119,7 @@ public class ProfileController {
    */
   @DeleteMapping
   public ResponseEntity<Void> delete(@PathVariable String name) {
-    Profile profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-    store.deleteProfile(profile.id());
+    profileService.delete(name);
     return ResponseEntity.noContent().build();
   }
 
@@ -289,85 +286,29 @@ public class ProfileController {
 
   @GetMapping("/stats")
   public ProfileStatsResponse stats(@PathVariable String name) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
+    ProfileStatsView s = profileStatsService.stats(name);
 
-    ProfileStats stats = store.profileStats(profile.id());
-    Long backlog = store.vectorizationOutboxDepth().isPresent()
-      ? store.vectorizationOutboxDepth().getAsLong()
-      : null;
+    ProfileImpact impact = new ProfileImpact(
+      s.impact().recallCount(),
+      s.impact().tokensSavedEvidence(),
+      s.impact().tokensSavedNaive(),
+      s.impact().tokensIngested(),
+      s.impact().tokensStored(),
+      s.impact().contextWindowTokens(),
+      s.impact().pricePerMillionTokens());
+
+    ProfileSpend spend = s.spend() == null ? null : new ProfileSpend(
+      s.spend().tiers().stream()
+        .map(t -> new TierSpend(t.tier(), t.calls(), t.promptTokens(), t.completionTokens(), t.cost()))
+        .toList(),
+      s.spend().totalPrompt(),
+      s.spend().totalCompletion(),
+      s.spend().totalCost(),
+      s.spend().costAvailable());
 
     return new ProfileStatsResponse(
-      profile.name(),
-      profile.createdAt(),
-      stats.totalActive(),
-      stats.byType(),
-      stats.superseded(),
-      stats.sessions(),
-      stats.firstMemoryAt(),
-      stats.lastMemoryAt(),
-      backlog,
-      impactOf(store.usageStats(profile.id())),
-      spendOf(store.inferenceUsage(profile.id())));
-  }
-
-  /**
-   * Map the stored lifetime counters to the wire impact block, stamping the display knobs.
-   */
-  private ProfileImpact impactOf(ProfileUsage usage) {
-    // Stats binds with @DefaultValue in production; guard null for tests that construct properties directly.
-    PieriaProperties.Stats cfg = properties == null ? null : properties.stats();
-    int window = cfg == null ? 200_000 : cfg.contextWindowTokens();
-    double price = cfg == null ? 0.0 : cfg.pricePerMillionTokens();
-    return new ProfileImpact(
-      usage.recallCount(),
-      usage.tokensSavedEvidence(),
-      usage.tokensSavedNaive(),
-      usage.tokensIngested(),
-      usage.tokensStored(),
-      window,
-      price);
-  }
-
-  /**
-   * Map the stored per-tier inference-spend counters to the wire spend block, costing each tier with
-   * its configured input/output prices. Returns {@code null} when nothing has been spent yet so the
-   * client renders no panel.
-   */
-  private ProfileSpend spendOf(Map<InferenceTier, TierUsage> usage) {
-    if (usage == null || usage.isEmpty()) {
-      return null;
-    }
-    // Stats binds with @DefaultValue in production; guard null for tests that construct properties directly.
-    Map<String, PieriaProperties.Stats.TierPrice> prices =
-      (properties == null || properties.stats() == null) ? Map.of() : properties.stats().spend();
-
-    List<TierSpend> tiers = new ArrayList<>();
-    long totalPrompt = 0;
-    long totalCompletion = 0;
-    double totalCost = 0.0;
-    boolean costAvailable = false;
-
-    for (Map.Entry<InferenceTier, TierUsage> entry : usage.entrySet()) {
-      String tierName = entry.getKey().name().toLowerCase(Locale.ROOT);
-      TierUsage u = entry.getValue();
-      PieriaProperties.Stats.TierPrice price = prices.get(tierName);
-
-      double cost = 0.0;
-      if (price != null) {
-        cost = u.promptTokens() / 1_000_000.0 * price.inputPrice()
-          + u.completionTokens() / 1_000_000.0 * price.outputPrice();
-        if (price.inputPrice() > 0.0 || price.outputPrice() > 0.0) {
-          costAvailable = true;
-        }
-      }
-
-      tiers.add(new TierSpend(tierName, u.calls(), u.promptTokens(), u.completionTokens(), cost));
-      totalPrompt += u.promptTokens();
-      totalCompletion += u.completionTokens();
-      totalCost += cost;
-    }
-
-    return new ProfileSpend(tiers, totalPrompt, totalCompletion, totalCost, costAvailable);
+      s.name(), s.createdAt(), s.totalActive(), s.byType(), s.superseded(), s.sessions(),
+      s.firstMemoryAt(), s.lastMemoryAt(), s.backlog(), impact, spend);
   }
 
   @GetMapping("/memories")
@@ -375,20 +316,14 @@ public class ProfileController {
                                  @RequestParam(name = "type", required = false) String type,
                                  @RequestParam(name = "session", required = false) String session,
                                  @RequestParam(name = "includeSuperseded", defaultValue = "false") boolean includeSuperseded) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-
     MemoryType typeFilter = type == null ? null : MemoryType.fromWire(type);
-    List<Memory> memories = store.listMemories(profile.id(), typeFilter, session, includeSuperseded);
+    List<Memory> memories = profileService.list(name, typeFilter, session, includeSuperseded);
     return new MemoryListResponse(memories.stream().map(this.memoryResponseConverter::convert).toList());
   }
 
   @DeleteMapping("/memories/{id}")
   public ResponseEntity<Void> forget(@PathVariable String name, @PathVariable String id) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-
-    if (!store.forgetMemory(profile.id(), id)) {
-      throw NotFoundException.memory(id);
-    }
+    profileService.forget(name, id);
     return ResponseEntity.noContent().build();
   }
 
@@ -399,9 +334,7 @@ public class ProfileController {
    */
   @GetMapping("/graph")
   public GraphResponse graph(@PathVariable String name) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-
-    GraphSnapshot snapshot = store.graphSnapshot(profile.id());
+    GraphSnapshot snapshot = profileService.graph(name);
 
     List<GraphResponse.Node> nodes = snapshot.nodes().stream()
       .map(e -> new GraphResponse.Node(e.id(), e.type(), e.name()))
@@ -427,36 +360,18 @@ public class ProfileController {
 
   @GetMapping(value = "/export", produces = NDJSON)
   public ResponseEntity<String> export(@PathVariable String name) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-
-    List<ExportRow> rows = store.exportProfile(profile.id());
+    List<ExportRow> rows = profileService.export(name);
     StringBuilder body = new StringBuilder();
 
-    rows.forEach(row -> body.append(writeLine(row)).append('\n'));
+    rows.forEach(row -> body.append(writeLine(exportLineConverter.convert(row))).append('\n'));
 
     return ResponseEntity.ok()
       .contentType(MediaType.parseMediaType(NDJSON))
       .body(body.toString());
   }
 
-  private String writeLine(ExportRow row) {
+  private String writeLine(ExportLineResponse line) {
     try {
-      // Build a plain map with the timestamp pre-stringified so NDJSON export does not
-      // depend on a jsr310 module being registered on the injected ObjectMapper.
-      Memory m = row.memory();
-      var memory = new java.util.LinkedHashMap<String, Object>();
-      memory.put("id", m.id());
-      memory.put("type", m.type() == null ? null : m.type().wire());
-      memory.put("content", m.content());
-      memory.put("topicKey", m.topicKey());
-      memory.put("sessionId", m.sessionId());
-      memory.put("superseded", m.superseded());
-      memory.put("payload", m.payload());
-      memory.put("createdAt", m.createdAt() == null ? null : m.createdAt().toString());
-
-      var line = new java.util.LinkedHashMap<String, Object>();
-      line.put("profileName", row.profileName());
-      line.put("memory", memory);
       return objectMapper.writeValueAsString(line);
     } catch (tools.jackson.core.JacksonException e) {
       throw new IllegalStateException("failed to serialize export row", e);

@@ -68,8 +68,8 @@ class CodeControllerTests {
       new CodeSummarizationProperties(false, "module", 20000, 80, 40);
     CodeSummarizationService summarization =
       new CodeSummarizationService(memoryStore, new FakeModelGateway(), summarizationProperties);
-    controller = new CodeController(service, summarization, summarizationProperties, codeStore,
-      memoryStore, JsonMapper.builder().build(), new TaskRegistry());
+    controller = new CodeController(service, summarization, summarizationProperties,
+      JsonMapper.builder().build(), new TaskRegistry());
   }
 
   @AfterEach

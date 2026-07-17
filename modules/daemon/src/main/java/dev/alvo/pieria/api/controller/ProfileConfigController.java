@@ -1,14 +1,10 @@
 package dev.alvo.pieria.api.controller;
 
-import dev.alvo.pieria.config.EffectiveConfigResolver;
-import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.config.ResolvedConfig;
+import dev.alvo.pieria.config.ProfileConfigService;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DaemonOverrides.Ingestion;
 import dev.alvo.pieria.config.model.DaemonOverrides.Retrieval;
 import dev.alvo.pieria.config.toml.ConfigCodec;
-import dev.alvo.pieria.domain.profile.Profile;
-import dev.alvo.pieria.storage.MemoryStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,12 +42,10 @@ public class ProfileConfigController {
     "ingestion", kebabComponentNames(Ingestion.class),
     "retrieval", kebabComponentNames(Retrieval.class));
 
-  private final MemoryStore store;
-  private final EffectiveConfigResolver configResolver;
+  private final ProfileConfigService configService;
 
-  public ProfileConfigController(MemoryStore store, EffectiveConfigResolver configResolver) {
-    this.store = store;
-    this.configResolver = configResolver;
+  public ProfileConfigController(ProfileConfigService configService) {
+    this.configService = configService;
   }
 
   /**
@@ -62,16 +56,7 @@ public class ProfileConfigController {
   public JsonNode put(@PathVariable String name, @RequestBody JsonNode body) {
     validateWhitelist(body);
     DaemonOverrides overrides = ConfigCodec.bind(body, DaemonOverrides.class);
-
-    Profile profile = store.getOrCreateProfile(name);
-    if (overrides.isEmpty()) {
-      store.clearProfileConfig(profile.id());
-    } else {
-      store.putProfileConfig(profile.id(), ConfigCodec.toJson(overrides));
-    }
-    configResolver.invalidate(profile.id());
-
-    return effective(profile.id());
+    return ConfigCodec.toNode(configService.put(name, overrides));
   }
 
   /**
@@ -80,9 +65,7 @@ public class ProfileConfigController {
    */
   @GetMapping
   public JsonNode get(@PathVariable String name) {
-    return store.findProfile(name)
-      .map(profile -> effective(profile.id()))
-      .orElseGet(() -> ConfigCodec.toNode(toFullOverrides(configResolver.global())));
+    return ConfigCodec.toNode(configService.effective(name));
   }
 
   /**
@@ -91,56 +74,7 @@ public class ProfileConfigController {
   @DeleteMapping
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void delete(@PathVariable String name) {
-    store.findProfile(name).ifPresent(profile -> {
-      store.clearProfileConfig(profile.id());
-      configResolver.invalidate(profile.id());
-    });
-  }
-
-  /**
-   * Effective config for the profile as a kebab-case node.
-   */
-  private JsonNode effective(String profileId) {
-    return ConfigCodec.toNode(toFullOverrides(configResolver.resolve(profileId)));
-  }
-
-  /**
-   * Render a ResolvedConfig as a fully-populated DaemonOverrides view (every field set).
-   */
-  private static DaemonOverrides toFullOverrides(ResolvedConfig resolved) {
-    PieriaProperties.Ingestion ingestion = resolved.ingestion();
-    PieriaProperties.Retrieval retrieval = resolved.retrieval();
-
-    return new DaemonOverrides(
-      new Ingestion(
-        ingestion.chunkSizeChars(),
-        ingestion.chunkOverlapMessages(),
-        ingestion.maxExtractionConcurrency(),
-        ingestion.interrogativeQueriesPerMemory(),
-        ingestion.maxExtractedCandidatesPerChunk(),
-        ingestion.graphFromExtraction()),
-
-      new Retrieval(
-        retrieval.vectorEnabled(),
-        retrieval.rrfK(),
-        retrieval.weightExactKey(),
-        retrieval.weightFtsMemory(),
-        retrieval.weightHydeVector(),
-        retrieval.weightDirectVector(),
-        retrieval.weightFtsMessage(),
-        retrieval.weightGraph(),
-        retrieval.graphDepth(),
-        retrieval.graphFanout(),
-        retrieval.graphSeedLimit(),
-        retrieval.channelLimit(),
-        retrieval.channelTimeoutMs(),
-        retrieval.weightSymbolFts(),
-        retrieval.weightCodeGraph(),
-        retrieval.codeGraphDepth(),
-        retrieval.codeGraphFanout(),
-        retrieval.codeGraphSeedLimit(),
-        retrieval.codeGraphMinConfidence(),
-        retrieval.recallMode()));
+    configService.delete(name);
   }
 
   /**

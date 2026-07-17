@@ -2,9 +2,7 @@ package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.response.OrphanCountResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
-import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.reminiscence.ReminiscenceService;
-import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.task.TaskRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,14 +27,12 @@ import java.util.UUID;
 public class ReminiscenceController {
 
   private final ReminiscenceService reminiscence;
-  private final MemoryStore store;
   private final TaskRegistry tasks;
   private final ObjectMapper objectMapper;
 
-  public ReminiscenceController(ReminiscenceService reminiscence, MemoryStore store, TaskRegistry tasks,
+  public ReminiscenceController(ReminiscenceService reminiscence, TaskRegistry tasks,
                                 ObjectMapper objectMapper) {
     this.reminiscence = reminiscence;
-    this.store = store;
     this.tasks = tasks;
     this.objectMapper = objectMapper;
   }
@@ -61,7 +57,6 @@ public class ReminiscenceController {
    */
   @GetMapping("/reminisce/orphans")
   public OrphanCountResponse orphans(@PathVariable String name) {
-    var profile = store.findProfile(name).orElseThrow(() -> NotFoundException.profile(name));
-    return new OrphanCountResponse(store.countGraphOrphans(profile.id()));
+    return new OrphanCountResponse(reminiscence.orphanCount(name));
   }
 }

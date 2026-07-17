@@ -90,6 +90,29 @@ public class CodeIndexingService {
   }
 
   /**
+   * Per-profile code-index status counts.
+   */
+  public record CodeIndexStatus(
+    boolean present, long files, long symbols, long resolvedEdges, long heuristicEdges, long edges) {
+  }
+
+  /**
+   * The code-index status for {@code profileName}, or empty when the profile does not exist.
+   */
+  public Optional<CodeIndexStatus> status(String profileName) {
+    return store.findProfile(profileName).map(Profile::id).map(profileId -> {
+      CodeIndexStore.CodeIndexCounts counts = codeStore.counts(profileId);
+      return new CodeIndexStatus(
+        codeStore.isCodeIndexPresent(profileId),
+        counts.files(),
+        counts.symbols(),
+        counts.resolvedEdges(),
+        counts.heuristicEdges(),
+        counts.edges());
+    });
+  }
+
+  /**
    * Index a batch into the named profile. {@code treeHash} is accepted for status/freshness and is
    * not otherwise used here.
    */
