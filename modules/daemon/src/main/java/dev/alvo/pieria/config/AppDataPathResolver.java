@@ -1,9 +1,9 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.tools.os.AppDirs;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.Locale;
 
 /**
  * Resolves configured app-data paths into concrete filesystem locations. The database file honors
@@ -60,65 +60,19 @@ public class AppDataPathResolver {
   }
 
   private static Path defaultDataRoot() {
-    String os = osName();
-    String home = System.getProperty("user.home", ".");
-    if (os.contains("mac")) {
-      return Path.of(home, "Library", "Application Support", "Pieria");
-    }
-    if (os.contains("win")) {
-      String appData = System.getenv("APPDATA");
-      return Path.of(appData == null || appData.isBlank() ? Path.of(home, "AppData", "Roaming").toString() : appData,
-        "Pieria");
-    }
-    String xdgData = System.getenv("XDG_DATA_HOME");
-    return Path.of(xdgData == null || xdgData.isBlank() ? Path.of(home, ".local", "share").toString() : xdgData,
-      "pieria");
+    return AppDirs.defaultDataRoot();
   }
 
   private static Path defaultConfigDir(Path dataRoot) {
-    String os = osName();
-    String home = System.getProperty("user.home", ".");
-    if (os.contains("win")) {
-      return dataRoot.resolve("config");
-    }
-    if (os.contains("mac")) {
-      return dataRoot.resolve("config");
-    }
-    String xdgConfig = System.getenv("XDG_CONFIG_HOME");
-    return Path.of(xdgConfig == null || xdgConfig.isBlank() ? Path.of(home, ".config").toString() : xdgConfig,
-      "pieria");
+    return AppDirs.defaultConfigDir(dataRoot);
   }
 
   private static Path defaultLogsDir(Path dataRoot) {
-    String os = osName();
-    String home = System.getProperty("user.home", ".");
-    if (os.contains("mac")) {
-      return Path.of(home, "Library", "Logs", "Pieria");
-    }
-    if (os.contains("win")) {
-      String localAppData = System.getenv("LOCALAPPDATA");
-      return Path.of(localAppData == null || localAppData.isBlank()
-        ? Path.of(home, "AppData", "Local").toString()
-        : localAppData, "Pieria", "logs");
-    }
-    String xdgState = System.getenv("XDG_STATE_HOME");
-    return Path.of(xdgState == null || xdgState.isBlank() ? Path.of(home, ".local", "state").toString() : xdgState,
-      "pieria", "logs");
+    return AppDirs.defaultLogsDir(dataRoot);
   }
 
   private static Path defaultRuntimeDir(Path dataRoot) {
-    String os = osName();
-    if (!os.contains("win")) {
-      String xdgRuntime = System.getenv("XDG_RUNTIME_DIR");
-      if (xdgRuntime != null && !xdgRuntime.isBlank()) {
-        return Path.of(xdgRuntime, "pieria");
-      }
-    }
-    return dataRoot.resolve("run");
-  }
-
-  private static String osName() {
-    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+    return AppDirs.defaultRuntimeDir(dataRoot);
   }
 
 }

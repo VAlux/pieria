@@ -1,13 +1,12 @@
 package dev.alvo.pieria.cli.modules.harness;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.tools.io.FileOps;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -33,18 +32,6 @@ public final class HookAssetWriter {
     this.classLoader = classLoader;
   }
 
-  private static void makeExecutable(Path path) {
-    try {
-      Set<PosixFilePermission> perms = EnumSet.copyOf(Files.getPosixFilePermissions(path));
-      perms.add(PosixFilePermission.OWNER_EXECUTE);
-      perms.add(PosixFilePermission.GROUP_EXECUTE);
-      perms.add(PosixFilePermission.OTHERS_EXECUTE);
-      Files.setPosixFilePermissions(path, perms);
-    } catch (UnsupportedOperationException | IOException ignored) {
-      // Non-POSIX filesystem (e.g. Windows): exec+ bit is irrelevant there.
-    }
-  }
-
   /**
    * Write the shared scripts plus {@code extraResources} under {@code harnessDir}, preserving the
    * path below the {@code harness/} prefix. Makes {@code .sh} files executable on POSIX systems.
@@ -64,10 +51,10 @@ public final class HookAssetWriter {
         if (in == null) {
           throw new IOException("missing embedded harness resource: " + resource);
         }
-        Files.createDirectories(target.getParent());
+        FileOps.ensureParentDirectory(target);
         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
       }
-      makeExecutable(target);
+      FileOps.makeExecutable(target);
     }
     if (!dryRun) {
       log.info("  extracted hook scripts to {}", harnessDir);

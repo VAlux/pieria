@@ -1,8 +1,10 @@
 package dev.alvo.pieria.cli.modules.harness;
 
+import dev.alvo.pieria.tools.os.InstallHome;
+import dev.alvo.pieria.tools.os.OsFamily;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -39,7 +41,7 @@ public final class PathResolver {
    */
   public static PathResolver create() {
     Optional<Path> self = ProcessHandle.current().info().command().map(Path::of);
-    boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    boolean win = OsFamily.detect() == OsFamily.WINDOWS;
     return new PathResolver(System::getenv, self, Path.of(System.getProperty("user.home")), win);
   }
 
@@ -60,13 +62,7 @@ public final class PathResolver {
         return binDir.getParent();
       }
     }
-    if (windows) {
-      String localAppData = env.apply("LOCALAPPDATA");
-      Path base = (localAppData != null && !localAppData.isBlank())
-        ? Path.of(localAppData) : userHome.resolve("AppData").resolve("Local");
-      return base.resolve("Pieria");
-    }
-    return userHome.resolve(".local").resolve("share").resolve("pieria");
+    return InstallHome.defaultHome(env, userHome, windows);
   }
 
   /**

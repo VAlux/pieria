@@ -1,10 +1,10 @@
 package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.config.PieriaProperties.Model.Retry;
+import dev.alvo.pieria.tools.Backoff;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 
 /**
@@ -58,25 +58,13 @@ public final class ModelCallRetry {
    * {@code min(maxBackoffMs, initialBackoffMs * multiplier^(n-1))}, randomized by ±jitter.
    */
   private long backoffMillis(int attempt) {
-    double base = policy.initialBackoffMs() * Math.pow(policy.multiplier(), attempt - 1);
-    double capped = Math.min(base, policy.maxBackoffMs());
-    double jitter = policy.jitter();
-    if (jitter > 0.0 && capped > 0.0) {
-      double factor = 1.0 + ThreadLocalRandom.current().nextDouble(-jitter, jitter);
-      capped = Math.max(0.0, capped * factor);
-    }
-    return Math.round(capped);
+    return Backoff.delayMillis(attempt, policy.initialBackoffMs(), policy.multiplier(),
+      policy.maxBackoffMs(), policy.jitter());
   }
 
   /** Sleep, preserving interruption: a cancelled onboard aborts promptly with the last failure. */
   private static void sleep(long millis, RuntimeException lastFailure) {
-    if (millis <= 0) {
-      return;
-    }
-    try {
-      Thread.sleep(millis);
-    } catch (InterruptedException ie) {
-      Thread.currentThread().interrupt();
+    if (Backoff.sleepInterruptibly(millis)) {
       throw lastFailure;
     }
   }

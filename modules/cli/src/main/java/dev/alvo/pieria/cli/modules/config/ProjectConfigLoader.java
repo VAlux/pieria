@@ -4,10 +4,10 @@ import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.config.toml.ConfigMerge;
 import dev.alvo.pieria.config.toml.PieriaTomlLoader;
+import dev.alvo.pieria.tools.os.AppDirs;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Locale;
 
 /**
  * Loads the two-layer Pieria configuration: the global {@code config.toml} in the OS config dir
@@ -84,20 +84,6 @@ public final class ProjectConfigLoader {
     if (override != null && !override.isBlank()) {
       return Path.of(override);
     }
-    String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    String home = System.getProperty("user.home", ".");
-    if (os.contains("mac")) {
-      return Path.of(home, "Library", "Application Support", "Pieria", "config");
-    }
-    if (os.contains("win")) {
-      String appData = System.getenv("APPDATA");
-      return Path.of(appData == null || appData.isBlank()
-        ? Path.of(home, "AppData", "Roaming").toString()
-        : appData, "Pieria", "config");
-    }
-    String xdgConfig = System.getenv("XDG_CONFIG_HOME");
-    return Path.of(xdgConfig == null || xdgConfig.isBlank()
-      ? Path.of(home, ".config").toString()
-      : xdgConfig, "pieria");
+    return AppDirs.defaultConfigDir(AppDirs.defaultDataRoot());
   }
 }

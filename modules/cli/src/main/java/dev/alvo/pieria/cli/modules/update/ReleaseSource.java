@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli.modules.update;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.tools.Hash;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -8,7 +9,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.function.UnaryOperator;
@@ -43,14 +43,8 @@ public final class ReleaseSource implements BinarySource {
 
   private static String sha256(Path file) {
     try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      byte[] hash = digest.digest(Files.readAllBytes(file));
-      StringBuilder sb = new StringBuilder(hash.length * 2);
-      for (byte b : hash) {
-        sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
-      }
-      return sb.toString();
-    } catch (Exception e) {
+      return Hash.sha256Hex(file);
+    } catch (RuntimeException e) {
       throw new UpdateException("could not hash " + file + ": " + e.getMessage(), e);
     }
   }

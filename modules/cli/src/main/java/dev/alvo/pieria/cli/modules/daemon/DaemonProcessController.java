@@ -1,13 +1,13 @@
 package dev.alvo.pieria.cli.modules.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.tools.os.OsFamily;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -71,7 +71,7 @@ public final class DaemonProcessController {
       }
     }
 
-    String exeName = os().contains("win") ? "pieria-daemon.exe" : "pieria-daemon";
+    String exeName = OsFamily.detect() == OsFamily.WINDOWS ? "pieria-daemon.exe" : "pieria-daemon";
     Optional<Path> onPath = findOnPath(exeName);
     if (onPath.isPresent()) {
       return onPath;
@@ -149,12 +149,7 @@ public final class DaemonProcessController {
   }
 
   private static boolean isLinux() {
-    String os = os();
-    return !os.contains("mac") && !os.contains("win");
-  }
-
-  private static String os() {
-    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+    return OsFamily.detect() == OsFamily.LINUX;
   }
 
   public StartOutcome start(StartOptions opts) {
@@ -177,7 +172,7 @@ public final class DaemonProcessController {
 
   private Service detectService() {
     String home = System.getProperty("user.home", ".");
-    if (os().contains("mac")
+    if (OsFamily.detect() == OsFamily.MAC
       && Files.exists(Path.of(home, "Library", "LaunchAgents", LAUNCHD_LABEL + ".plist"))) {
       return Service.LAUNCHD;
     }

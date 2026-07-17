@@ -3,13 +3,11 @@ package dev.alvo.pieria.onboarding;
 import dev.alvo.pieria.api.request.SourceSpec;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.onboarding.TextDiscovery.Doc;
+import dev.alvo.pieria.tools.io.FileOps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,14 +51,10 @@ public class TextOnboardingSource implements OnboardingSource<SourceSpec.Text> {
 
   /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */
   private String readDoc(Path absolute) {
-    try {
-      return Files.readString(absolute);
-    } catch (IOException e) {
-      log.warn("onboard text: failed to read {} ({}); skipping", absolute.getFileName(), e.toString());
-      return null;
-    } catch (UncheckedIOException e) {
-      log.warn("onboard text: failed to read a doc ({}); skipping", e.toString());
-      return null;
+    String text = FileOps.readTextQuietly(absolute);
+    if (text == null) {
+      log.warn("onboard text: failed to read {}; skipping", absolute.getFileName());
     }
+    return text;
   }
 }

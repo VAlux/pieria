@@ -1,11 +1,13 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.tools.os.InstallHome;
+import dev.alvo.pieria.tools.os.OsFamily;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.function.UnaryOperator;
 
 /**
@@ -79,14 +81,7 @@ public final class InstallLayout {
   }
 
   private static Path defaultHome(UnaryOperator<String> env, Path userHome) {
-    String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    if (os.contains("win")) {
-      String localAppData = env.apply("LOCALAPPDATA");
-      Path base = (localAppData != null && !localAppData.isBlank())
-        ? Path.of(localAppData) : userHome.resolve("AppData").resolve("Local");
-      return base.resolve("Pieria");
-    }
-    return userHome.resolve(".local").resolve("share").resolve("pieria");
+    return InstallHome.defaultHome(env, userHome, OsFamily.detect() == OsFamily.WINDOWS);
   }
 
   public Path binDir() {

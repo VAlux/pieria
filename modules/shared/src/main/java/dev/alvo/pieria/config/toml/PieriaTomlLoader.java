@@ -1,11 +1,9 @@
 package dev.alvo.pieria.config.toml;
 
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.dataformat.toml.TomlMapper;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -18,18 +16,12 @@ import java.nio.file.Path;
  */
 public final class PieriaTomlLoader {
 
-  private final TomlMapper mapper = TomlMapper.builder().build();
+  private final ConfigTreeStore store = new ConfigTreeStore(TomlMapper.builder().build());
 
   /**
    * Read the file as an object tree, or return a fresh empty object when absent/empty/non-object.
    */
   public ObjectNode load(Path file) throws IOException {
-    if (Files.exists(file) && Files.size(file) > 0) {
-      JsonNode node = mapper.readTree(Files.readAllBytes(file));
-      if (node instanceof ObjectNode object) {
-        return object;
-      }
-    }
-    return mapper.createObjectNode();
+    return store.load(file);
   }
 }

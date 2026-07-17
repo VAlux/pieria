@@ -1,19 +1,15 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.tools.io.NativeResourceExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.MessageDigest;
-import java.util.Arrays;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.CodeSource;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -58,7 +54,7 @@ public class VecExtensionResolver {
     Optional<Path> fileBased = resolve(
       properties.extensionPath(),
       System.getenv("PIERIA_VEC_EXTENSION"),
-      installCandidateDirectories(),
+      NativeResourceExtractor.installCandidateDirectories(VecExtensionResolver.class),
       osName);
     if (fileBased.isPresent()) {
       return fileBased;
@@ -74,7 +70,8 @@ public class VecExtensionResolver {
                                 String envPath,
                                 List<Path> candidateDirs,
                                 String osName) {
-    Optional<Path> explicit = existingFile(configuredPath).or(() -> existingFile(envPath));
+    Optional<Path> explicit = NativeResourceExtractor.existingFile(configuredPath)
+      .or(() -> NativeResourceExtractor.existingFile(envPath));
     if (explicit.isPresent()) {
       return explicit;
     }
@@ -108,31 +105,8 @@ public class VecExtensionResolver {
     }
   }
 
-  /**
-   * Copy {@code in} to {@code target}, creating parent directories. The write is skipped when the
-   * target already exists with identical content (SHA-256 match), so re-launches are fast and an
-   * upgrade to a new vec0 binary always replaces the stale file.
-   */
   static Path extract(InputStream in, Path target) throws IOException {
-    byte[] bytes = in.readAllBytes();
-    Path parent = target.getParent();
-    if (parent != null) {
-      Files.createDirectories(parent);
-    }
-    if (!Files.isRegularFile(target) || !sha256Matches(target, bytes)) {
-      Files.write(target, bytes);
-    }
-    return target.toAbsolutePath().normalize();
-  }
-
-  private static boolean sha256Matches(Path file, byte[] expected) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] onDisk = md.digest(Files.readAllBytes(file));
-      return Arrays.equals(onDisk, md.digest(expected));
-    } catch (Exception e) {
-      return false;
-    }
+    return NativeResourceExtractor.extract(in, target);
   }
 
   /**
@@ -146,27 +120,7 @@ public class VecExtensionResolver {
 
   /** Canonical {@code <os>-<arch>} key matching the embedded resource and packaging layout. */
   static String platformKey(String osName, String osArch) {
-    return osToken(osName) + "-" + archToken(osArch);
-  }
-
-  private static String osToken(String osName) {
-    String os = osName.toLowerCase(Locale.ROOT);
-    if (os.contains("mac") || os.contains("darwin")) {
-      return "macos";
-    }
-    if (os.contains("win")) {
-      return "windows";
-    }
-    return "linux";
-  }
-
-  private static String archToken(String osArch) {
-    String arch = osArch.toLowerCase(Locale.ROOT);
-    if (arch.contains("aarch64") || arch.contains("arm64")) {
-      return "aarch64";
-    }
-    // amd64 (JVM) and x86_64 both mean 64-bit x86; sqlite-vec ships no 32-bit desktop builds.
-    return "x86_64";
+    return NativeResourceExtractor.platformKey(osName, osArch);
   }
 
   /**
@@ -174,51 +128,7 @@ public class VecExtensionResolver {
    * native shared-library suffix.
    */
   static String platformExtensionFileName(String osName) {
-    return "vec0." + switch (osToken(osName)) {
-      case "macos" -> "dylib";
-      case "windows" -> "dll";
-      default -> "so";
-    };
-  }
-
-  private static Optional<Path> existingFile(String value) {
-    if (value == null || value.isBlank()) {
-      return Optional.empty();
-    }
-    Path path = Path.of(value);
-    return Files.isRegularFile(path) ? Optional.of(path.toAbsolutePath().normalize()) : Optional.empty();
-  }
-
-  /**
-   * Directories to search for a sidecar extension, derived from the location of the running code.
-   * For a native image this is the executable's directory; for a boot jar it is the jar directory.
-   * We also check a sibling {@code lib} because the JVM distribution places jars under {@code lib}.
-   */
-  private static List<Path> installCandidateDirectories() {
-    List<Path> dirs = new ArrayList<>();
-    Path codeLocation = codeSourceDirectory();
-    if (codeLocation != null) {
-      dirs.add(codeLocation);
-      Path parent = codeLocation.getParent();
-      if (parent != null) {
-        dirs.add(parent);
-        dirs.add(parent.resolve("lib"));
-      }
-    }
-    return dirs;
-  }
-
-  private static Path codeSourceDirectory() {
-    try {
-      CodeSource source = VecExtensionResolver.class.getProtectionDomain().getCodeSource();
-      if (source == null || source.getLocation() == null) {
-        return null;
-      }
-      Path location = Path.of(source.getLocation().toURI());
-      return Files.isDirectory(location) ? location : location.getParent();
-    } catch (Exception e) {
-      return null;
-    }
+    return "vec0." + NativeResourceExtractor.librarySuffix(osName);
   }
 
   private static String osName() {

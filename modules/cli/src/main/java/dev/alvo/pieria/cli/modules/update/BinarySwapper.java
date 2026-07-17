@@ -1,14 +1,13 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.tools.io.FileOps;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Swaps the staged native binaries into the install dir. Each replacement is a single
@@ -23,18 +22,6 @@ public final class BinarySwapper {
 
   public BinarySwapper(Platform platform) {
     this.platform = platform;
-  }
-
-  private static void makeExecutable(Path path) {
-    try {
-      Set<PosixFilePermission> perms = EnumSet.copyOf(Files.getPosixFilePermissions(path));
-      perms.add(PosixFilePermission.OWNER_EXECUTE);
-      perms.add(PosixFilePermission.GROUP_EXECUTE);
-      perms.add(PosixFilePermission.OTHERS_EXECUTE);
-      Files.setPosixFilePermissions(path, perms);
-    } catch (UnsupportedOperationException | IOException ignored) {
-      // Non-POSIX filesystem: exec bit is irrelevant.
-    }
   }
 
   private static void deleteQuietly(Path path) {
@@ -90,7 +77,7 @@ public final class BinarySwapper {
     Files.copy(src, staged, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
     if (executable) {
       platform.harden(staged);
-      makeExecutable(staged);
+      FileOps.makeExecutable(staged);
     }
     boolean hadOriginal = Files.exists(target);
     if (hadOriginal) {

@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli.modules.harness;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.tools.io.FileOps;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -46,8 +47,7 @@ public final class CommandAssetWriter {
     for (Map.Entry<String, String> entry : substitutions.entrySet()) {
       content = content.replace(entry.getKey(), entry.getValue());
     }
-    Files.createDirectories(target.getParent());
-    Files.writeString(target, content);
+    FileOps.writeFile(target, content);
     log.info("  wrote command {}", target);
   }
 

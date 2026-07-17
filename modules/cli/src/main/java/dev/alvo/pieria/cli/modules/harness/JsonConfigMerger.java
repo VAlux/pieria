@@ -1,6 +1,5 @@
 package dev.alvo.pieria.cli.modules.harness;
 
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -8,8 +7,9 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.config.toml.ConfigTreeStore;
+import dev.alvo.pieria.tools.io.FileOps;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -19,34 +19,28 @@ import java.nio.file.Path;
  */
 public final class JsonConfigMerger {
 
-  private final ObjectMapper mapper = JsonMapper.builder()
+  private static final ObjectMapper MAPPER = JsonMapper.builder()
     .enable(SerializationFeature.INDENT_OUTPUT)
     .build();
+
+  private final ConfigTreeStore store = new ConfigTreeStore(MAPPER);
 
   /**
    * Read the file as an object, or return a fresh empty object if absent/empty/non-object.
    */
   public ObjectNode load(Path file) throws IOException {
-    if (Files.exists(file) && Files.size(file) > 0) {
-      JsonNode node = mapper.readTree(Files.readAllBytes(file));
-      if (node instanceof ObjectNode object) {
-        return object;
-      }
-    }
-    return mapper.createObjectNode();
+    return store.load(file);
   }
 
   /**
    * Pretty-print to the file (creating parent dirs), or print the intended content on dry-run.
    */
   public void save(Path file, ObjectNode root, boolean dryRun, Logger log) throws IOException {
-    String content = mapper.writeValueAsString(root) + System.lineSeparator();
     if (dryRun) {
       log.info("  would write {}", file);
       return;
     }
-    Files.createDirectories(file.getParent());
-    Files.writeString(file, content);
+    FileOps.writeFile(file, store.serialize(root) + System.lineSeparator());
     log.info("  wrote {}", file);
   }
 
@@ -54,33 +48,21 @@ public final class JsonConfigMerger {
    * Get-or-create a child object field.
    */
   public ObjectNode childObject(ObjectNode parent, String field) {
-    JsonNode existing = parent.get(field);
-    if (existing instanceof ObjectNode object) {
-      return object;
-    }
-    ObjectNode created = mapper.createObjectNode();
-    parent.set(field, created);
-    return created;
+    return store.childObject(parent, field);
   }
 
   /**
    * Get-or-create a child array field.
    */
   public ArrayNode childArray(ObjectNode parent, String field) {
-    JsonNode existing = parent.get(field);
-    if (existing instanceof ArrayNode array) {
-      return array;
-    }
-    ArrayNode created = mapper.createArrayNode();
-    parent.set(field, created);
-    return created;
+    return store.childArray(parent, field);
   }
 
   public ObjectNode newObject() {
-    return mapper.createObjectNode();
+    return store.newObject();
   }
 
   public ArrayNode newArray() {
-    return mapper.createArrayNode();
+    return store.newArray();
   }
 }

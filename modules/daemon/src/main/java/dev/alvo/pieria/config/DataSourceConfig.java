@@ -2,6 +2,7 @@ package dev.alvo.pieria.config;
 
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.tools.io.FileOps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.jdbc.DataSourceBuilder;
@@ -10,9 +11,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -55,14 +53,7 @@ public class DataSourceConfig {
   }
 
   private static void ensureParentDirectory(String dbPath) {
-    Path parent = Path.of(dbPath).toAbsolutePath().getParent();
-    if (parent != null) {
-      try {
-        Files.createDirectories(parent);
-      } catch (IOException e) {
-        throw new UncheckedIOException("Cannot create database directory: " + parent, e);
-      }
-    }
+    FileOps.ensureParentDirectory(Path.of(dbPath).toAbsolutePath());
   }
 
   /**
