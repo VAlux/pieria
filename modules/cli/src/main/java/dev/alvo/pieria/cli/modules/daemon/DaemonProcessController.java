@@ -19,7 +19,7 @@ import java.util.stream.Stream;
  *
  * <p>This class only returns outcomes; the commands own user-facing output.
  */
-public final class DaemonProcess {
+public final class DaemonProcessController {
 
   private static final String LAUNCHD_LABEL = "dev.alvo.pieria.daemon";
   private static final String SYSTEMD_UNIT = "pieria-daemon";
@@ -113,21 +113,21 @@ public final class DaemonProcess {
     }
   }
 
-  private static Result run(List<String> command) {
+  private static OsCommandExecutionResult run(List<String> command) {
     try {
       Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
       String output = new String(process.getInputStream().readAllBytes());
       boolean finished = process.waitFor(15, TimeUnit.SECONDS);
       if (!finished) {
         process.destroyForcibly();
-        return new Result(-1, "timed out");
+        return new OsCommandExecutionResult(-1, "timed out");
       }
-      return new Result(process.exitValue(), output);
+      return new OsCommandExecutionResult(process.exitValue(), output);
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
-      return new Result(-1, e.getMessage());
+      return new OsCommandExecutionResult(-1, e.getMessage());
     }
   }
 
@@ -135,7 +135,7 @@ public final class DaemonProcess {
    * Numeric uid for launchd's {@code gui/<uid>} domain target.
    */
   private static String uid() {
-    Result r = run(List.of("id", "-u"));
+    OsCommandExecutionResult r = run(List.of("id", "-u"));
     String value = r.output() == null ? "" : r.output().strip();
     return value.isEmpty() ? "0" : value;
   }
@@ -226,18 +226,18 @@ public final class DaemonProcess {
       return new StartedViaService("launchd (dry-run)");
     }
     if (!launchdLoaded()) {
-      Result r = run(bootstrap);
+      OsCommandExecutionResult r = run(bootstrap);
       if (r.exitCode() != 0) {
         return new Failed("launchd start failed: " + r.errorSummary(bootstrap));
       }
     }
-    Result enableResult = run(enable);
+    OsCommandExecutionResult enableResult = run(enable);
     if (enableResult.exitCode() != 0) {
       return new Failed("launchd start failed: " + enableResult.errorSummary(enable));
     }
     // kickstart can transiently fail with EALREADY (errno 37) when a just-issued `stop` (bootout) is
     // still tearing the previous instance down; retry briefly so `restart` is reliable on the first try.
-    Result kickResult = kickstartWithRetry(kickstart);
+    OsCommandExecutionResult kickResult = kickstartWithRetry(kickstart);
     if (kickResult.exitCode() != 0) {
       return new Failed("launchd start failed: " + kickResult.errorSummary(kickstart));
     }
@@ -251,8 +251,8 @@ public final class DaemonProcess {
    * Run {@code launchctl kickstart}, retrying for a few seconds while it returns {@link #LAUNCHCTL_EALREADY}
    * — the transient state where the previous instance booted out by {@code stop} has not fully exited yet.
    */
-  private static Result kickstartWithRetry(List<String> kickstart) {
-    Result r = run(kickstart);
+  private static OsCommandExecutionResult kickstartWithRetry(List<String> kickstart) {
+    OsCommandExecutionResult r = run(kickstart);
     for (int attempt = 0; attempt < 15 && r.exitCode() == LAUNCHCTL_EALREADY; attempt++) {
       sleepQuietly(200);
       r = run(kickstart);
@@ -278,7 +278,7 @@ public final class DaemonProcess {
     if (!launchdLoaded()) {
       return new NotRunning();
     }
-    Result r = run(bootout);
+    OsCommandExecutionResult r = run(bootout);
     if (r.exitCode() != 0) {
       return new Failed("launchd stop failed: " + r.errorSummary(bootout));
     }
@@ -312,7 +312,7 @@ public final class DaemonProcess {
       return onSuccess.apply(name + " (dry-run)");
     }
     for (List<String> command : commands) {
-      Result r = run(command);
+      OsCommandExecutionResult r = run(command);
       if (r.exitCode() != 0) {
         return onFailure.apply(name + " action failed: " + r.errorSummary(command));
       }
@@ -477,7 +477,7 @@ public final class DaemonProcess {
   public record StoppedPid(long pid) implements StopOutcome {
   }
 
-  private record Result(int exitCode, String output) {
+  private record OsCommandExecutionResult(int exitCode, String output) {
     String errorSummary(List<String> command) {
       String trimmed = output == null ? "" : output.strip();
       return trimmed.isEmpty() ? ("exit " + exitCode + " from `" + String.join(" ", command) + "`") : trimmed;

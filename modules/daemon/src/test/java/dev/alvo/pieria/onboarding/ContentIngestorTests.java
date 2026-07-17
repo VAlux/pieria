@@ -10,6 +10,7 @@ import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
+import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
@@ -133,6 +134,7 @@ class ContentIngestorTests {
     /** Counts unified-extraction calls; can be told to fail on transcripts containing a marker. */
     private static class CountingGateway extends FakeModelGateway {
       final AtomicInteger extractCalls = new AtomicInteger();
+      final AtomicInteger graphCalls = new AtomicInteger();
       volatile String failMarker;
 
       @Override
@@ -142,6 +144,12 @@ class ContentIngestorTests {
         }
         extractCalls.incrementAndGet();
         return super.extractUnified(chunk);
+      }
+
+      @Override
+      public List<GraphFragment> extractGraphAll(List<String> contents) {
+        graphCalls.incrementAndGet();
+        return super.extractGraphAll(contents);
       }
     }
 
@@ -163,8 +171,8 @@ class ContentIngestorTests {
       TranscriptNormalizer normalizer = new TranscriptNormalizer();
       gateway = new CountingGateway();
       PieriaProperties props = new PieriaProperties(null, null, null,
-        new PieriaProperties.Model("small", "large", "embed", 1024, null, null),
-        new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000),
+      new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
+        new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 32, 5, false, 5000),
         null, null);
       IngestionService ingestionService = new IngestionService(store, gateway, normalizer,
         new Chunker(normalizer), EffectiveConfigResolver.withoutOverrides(props));
@@ -185,6 +193,19 @@ class ContentIngestorTests {
 
     private OnboardResult run(List<ContentDocument> docs, boolean refresh) {
       return ingestor.ingest("proj", "markdown", docs, null, refresh, IngestProgressListener.noop());
+    }
+
+    @Test
+    void onboardingDefersGraphButStoresAndEnqueuesMemories() {
+      OnboardResult result = run(
+        List.of(new ContentDocument("docs/a.md", "redis powers durable sessions")), false);
+
+      assertThat(result.memoriesStored()).isPositive();
+      assertThat(result.graphDeferred()).isEqualTo(result.memoriesStored());
+      assertThat(gateway.graphCalls.get()).isZero();
+      assertThat(store.drainOutbox(10)).hasSize(result.memoriesStored());
+      String profileId = store.findProfile("proj").orElseThrow().id();
+      assertThat(store.countGraphOrphans(profileId)).isEqualTo(result.graphDeferred());
     }
 
     @Test

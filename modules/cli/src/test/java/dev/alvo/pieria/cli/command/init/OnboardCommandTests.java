@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Tests for {@code pieria onboard}. The command talks to a {@link StubDaemon} over HTTP via
  * {@code --daemon-url}, exercising the real {@code HttpOnboardClient}. Discovery/reading happen
- * daemon-side, so the command only sends one {@code SourceSpec} per source and renders the task
+ * daemon-side, so the command sends one ordered composite request and renders the per-source task
  * result; {@code --config-dir} pins the global config dir to the temp project so tests never read
  * the real OS config dir.
  *
@@ -42,7 +42,10 @@ class OnboardCommandTests {
   private static void stubSuccess(StubDaemon daemon) {
     daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
     daemon.stub("/tasks/t1", 200,
-      "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":1,\"memoriesStored\":1}}");
+      "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":["
+        + "{\"sourceType\":\"markdown\",\"documents\":1,\"memoriesStored\":1},"
+        + "{\"sourceType\":\"text\",\"documents\":0,\"memoriesStored\":0},"
+        + "{\"sourceType\":\"pdf\",\"documents\":0,\"memoriesStored\":0}]}}");
   }
 
   private static List<String> onboardBodies(StubDaemon daemon) {
@@ -98,10 +101,9 @@ class OnboardCommandTests {
 
       assertThat(r.code()).isZero();
       List<String> bodies = onboardBodies(daemon);
-      assertThat(bodies).hasSize(3);
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"markdown\"").contains(root));
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"text\"").contains(root));
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"pdf\"").contains(root));
+      assertThat(bodies).hasSize(1);
+      assertThat(bodies.getFirst()).contains("\"type\":\"markdown\"").contains(root)
+        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"");
     }
   }
 
@@ -117,7 +119,7 @@ class OnboardCommandTests {
 
       assertThat(r.code()).isZero();
       assertThat(onboardBodies(daemon))
-        .hasSize(4)
+        .hasSize(1)
         .anySatisfy(b -> assertThat(b).contains("\"type\":\"source-code\""));
     }
   }
@@ -134,8 +136,9 @@ class OnboardCommandTests {
 
       assertThat(r.code()).isZero();
       List<String> bodies = onboardBodies(daemon);
-      assertThat(bodies).hasSize(3);
-      assertThat(bodies).allSatisfy(b -> assertThat(b).contains("\"refresh\":true"));
+      assertThat(bodies).hasSize(1);
+      assertThat(bodies.getFirst()).contains("\"refresh\":true");
+      assertThat(count(bodies.getFirst(), "\"refresh\":true")).isEqualTo(3);
     }
   }
 
@@ -189,13 +192,11 @@ class OnboardCommandTests {
 
       assertThat(r.code()).isZero();
       List<String> bodies = onboardBodies(daemon);
-      assertThat(bodies).hasSize(3);
-      assertThat(bodies).anySatisfy(b ->
-        assertThat(b).contains("\"type\":\"markdown\"").contains(md.toAbsolutePath().normalize().toString()));
-      assertThat(bodies).anySatisfy(b ->
-        assertThat(b).contains("\"type\":\"text\"").contains(txt.toAbsolutePath().normalize().toString()));
-      assertThat(bodies).anySatisfy(b ->
-        assertThat(b).contains("\"type\":\"pdf\"").contains(pdf.toAbsolutePath().normalize().toString()));
+      assertThat(bodies).hasSize(1);
+      assertThat(bodies.getFirst()).contains("\"type\":\"markdown\"")
+        .contains(md.toAbsolutePath().normalize().toString())
+        .contains("\"type\":\"text\"").contains(txt.toAbsolutePath().normalize().toString())
+        .contains("\"type\":\"pdf\"").contains(pdf.toAbsolutePath().normalize().toString());
     }
   }
 
@@ -213,11 +214,9 @@ class OnboardCommandTests {
 
       assertThat(r.code()).isZero();
       List<String> bodies = onboardBodies(daemon);
-      assertThat(bodies).hasSize(3);
-      assertThat(bodies).allSatisfy(b -> assertThat(b).contains(root));
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"markdown\""));
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"text\""));
-      assertThat(bodies).anySatisfy(b -> assertThat(b).contains("\"type\":\"pdf\""));
+      assertThat(bodies).hasSize(1);
+      assertThat(bodies.getFirst()).contains(root).contains("\"type\":\"markdown\"")
+        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"");
     }
   }
 
@@ -279,7 +278,8 @@ class OnboardCommandTests {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
       daemon.stub("/tasks/t1", 200,
-        "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":2,\"memoriesStored\":5}}");
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":[{\"sourceType\":\"markdown\","
+          + "\"documents\":2,\"memoriesStored\":5}],\"graphEnrichmentTaskId\":\"g1\",\"graphCandidates\":5}}");
 
       OnboardCommand cmd = command(proj, daemon.baseUrl());
       cmd.targets = List.of(md.toString());
@@ -288,6 +288,10 @@ class OnboardCommandTests {
       assertThat(r.code()).isZero();
       assertThat(r.out()).contains("Stored 5 memories");
     }
+  }
+
+  private static int count(String value, String needle) {
+    return (value.length() - value.replace(needle, "").length()) / needle.length();
   }
 
   @Test
@@ -327,6 +331,56 @@ class OnboardCommandTests {
       assertThat(r.code()).isEqualTo(4);
       assertThat(r.err()).contains("HTTP 404: model or deployment not found");
     }
+  }
+
+  @Test
+  void noEnrichGraphSendsFalseAndDoesNotWaitForAChildTask(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.noEnrichGraph = true;
+
+      Result result = run(cmd);
+
+      assertThat(result.code()).isZero();
+      assertThat(onboardBodies(daemon).getFirst()).contains("\"enrichGraph\":false");
+      assertThat(result.out()).contains("Graph enrichment was skipped");
+    }
+  }
+
+  @Test
+  void waitForEnrichmentPollsTheChildTask(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":[],"
+          + "\"graphEnrichmentTaskId\":\"g1\",\"graphCandidates\":2}}");
+      daemon.stub("/tasks/g1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"memoriesScanned\":2}}");
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.waitForEnrichment = true;
+
+      Result result = run(cmd);
+
+      assertThat(result.code()).isZero();
+      assertThat(result.out()).contains("Waiting for graph enrichment").contains("Graph enrichment complete");
+      assertThat(daemon.lastRequestTo("/tasks/g1")).isNotNull();
+    }
+  }
+
+  @Test
+  void enrichmentFlagsAreMutuallyExclusive(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    OnboardCommand cmd = command(proj, StubDaemon.unreachableUrl());
+    cmd.noEnrichGraph = true;
+    cmd.waitForEnrichment = true;
+
+    Result result = run(cmd);
+
+    assertThat(result.code()).isEqualTo(2);
+    assertThat(result.err()).contains("mutually exclusive");
   }
 
   private record Result(int code, String out, String err) {

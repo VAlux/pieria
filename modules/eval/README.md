@@ -4,6 +4,12 @@ The `eval` module is an evaluation harness for Pieria's ingestion and retrieval 
 
 The harness exists because prompt changes, RRF weight tuning, and model swaps all affect quality in non-obvious ways. Every such change should be measured, not guessed. Driving the real daemon (rather than instantiating the services against a stub store) is what makes the numbers reflect the deployed pipeline: sqlite-vec + FTS5 + graph + RRF fusion under the daemon's own configuration.
 
+Onboarding acceleration experiments use the checked-in small/medium/large document corpora and the
+median-based `OnboardingTuningGate`. The controls, required metrics, production thresholds, and
+unified-graph experiment are specified in [`docs/eval/ONBOARDING.md`](../../docs/eval/ONBOARDING.md).
+These experiments remain opt-in; their reports belong under `pieria-eval-reports/`, never tracked
+build output.
+
 ## Design
 
 The `eval` module has no application entry point of its own. It depends on the daemon's plain jar (`:daemon` publishes both a `bootJar` and a `jar`) to boot `PieriaApplication`, and on `:shared` for the HTTP request/response records it (de)serializes.
@@ -26,6 +32,8 @@ Answer faithfulness is judged as a **separate pass**: the daemon run records eac
 | `FaithfulnessJudgeRunner` | Second pass: judges recorded answers with a judge `ModelGateway` and fills in faithfulness |
 | `LiveModelGatewayFactory` | Boots a minimal non-web Spring context to obtain the daemon's `OpenAiModelGateway` as the faithfulness judge |
 | `BenchmarkRunner` | Entry point for running a full benchmark dataset end-to-end against a `LiveDaemon` |
+| `OnboardingEvaluationRunner` | Runs all onboarding tuning variants three times over the checked-in corpora and computes the release metrics |
+| `OnboardingTuningGate` | Compares variant medians against the required quality/performance thresholds |
 | `LoCoMoBenchmarkAdapter` | Converts LoCoMo dataset entries to `EvaluationFixture` objects |
 | `LongMemEvalBenchmarkAdapter` | Converts LongMemEval dataset entries to `EvaluationFixture` objects |
 
@@ -83,6 +91,9 @@ PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
 
 # LongMemEval stays opt-in behind its dataset env var.
 PIERIA_LIVE_EVAL=1 PIERIA_LONGMEMEVAL_DATASET=datasets/longmemeval/longmemeval_s.json ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
+
+# Onboarding acceleration variants (15 isolated variant runs across small/medium/large corpora).
+PIERIA_ONBOARDING_EVAL=1 ./gradlew :eval:test --tests "*OnboardingBenchmarkLiveTests*"
 ```
 
 The live daemon boots against the daemon's own configuration (default: Ollama with the models in `application.properties`) on a throwaway temp DB, so results reflect the deployed pipeline. It resolves the sqlite-vec `vec0` extension from the classpath resources bundled by `:daemon`; if that fails on your platform, point `pieria.vec.extension-path` (or `PIERIA_VEC_EXTENSION`) at your installed `vec0`.

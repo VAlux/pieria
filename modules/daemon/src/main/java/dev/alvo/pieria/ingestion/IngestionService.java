@@ -70,7 +70,9 @@ public class IngestionService {
    */
   private record VerifyStoreResult(List<Memory> stored, int passed, int autoPassed, int corrected,
                                    int dropped, int superseded, int enqueued,
-                                   int graphExtracted, int graphSkipped, int graphFailed) {
+                                   int graphExtracted, int graphSkipped, int graphFailed,
+                                   int graphDeferred, long verificationWaitMs, long graphCallMs,
+                                   long reclassificationMs, long sqliteStoreMs) {
   }
 
   /** Outcome of persisting one verified candidate (classify + graph + store). */
@@ -78,7 +80,7 @@ public class IngestionService {
   }
 
   /** Whether graph extraction ran, was skipped (tasks), or failed (degraded, memory still stored). */
-  private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED}
+  private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED, DEFERRED}
 
   /**
    * Result of one extraction model call, keeping chunk metadata for detailed logging.
@@ -133,6 +135,14 @@ public class IngestionService {
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
                              Integer extractionSamplesOverride, IngestProgressListener progress) {
+    return ingestDetailed(profileName, sessionId, messages, extractionSamplesOverride,
+      GraphMode.SYNCHRONOUS, progress).memories();
+  }
+
+  /** Internal detailed entry point used by bulk onboarding to defer graph enrichment. */
+  public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
+                                        Integer extractionSamplesOverride, GraphMode graphMode,
+                                        IngestProgressListener progress) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
     log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
@@ -153,7 +163,7 @@ public class IngestionService {
     if (normalized.isEmpty()) {
       log.info("ingest profile={} session={} messages=0 normalizeMs={} messageStoreMs={} totalMs={} — nothing to extract",
         profileName, sessionId, normalize.millis(), messageStore.millis(), Timed.elapsedMillis(totalStart));
-      return List.of();
+      return new IngestionResult(List.of(), 0);
     }
 
     // Per-profile effective tuning: global properties overlaid with any pushed overrides.
@@ -192,11 +202,16 @@ public class IngestionService {
     // verification calls run bounded-parallel; the store write stays single-threaded.
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
       extraction.merged(), chunks, profile.id(), sessionId, tuning.verifyMode(),
-      Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
+      Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage,
+      graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress));
     VerifyStoreResult result = verifyStore.value();
     log.info("ingest verified profile={} session={} passed={} autoPassed={} corrected={} dropped={} stored={} verifyStoreMs={}",
       profileName, sessionId, result.passed(), result.autoPassed(), result.corrected(),
       result.dropped(), result.stored().size(), verifyStore.millis());
+    log.info("ingest verifyStore timings profile={} session={} verificationWaitMs={} graphCallMs={}"
+        + " reclassificationMs={} sqliteStoreMs={} verifyStoreMs={}",
+      profileName, sessionId, result.verificationWaitMs(), result.graphCallMs(),
+      result.reclassificationMs(), result.sqliteStoreMs(), verifyStore.millis());
     if (!extraction.merged().isEmpty() && result.stored().isEmpty()) {
       log.warn("ingest verification dropped every candidate profile={} session={} merged={} — see per-candidate"
         + " drop reasons above; nothing was stored", profileName, sessionId, extraction.merged().size());
@@ -216,7 +231,8 @@ public class IngestionService {
         vectorJobs={} \
         graphExtracted={} \
         graphSkipped={} \
-        graphFailed={}""",
+        graphFailed={} \
+        graphDeferred={}""",
       profileName,
       sessionId,
       normalized.size(),
@@ -229,7 +245,8 @@ public class IngestionService {
       result.enqueued(),
       result.graphExtracted(),
       result.graphSkipped(),
-      result.graphFailed());
+      result.graphFailed(),
+      result.graphDeferred());
 
     log.info("""
         ingest latency \
@@ -253,7 +270,15 @@ public class IngestionService {
     recordUsage(profile.id(), normalized, result.stored());
     recordInferenceUsage(profile.id(), inferenceUsage);
 
-    return result.stored();
+    return new IngestionResult(result.stored(), result.graphDeferred());
+  }
+
+  /** Normalize and persist a source's raw messages before its first extraction batch starts. */
+  public int preStageMessages(String profileName, String sessionId, List<Message> messages) {
+    Profile profile = store.getOrCreateProfile(profileName);
+    List<Message> normalized = normalizeMessages(messages, sessionId);
+    store.insertMessages(profile.id(), sessionId, normalized);
+    return normalized.size();
   }
 
   /**
@@ -331,7 +356,7 @@ public class IngestionService {
   }
 
   /** One verified survivor ready to store: resolved content plus its classification. */
-  private record Survivor(String content, Classification classification) {
+  private record Survivor(String content, Classification classification, GraphFragment extractionGraph) {
   }
 
   /** A chunk's candidates split by the grounding pre-filter (per {@link VerifyMode}). */
@@ -357,10 +382,12 @@ public class IngestionService {
   private VerifyStoreResult verifyStore(List<UnifiedCandidate> merged, List<Chunk> chunks,
                                         String profileId, String sessionId, VerifyMode verifyMode,
                                         int maxConcurrency,
-                                        InferenceUsageAccumulator usage, IngestProgressListener progress) {
+                                        InferenceUsageAccumulator usage, GraphMode graphMode,
+                                        IngestProgressListener progress) {
     int total = merged.size();
     if (total == 0) {
-      return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0);
+      return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0);
     }
 
     Map<Integer, String> transcriptByChunk = new HashMap<>();
@@ -389,6 +416,11 @@ public class IngestionService {
     int graphExtracted = 0;
     int graphSkipped = 0;
     int graphFailed = 0;
+    int graphDeferred = 0;
+    long verificationWaitNanos = 0;
+    long graphCallNanos = 0;
+    long reclassificationNanos = 0;
+    long sqliteStoreNanos = 0;
     List<Memory> stored = new ArrayList<>();
 
     Semaphore gate = new Semaphore(maxConcurrency);
@@ -419,14 +451,16 @@ public class IngestionService {
 
         for (UnifiedCandidate candidate : part.autoPassed()) {
           autoPassed++;
-          survivors.add(new Survivor(candidate.content(), candidate.classification()));
+          survivors.add(new Survivor(candidate.content(), candidate.classification(), candidate.graph()));
           log.debug("ingest verification chunk={} verdict=AUTO_PASS (grounded)", chunkIndex);
           progress.onPhase("verify", ++done, total);
         }
 
         List<UnifiedCandidate> suspects = part.suspects();
         if (!suspects.isEmpty()) {
+          long verificationWaitStart = System.nanoTime();
           List<VerificationResult> verdicts = awaitVerification(verifyFutures.get(chunkIndex));
+          verificationWaitNanos += System.nanoTime() - verificationWaitStart;
           for (int j = 0; j < suspects.size(); j++) {
             UnifiedCandidate candidate = suspects.get(j);
             VerificationResult result = j < verdicts.size() ? verdicts.get(j)
@@ -442,7 +476,7 @@ public class IngestionService {
               }
               case PASS -> {
                 passed++;
-                survivors.add(new Survivor(candidate.content(), candidate.classification()));
+                survivors.add(new Survivor(candidate.content(), candidate.classification(), candidate.graph()));
                 log.debug("ingest verification chunk={} verdict=PASS reason={}", chunkIndex, result.reason());
               }
               case CORRECT -> {
@@ -450,7 +484,11 @@ public class IngestionService {
                 String content = result.content() != null && !result.content().isBlank()
                   ? result.content()
                   : candidate.content();
-                survivors.add(new Survivor(content, reclassify(content, candidate.classification())));
+                long reclassifyStart = System.nanoTime();
+                Classification classification = reclassify(content, candidate.classification());
+                reclassificationNanos += System.nanoTime() - reclassifyStart;
+                // A corrected statement invalidates graph fragments extracted for the original.
+                survivors.add(new Survivor(content, classification, GraphFragment.empty()));
                 log.debug("ingest verification chunk={} verdict=CORRECT reason={}", chunkIndex, result.reason());
               }
             }
@@ -465,18 +503,26 @@ public class IngestionService {
           // in one batched, degradable call.
           List<String> graphContents = new ArrayList<>();
           for (Survivor survivor : survivors) {
-            if (survivor.classification().type() != MemoryType.TASK) {
+            if (survivor.classification().type() != MemoryType.TASK
+              && survivor.extractionGraph().isEmpty()) {
               graphContents.add(survivor.content());
             }
           }
           List<GraphFragment> graphs;
           boolean graphBatchFailed = false;
-          try {
-            graphs = modelGateway.extractGraphAll(graphContents);
-          } catch (RuntimeException e) {
-            log.warn("graph extraction batch failed; storing this chunk's memories without graph: {}", e.toString());
+          if (graphMode == GraphMode.DEFERRED) {
             graphs = List.of();
-            graphBatchFailed = true;
+          } else {
+            long graphCallStart = System.nanoTime();
+            try {
+              graphs = modelGateway.extractGraphAll(graphContents);
+            } catch (RuntimeException e) {
+              log.warn("graph extraction batch failed; storing this chunk's memories without graph: {}", e.toString());
+              graphs = List.of();
+              graphBatchFailed = true;
+            } finally {
+              graphCallNanos += System.nanoTime() - graphCallStart;
+            }
           }
 
           int g = 0;
@@ -486,6 +532,11 @@ public class IngestionService {
             GraphOutcome graphOutcome;
             if (survivor.classification().type() == MemoryType.TASK) {
               graphOutcome = GraphOutcome.SKIPPED;
+            } else if (!survivor.extractionGraph().isEmpty()) {
+              graph = survivor.extractionGraph();
+              graphOutcome = GraphOutcome.EXTRACTED;
+            } else if (graphMode == GraphMode.DEFERRED) {
+              graphOutcome = GraphOutcome.DEFERRED;
             } else if (graphBatchFailed) {
               graphOutcome = GraphOutcome.FAILED;
               g++;
@@ -495,8 +546,10 @@ public class IngestionService {
               g++;
             }
 
+            long storeStart = System.nanoTime();
             StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
               graph, graphOutcome, k + 1, survivors.size());
+            sqliteStoreNanos += System.nanoTime() - storeStart;
             stored.add(s.stored());
             if (s.superseded()) {
               superseded++;
@@ -508,6 +561,7 @@ public class IngestionService {
               case EXTRACTED -> graphExtracted++;
               case SKIPPED -> graphSkipped++;
               case FAILED -> graphFailed++;
+              case DEFERRED -> graphDeferred++;
             }
           }
         }
@@ -515,7 +569,13 @@ public class IngestionService {
     }
 
     return new VerifyStoreResult(stored, passed, autoPassed, corrected, dropped,
-      superseded, enqueued, graphExtracted, graphSkipped, graphFailed);
+      superseded, enqueued, graphExtracted, graphSkipped, graphFailed, graphDeferred,
+      nanosToMillis(verificationWaitNanos), nanosToMillis(graphCallNanos),
+      nanosToMillis(reclassificationNanos), nanosToMillis(sqliteStoreNanos));
+  }
+
+  private static long nanosToMillis(long nanos) {
+    return nanos / 1_000_000L;
   }
 
   /**

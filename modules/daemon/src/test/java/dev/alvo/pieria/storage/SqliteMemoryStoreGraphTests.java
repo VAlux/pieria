@@ -251,6 +251,18 @@ class SqliteMemoryStoreGraphTests {
   }
 
   @Test
+  void sessionScopedOrphansExcludeOtherSessions() {
+    Profile p = store.getOrCreateProfile("g-scoped-orphans");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "onboard fact", "pieria-init", null, null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "manual fact", "manual", null, null));
+
+    assertEquals(1L, store.countGraphOrphans(p.id(), List.of("pieria-init")));
+    assertEquals("pieria-init",
+      store.findGraphOrphans(p.id(), List.of("pieria-init"), 10).getFirst().sessionId());
+    assertEquals(2L, store.countGraphOrphans(p.id()));
+  }
+
+  @Test
   void attachGraphAddsEdgesStampsAdoptionAndIsIdempotent() {
     Profile p = store.getOrCreateProfile("g-attach");
     MemoryStore.StoreOutcome orphan =

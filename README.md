@@ -73,9 +73,9 @@ goal. The `pieria` CLI is a third, short-lived client of the same HTTP API.
 
 The daemon runs two pipelines over a pluggable storage backend:
 
-- **Write path (ingest):** conversation → normalize → chunk → parallel full + detail
-  extraction → verification against the source chunk → classification and enrichment
-  (topic key, interrogative queries) → graph extraction → supersession → store → async
+- **Write path (ingest):** conversation → normalize → chunk → parallel unified extraction
+  (memory plus classification) → verification against the source chunk → optional correction
+  reclassification → graph extraction → supersession → store → async
   vectorization. The call returns before vectorization completes; a virtual-thread worker
   drains the outbox.
 - **Read path (recall):** query analysis + embedding → parallel retrieval channels →
@@ -310,10 +310,16 @@ Useful flags:
 | `--reindex` | Re-parse every source file even if unchanged. Use after a parser upgrade. |
 | `--extraction-samples <n>` | Run `n` independent extract passes per chunk and union the results. Extraction is stochastic, so more samples catch more facts — at proportionally more model calls. |
 | `--include-agent-docs` | Also seed `CLAUDE.md` / `AGENTS.md`. |
+| `--no-enrich-graph` | Finish core onboarding without scheduling graph enrichment. |
+| `--wait-for-enrichment` | Wait for the graph child task too (mutually exclusive with `--no-enrich-graph`). |
 | `--profile`, `--daemon-url`, `--config-dir` | Standard overrides. |
 
-Each source runs as its own background daemon task; the CLI streams progress and you can
-re-attach with `pieria task <id>`.
+The CLI pushes project profile overrides first, then submits every source as one ordered daemon
+task. “Core ready” means raw messages are searchable, extracted memories are verified and stored,
+and non-task memories are queued for embedding. Embeddings drain asynchronously and may briefly
+show as a stats backlog. Graph extraction runs in a separate `onboard-graph` child task by default;
+the CLI prints its id and exits successfully without waiting. If the daemon restarts mid-enrichment,
+the orphan rows remain available to a later `pieria reminisce` run.
 
 > Requires the daemon to be running and a model provider reachable.
 
@@ -442,7 +448,7 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | POST   | `/v1/profiles/{name}/code`            | Index source files (deterministic, model-free). |
 | POST   | `/v1/profiles/{name}/code/async`      | Index as a background task, optional summarization. |
 | GET    | `/v1/profiles/{name}/code/status`     | Code-index counts.                          |
-| POST   | `/v1/profiles/{name}/onboard/async`   | Onboard a source as a background task.      |
+| POST   | `/v1/profiles/{name}/onboard/async`   | Onboard an ordered source plan; graph enrichment becomes a child task. |
 | POST   | `/v1/profiles/{name}/reminisce/async` | Adopt orphan memories as a background task. |
 | GET    | `/v1/profiles/{name}/reminisce/orphans` | Count edgeless memories (no model call).  |
 | GET/DELETE | `/v1/tasks`, `/v1/tasks/{id}`     | List, inspect, and cancel daemon tasks.     |
@@ -457,6 +463,21 @@ POST /v1/profiles/my-project/recall
 200 OK
 { "answer": "The user prefers pnpm over npm.", "memories": [ ... ] }
 ```
+
+Onboarding request body:
+
+```json
+{
+  "sources": [
+    { "type": "markdown", "root": "/abs/project", "includeAgentDocs": false },
+    { "type": "source-code", "root": "/abs/project", "reindex": false }
+  ],
+  "enrichGraph": true
+}
+```
+
+The terminal core task result contains per-source and aggregate counts plus optional
+`graphEnrichmentTaskId` and `graphCandidates` fields.
 
 ---
 
@@ -506,6 +527,12 @@ Reasoning is controlled per stage: off for the structured stages, on for synthes
 (`pieria.model.reasoning.*`). Setting `logging.level.dev.alvo.pieria.model=DEBUG` in the
 runtime `pieria.properties` traces each model call with stage, model, prompt size, and
 latency — the fastest way to watch a slow onboarding ingest make progress.
+
+`pieria.model.max-concurrent-structured-calls` (default `4`) is a fair daemon-wide admission
+limit for extraction-tier HTTP attempts (`extract`, `verify`, `classify`, graph extraction, and
+query analysis). Per-ingest `max-extraction-concurrency` still controls local fan-out; the global
+limit caps aggregate work across simultaneous tasks. Embedding and synthesis use separate tiers
+and are not included.
 
 > **Changing `embedding-dimension` invalidates every stored vector.** Decide it once, before
 > you accumulate memories, or you'll have to re-embed the whole store.

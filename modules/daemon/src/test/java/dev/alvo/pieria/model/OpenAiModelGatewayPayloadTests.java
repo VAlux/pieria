@@ -46,7 +46,7 @@ class OpenAiModelGatewayPayloadTests {
 
   private static OpenAiModelGateway gateway(String cannedContent) {
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null, null), null, null, null);
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, 4, null, null), null, null, null);
     ChatClient client = ChatClient.builder(new CannedChatModel(cannedContent))
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
     return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());

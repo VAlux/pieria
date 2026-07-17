@@ -5,6 +5,7 @@ import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
 import dev.alvo.pieria.onboarding.OnboardResult;
+import dev.alvo.pieria.onboarding.OnboardPlanResult;
 import dev.alvo.pieria.reminiscence.ReminiscenceResult;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
@@ -127,6 +128,7 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
   private static Class<?>[] taskResultTypes() {
     return new Class<?>[] {
       OnboardResult.class,
+      OnboardPlanResult.class,
       ReminiscenceResult.class
     };
   }

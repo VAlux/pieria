@@ -31,7 +31,9 @@ public final class ProjectConfigLoader {
   private final Path projectConfigFile;
   private final PieriaTomlLoader loader = new PieriaTomlLoader();
 
-  /** Explicit file locations, used by {@link #create}. */
+  /**
+   * Explicit file locations, used by {@link #create}.
+   */
   public ProjectConfigLoader(Path globalConfigFile, Path projectConfigFile) {
     this.globalConfigFile = globalConfigFile;
     this.projectConfigFile = projectConfigFile;

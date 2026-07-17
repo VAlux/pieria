@@ -17,20 +17,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests for {@code pieria onboard --source-code}. Discovery now happens daemon-side, so the command
  * only sends a {@code SourceSpec.SourceCode} (root + resolved {@code [discovery]} config) to the
  * onboarding endpoint; the actual file enumeration is covered by the daemon's {@code CodeDiscovery}
- * tests. Markdown always seeds too, so the command makes two {@code /onboard/async} calls — the task
- * results are sequenced (markdown, then code). {@code --config-dir} pins the global config dir.
+ * tests. The command sends all sources in one ordered composite request.
  */
 class OnboardSourceCodeTests {
 
-  /** Terminal payload of a SUCCEEDED markdown task (the always-on first source). */
-  private static final String MARKDOWN_TASK =
-    "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"markdown\",\"documents\":0,\"memoriesStored\":0}}";
-
-  /** Terminal payload of a SUCCEEDED source-code task. */
+  /** Terminal payload of a composite task ending with the source-code result. */
   private static String codeTask(int files, int memories, int symbols, int edges, int summaries) {
-    return "{\"status\":\"SUCCEEDED\",\"result\":{\"sourceType\":\"source-code\""
+    return "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":["
+      + "{\"sourceType\":\"markdown\",\"documents\":0,\"memoriesStored\":0},"
+      + "{\"sourceType\":\"text\",\"documents\":0,\"memoriesStored\":0},"
+      + "{\"sourceType\":\"pdf\",\"documents\":0,\"memoriesStored\":0},"
+      + "{\"sourceType\":\"source-code\""
       + ",\"documents\":" + files + ",\"memoriesStored\":" + memories
-      + ",\"symbols\":" + symbols + ",\"edges\":" + edges + ",\"summariesStored\":" + summaries + "}}";
+      + ",\"symbols\":" + symbols + ",\"edges\":" + edges + ",\"summariesStored\":" + summaries + "}]}}";
   }
 
   private static OnboardCommand command(Path proj, String daemonUrl) {
@@ -60,7 +59,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 3, 1, 0));
+      daemon.stub("/tasks/t1", 200, codeTask(1, 1, 3, 1, 0));
 
       Result r = run(command(proj, daemon.baseUrl()));
 
@@ -81,7 +80,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 3, 1, 2));
+      daemon.stub("/tasks/t1", 200, codeTask(1, 1, 3, 1, 2));
 
       OnboardCommand cmd = command(proj, daemon.baseUrl());
       cmd.summarize = true;
@@ -123,7 +122,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 0, 0, 0));
+      daemon.stub("/tasks/t1", 200, codeTask(1, 1, 0, 0, 0));
       daemon.stub("/config", 200, "{}");
 
       Result r = run(command(proj, daemon.baseUrl()));
@@ -134,6 +133,9 @@ class OnboardSourceCodeTests {
       // The [pieria] overrides were pushed to the profile.
       assertThat(daemon.lastRequestTo("/config").body()).contains("\"weight-graph\":0.0");
       assertThat(r.out()).contains("Pushed project config overrides");
+      int configIndex = indexOfRequest(daemon, "/config");
+      int onboardIndex = indexOfRequest(daemon, "/onboard/async");
+      assertThat(configIndex).isLessThan(onboardIndex);
     }
   }
 
@@ -143,7 +145,7 @@ class OnboardSourceCodeTests {
 
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
-      daemon.stubSequence("/tasks/t1", MARKDOWN_TASK, codeTask(1, 1, 0, 0, 0));
+      daemon.stub("/tasks/t1", 200, codeTask(1, 1, 0, 0, 0));
 
       Result r = run(command(proj, daemon.baseUrl()));
 
@@ -153,5 +155,14 @@ class OnboardSourceCodeTests {
   }
 
   private record Result(int code, String out) {
+  }
+
+  private static int indexOfRequest(StubDaemon daemon, String suffix) {
+    for (int i = 0; i < daemon.requests().size(); i++) {
+      if (daemon.requests().get(i).path().endsWith(suffix)) {
+        return i;
+      }
+    }
+    return Integer.MAX_VALUE;
   }
 }

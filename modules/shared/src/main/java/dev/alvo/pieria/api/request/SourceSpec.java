@@ -10,8 +10,8 @@ import jakarta.validation.constraints.Positive;
 import java.util.List;
 
 /**
- * Body of {@code POST /v1/profiles/{name}/onboard/async}: a single <em>onboarding source</em> the
- * daemon should ingest into the profile. This is the extension point for "where memories come from"
+ * One entry in {@link OnboardPlanRequest#sources()}: an <em>onboarding source</em> the daemon should
+ * ingest into the profile. This is the extension point for "where memories come from"
  * — markdown docs, source code, a web page — behind one polymorphic contract. Adding a new kind of
  * source is a new subtype here plus a matching {@code OnboardingSource} on the daemon; nothing else
  * on the wire changes.

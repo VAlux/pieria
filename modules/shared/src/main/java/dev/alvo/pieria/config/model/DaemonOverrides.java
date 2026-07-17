@@ -25,7 +25,11 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
   public record Ingestion(
     Integer chunkSizeChars,
     Integer chunkOverlapMessages,
-    Integer maxExtractionConcurrency) {
+    Integer maxExtractionConcurrency,
+    Integer interrogativeQueriesPerMemory,
+    Integer maxExtractedCandidatesPerChunk,
+    Boolean graphFromExtraction) {
+
   }
 
   /** Mirrors {@code PieriaProperties.Retrieval} — all of it is per-profile tunable. */
@@ -57,7 +61,8 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
   @JsonIgnore
   public boolean isEmpty() {
     return (ingestion == null || allNull(ingestion.chunkSizeChars(), ingestion.chunkOverlapMessages(),
-      ingestion.maxExtractionConcurrency()))
+      ingestion.maxExtractionConcurrency(), ingestion.interrogativeQueriesPerMemory(),
+      ingestion.maxExtractedCandidatesPerChunk(), ingestion.graphFromExtraction()))
       && (retrieval == null || allNull(retrieval.vectorEnabled(), retrieval.rrfK(), retrieval.weightExactKey(),
       retrieval.weightFtsMemory(), retrieval.weightHydeVector(), retrieval.weightDirectVector(),
       retrieval.weightFtsMessage(), retrieval.weightGraph(), retrieval.graphDepth(), retrieval.graphFanout(),

@@ -4,8 +4,12 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
+import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.MemoryListResponse;
+import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import org.slf4j.Logger;
@@ -18,7 +22,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -38,6 +44,9 @@ import java.util.Objects;
  * deferred faithfulness-judging pass.
  */
 public final class DaemonEvalClient {
+
+  public record OnboardCompletion(long coreWallMs, JsonNode result) {
+  }
 
   private static final Logger log = LoggerFactory.getLogger(DaemonEvalClient.class);
 
@@ -95,6 +104,34 @@ public final class DaemonEvalClient {
     return awaitIngestTask(submit.taskId());
   }
 
+  /** Replace the profile-scoped ingestion overrides used by one isolated benchmark run. */
+  public void configureIngestion(String profile, Map<String, Object> ingestionOverrides) {
+    put("/v1/profiles/" + encode(profile) + "/config",
+      Map.of("ingestion", ingestionOverrides), POLL_REQUEST_TIMEOUT);
+  }
+
+  /** Run one text-corpus onboarding plan without starting the graph child task. */
+  public OnboardCompletion onboardText(String profile, Path root) {
+    OnboardPlanRequest request = new OnboardPlanRequest(
+      List.of(new SourceSpec.Text(root.toAbsolutePath().toString(), null, true)), false);
+    long started = System.nanoTime();
+    TaskSubmitResponse submit = post(
+      "/v1/profiles/" + encode(profile) + "/onboard/async?label=eval-onboard",
+      request, TaskSubmitResponse.class, POLL_REQUEST_TIMEOUT);
+    JsonNode task = awaitTask(submit.taskId(), ingestTaskTimeout, "onboard");
+    return new OnboardCompletion((System.nanoTime() - started) / 1_000_000L, task.path("result"));
+  }
+
+  public ProfileStatsResponse stats(String profile) {
+    return get("/v1/profiles/" + encode(profile) + "/stats",
+      ProfileStatsResponse.class, POLL_REQUEST_TIMEOUT);
+  }
+
+  public MemoryListResponse memories(String profile) {
+    return get("/v1/profiles/" + encode(profile) + "/memories?session=pieria-init",
+      MemoryListResponse.class, POLL_REQUEST_TIMEOUT);
+  }
+
   /** POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance. */
   public RecallResponse recall(String profile, String query, int limit) {
     RecallRequest request = new RecallRequest(query, limit, true, RecallMode.SYNTHESIZED);
@@ -133,7 +170,11 @@ public final class DaemonEvalClient {
    * tree rather than the shared record.
    */
   private int awaitIngestTask(String taskId) {
-    long deadline = System.nanoTime() + ingestTaskTimeout.toNanos();
+    return awaitTask(taskId, ingestTaskTimeout, "ingest").path("result").path("count").asInt(0);
+  }
+
+  private JsonNode awaitTask(String taskId, Duration timeout, String operation) {
+    long deadline = System.nanoTime() + timeout.toNanos();
     long pollMs = 1000;
     String lastPhase = null;
     while (true) {
@@ -141,7 +182,7 @@ public final class DaemonEvalClient {
       if (task == null) {
         // Transient read failure; retry until the deadline rather than aborting the whole run.
         if (System.nanoTime() >= deadline) {
-          throw new IllegalStateException("ingest task " + taskId + " status unreadable before timeout");
+          throw new IllegalStateException(operation + " task " + taskId + " status unreadable before timeout");
         }
         sleep(pollMs);
         continue;
@@ -154,14 +195,14 @@ public final class DaemonEvalClient {
       }
       switch (status) {
         case "SUCCEEDED" -> {
-          return task.path("result").path("count").asInt(0);
+          return task;
         }
         case "FAILED", "CANCELLED" -> throw new IllegalStateException(
-          "ingest task " + taskId + " " + status + ": "
+          operation + " task " + taskId + " " + status + ": "
             + task.path("errorKind").asText("") + " " + task.path("errorMessage").asText(""));
         default -> {
           if (System.nanoTime() >= deadline) {
-            throw new IllegalStateException("ingest task " + taskId + " did not finish within " + ingestTaskTimeout);
+            throw new IllegalStateException(operation + " task " + taskId + " did not finish within " + timeout);
           }
           sleep(pollMs);
           pollMs = Math.min(pollMs + 500, 5000);
@@ -215,6 +256,47 @@ public final class DaemonEvalClient {
       throw e;
     } catch (Exception e) {
       throw new IllegalStateException("POST " + path + " failed: " + e.getMessage(), e);
+    }
+  }
+
+  private void put(String path, Object body, Duration timeout) {
+    exchangeWithBody("PUT", path, body, timeout);
+  }
+
+  private <T> T get(String path, Class<T> responseType, Duration timeout) {
+    try {
+      HttpResponse<String> resp = http.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout).GET().build(),
+        HttpResponse.BodyHandlers.ofString());
+      if (resp.statusCode() / 100 != 2) {
+        throw new IllegalStateException("GET " + path + " -> " + resp.statusCode() + ": " + truncate(resp.body()));
+      }
+      return mapper.readValue(resp.body(), responseType);
+    } catch (IllegalStateException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new IllegalStateException("GET " + path + " failed: " + e.getMessage(), e);
+    }
+  }
+
+  private void exchangeWithBody(String method, String path, Object body, Duration timeout) {
+    try {
+      String json = mapper.writeValueAsString(body);
+      HttpResponse<String> resp = http.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+          .timeout(timeout)
+          .header("Content-Type", "application/json")
+          .method(method, HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+          .build(),
+        HttpResponse.BodyHandlers.ofString());
+      if (resp.statusCode() / 100 != 2) {
+        throw new IllegalStateException(method + " " + path + " -> " + resp.statusCode() + ": "
+          + truncate(resp.body()));
+      }
+    } catch (IllegalStateException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new IllegalStateException(method + " " + path + " failed: " + e.getMessage(), e);
     }
   }
 

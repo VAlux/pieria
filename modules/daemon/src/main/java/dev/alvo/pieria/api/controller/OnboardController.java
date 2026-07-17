@@ -1,8 +1,8 @@
 package dev.alvo.pieria.api.controller;
 
-import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
-import dev.alvo.pieria.onboarding.OnboardingService;
+import dev.alvo.pieria.onboarding.OnboardingPlanService;
 import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -18,20 +18,20 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.UUID;
 
 /**
- * Ingest an onboarding {@link SourceSpec} (markdown docs, source code, a web page) into a profile.
+ * Ingest a composite onboarding plan (markdown docs, source code, web pages) into a profile.
  * Discovery, reading, and fetching happen daemon-side on a background task, so any client — the CLI
  * or an MCP tool — need only name the source. The terminal task result carries an
- * {@link dev.alvo.pieria.onboarding.OnboardResult} the client renders as the "done" line.
+ * {@link dev.alvo.pieria.onboarding.OnboardPlanResult} the client renders as the "done" lines.
  */
 @RestController
 @RequestMapping("/v1/profiles/{name}")
 public class OnboardController {
 
-  private final OnboardingService onboarding;
+  private final OnboardingPlanService onboarding;
   private final TaskRegistry tasks;
   private final ObjectMapper objectMapper;
 
-  public OnboardController(OnboardingService onboarding, TaskRegistry tasks, ObjectMapper objectMapper) {
+  public OnboardController(OnboardingPlanService onboarding, TaskRegistry tasks, ObjectMapper objectMapper) {
     this.onboarding = onboarding;
     this.tasks = tasks;
     this.objectMapper = objectMapper;
@@ -46,10 +46,10 @@ public class OnboardController {
   @ResponseStatus(HttpStatus.ACCEPTED)
   public TaskSubmitResponse onboardAsync(@PathVariable String name,
                                          @RequestParam(name = "label", required = false) String label,
-                                         @Valid @RequestBody SourceSpec spec) {
+                                         @Valid @RequestBody OnboardPlanRequest request) {
     String kind = label == null || label.isBlank() ? "onboard" : label;
     UUID taskId = tasks.submit(kind, name, progress ->
-      objectMapper.valueToTree(onboarding.ingest(name, spec, progress)));
+      objectMapper.valueToTree(onboarding.ingest(name, request, progress)));
     return new TaskSubmitResponse(taskId.toString());
   }
 }

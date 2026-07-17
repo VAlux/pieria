@@ -34,6 +34,12 @@
 # chunk-size-chars = 10000
 # chunk-overlap-messages = 2
 # max-extraction-concurrency = 4
+# interrogative-queries-per-memory = 0      # 0 = established 3–5 behavior; eval candidate = 2
+# max-extracted-candidates-per-chunk = 0    # 0 = unlimited; eval candidate = 12
+# graph-from-extraction = false             # unified graph experiment; keep off until quality gate passes
+
+# Process-global daemon property (set in pieria.properties, not a per-profile override):
+# pieria.model.max-concurrent-structured-calls = 4
 
 # [pieria.retrieval]
 # vector-enabled = true

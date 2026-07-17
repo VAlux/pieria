@@ -4,8 +4,7 @@ memories. For EACH memory assign:
 - type: one of fact, event, instruction, task
 - topicKey: ONLY for fact and instruction, a short normalized subject key
   (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
-- interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
-  answers (interrogative search queries)
+- interrogativeQueries: {{queryCountInstruction}}
 - payload: a JSON object string of extra structured fields, or "{}"
 
 Return a result for EVERY memory; do not merge, add, or omit any.

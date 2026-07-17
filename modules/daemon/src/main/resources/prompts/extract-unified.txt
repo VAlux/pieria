@@ -9,12 +9,13 @@ For each candidate set:
 - type: one of fact, event, instruction, task
 - topicKey: ONLY for fact and instruction, a short normalized subject key
   (lowercase, words joined by '.', e.g. "user.editor", "db.engine"); empty for event/task
-- interrogativeQueries: 3 to 5 natural-language questions a user might ask that this memory
-  answers (interrogative search queries)
+- interrogativeQueries: {{queryCountInstruction}}
 - payload: a JSON object string of extra structured fields, or "{}"
+{{graphInstruction}}
 
 Do not invent information not present in the chunk. If nothing is worth remembering,
 return an empty array.
+{{candidateLimitInstruction}}
 
 Respond with ONLY a JSON array — no markdown, no explanation, no extra text.
 Format: [{"content": "...", "type": "...", "topicKey": "...", "interrogativeQueries": ["..."], "payload": "{}"}]

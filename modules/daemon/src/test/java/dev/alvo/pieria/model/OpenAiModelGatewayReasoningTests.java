@@ -65,7 +65,7 @@ class OpenAiModelGatewayReasoningTests {
     CapturingChatModel extraction = new CapturingChatModel("{\"verdict\":\"drop\",\"content\":\"\",\"reason\":\"x\"}");
     CapturingChatModel synthesis = new CapturingChatModel("an answer");
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, reasoning, null),
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, 4, reasoning, null),
       null, null, null);
     // Mirror ModelGatewayConfig: OpenAI-typed default options, so the ChatClient merges the runtime
     // reasoning_effort into an OpenAiChatOptions (a generic default would drop the OpenAI-only field).

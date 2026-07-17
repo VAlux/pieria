@@ -1,6 +1,7 @@
 package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.VerifyMode;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.ingestion.model.Chunk;
@@ -53,8 +54,13 @@ class OpenAiModelGatewayBatchTests {
   }
 
   private static OpenAiModelGateway gateway(CountingChatModel model) {
+    return gateway(model, null);
+  }
+
+  private static OpenAiModelGateway gateway(CountingChatModel model, PieriaProperties.Ingestion ingestion) {
     PieriaProperties properties = new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, null, null), null, null, null);
+      new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, 4, null, null),
+      ingestion, null, null);
     ChatClient client = ChatClient.builder(model)
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
     return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());
@@ -214,5 +220,43 @@ class OpenAiModelGatewayBatchTests {
     assertThat(results.get(0).triples()).hasSize(1);
     assertThat(results.get(1).allEntities()).isEmpty();
     assertThat(results.get(1).triples()).isEmpty();
+  }
+
+  @Test
+  void evaluationControlsCapQueriesAndCandidatesInTheParser() {
+    StringBuilder response = new StringBuilder("[");
+    for (int i = 1; i <= 13; i++) {
+      if (i > 1) response.append(',');
+      response.append("{\"content\":\"fact ").append(i)
+        .append("\",\"type\":\"fact\",\"interrogativeQueries\":[\"q1\",\"q2\",\"q3\"]}");
+    }
+    response.append(']');
+    CountingChatModel model = new CountingChatModel(response.toString());
+    PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 2, 12, false, 32, 5, false, 5000);
+
+    List<UnifiedCandidate> candidates = gateway(model, tuning).extractUnified(chunk("user: facts"));
+
+    assertThat(candidates).hasSize(12);
+    assertThat(candidates).allSatisfy(candidate ->
+      assertThat(candidate.classification().interrogativeQueries()).containsExactly("q1", "q2"));
+  }
+
+  @Test
+  void unifiedGraphExperimentParsesOptionalCappedFragments() {
+    CountingChatModel model = new CountingChatModel("""
+      [{"content":"Redis powers sessions","type":"fact","graphEntities":[
+        {"name":"Redis","type":"tool"},{"name":"Sessions","type":"concept"}],
+        "graphTriples":[{"sourceName":"Redis","sourceType":"tool","relation":"powers",
+        "targetName":"Sessions","targetType":"concept"}]}]
+      """);
+    PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, true, 32, 5, false, 5000);
+
+    UnifiedCandidate candidate = gateway(model, tuning)
+      .extractUnified(chunk("user: Redis powers sessions")).getFirst();
+
+    assertThat(candidate.graph().entities()).hasSize(2);
+    assertThat(candidate.graph().triples()).hasSize(1);
   }
 }

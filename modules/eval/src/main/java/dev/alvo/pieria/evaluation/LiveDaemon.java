@@ -1,6 +1,7 @@
 package dev.alvo.pieria.evaluation;
 
 import dev.alvo.pieria.PieriaApplication;
+import dev.alvo.pieria.config.PieriaProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -12,6 +13,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
 
@@ -99,6 +102,18 @@ public final class LiveDaemon implements AutoCloseable {
   /** Base URL of the running daemon, e.g. {@code http://127.0.0.1:54321}. */
   public String baseUrl() {
     return baseUrl;
+  }
+
+  /** Non-secret provider/model identity persisted with live benchmark reports. */
+  public Map<String, String> modelMetadata() {
+    PieriaProperties properties = context.getBean(PieriaProperties.class);
+    Map<String, String> metadata = new LinkedHashMap<>();
+    metadata.put("provider", properties.provider().name());
+    metadata.put("providerType", properties.provider().type());
+    metadata.put("extractionModel", properties.model().extractionModel());
+    metadata.put("synthesisModel", properties.model().synthesisModel());
+    metadata.put("embeddingModel", properties.model().embedding());
+    return Map.copyOf(metadata);
   }
 
   @Override

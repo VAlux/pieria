@@ -1,6 +1,7 @@
 package dev.alvo.pieria.onboarding;
 
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -69,5 +70,20 @@ class SourceSpecJsonTests {
     assertThat(json).contains("\"type\":\"text\"");
 
     assertThat(mapper.readValue(json, SourceSpec.class)).isEqualTo(spec);
+  }
+
+  @Test
+  void compositeRequestPreservesOrderAndDefaultsGraphEnrichmentOn() {
+    OnboardPlanRequest parsed = mapper.readValue("""
+      {"sources":[
+        {"type":"text","root":"/one"},
+        {"type":"markdown","root":"/two","includeAgentDocs":false}
+      ]}
+      """, OnboardPlanRequest.class);
+
+    assertThat(parsed.sources()).hasSize(2);
+    assertThat(parsed.sources().getFirst()).isInstanceOf(SourceSpec.Text.class);
+    assertThat(parsed.sources().get(1)).isInstanceOf(SourceSpec.Markdown.class);
+    assertThat(parsed.graphEnrichmentEnabled()).isTrue();
   }
 }

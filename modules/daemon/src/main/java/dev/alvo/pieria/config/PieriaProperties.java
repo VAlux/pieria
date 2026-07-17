@@ -86,10 +86,12 @@ public record PieriaProperties(
                       String synthesisModel,
                       String embedding,
                       @DefaultValue("1024") int embeddingDimension,
+                      @DefaultValue("4") int maxConcurrentStructuredCalls,
                       @DefaultValue Reasoning reasoning,
                       @DefaultValue Retry retry) {
 
     public Model {
+      maxConcurrentStructuredCalls = Math.max(1, maxConcurrentStructuredCalls);
       if (reasoning == null) {
         reasoning = Reasoning.DEFAULT;
       }
@@ -208,10 +210,18 @@ public record PieriaProperties(
                           @DefaultValue("4") int maxExtractionConcurrency,
                           @DefaultValue("grounded") VerifyMode verifyMode,
                           @DefaultValue("1") int extractionSamples,
+                          @DefaultValue("0") int interrogativeQueriesPerMemory,
+                          @DefaultValue("0") int maxExtractedCandidatesPerChunk,
+                          @DefaultValue("false") boolean graphFromExtraction,
                           @DefaultValue("32") int outboxBatchSize,
                           @DefaultValue("5") int outboxMaxAttempts,
                           @DefaultValue("true") boolean vectorizationSchedulerEnabled,
                           @DefaultValue("5000") long vectorizationIntervalMs) {
+
+    public Ingestion {
+      interrogativeQueriesPerMemory = Math.max(0, interrogativeQueriesPerMemory);
+      maxExtractedCandidatesPerChunk = Math.max(0, maxExtractedCandidatesPerChunk);
+    }
   }
 
   /**

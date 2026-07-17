@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
+import dev.alvo.pieria.onboarding.ContentIngestor;
 import dev.alvo.pieria.model.FakeModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
@@ -128,5 +129,23 @@ class ReminiscenceServiceTests {
 
     // Nothing was stamped: every seeded memory is still an orphan, retryable once the model returns.
     assertEquals(2L, store.countGraphOrphans(p.id()));
+  }
+
+  @Test
+  void automaticEnrichmentOnlyAdoptsOnboardingSessionsWhileManualSweepStillAdoptsAll() {
+    Profile p = store.getOrCreateProfile("rem-scoped");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "onboard alpha beta",
+      ContentIngestor.SESSION_ID, null, null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "manual gamma delta",
+      "human-session", null, null));
+
+    ReminiscenceResult automatic = service.adoptOnboardingOrphans(
+      "rem-scoped", IngestProgressListener.noop());
+
+    assertEquals(1, automatic.memoriesScanned());
+    assertEquals(1L, store.countGraphOrphans(p.id()), "manual-session orphan must remain");
+    ReminiscenceResult manual = service.adoptOrphans("rem-scoped", IngestProgressListener.noop());
+    assertEquals(1, manual.memoriesScanned());
+    assertEquals(0L, store.countGraphOrphans(p.id()));
   }
 }

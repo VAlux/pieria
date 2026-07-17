@@ -64,6 +64,7 @@ public class OpenAiModelGateway implements ModelGateway {
   private final PieriaProperties properties;
   private final ModelProviderAdapter providerAdapter;
   private final ModelCallRetry retry;
+  private final StructuredCallLimiter structuredCalls;
 
   public OpenAiModelGateway(@Qualifier("extractionChatClient") ChatClient extractionChatClient,
                             @Qualifier("synthesisChatClient") ChatClient synthesisChatClient,
@@ -76,6 +77,8 @@ public class OpenAiModelGateway implements ModelGateway {
     this.properties = properties;
     this.providerAdapter = providerAdapter;
     this.retry = new ModelCallRetry(properties.model().retry());
+    this.structuredCalls = new StructuredCallLimiter(
+      properties.model().maxConcurrentStructuredCalls());
   }
 
   private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -116,11 +119,11 @@ public class OpenAiModelGateway implements ModelGateway {
     LOGGER.debug("model call start stage={} model={} promptChars={}",
       stage, properties.model().extractionModel(), prompt.length());
     long start = System.nanoTime();
-    var response = retry.execute(stage, () -> extractionChatClient.prompt()
+    var response = retry.execute(stage, () -> structuredCalls.execute(() -> extractionChatClient.prompt()
       .user(prompt)
       .options(reasoningOptions(stage, properties.model().extractionModel()))
       .call()
-      .responseEntity(type));
+      .responseEntity(type)));
     LOGGER.debug("model call done stage={} model={} ms={}",
       stage, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
 
@@ -174,17 +177,21 @@ public class OpenAiModelGateway implements ModelGateway {
       return List.of();
     }
     String stage = "extract";
-    String prompt = PromptTemplateLoader.render("extract-unified", Map.of("transcript", chunk.transcript()));
+    String prompt = PromptTemplateLoader.render("extract-unified", Map.of(
+      "transcript", chunk.transcript(),
+      "queryCountInstruction", queryCountInstruction(),
+      "candidateLimitInstruction", candidateLimitInstruction(),
+      "graphInstruction", graphInstruction()));
     LOGGER.debug("model call start stage={} chunk={} model={} promptChars={}",
       stage, chunk.index(), properties.model().extractionModel(), prompt.length());
     long start = System.nanoTime();
     ChatResponse chatResponse;
     try {
-      chatResponse = retry.execute(stage, () -> extractionChatClient.prompt()
+      chatResponse = retry.execute(stage, () -> structuredCalls.execute(() -> extractionChatClient.prompt()
         .user(prompt)
         .options(reasoningOptions(stage, properties.model().extractionModel()))
         .call()
-        .chatResponse());
+        .chatResponse()));
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model " + stage + " failed", e);
     }
@@ -203,7 +210,14 @@ public class OpenAiModelGateway implements ModelGateway {
       }
       Classification classification =
         buildClassification(raw.type(), raw.topicKey(), raw.interrogativeQueries(), raw.payload());
-      candidates.add(new UnifiedCandidate(raw.content().strip(), classification, chunk.index(), stage));
+      GraphFragment graph = graphFromExtraction()
+        ? toGraphFragment(limit(raw.graphEntities(), 5), limit(raw.graphTriples(), 5))
+        : GraphFragment.empty();
+      candidates.add(new UnifiedCandidate(raw.content().strip(), classification, chunk.index(), stage, graph));
+      int cap = maxExtractedCandidatesPerChunk();
+      if (cap > 0 && candidates.size() >= cap) {
+        break;
+      }
     }
     return candidates;
   }
@@ -259,7 +273,7 @@ public class OpenAiModelGateway implements ModelGateway {
           ? classifications.get(i)
           : buildClassification(null, null, null, null);
         recovered.add(new UnifiedCandidateDto(salvaged.get(i), c.type().wire(), c.topicKey(),
-          c.interrogativeQueries(), c.payload()));
+          c.interrogativeQueries(), c.payload(), null, null));
       }
       return recovered;
     }
@@ -432,7 +446,8 @@ public class OpenAiModelGateway implements ModelGateway {
     if (content == null || content.isBlank()) {
       throw new IllegalArgumentException("content must not be blank");
     }
-    String prompt = PromptTemplateLoader.render("classify-single", Map.of("content", content));
+    String prompt = PromptTemplateLoader.render("classify-single", Map.of(
+      "content", content, "queryCountInstruction", queryCountInstruction()));
 
     ClassificationDto dto;
     try {
@@ -457,7 +472,8 @@ public class OpenAiModelGateway implements ModelGateway {
     for (int i = 0; i < contents.size(); i++) {
       numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
     }
-    String prompt = PromptTemplateLoader.render("classify-batch", Map.of("memories", numbered.toString()));
+    String prompt = PromptTemplateLoader.render("classify-batch", Map.of(
+      "memories", numbered.toString(), "queryCountInstruction", queryCountInstruction()));
 
     BatchClassificationDto dto;
     try {
@@ -530,8 +546,8 @@ public class OpenAiModelGateway implements ModelGateway {
    * a JSON object to {@code "{}"}. Shared by single- and batch-classify so both produce identical
    * shapes.
    */
-  private static Classification buildClassification(String typeWire, String topicKeyRaw,
-                                                    List<String> queriesRaw, String payloadRaw) {
+  private Classification buildClassification(String typeWire, String topicKeyRaw,
+                                               List<String> queriesRaw, String payloadRaw) {
     MemoryType type = parseTypeOrNull(typeWire);
     if (type == null) {
       type = MemoryType.FACT;
@@ -548,7 +564,53 @@ public class OpenAiModelGateway implements ModelGateway {
         }
       }
     }
+    int queryCap = interrogativeQueriesPerMemory();
+    if (queryCap > 0 && queries.size() > queryCap) {
+      queries = new ArrayList<>(queries.subList(0, queryCap));
+    }
     return new Classification(type, topicKey, List.copyOf(queries), sanitizePayload(payloadRaw));
+  }
+
+  private String queryCountInstruction() {
+    int exact = interrogativeQueriesPerMemory();
+    return exact > 0
+      ? "exactly " + exact + " natural-language questions a user might ask that this memory answers"
+      : "3 to 5 natural-language questions a user might ask that this memory answers";
+  }
+
+  private String candidateLimitInstruction() {
+    int cap = maxExtractedCandidatesPerChunk();
+    return cap > 0
+      ? "Return at most " + cap + " candidates, selecting the most durable and useful when more are available."
+      : "";
+  }
+
+  private int interrogativeQueriesPerMemory() {
+    return properties.ingestion() == null ? 0
+      : properties.ingestion().interrogativeQueriesPerMemory();
+  }
+
+  private int maxExtractedCandidatesPerChunk() {
+    return properties.ingestion() == null ? 0
+      : properties.ingestion().maxExtractedCandidatesPerChunk();
+  }
+
+  private boolean graphFromExtraction() {
+    return properties.ingestion() != null && properties.ingestion().graphFromExtraction();
+  }
+
+  private String graphInstruction() {
+    return graphFromExtraction()
+      ? "- graphEntities / graphTriples: optional grounded graph fragments for this exact statement; "
+        + "at most 5 entities and 5 triples, using the same entity/triple fields as graph extraction"
+      : "- omit graphEntities and graphTriples";
+  }
+
+  private static <T> List<T> limit(List<T> values, int cap) {
+    if (values == null || values.isEmpty()) {
+      return List.of();
+    }
+    return values.size() <= cap ? values : values.subList(0, cap);
   }
 
   @Override
@@ -981,7 +1043,8 @@ public class OpenAiModelGateway implements ModelGateway {
    * classification fields, all from the single extraction call. Shape v1.
    */
   private record UnifiedCandidateDto(String content, String type, String topicKey,
-                                     List<String> interrogativeQueries, String payload) {
+                                     List<String> interrogativeQueries, String payload,
+                                     List<EntityDto> graphEntities, List<TripleDto> graphTriples) {
   }
 
   /**

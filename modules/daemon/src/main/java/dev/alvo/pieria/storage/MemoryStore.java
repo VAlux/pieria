@@ -450,6 +450,16 @@ public interface MemoryStore {
     throw new UnsupportedOperationException("countGraphOrphans(...) not implemented");
   }
 
+  /** Session-scoped orphan page used by automatic onboarding enrichment. */
+  default List<Memory> findGraphOrphans(String profileId, List<String> sessionIds, int limit) {
+    throw new UnsupportedOperationException("findGraphOrphans(..., sessions, ...) not implemented");
+  }
+
+  /** Count of session-scoped orphans used by automatic onboarding enrichment. */
+  default long countGraphOrphans(String profileId, List<String> sessionIds) {
+    throw new UnsupportedOperationException("countGraphOrphans(..., sessions) not implemented");
+  }
+
   /**
    * Retroactively attach an already-extracted fragment to an existing memory, then stamp
    * {@code graph_adopted_at} so a genuinely-edgeless memory is never re-extracted. No re-store of the

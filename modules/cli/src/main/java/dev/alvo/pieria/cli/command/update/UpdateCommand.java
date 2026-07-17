@@ -3,7 +3,7 @@ package dev.alvo.pieria.cli.command.update;
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
 import dev.alvo.pieria.client.HealthClient;
-import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
+import dev.alvo.pieria.cli.modules.daemon.DaemonProcessController;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.harness.HarnessRegistry;
 import dev.alvo.pieria.cli.modules.harness.HookAssetWriter;
@@ -137,7 +137,7 @@ public final class UpdateCommand implements Callable<Integer> {
 
     String url = DaemonUrls.resolve(daemonUrl);
     HealthClient client = new HealthClient(url);
-    DaemonProcess daemon = new DaemonProcess();
+    DaemonProcessController daemon = new DaemonProcessController();
     boolean restart = !noRestart;
 
     // 3. Stop the daemon (transparent to live MCP sessions, which reconnect over HTTP).
@@ -208,23 +208,23 @@ public final class UpdateCommand implements Callable<Integer> {
     return 0;
   }
 
-  private void stopDaemon(DaemonProcess daemon) {
-    switch (daemon.stop(new DaemonProcess.StopOptions(null, false))) {
-      case DaemonProcess.StoppedViaService s -> log.info("Stopped daemon via {}.", s.detail());
-      case DaemonProcess.StoppedPid s -> log.info("Stopped daemon (pid {}).", s.pid());
-      case DaemonProcess.NotRunning ignored -> log.info("Daemon was not running.");
-      case DaemonProcess.Failed f -> log.error("warning: could not stop daemon ({}); continuing.", f.detail());
+  private void stopDaemon(DaemonProcessController daemon) {
+    switch (daemon.stop(new DaemonProcessController.StopOptions(null, false))) {
+      case DaemonProcessController.StoppedViaService s -> log.info("Stopped daemon via {}.", s.detail());
+      case DaemonProcessController.StoppedPid s -> log.info("Stopped daemon (pid {}).", s.pid());
+      case DaemonProcessController.NotRunning ignored -> log.info("Daemon was not running.");
+      case DaemonProcessController.Failed f -> log.error("warning: could not stop daemon ({}); continuing.", f.detail());
     }
   }
 
-  private void startDaemon(DaemonProcess daemon, HealthClient client, String url) {
-    DaemonProcess.StartOptions opts = new DaemonProcess.StartOptions(null, null, host(url), port(url), false);
+  private void startDaemon(DaemonProcessController daemon, HealthClient client, String url) {
+    DaemonProcessController.StartOptions opts = new DaemonProcessController.StartOptions(null, null, host(url), port(url), false);
     switch (daemon.start(opts)) {
-      case DaemonProcess.StartedViaService s -> log.info("Started daemon via {}.", s.detail());
-      case DaemonProcess.Spawned s -> log.info("Spawned daemon (pid {}).", s.pid());
-      case DaemonProcess.AlreadyRunning ignored -> log.info("Daemon already running.");
-      case DaemonProcess.NoMechanism n -> log.error("warning: {}", n.guidance());
-      case DaemonProcess.Failed f -> log.error("warning: could not start daemon: {}", f.detail());
+      case DaemonProcessController.StartedViaService s -> log.info("Started daemon via {}.", s.detail());
+      case DaemonProcessController.Spawned s -> log.info("Spawned daemon (pid {}).", s.pid());
+      case DaemonProcessController.AlreadyRunning ignored -> log.info("Daemon already running.");
+      case DaemonProcessController.NoMechanism n -> log.error("warning: {}", n.guidance());
+      case DaemonProcessController.Failed f -> log.error("warning: could not start daemon: {}", f.detail());
     }
     try {
       if (client.awaitReachable(Duration.ofSeconds(timeoutSeconds))) {

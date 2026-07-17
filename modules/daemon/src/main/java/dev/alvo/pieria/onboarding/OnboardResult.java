@@ -18,6 +18,7 @@ public record OnboardResult(
   String sourceType,
   int documents,
   int memoriesStored,
+  int graphDeferred,
   Integer documentsSkipped,
   Integer symbols,
   Integer edges,
@@ -25,12 +26,19 @@ public record OnboardResult(
 
   /** Result of a content source (markdown, text, pdf, web) that feeds the memory-extraction pipeline. */
   public static OnboardResult content(String sourceType, int documents, int memoriesStored, int documentsSkipped) {
-    return new OnboardResult(sourceType, documents, memoriesStored, documentsSkipped, null, null, null);
+    return content(sourceType, documents, memoriesStored, documentsSkipped, memoriesStored);
+  }
+
+  public static OnboardResult content(String sourceType, int documents, int memoriesStored,
+                                      int documentsSkipped, int graphDeferred) {
+    return new OnboardResult(sourceType, documents, memoriesStored, graphDeferred,
+      documentsSkipped, null, null, null);
   }
 
   /** Result of the source-code source, carrying code-index-specific counts. */
   public static OnboardResult code(int filesReceived, int memoriesStored,
                                    int symbols, int edges, int summariesStored) {
-    return new OnboardResult("source-code", filesReceived, memoriesStored, null, symbols, edges, summariesStored);
+    return new OnboardResult("source-code", filesReceived, memoriesStored, 0,
+      null, symbols, edges, summariesStored);
   }
 }

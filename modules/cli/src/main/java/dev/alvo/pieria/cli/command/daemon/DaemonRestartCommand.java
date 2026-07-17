@@ -4,7 +4,7 @@ import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
 import java.time.Duration;
-import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
+import dev.alvo.pieria.cli.modules.daemon.DaemonProcessController;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -15,7 +15,7 @@ import java.util.concurrent.Callable;
 /**
  * {@code pieria restart} — stop the daemon (if running) and start it again, waiting for it to
  * come healthy. A convenience over {@code stop} + {@code start}; delegates to the same
- * service-aware {@link DaemonProcess}.
+ * service-aware {@link DaemonProcessController}.
  */
 @Command(
   name = "restart",
@@ -48,25 +48,25 @@ public final class DaemonRestartCommand implements Callable<Integer> {
   @Override
   public Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    DaemonProcess daemon = new DaemonProcess();
+    DaemonProcessController daemon = new DaemonProcessController();
 
-    daemon.stop(new DaemonProcess.StopOptions(null, dryRun));
-    DaemonProcess.StartOptions opts = new DaemonProcess.StartOptions(null, null, host(url), port(url), dryRun);
-    DaemonProcess.StartOutcome outcome = daemon.start(opts);
+    daemon.stop(new DaemonProcessController.StopOptions(null, dryRun));
+    DaemonProcessController.StartOptions opts = new DaemonProcessController.StartOptions(null, null, host(url), port(url), dryRun);
+    DaemonProcessController.StartOutcome outcome = daemon.start(opts);
 
     if (dryRun) {
       return 0;
     }
 
     return switch (outcome) {
-      case DaemonProcess.StartedViaService s -> awaitHealthy(url, "Restarted daemon via " + s.detail() + ".");
-      case DaemonProcess.Spawned s -> awaitHealthy(url, "Spawned daemon (pid " + s.pid() + ").");
-      case DaemonProcess.AlreadyRunning ignored -> awaitHealthy(url, "Daemon already running.");
-      case DaemonProcess.NoMechanism n -> {
+      case DaemonProcessController.StartedViaService s -> awaitHealthy(url, "Restarted daemon via " + s.detail() + ".");
+      case DaemonProcessController.Spawned s -> awaitHealthy(url, "Spawned daemon (pid " + s.pid() + ").");
+      case DaemonProcessController.AlreadyRunning ignored -> awaitHealthy(url, "Daemon already running.");
+      case DaemonProcessController.NoMechanism n -> {
         log.error(n.guidance());
         yield 3;
       }
-      case DaemonProcess.Failed f -> {
+      case DaemonProcessController.Failed f -> {
         log.error("Failed to restart daemon: {}", f.detail());
         yield 1;
       }

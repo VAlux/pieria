@@ -2,7 +2,7 @@ package dev.alvo.pieria.cli.command.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.client.HealthClient;
-import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
+import dev.alvo.pieria.cli.modules.daemon.DaemonProcessController;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.daemon.StartupSummary;
 import dev.alvo.pieria.cli.modules.harness.PathResolver;
@@ -63,31 +63,31 @@ public final class DaemonStartCommand implements Callable<Integer> {
       return 0;
     }
 
-    DaemonProcess process = new DaemonProcess();
-    DaemonProcess.StartOptions opts =
-      new DaemonProcess.StartOptions(daemonBinary, runtimeDir, host(url), port(url), dryRun);
+    DaemonProcessController process = new DaemonProcessController();
+    DaemonProcessController.StartOptions opts =
+      new DaemonProcessController.StartOptions(daemonBinary, runtimeDir, host(url), port(url), dryRun);
 
     return switch (process.start(opts)) {
-      case DaemonProcess.AlreadyRunning ignored -> {
+      case DaemonProcessController.AlreadyRunning ignored -> {
         log.info("Pieria daemon is already running at {}.", url);
         yield 0;
       }
-      case DaemonProcess.StartedViaService s -> {
+      case DaemonProcessController.StartedViaService s -> {
         log.info("Started Pieria daemon via {}.", s.detail());
         yield dryRun ? 0 : awaitHealthy(client, url);
       }
-      case DaemonProcess.Spawned s -> {
+      case DaemonProcessController.Spawned s -> {
         if (dryRun) {
           yield 0;
         }
         log.info("Spawned Pieria daemon (pid {}).", s.pid());
         yield awaitHealthy(client, url);
       }
-      case DaemonProcess.NoMechanism n -> {
+      case DaemonProcessController.NoMechanism n -> {
         log.error(n.guidance());
         yield 3;
       }
-      case DaemonProcess.Failed f -> {
+      case DaemonProcessController.Failed f -> {
         log.error("Failed to start daemon: {}", f.detail());
         yield 1;
       }

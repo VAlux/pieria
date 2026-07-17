@@ -8,6 +8,8 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.graph.Entity;
+import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
@@ -51,8 +53,9 @@ class IngestionServiceTests {
 
   private static PieriaProperties props(VerifyMode verifyMode) {
     return new PieriaProperties(null, null, null,
-      new PieriaProperties.Model("small", "large", "embed", 1024, null, null),
-      new PieriaProperties.Ingestion(10000, 2, 4, verifyMode, 1, 32, 5, false, 5000),
+      new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
+      new PieriaProperties.Ingestion(10000, 2, 4, verifyMode,
+        1, 0, 0, false, 32, 5, false, 5000),
       null,
       null);
   }
@@ -180,6 +183,57 @@ class IngestionServiceTests {
     assertEquals(1, stored.size());
     long edges = jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single();
     assertEquals(0L, edges, "a graph extraction failure must leave no edges but keep the memory");
+  }
+
+  @Test
+  void deferredModePersistsGroundedUnifiedGraphWithoutASeparateGraphCall() {
+    AtomicInteger graphCalls = new AtomicInteger();
+    GraphFragment fragment = new GraphFragment(
+      List.of(Entity.of("tool", "redis", "{}"), Entity.of("concept", "sessions", "{}")),
+      List.of(new GraphFragment.EdgeTriple("redis", "tool", "powers", "sessions", "concept")));
+    FakeModelGateway gateway = new FakeModelGateway() {
+      @Override
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+        String content = "redis powers sessions";
+        return List.of(new UnifiedCandidate(content, classify(content), chunk.index(), "extract", fragment));
+      }
+
+      @Override
+      public List<GraphFragment> extractGraphAll(List<String> contents) {
+        graphCalls.incrementAndGet();
+        return super.extractGraphAll(contents);
+      }
+    };
+
+    IngestionResult result = service(gateway, VerifyMode.ALWAYS).ingestDetailed("proj", "pieria-init",
+      List.of(msg("user", "redis powers sessions")), null, GraphMode.DEFERRED,
+      IngestProgressListener.noop());
+
+    assertEquals(1, result.memories().size());
+    assertEquals(0, result.graphDeferred());
+    assertEquals(0, graphCalls.get());
+    assertEquals(1L, jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single());
+  }
+
+  @Test
+  void correctedUnifiedCandidateDiscardsItsStaleGraphAndRemainsAdoptable() {
+    GraphFragment fragment = new GraphFragment(
+      List.of(Entity.of("concept", "stale", "{}")), List.of());
+    FakeModelGateway gateway = new FakeModelGateway() {
+      @Override
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+        String content = "statement with TYPO";
+        return List.of(new UnifiedCandidate(content, classify(content), chunk.index(), "extract", fragment));
+      }
+    };
+
+    IngestionResult result = service(gateway, VerifyMode.ALWAYS).ingestDetailed("proj", "pieria-init",
+      List.of(msg("user", "statement with TYPO")), null, GraphMode.DEFERRED,
+      IngestProgressListener.noop());
+
+    assertEquals(1, result.graphDeferred());
+    assertEquals(0L, jdbc.sql("SELECT COUNT(*) FROM edges").query(Long.class).single());
+    assertEquals(1L, store.countGraphOrphans(store.findProfile("proj").orElseThrow().id()));
   }
 
   @Test

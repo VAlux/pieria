@@ -55,7 +55,8 @@ class RetrievalServiceTests {
 
   private static PieriaProperties props() {
     return new PieriaProperties(null, null, null, null,
-      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000), retrievalCfg(), null);
+      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
+        1, 0, 0, false, 32, 5, false, 5000), retrievalCfg(), null);
   }
 
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
@@ -68,7 +69,8 @@ class RetrievalServiceTests {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
       true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
-      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 32, 5, false, 5000), cfg, null);
+      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
+        1, 0, 0, false, 32, 5, false, 5000), cfg, null);
     return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), codeStore,
       EffectiveConfigResolver.withoutOverrides(props));
   }

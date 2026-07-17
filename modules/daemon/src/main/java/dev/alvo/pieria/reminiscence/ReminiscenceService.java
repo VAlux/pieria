@@ -1,6 +1,7 @@
 package dev.alvo.pieria.reminiscence;
 
 import dev.alvo.pieria.config.ReminiscenceProperties;
+import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
@@ -40,6 +41,9 @@ public class ReminiscenceService {
   private final MemoryStore store;
   private final ModelGateway modelGateway;
   private final ReminiscenceProperties properties;
+  private static final List<String> ONBOARDING_SESSIONS =
+    List.of(dev.alvo.pieria.onboarding.ContentIngestor.SESSION_ID,
+      CodeIndexingService.CODE_SESSION, "pieria-code");
 
   public ReminiscenceService(MemoryStore store, ModelGateway modelGateway, ReminiscenceProperties properties) {
     this.store = store;
@@ -54,13 +58,31 @@ public class ReminiscenceService {
    * left off on the next invocation.
    */
   public ReminiscenceResult adoptOrphans(String profileName, IngestProgressListener progress) {
+    return adoptOrphans(profileName, null, "reminisce", progress);
+  }
+
+  /** Adopt only memories produced by automatic onboarding sessions. */
+  public ReminiscenceResult adoptOnboardingOrphans(String profileName, IngestProgressListener progress) {
+    return adoptOrphans(profileName, ONBOARDING_SESSIONS, "onboard-graph", progress);
+  }
+
+  /** Cheap candidate count for the automatic onboarding child task. */
+  public long countOnboardingOrphans(String profileName) {
+    String profileId = store.getOrCreateProfile(profileName).id();
+    return store.countGraphOrphans(profileId, ONBOARDING_SESSIONS);
+  }
+
+  private ReminiscenceResult adoptOrphans(String profileName, List<String> sessions, String phase,
+                                          IngestProgressListener progress) {
     if (!modelGateway.isModelProviderReachable()) {
       throw new ModelUnavailableException("model provider unreachable; skipping orphan adoption");
     }
 
     String profileId = store.getOrCreateProfile(profileName).id();
-    long total = store.countGraphOrphans(profileId);
-    progress.onPhase("reminisce", 0, (int) Math.min(total, Integer.MAX_VALUE));
+    long total = sessions == null
+      ? store.countGraphOrphans(profileId)
+      : store.countGraphOrphans(profileId, sessions);
+    progress.onPhase(phase, 0, (int) Math.min(total, Integer.MAX_VALUE));
     if (total == 0) {
       return new ReminiscenceResult(0, 0, 0, 0);
     }
@@ -72,7 +94,9 @@ public class ReminiscenceService {
     int totalTicks = (int) Math.min(total, Integer.MAX_VALUE);
 
     List<Memory> page;
-    while (!(page = store.findGraphOrphans(profileId, properties.scanPageSize())).isEmpty()) {
+    while (!(page = sessions == null
+      ? store.findGraphOrphans(profileId, properties.scanPageSize())
+      : store.findGraphOrphans(profileId, sessions, properties.scanPageSize())).isEmpty()) {
       for (List<Memory> batch : partition(page)) {
         List<String> contents = batch.stream().map(Memory::content).toList();
         List<GraphFragment> fragments = modelGateway.extractGraphAll(contents);
@@ -87,12 +111,12 @@ public class ReminiscenceService {
             edges += fragment.triples().size();
           }
         }
-        progress.onPhase("reminisce", Math.min(scanned, totalTicks), totalTicks);
+        progress.onPhase(phase, Math.min(scanned, totalTicks), totalTicks);
       }
     }
 
-    log.info("reminisce profile={} scanned={} adopted={} entities={} edges={}",
-      profileName, scanned, adopted, entities, edges);
+    log.info("{} profile={} scanned={} adopted={} entities={} edges={}",
+      phase, profileName, scanned, adopted, entities, edges);
     return new ReminiscenceResult(scanned, adopted, entities, edges);
   }
 

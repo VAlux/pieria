@@ -1034,6 +1034,51 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public List<Memory> findGraphOrphans(String profileId, List<String> sessionIds, int limit) {
+    if (limit <= 0 || sessionIds == null || sessionIds.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(",", java.util.Collections.nCopies(sessionIds.size(), "?"));
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.add(MemoryType.TASK.wire());
+    params.addAll(sessionIds);
+    params.add(limit);
+    return jdbc.sql("""
+        SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at
+        FROM memories m
+        WHERE m.profile_id = ? AND m.superseded = 0 AND m.type != ? AND m.graph_adopted_at IS NULL
+        AND m.session_id IN (%s)
+        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.memory_id = m.id)
+        ORDER BY m.created_at ASC
+        LIMIT ?""".formatted(placeholders))
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
+  }
+
+  @Override
+  public long countGraphOrphans(String profileId, List<String> sessionIds) {
+    if (sessionIds == null || sessionIds.isEmpty()) {
+      return 0L;
+    }
+    String placeholders = String.join(",", java.util.Collections.nCopies(sessionIds.size(), "?"));
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.add(MemoryType.TASK.wire());
+    params.addAll(sessionIds);
+    Long count = jdbc.sql("""
+        SELECT COUNT(*) FROM memories m
+        WHERE m.profile_id = ? AND m.superseded = 0 AND m.type != ? AND m.graph_adopted_at IS NULL
+        AND m.session_id IN (%s)
+        AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.memory_id = m.id)""".formatted(placeholders))
+      .params(params)
+      .query(Long.class)
+      .single();
+    return count == null ? 0L : count;
+  }
+
+  @Override
   @Transactional
   public void attachGraph(String profileId, String memoryId, GraphFragment graph) {
     persistGraph(profileId, memoryId, graph);

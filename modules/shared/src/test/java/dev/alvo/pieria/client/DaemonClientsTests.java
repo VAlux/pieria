@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.client.exception.DaemonConflictException;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
@@ -97,7 +98,8 @@ class DaemonClientsTests {
     assertThat(tasks.status("task/1").status()).isEqualTo("RUNNING");
     assertThat(tasks.cancel("task/1").status()).isEqualTo("CANCELLED");
     assertThat(onboarding
-      .submit("my profile", new SourceSpec.Markdown("/tmp", false, 1, null), "on board").taskId())
+      .submit("my profile", new OnboardPlanRequest(
+        List.of(new SourceSpec.Markdown("/tmp", false, 1, null)), true), "on board").taskId())
       .isEqualTo("task-1");
 
     DaemonOverrides empty = new DaemonOverrides(null, null);
@@ -106,6 +108,7 @@ class DaemonClientsTests {
     assertThat(requests).anySatisfy(r -> {
       assertThat(r.rawPath()).contains("my%20profile/onboard/async");
       assertThat(r.rawQuery()).isEqualTo("label=on+board");
+      assertThat(r.body()).contains("\"sources\"").contains("\"enrichGraph\":true");
     }).anySatisfy(r -> {
       if (r.rawPath().endsWith("/config") && r.method().equals("PUT")) {
         assertThat(r.body()).isEqualTo("{}");

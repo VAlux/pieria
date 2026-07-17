@@ -1,7 +1,7 @@
 package dev.alvo.pieria.cli.command.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
-import dev.alvo.pieria.cli.modules.daemon.DaemonProcess;
+import dev.alvo.pieria.cli.modules.daemon.DaemonProcessController;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -30,22 +30,22 @@ public final class DaemonStopCommand implements Callable<Integer> {
 
   @Override
   public Integer call() {
-    DaemonProcess process = new DaemonProcess();
+    DaemonProcessController process = new DaemonProcessController();
 
-    return switch (process.stop(new DaemonProcess.StopOptions(runtimeDir, dryRun))) {
-      case DaemonProcess.NotRunning ignored -> {
+    return switch (process.stop(new DaemonProcessController.StopOptions(runtimeDir, dryRun))) {
+      case DaemonProcessController.NotRunning ignored -> {
         log.info("Pieria daemon is not running.");
         yield 0;
       }
-      case DaemonProcess.StoppedViaService s -> {
+      case DaemonProcessController.StoppedViaService s -> {
         log.info("Stopped Pieria daemon via {}.", s.detail());
         yield 0;
       }
-      case DaemonProcess.StoppedPid s -> {
+      case DaemonProcessController.StoppedPid s -> {
         log.info("Stopped Pieria daemon (pid {}).", s.pid());
         yield 0;
       }
-      case DaemonProcess.Failed f -> {
+      case DaemonProcessController.Failed f -> {
         log.error("Failed to stop daemon: {}", f.detail());
         yield 1;
       }

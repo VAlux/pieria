@@ -1,5 +1,7 @@
 package dev.alvo.pieria.ingestion.model;
 
+import dev.alvo.pieria.domain.graph.GraphFragment;
+
 /**
  * One candidate memory produced by the unified extraction pass: the declarative {@code content}
  * together with its {@link Classification} (type, topic key, interrogative queries, payload),
@@ -15,5 +17,15 @@ public record UnifiedCandidate(
   String content,
   Classification classification,
   int chunkIndex,
-  String provenance) {
+  String provenance,
+  GraphFragment graph) {
+
+  public UnifiedCandidate(String content, Classification classification, int chunkIndex,
+                          String provenance) {
+    this(content, classification, chunkIndex, provenance, GraphFragment.empty());
+  }
+
+  public UnifiedCandidate {
+    graph = graph == null ? GraphFragment.empty() : graph;
+  }
 }

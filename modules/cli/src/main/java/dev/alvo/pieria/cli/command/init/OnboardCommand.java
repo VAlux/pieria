@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli.command.init;
 
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.client.*;
 import dev.alvo.pieria.cli.log.Logger;
@@ -37,9 +38,9 @@ import java.util.concurrent.Callable;
  *       document; a directory → scanned like the no-targets mode.</li>
  * </ul>
  *
- * <p>The daemon does the discovery, reading, and fetching itself. Each source runs as its own
- * background task; re-running is idempotent (the daemon's content-addressed ids mean unchanged
- * content adds no duplicate memories).
+ * <p>The daemon does the discovery, reading, and fetching itself. All sources run sequentially in
+ * one composite background task; re-running is idempotent (the daemon's content-addressed ids mean
+ * unchanged content adds no duplicate memories).
  */
 @Command(
   name = "onboard",
@@ -94,8 +95,18 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--summarize", description = "After indexing, write LLM-synthesized architecture/module summary memories (uses the daemon's synthesis model; unchanged code is skipped). Only affects --source-code.")
   boolean summarize;
 
+  @Option(names = "--no-enrich-graph", description = "Skip automatic background graph enrichment.")
+  boolean noEnrichGraph;
+
+  @Option(names = "--wait-for-enrichment", description = "Wait for background graph enrichment before exiting.")
+  boolean waitForEnrichment;
+
   @Override
   public Integer call() {
+    if (noEnrichGraph && waitForEnrichment) {
+      log.error("--no-enrich-graph and --wait-for-enrichment are mutually exclusive.");
+      return 2;
+    }
     Path dir = projectDir.toAbsolutePath().normalize();
     String resolvedProfile = resolveProfile(dir);
     String url = resolveDaemonUrl();
@@ -129,17 +140,8 @@ public final class OnboardCommand implements Callable<Integer> {
     }
     OnboardingClient onboarding = new OnboardingClient(url);
     TaskClient tasks = new TaskClient(url);
-
-    int firstFailure = 0;
-    for (Source source : sources) {
-      int rc = seed(onboarding, tasks, resolvedProfile, source);
-      if (rc != 0 && firstFailure == 0) {
-        firstFailure = rc;
-      }
-    }
-
     pushConfigOverrides(url, resolvedProfile, config);
-    return firstFailure;
+    return seed(onboarding, tasks, resolvedProfile, sources);
   }
 
   /**
@@ -247,22 +249,39 @@ public final class OnboardCommand implements Callable<Integer> {
   }
 
   /**
-   * Seed one source and map its outcome to an exit code, reporting progress and the terminal line.
+   * Seed one ordered source plan and map its outcome to an exit code.
    */
-  private int seed(OnboardingClient onboarding, TaskClient tasks, String profile, Source source) {
-    log.info("Seeding profile '{}' from {}…", profile, source.label());
+  private int seed(OnboardingClient onboarding, TaskClient tasks, String profile, List<Source> sources) {
+    log.info("Seeding profile '{}' from {} source(s)…", profile, sources.size());
     ProgressReporter reporter = new ProgressReporter();
     try {
-      String taskId = onboarding.submit(profile, source.spec(), "onboard").taskId();
+      OnboardPlanRequest request = new OnboardPlanRequest(
+        sources.stream().map(Source::spec).toList(), !noEnrichGraph);
+      String taskId = onboarding.submit(profile, request, "onboard").taskId();
       TaskStatusResponse task = new TaskPoller(tasks).await(taskId, reporter);
       reporter.finish();
       if ("SUCCEEDED".equals(task.status())) {
-        Success success = success(task.result());
-        report(source, success);
+        PlanSuccess success = planSuccess(task.result());
+        for (int i = 0; i < success.sources().size(); i++) {
+          Source source = i < sources.size() ? sources.get(i)
+            : new Source(success.sources().get(i).sourceType(), null);
+          report(source, success.sources().get(i));
+        }
+        if (success.graphTaskId() != null && !success.graphTaskId().isBlank()) {
+          log.info("Core ready. Graph enrichment queued as task {} for {} candidate(s).",
+            success.graphTaskId(), success.graphCandidates());
+          if (waitForEnrichment) {
+            return awaitEnrichment(tasks, success.graphTaskId());
+          }
+        } else if (noEnrichGraph) {
+          log.info("Core ready. Graph enrichment was skipped.");
+        } else {
+          log.info("Core ready. No graph enrichment candidates remain.");
+        }
         return 0;
       }
       if ("model-unavailable".equals(task.errorKind())) {
-        log.error("The daemon is up but the model call failed ({}).", source.label());
+        log.error("The daemon is up but a core onboarding model call failed.");
         if (task.errorMessage() != null && !task.errorMessage().isBlank()) {
           log.error("Reason: {}", task.errorMessage());
         } else {
@@ -270,7 +289,7 @@ public final class OnboardCommand implements Callable<Integer> {
         }
         return 4;
       }
-      log.error("Onboard failed for {} (HTTP -1): {}", source.label(),
+      log.error("Onboard failed (HTTP -1): {}",
         task.errorMessage() == null ? "onboard task failed" : task.errorMessage());
       return 1;
     } catch (DaemonUnavailableException e) {
@@ -279,17 +298,42 @@ public final class OnboardCommand implements Callable<Integer> {
     } catch (DaemonHttpException e) {
       reporter.finish();
       if (e.status() == 503) {
-        log.error("The daemon is up but the model call failed ({}).", source.label());
+        log.error("The daemon is up but a core onboarding model call failed.");
         if (e.daemonMessage() != null && !e.daemonMessage().isBlank()) {
           log.error("Reason: {}", e.daemonMessage());
         }
         return 4;
       }
-      log.error("Onboard failed for {} (HTTP {}): {}", source.label(), e.status(), e.body());
+      log.error("Onboard failed (HTTP {}): {}", e.status(), e.body());
       return 1;
     } catch (DaemonClientException e) {
       reporter.finish();
-      log.error("Onboard failed for {} (HTTP -1): {}", source.label(), e.getMessage());
+      log.error("Onboard failed (HTTP -1): {}", e.getMessage());
+      return 1;
+    }
+  }
+
+  private int awaitEnrichment(TaskClient tasks, String taskId) {
+    log.info("Waiting for graph enrichment task {}…", taskId);
+    ProgressReporter reporter = new ProgressReporter();
+    try {
+      TaskStatusResponse task = new TaskPoller(tasks).await(taskId, reporter);
+      reporter.finish();
+      if ("SUCCEEDED".equals(task.status())) {
+        log.info("Graph enrichment complete.");
+        return 0;
+      }
+      if ("model-unavailable".equals(task.errorKind())) {
+        log.error("Core onboarding succeeded, but graph enrichment could not reach the model: {}",
+          task.errorMessage() == null ? "model unavailable" : task.errorMessage());
+        return 4;
+      }
+      log.error("Core onboarding succeeded, but graph enrichment failed: {}",
+        task.errorMessage() == null ? "task failed" : task.errorMessage());
+      return 1;
+    } catch (DaemonClientException e) {
+      reporter.finish();
+      log.error("Core onboarding succeeded, but graph enrichment polling failed: {}", e.getMessage());
       return 1;
     }
   }
@@ -309,6 +353,10 @@ public final class OnboardCommand implements Callable<Integer> {
       if (s.documentsSkipped() != null && s.documentsSkipped() > 0) {
         log.info("  {} document(s) unchanged since the last onboard were skipped (--refresh to force).",
           s.documentsSkipped());
+      }
+      if (s.graphDeferred() > 0) {
+        log.info("  {} memor{} ready with graph enrichment deferred.", s.graphDeferred(),
+          s.graphDeferred() == 1 ? "y is" : "ies are");
       }
     }
   }
@@ -357,16 +405,37 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private static Success success(tools.jackson.databind.JsonNode result) {
     if (result == null) {
-      return new Success("", 0, 0, null, null, null, null);
+      return new Success("", 0, 0, 0, null, null, null, null);
     }
     return new Success(text(result, "sourceType"), integer(result, "documents", 0),
-      integer(result, "memoriesStored", 0), integer(result, "documentsSkipped", null),
+      integer(result, "memoriesStored", 0), integer(result, "graphDeferred", 0),
+      integer(result, "documentsSkipped", null),
       integer(result, "symbols", null),
       integer(result, "edges", null), integer(result, "summariesStored", null));
   }
 
+  private static PlanSuccess planSuccess(tools.jackson.databind.JsonNode result) {
+    if (result == null) {
+      return new PlanSuccess(List.of(), null, 0);
+    }
+    List<Success> sources = new ArrayList<>();
+    var values = result.get("sources");
+    if (values != null && values.isArray()) {
+      for (var value : values) {
+        sources.add(success(value));
+      }
+    }
+    return new PlanSuccess(sources, nullableText(result, "graphEnrichmentTaskId"),
+      integer(result, "graphCandidates", 0));
+  }
+
   private static String text(tools.jackson.databind.JsonNode node, String field) {
     var value = node.get(field); return value == null || value.isNull() ? "" : value.asString();
+  }
+
+  private static String nullableText(tools.jackson.databind.JsonNode node, String field) {
+    var value = node.get(field);
+    return value == null || value.isNull() ? null : value.asString();
   }
 
   private static Integer integer(tools.jackson.databind.JsonNode node, String field, Integer fallback) {
@@ -377,12 +446,18 @@ public final class OnboardCommand implements Callable<Integer> {
     return value.asInt(0);
   }
 
-  private record Success(String sourceType, int documents, int memoriesStored, Integer documentsSkipped,
+  private record Success(String sourceType, int documents, int memoriesStored, int graphDeferred,
+                         Integer documentsSkipped,
                          Integer symbols, Integer edges, Integer summariesStored) { }
+
+  private record PlanSuccess(List<Success> sources, String graphTaskId, int graphCandidates) { }
 
   /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */
   private record Source(String label, SourceSpec spec) {
     String describe() {
+      if (spec == null) {
+        return label;
+      }
       return switch (spec) {
         case SourceSpec.Markdown m -> "markdown under " + m.root()
           + (m.includeAgentDocs() ? " (incl. agent docs)" : "");

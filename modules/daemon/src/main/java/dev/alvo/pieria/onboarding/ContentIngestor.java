@@ -2,6 +2,8 @@ package dev.alvo.pieria.onboarding;
 
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
+import dev.alvo.pieria.ingestion.GraphMode;
+import dev.alvo.pieria.ingestion.IngestionResult;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Hash;
@@ -112,11 +114,23 @@ public class ContentIngestor {
         sourceType, skipped, documents.size());
     }
     if (pending.isEmpty()) {
-      return OnboardResult.content(sourceType, documents.size(), 0, skipped);
+      return OnboardResult.content(sourceType, documents.size(), 0, skipped, 0);
     }
 
     List<List<ContentDocument>> batches = batchByBudget(pending);
+    // Make message FTS useful immediately for the whole source, even while later extraction batches
+    // are still running. The normal ingest path repeats these idempotent inserts per batch.
+    List<Message> stagedMessages = new ArrayList<>();
+    for (ContentDocument doc : pending) {
+      for (String content : toMessageContents(doc)) {
+        stagedMessages.add(Message.of(SESSION_ID, "user", content));
+      }
+    }
+    int staged = ingestionService.preStageMessages(profile, SESSION_ID, stagedMessages);
+    log.info("onboard {}: pre-staged {} raw messages for FTS", sourceType, staged);
+
     int stored = 0;
+    int graphDeferred = 0;
     int batchesDone = 0;
     progress.onPhase("documents", 0, batches.size());
     for (List<ContentDocument> batch : batches) {
@@ -127,7 +141,10 @@ public class ContentIngestor {
         }
       }
       if (!messages.isEmpty()) {
-        stored += ingestionService.ingest(profile, SESSION_ID, messages, extractionSamples, progress).size();
+        IngestionResult result = ingestionService.ingestDetailed(profile, SESSION_ID, messages,
+          extractionSamples, GraphMode.DEFERRED, progress);
+        stored += result.memories().size();
+        graphDeferred += result.graphDeferred();
       }
       // Checkpoint only now, after the batch's memories are durably stored: the ledger must never
       // claim work that did not finish, or a crashed run would silently lose those documents.
@@ -138,7 +155,8 @@ public class ContentIngestor {
       store.recordIngestLedger(profileId, sourceType, batchHashes);
       progress.onPhase("documents", ++batchesDone, batches.size());
     }
-    return OnboardResult.content(sourceType, documents.size(), stored, skipped);
+    log.info("onboard {}: core ready stored={} graphDeferred={}", sourceType, stored, graphDeferred);
+    return OnboardResult.content(sourceType, documents.size(), stored, skipped, graphDeferred);
   }
 
   /**
