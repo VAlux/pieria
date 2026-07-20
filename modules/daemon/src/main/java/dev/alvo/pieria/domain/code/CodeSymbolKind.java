@@ -11,19 +11,28 @@ public enum CodeSymbolKind {
   PACKAGE,
   CLASS,
   INTERFACE,
+  ENUM,
+  TYPE_ALIAS,
   METHOD,
   FUNCTION,
   FIELD,
+  VARIABLE,
+  MIXIN,
+  SELECTOR,
   ENDPOINT,
   CONFIG_KEY,
   TEST;
 
-  /** Canonical wire/storage form, e.g. {@code "config-key"}. */
+  /**
+   * Canonical wire/storage form, e.g. {@code "config-key"}.
+   */
   public String wire() {
     return name().toLowerCase(Locale.ROOT).replace('_', '-');
   }
 
-  /** Parse a stored/wire value (case-insensitive, hyphen or underscore); throws if unknown. */
+  /**
+   * Parse a stored/wire value (case-insensitive, hyphen or underscore); throws if unknown.
+   */
   public static CodeSymbolKind fromWire(String value) {
     if (value == null) {
       throw new IllegalArgumentException("symbol kind must not be null");

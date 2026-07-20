@@ -69,7 +69,7 @@ public class VectorizationWorker {
     log.debug("vectorization batch start entries={} batchSize={} maxAttempts={}",
       batch.size(), batchSize, maxAttempts);
 
-    // Phase 1 — embed in parallel on virtual threads (the slow model calls), producing the work to
+    // Embed in parallel on virtual threads (the slow model calls), producing the work to
     // write but performing NO database writes.
     List<PreparedWrite> prepared = new ArrayList<>(batch.size());
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -90,7 +90,7 @@ public class VectorizationWorker {
       }
     }
 
-    // Phase 2 — apply the database writes serially on this thread. SQLite is single-writer, so
+    // Apply the database writes serially on this thread. SQLite is single-writer, so
     // concurrent UPDATEs only collide (SQLITE_BUSY); serializing them removes vectorization-vs-
     // vectorization contention, leaving only single-writer-vs-ingestion, which busy_timeout covers.
     int succeeded = 0;

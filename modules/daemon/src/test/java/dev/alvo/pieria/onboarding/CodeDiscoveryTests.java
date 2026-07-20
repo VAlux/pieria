@@ -31,6 +31,15 @@ class CodeDiscoveryTests {
   }
 
   @Test
+  void defaultDiscoveryIncludesEveryJavaScriptTypeScriptAndScssExtensionCaseInsensitively() {
+    CodeDiscovery discovery = new CodeDiscovery(Path.of(""), _ -> Optional.empty());
+    assertThat(List.of("a.js", "a.JSX", "a.mjs", "a.CJS", "a.ts", "a.MTS", "a.cts",
+      "a.TSX", "a.scss")).allMatch(discovery::isCandidate);
+    assertThat(discovery.isCandidate("a.css")).isFalse();
+    assertThat(discovery.isCandidate("a.sass")).isFalse();
+  }
+
+  @Test
   void discoverReadsCandidatesAndSkipsNonCandidatesAndBinaries(@TempDir Path proj) throws IOException {
     Files.writeString(proj.resolve("Main.java"), "class Main {}");
     Files.writeString(proj.resolve("build.gradle.kts"), "plugins {}");

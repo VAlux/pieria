@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
 	java
 	id("org.springframework.boot")
@@ -127,14 +129,222 @@ val embedVecExtensions by tasks.registering(Sync::class) {
 // Adding the task as a resource srcDir wires processResources (and nativeCompile) to depend on it.
 sourceSets["main"].resources.srcDir(embedVecExtensions)
 
-// --- Embedded Tree-sitter native libraries (Phase 13) ---
+// --- Embedded Tree-sitter native libraries ---
 // jtreesitter is an FFM binding; the core libtree-sitter + per-language grammar shared libs are
 // dlopen'd at runtime (cannot be static-linked, like sqlite-vec). Embed them as classpath resources
 // under native/<os>-<arch>/; at startup TreeSitterLibraryResolver extracts the host-platform ones to
-// the runtime dir and TreeSitterEngine loads them by absolute path. Missing libs degrade gracefully
-// (that language — or all symbol parsing — is skipped). Binaries come from packaging/native/<platform>.
+// the runtime dir and TreeSitterEngine loads them by absolute path. Native distributions compile the
+// pinned core and every grammar through buildTreeSitterLibraries before resources are staged. Plain
+// JVM/test builds stay offline and may reuse prebuilt binaries from packaging/native/<platform>.
+val treeSitterCoreVersion = "0.25.10"
+val treeSitterJavaVersion = "0.23.5"
+val treeSitterJavaScriptVersion = "0.25.0"
+val treeSitterTypeScriptVersion = "0.23.2"
+val treeSitterScssVersion = "1.0.0"
+val treeSitterKotlinVersion = "1.1.0"
+val treeSitterScalaVersion = "0.26.0"
+val treeSitterPythonVersion = "0.25.0"
+val treeSitterGoVersion = "0.25.0"
+val treeSitterRustVersion = "0.24.2"
+val treeSitterRubyVersion = "0.23.1"
+val treeSitterPhpVersion = "0.24.2"
+val treeSitterCSharpVersion = "0.23.5"
+val treeSitterCVersion = "0.24.2"
+val treeSitterCppVersion = "0.23.4"
+val treeSitterSwiftVersion = "0.7.3"
+
+val treeSitterNativeRoot = layout.buildDirectory.dir("generated/treesitter-native")
+
+val buildTreeSitterLibraries by tasks.registering {
+	group = "build"
+	description = "Build the pinned Tree-sitter core and all bundled language grammars for the host platform."
+	inputs.property("coreVersion", treeSitterCoreVersion)
+	inputs.property("javaVersion", treeSitterJavaVersion)
+	inputs.property("javascriptVersion", treeSitterJavaScriptVersion)
+	inputs.property("typescriptVersion", treeSitterTypeScriptVersion)
+	inputs.property("scssVersion", treeSitterScssVersion)
+	inputs.property("kotlinVersion", treeSitterKotlinVersion)
+	inputs.property("scalaVersion", treeSitterScalaVersion)
+	inputs.property("pythonVersion", treeSitterPythonVersion)
+	inputs.property("goVersion", treeSitterGoVersion)
+	inputs.property("rustVersion", treeSitterRustVersion)
+	inputs.property("rubyVersion", treeSitterRubyVersion)
+	inputs.property("phpVersion", treeSitterPhpVersion)
+	inputs.property("csharpVersion", treeSitterCSharpVersion)
+	inputs.property("cVersion", treeSitterCVersion)
+	inputs.property("cppVersion", treeSitterCppVersion)
+	inputs.property("swiftVersion", treeSitterSwiftVersion)
+	inputs.property("hostOs", providers.systemProperty("os.name"))
+	inputs.property("hostArch", providers.systemProperty("os.arch"))
+	inputs.property("compiler", providers.environmentVariable("CC").orElse("<platform-default>"))
+	outputs.dir(treeSitterNativeRoot)
+
+	doLast {
+		val osName = providers.systemProperty("os.name").orElse("").get().lowercase()
+		val osToken = when {
+			osName.contains("mac") || osName.contains("darwin") -> "macos"
+			osName.contains("linux") -> "linux"
+			osName.contains("win") -> "windows"
+			else -> throw GradleException("Unsupported OS for Tree-sitter native build: $osName")
+		}
+		val archName = providers.systemProperty("os.arch").orElse("").get().lowercase()
+		val archToken = when {
+			archName.contains("aarch64") || archName.contains("arm64") -> "aarch64"
+			archName.contains("amd64") || archName.contains("x86_64") -> "x86_64"
+			else -> throw GradleException("Unsupported architecture for Tree-sitter native build: $archName")
+		}
+		val suffix = when (osToken) {
+			"macos" -> "dylib"
+			"windows" -> "dll"
+			else -> "so"
+		}
+		val platformDir = treeSitterNativeRoot.get().dir("$osToken-$archToken").asFile
+		val sourceRoot = layout.buildDirectory.dir("tmp/treesitter-sources").get().asFile
+		delete(sourceRoot)
+		sourceRoot.mkdirs()
+		platformDir.mkdirs()
+
+		fun runCommand(command: List<String>, workingDir: File = projectDir) {
+			val process = ProcessBuilder(command)
+				.directory(workingDir)
+				.redirectErrorStream(true)
+				.start()
+			val output = process.inputStream.bufferedReader().readText()
+			if (process.waitFor() != 0) {
+				throw GradleException("Command failed: ${command.joinToString(" ")}\n$output")
+			}
+			if (output.isNotBlank()) logger.info(output.trim())
+		}
+
+		fun clone(tag: String, repository: String, directory: File) {
+			runCommand(listOf("git", "clone", "--quiet", "--depth", "1", "--branch", tag,
+				repository, directory.absolutePath))
+		}
+
+		fun compile(output: File, includes: List<File>, sources: List<File>) {
+			val missingSources = sources.filterNot { it.isFile }
+			if (missingSources.isNotEmpty()) {
+				throw GradleException("Tree-sitter grammar sources not found: ${missingSources.joinToString()}")
+			}
+			val compiler = providers.environmentVariable("CC").orElse(
+				if (osToken == "windows") "cl.exe" else "cc").get()
+			val command = if (osToken == "windows") {
+				listOf(compiler, "/nologo", "/LD", "/O2") +
+					includes.map { "/I${it.absolutePath}" } +
+					sources.map { it.absolutePath } + listOf("/Fe:${output.absolutePath}")
+			} else {
+				listOf(compiler, "-shared", "-fPIC", "-O2") +
+					includes.flatMap { listOf("-I", it.absolutePath) } +
+					listOf("-o", output.absolutePath) + sources.map { it.absolutePath }
+			}
+			runCommand(command, platformDir)
+		}
+
+		val core = sourceRoot.resolve("core")
+		val javaGrammar = sourceRoot.resolve("java")
+		val javascript = sourceRoot.resolve("javascript")
+		val typescript = sourceRoot.resolve("typescript")
+		val scss = sourceRoot.resolve("scss")
+		val kotlin = sourceRoot.resolve("kotlin")
+		val scala = sourceRoot.resolve("scala")
+		val python = sourceRoot.resolve("python")
+		val go = sourceRoot.resolve("go")
+		val rust = sourceRoot.resolve("rust")
+		val ruby = sourceRoot.resolve("ruby")
+		val php = sourceRoot.resolve("php")
+		val csharp = sourceRoot.resolve("csharp")
+		val c = sourceRoot.resolve("c")
+		val cpp = sourceRoot.resolve("cpp")
+		val swift = sourceRoot.resolve("swift")
+		clone("v$treeSitterCoreVersion", "https://github.com/tree-sitter/tree-sitter", core)
+		clone("v$treeSitterJavaVersion", "https://github.com/tree-sitter/tree-sitter-java", javaGrammar)
+		clone("v$treeSitterJavaScriptVersion", "https://github.com/tree-sitter/tree-sitter-javascript", javascript)
+		clone("v$treeSitterTypeScriptVersion", "https://github.com/tree-sitter/tree-sitter-typescript", typescript)
+		clone("v$treeSitterScssVersion", "https://github.com/tree-sitter-grammars/tree-sitter-scss", scss)
+		clone("v$treeSitterKotlinVersion", "https://github.com/tree-sitter-grammars/tree-sitter-kotlin", kotlin)
+		clone("v$treeSitterScalaVersion", "https://github.com/tree-sitter/tree-sitter-scala", scala)
+		clone("v$treeSitterPythonVersion", "https://github.com/tree-sitter/tree-sitter-python", python)
+		clone("v$treeSitterGoVersion", "https://github.com/tree-sitter/tree-sitter-go", go)
+		clone("v$treeSitterRustVersion", "https://github.com/tree-sitter/tree-sitter-rust", rust)
+		clone("v$treeSitterRubyVersion", "https://github.com/tree-sitter/tree-sitter-ruby", ruby)
+		clone("v$treeSitterPhpVersion", "https://github.com/tree-sitter/tree-sitter-php", php)
+		clone("v$treeSitterCSharpVersion", "https://github.com/tree-sitter/tree-sitter-c-sharp", csharp)
+		clone("v$treeSitterCVersion", "https://github.com/tree-sitter/tree-sitter-c", c)
+		clone("v$treeSitterCppVersion", "https://github.com/tree-sitter/tree-sitter-cpp", cpp)
+
+		// The Swift repository intentionally omits generated parser.c. Its pinned crates.io source
+		// archive contains the generated C sources published for consumers, so build from that.
+		val swiftArchive = sourceRoot.resolve("tree-sitter-swift-$treeSitterSwiftVersion.crate")
+		URI("https://static.crates.io/crates/tree-sitter-swift/"
+			+ "tree-sitter-swift-$treeSitterSwiftVersion.crate").toURL().openStream().use { input ->
+			swiftArchive.outputStream().use(input::copyTo)
+		}
+		copy {
+			from(tarTree(resources.gzip(swiftArchive)))
+			into(swift)
+			eachFile {
+				relativePath = RelativePath(true, *relativePath.segments.drop(1).toTypedArray())
+			}
+			includeEmptyDirs = false
+		}
+
+		compile(platformDir.resolve("libtree-sitter.$suffix"),
+			listOf(core.resolve("lib/include"), core.resolve("lib/src")), listOf(core.resolve("lib/src/lib.c")))
+		compile(platformDir.resolve("tree-sitter-java.$suffix"), listOf(javaGrammar.resolve("src")),
+			listOf(javaGrammar.resolve("src/parser.c")))
+		compile(platformDir.resolve("tree-sitter-javascript.$suffix"), listOf(javascript.resolve("src")),
+			listOf(javascript.resolve("src/parser.c"), javascript.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-typescript.$suffix"),
+			listOf(typescript.resolve("typescript/src"), typescript.resolve("tsx/src")),
+			listOf(
+				typescript.resolve("typescript/src/parser.c"), typescript.resolve("typescript/src/scanner.c"),
+				typescript.resolve("tsx/src/parser.c"), typescript.resolve("tsx/src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-scss.$suffix"), listOf(scss.resolve("src")),
+			listOf(scss.resolve("src/parser.c"), scss.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-kotlin.$suffix"), listOf(kotlin.resolve("src")),
+			listOf(kotlin.resolve("src/parser.c"), kotlin.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-scala.$suffix"), listOf(scala.resolve("src")),
+			listOf(scala.resolve("src/parser.c"), scala.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-python.$suffix"), listOf(python.resolve("src")),
+			listOf(python.resolve("src/parser.c"), python.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-go.$suffix"), listOf(go.resolve("src")),
+			listOf(go.resolve("src/parser.c")))
+		compile(platformDir.resolve("tree-sitter-rust.$suffix"), listOf(rust.resolve("src")),
+			listOf(rust.resolve("src/parser.c"), rust.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-ruby.$suffix"), listOf(ruby.resolve("src")),
+			listOf(ruby.resolve("src/parser.c"), ruby.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-php.$suffix"), listOf(php.resolve("php/src")),
+			listOf(php.resolve("php/src/parser.c"), php.resolve("php/src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-c-sharp.$suffix"), listOf(csharp.resolve("src")),
+			listOf(csharp.resolve("src/parser.c"), csharp.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-c.$suffix"), listOf(c.resolve("src")),
+			listOf(c.resolve("src/parser.c")))
+		compile(platformDir.resolve("tree-sitter-cpp.$suffix"), listOf(cpp.resolve("src")),
+			listOf(cpp.resolve("src/parser.c"), cpp.resolve("src/scanner.c")))
+		compile(platformDir.resolve("tree-sitter-swift.$suffix"), listOf(swift.resolve("src")),
+			listOf(swift.resolve("src/parser.c"), swift.resolve("src/scanner.c")))
+
+		val expected = listOf("libtree-sitter", "tree-sitter-java", "tree-sitter-javascript",
+			"tree-sitter-typescript", "tree-sitter-scss", "tree-sitter-kotlin", "tree-sitter-scala",
+			"tree-sitter-python", "tree-sitter-go", "tree-sitter-rust", "tree-sitter-ruby",
+			"tree-sitter-php", "tree-sitter-c-sharp", "tree-sitter-c", "tree-sitter-cpp",
+			"tree-sitter-swift").map { platformDir.resolve("$it.$suffix") }
+		val missing = expected.filterNot { it.isFile }
+		if (missing.isNotEmpty()) {
+			throw GradleException("Tree-sitter build did not produce: ${missing.joinToString()}")
+		}
+		logger.lifecycle("pieria: built Tree-sitter core + all default source-language packs for $osToken-$archToken")
+	}
+}
+
 val embedTreeSitterLibraries by tasks.registering(Sync::class) {
 	description = "Stage per-arch Tree-sitter libraries as embeddable classpath resources (native/<os>-<arch>/{libtree-sitter,tree-sitter-*}.*)."
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	from(treeSitterNativeRoot) {
+		include("*-*/libtree-sitter.*", "*-*/tree-sitter-*.*")
+		includeEmptyDirs = false
+		eachFile { relativePath = RelativePath(true, "native", *relativePath.segments) }
+	}
 	from(rootProject.layout.projectDirectory.dir("packaging/native")) {
 		include(
 			"*-*/libtree-sitter.dylib", "*-*/libtree-sitter.so", "*-*/libtree-sitter.dll",
@@ -148,7 +358,7 @@ val embedTreeSitterLibraries by tasks.registering(Sync::class) {
 		val nativeDir = layout.buildDirectory.dir("generated/treesitter-resources/native").get().asFile
 		val staged = nativeDir.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
 		if (staged.isEmpty()) {
-			logger.warn("pieria: no Tree-sitter libraries found under packaging/native/<os>-<arch>/; "
+			logger.warn("pieria: no Tree-sitter libraries found in generated or prebuilt native inputs; "
 				+ "code symbol parsing will be disabled at runtime. See packaging/native/README.md.")
 		} else {
 			logger.lifecycle("pieria: embedding Tree-sitter libraries for $staged")
@@ -157,6 +367,13 @@ val embedTreeSitterLibraries by tasks.registering(Sync::class) {
 }
 
 sourceSets["main"].resources.srcDir(embedTreeSitterLibraries)
+
+// Only native distribution/image builds fetch and compile grammar sources. Because processResources
+// also serves ordinary offline JVM tests, ordering is conditional: mustRunAfter applies only when the
+// native task has brought buildTreeSitterLibraries into the same task graph.
+embedTreeSitterLibraries.configure { mustRunAfter(buildTreeSitterLibraries) }
+tasks.processResources { mustRunAfter(buildTreeSitterLibraries) }
+tasks.named("nativeCompile") { dependsOn(buildTreeSitterLibraries) }
 
 // Version stamp shipped next to the native binaries (bin/version.txt) for version reporting.
 val generateVersionStamp by tasks.registering {
@@ -178,8 +395,8 @@ val generateVersionStamp by tasks.registering {
 // the `Killed: 9` seen right after a deploy. Re-signing with a plain ad-hoc signature (flags=0x2)
 // refreshes it so the binary launches. No-op off macOS (no codesign / not affected). ProcessBuilder
 // keeps this off Gradle's exec API, so it is configuration-cache safe.
-fun reSignAdhocMacOs(binDir: java.io.File, log: org.gradle.api.logging.Logger) {
-	if (!System.getProperty("os.name").lowercase().contains("mac")) {
+fun reSignAdhocMacOs(binDir: File, log: org.gradle.api.logging.Logger) {
+	if (!providers.systemProperty("os.name").orElse("").get().lowercase().contains("mac")) {
 		return
 	}
 	listOf("pieria", "pieria-daemon", "pieria-gateway")
@@ -201,6 +418,7 @@ val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
 	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."
 	dependsOn(
+		buildTreeSitterLibraries,
 		tasks.named("nativeCompile"),
 		project(":gateway").tasks.named("nativeCompile"),
 		project(":cli").tasks.named("nativeCompile")

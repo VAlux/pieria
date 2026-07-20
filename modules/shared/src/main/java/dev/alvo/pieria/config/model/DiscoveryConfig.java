@@ -21,7 +21,7 @@ public record DiscoveryConfig(
 
   public static final Set<String> DEFAULT_SOURCE_EXTENSIONS = Set.of(
     "java", "kt", "kts", "scala", "sc",
-    "ts", "tsx", "js", "jsx", "mjs", "cjs",
+    "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "scss",
     "py", "go", "rs", "rb", "php", "cs",
     "c", "h", "cpp", "cc", "hpp", "swift");
 

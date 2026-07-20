@@ -105,7 +105,7 @@ val deployLocal by tasks.registering(Copy::class) {
 	// the next exec (`Killed: 9`). Re-sign the fresh `pieria` ad-hoc so it launches without a manual
 	// codesign step. Mirrors :daemon reSignAdhocMacOs; ProcessBuilder keeps it configuration-cache safe.
 	doLast {
-		if (System.getProperty("os.name").lowercase().contains("mac")) {
+		if (providers.systemProperty("os.name").orElse("").get().lowercase().contains("mac")) {
 			val bin = destinationDir.resolve("pieria")
 			if (bin.isFile) {
 				val proc = ProcessBuilder("codesign", "--force", "--sign", "-", bin.absolutePath)

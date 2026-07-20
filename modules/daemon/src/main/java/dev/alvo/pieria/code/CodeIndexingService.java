@@ -38,7 +38,7 @@ import java.util.TreeSet;
  * Phase 13 write path for source code: for each file, skip-if-unchanged by hash, parse via the
  * language pack (none ⇒ file/dependency facts only), store the symbol/edge substrate atomically,
  * derive a compact durable {@code fact} memory carrying its source symbol ids as provenance, and
- * project a curated subset of relations into the Phase 8 {@code Entity}/{@code Edge} graph — all in
+ * project a curated subset of relations into the {@code Entity}/{@code Edge} graph — all in
  * one per-file transaction so a single bad file never corrupts the batch. No model I/O: derivation
  * is fully deterministic.
  */
@@ -185,10 +185,16 @@ public class CodeIndexingService {
     // Build symbols with stable ids and a qualifiedName → id map for edge resolution.
     Map<String, CodeSymbol> byQname = new LinkedHashMap<>();
     List<CodeSymbol> symbols = new ArrayList<>();
+    Map<String, String> symbolIdsByQname = new LinkedHashMap<>();
     for (ParsedSymbol ps : parsed.symbols()) {
-      String id = ContentId.forCodeSymbol(profileId, fileId, ps.kind().wire(), ps.qualifiedName(), ps.signature());
+      symbolIdsByQname.put(ps.qualifiedName(), ContentId.forCodeSymbol(profileId, fileId,
+        ps.kind().wire(), ps.qualifiedName(), ps.signature()));
+    }
+    for (ParsedSymbol ps : parsed.symbols()) {
+      String id = symbolIdsByQname.get(ps.qualifiedName());
+      String parentId = symbolIdsByQname.get(ps.parentQualifiedName());
       CodeSymbol s = new CodeSymbol(id, profileId, fileId, ps.kind(), ps.name(), ps.qualifiedName(),
-        ps.signature(), ps.visibility(), ps.startLine(), ps.endLine(), language, null, path);
+        ps.signature(), ps.visibility(), ps.startLine(), ps.endLine(), language, parentId, path);
       symbols.add(s);
       byQname.put(ps.qualifiedName(), s);
     }
@@ -252,7 +258,7 @@ public class CodeIndexingService {
       r.memoriesSuperseded++;
     }
 
-    // Project curated relations into the Phase 8 graph, tagged with this fact's id as provenance.
+    // Project curated relations into the graph, tagged with this fact's id as provenance.
     String memoryId = outcome.stored().id();
     String fileEntityType = "file";
     Entity fileEntity = store.upsertEntity(profileId, Entity.of(fileEntityType, path, "{}"));

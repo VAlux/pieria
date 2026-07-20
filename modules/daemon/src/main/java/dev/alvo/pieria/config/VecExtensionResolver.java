@@ -1,5 +1,6 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.tools.os.OsFamily;
 import dev.alvo.pieria.tools.io.NativeResourceExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +51,7 @@ public class VecExtensionResolver {
 
   /** Resolve the extension path from config/env/install layout, then the embedded resource. */
   public Optional<Path> resolve() {
-    String osName = osName();
+    String osName = OsFamily.osName();
     Optional<Path> fileBased = resolve(
       properties.extensionPath(),
       System.getenv("PIERIA_VEC_EXTENSION"),
@@ -59,7 +60,7 @@ public class VecExtensionResolver {
     if (fileBased.isPresent()) {
       return fileBased;
     }
-    return extractEmbedded(osName, osArch());
+    return extractEmbedded(osName, OsFamily.osArch());
   }
 
   /**
@@ -131,11 +132,4 @@ public class VecExtensionResolver {
     return "vec0." + NativeResourceExtractor.librarySuffix(osName);
   }
 
-  private static String osName() {
-    return System.getProperty("os.name", "");
-  }
-
-  private static String osArch() {
-    return System.getProperty("os.arch", "");
-  }
 }

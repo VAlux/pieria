@@ -19,7 +19,7 @@
 # [discovery]
 # source-extensions = [
 #   "java", "kt", "kts", "scala", "sc",
-#   "ts", "tsx", "js", "jsx", "mjs", "cjs",
+#   "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "scss",
 #   "py", "go", "rs", "rb", "php", "cs",
 #   "c", "h", "cpp", "cc", "hpp", "swift"
 # ]

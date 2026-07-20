@@ -7,6 +7,7 @@ import dev.alvo.pieria.config.TreeSitterProperties;
 import dev.alvo.pieria.domain.code.CodeRelation;
 import dev.alvo.pieria.domain.code.CodeSymbolKind;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
+import dev.alvo.pieria.tools.os.OsFamily;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -53,8 +54,8 @@ class TreeSitterJavaParserTests {
     }
     assumeTrue(root != null, "packaging/native not found from working dir");
 
-    String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+    String os = OsFamily.osName().toLowerCase(Locale.ROOT);
+    String arch = OsFamily.osArch().toLowerCase(Locale.ROOT);
     String osTok = os.contains("mac") || os.contains("darwin") ? "macos" : os.contains("win") ? "windows" : "linux";
     String archTok = arch.contains("aarch64") || arch.contains("arm64") ? "aarch64" : "x86_64";
     String suffix = "macos".equals(osTok) ? "dylib" : "windows".equals(osTok) ? "dll" : "so";
@@ -80,7 +81,7 @@ class TreeSitterJavaParserTests {
 
   private static TreeSitterEngine engine(boolean enabled) {
     TreeSitterEngine engine = new TreeSitterEngine(
-      resolverPointingAtBundledLibs(), new TreeSitterProperties(enabled, "", ""));
+      resolverPointingAtBundledLibs(), new TreeSitterProperties(enabled, ""));
     engine.init();
     return engine;
   }

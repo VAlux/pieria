@@ -19,49 +19,49 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.SymbolLookup;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Owns the long-lived Tree-sitter runtime: the shared {@link Arena} backing the loaded grammar
- * {@link Language} and compiled {@link Query}, a small pool of {@link Parser}s, and a bounded
- * platform-thread executor that parsing runs on.
- *
- * <p>Why a platform-thread executor: a {@code Parser} is not thread-safe (so it is pooled), and FFM
- * native work must not pin a virtual thread — callers may be on virtual threads, so {@link #parse}
- * dispatches to this executor and blocks on the result. Each parse closes its {@link Tree}
- * (try-with-resources) so off-heap memory is freed and large repos do not leak.
- *
- * <p>Degradable by construction: if {@code pieria.treesitter.enabled=false} or the native libraries
- * are missing, the engine reports {@link #supports} {@code false} and {@link #parse} returns empty,
- * so {@link TreeSitterCodeParser} extracts nothing and the code index degrades exactly as before.
+ * Owns the Tree-sitter native arena, loaded language/query map, bounded parser pool, and parser
+ * executor. Each language pack is initialized independently: a missing grammar or invalid query
+ * disables only that pack. TypeScript and TSX cache and share one native-library lookup.
  */
 @Component
 public class TreeSitterEngine implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(TreeSitterEngine.class);
-  private static final int MAX_PARSERS = 4;
+
+  private static final int MAX_PARSER_THREADS = 4;
+
+  private record LoadedLanguage(Language language, Query query) {
+  }
 
   private final TreeSitterLibraryResolver resolver;
   private final TreeSitterProperties properties;
+  private final Map<String, LoadedLanguage> languages = new HashMap<>();
+  private final List<Parser> parsers = new ArrayList<>();
 
-  private Arena arena;
-  private Language javaLanguage;
-  private Query javaTags;
+  private Arena languageArena;
   private BlockingQueue<Parser> parserPool;
   private ExecutorService executor;
-  private volatile boolean available;
+  private volatile boolean closing;
 
   public TreeSitterEngine(TreeSitterLibraryResolver resolver, TreeSitterProperties properties) {
     this.resolver = resolver;
     this.properties = properties;
   }
 
-  /** A handler invoked with the parsed tree's root while it is still alive; must return plain data. */
   @FunctionalInterface
   public interface ParseHandler<R> {
     R handle(Node root, Query tags, String source);
@@ -79,88 +79,96 @@ public class TreeSitterEngine implements AutoCloseable {
         + "(index degrades to file/module facts).");
       return;
     }
-    // Hand the core path to the jtreesitter ServiceLoader lookup BEFORE the first jtreesitter call.
     System.setProperty(PieriaTreeSitterLibraryLookup.CORE_PATH_PROPERTY, core.get().toString());
 
-    Optional<Path> javaGrammar = resolver.resolveGrammar("java");
-    if (javaGrammar.isEmpty()) {
-      log.warn("Tree-sitter java grammar not found; Java symbol parsing is off.");
+    languageArena = Arena.ofShared();
+    Map<String, Optional<Path>> paths = new HashMap<>();
+    Map<Path, SymbolLookup> lookups = new HashMap<>();
+
+    for (LanguagePack pack : LanguagePackRegistry.packs()) {
+      Optional<Path> grammarPath = paths.computeIfAbsent(pack.nativeLibrary(), resolver::resolveGrammar);
+      if (grammarPath.isEmpty()) {
+        log.warn("Tree-sitter {} grammar not found; {} parsing is off.", pack.nativeLibrary(), pack.id());
+        continue;
+      }
+
+      Query query = null;
+      try {
+        SymbolLookup lookup = lookups.computeIfAbsent(grammarPath.get(),
+          path -> SymbolLookup.libraryLookup(path, languageArena));
+        Language language = Language.load(lookup, pack.grammarSymbol());
+        query = new Query(language, loadResource(pack.queryResource()));
+        languages.put(pack.id(), new LoadedLanguage(language, query));
+        log.info("Tree-sitter pack ready: {} grammar abiVersion={}.", pack.id(), language.getAbiVersion());
+      } catch (RuntimeException | LinkageError e) {
+        if (query != null) closeQuery(query);
+        log.warn("Tree-sitter {} pack disabled ({}).", pack.id(), e.toString());
+      }
+    }
+
+    if (languages.isEmpty()) {
+      closeQuietly();
       return;
     }
-    try {
-      arena = Arena.ofShared();
-      SymbolLookup grammar = SymbolLookup.libraryLookup(javaGrammar.get(), arena);
-      javaLanguage = Language.load(grammar, "tree_sitter_java");
-      javaTags = new Query(javaLanguage, loadResource("code/langpack/java/tags.scm"));
 
-      int threads = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), MAX_PARSERS));
-      parserPool = new ArrayBlockingQueue<>(threads);
-      for (int i = 0; i < threads; i++) {
-        Parser parser = new Parser();
-        parser.setLanguage(javaLanguage);
-        parserPool.add(parser);
-      }
-      executor = Executors.newFixedThreadPool(threads, runnable -> {
-        Thread thread = new Thread(runnable, "ts-parser");
-        thread.setDaemon(true);
-        return thread;
-      });
-      available = true;
-      log.info("Tree-sitter ready: java grammar abiVersion={} parsers={}.",
-        javaLanguage.getAbiVersion(), threads);
-    } catch (RuntimeException e) {
-      log.warn("Tree-sitter init failed ({}); code symbol parsing is off.", e.toString());
-      closeQuietly();
-      available = false;
+    int threads = Math.clamp(Runtime.getRuntime().availableProcessors(), 1, MAX_PARSER_THREADS);
+    parserPool = new ArrayBlockingQueue<>(threads);
+    for (int i = 0; i < threads; i++) {
+      Parser parser = new Parser();
+      parsers.add(parser);
+      parserPool.add(parser);
     }
+
+    executor = Executors.newFixedThreadPool(threads, runnable -> {
+      Thread thread = new Thread(runnable, "ts-parser");
+      thread.setDaemon(true);
+      return thread;
+    });
+
+    log.info("Tree-sitter ready: packs={} parsers={}.", languages.keySet(), threads);
   }
 
-  /** Whether this engine can parse {@code language} (currently only {@code java}). */
   public boolean supports(String language) {
-    return available && "java".equals(language) && javaLanguage != null;
+    return !closing && language != null && languages.containsKey(language.toLowerCase(Locale.ROOT));
   }
 
-  /**
-   * Parse {@code source} for {@code language} and run {@code handler} against the live tree on the
-   * parser executor, returning the handler's result. Empty when unsupported or parsing fails — never
-   * throws (the code-index pipeline treats absence as "no symbols").
-   */
   public <R> Optional<R> parse(String language, String source, ParseHandler<R> handler) {
-    if (!supports(language)) {
+    if (!supports(language) || executor == null) {
       return Optional.empty();
     }
+
+    LoadedLanguage loaded = languages.get(language.toLowerCase(Locale.ROOT));
     try {
-      return executor.submit(() -> runParse(source, handler)).get();
+      return executor.submit(() -> runParse(loaded, source, handler)).get();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return Optional.empty();
-    } catch (ExecutionException e) {
-      log.warn("Tree-sitter parse failed: {}", String.valueOf(e.getCause()));
+    } catch (ExecutionException | RuntimeException e) {
+      Throwable cause = e instanceof ExecutionException ? e.getCause() : e;
+      log.warn("Tree-sitter {} parse failed.", language, cause);
       return Optional.empty();
     }
   }
 
-  private <R> Optional<R> runParse(String source, ParseHandler<R> handler) throws InterruptedException {
-    String text = source == null ? "" : source;
+  private <R> Optional<R> runParse(LoadedLanguage loaded, String source, ParseHandler<R> handler)
+    throws InterruptedException {
     Parser parser = parserPool.take();
     try {
-      Optional<Tree> parsed = parser.parse(text, InputEncoding.UTF_8);
-      if (parsed.isEmpty()) {
-        return Optional.empty();
-      }
+      parser.setLanguage(loaded.language());
+      Optional<Tree> parsed = parser.parse(source == null ? "" : source, InputEncoding.UTF_8);
+      if (parsed.isEmpty()) return Optional.empty();
       try (Tree tree = parsed.get()) {
-        return Optional.ofNullable(handler.handle(tree.getRootNode(), javaTags, text));
+        String text = source == null ? "" : source;
+        return Optional.ofNullable(handler.handle(tree.getRootNode(), loaded.query(), text));
       }
     } finally {
-      parserPool.put(parser);
+      if (!closing) parserPool.put(parser);
     }
   }
 
   private static String loadResource(String path) {
     try (InputStream in = TreeSitterEngine.class.getClassLoader().getResourceAsStream(path)) {
-      if (in == null) {
-        throw new IllegalStateException("missing classpath resource: " + path);
-      }
+      if (in == null) throw new IllegalStateException("missing classpath resource: " + path);
       return new String(in.readAllBytes(), StandardCharsets.UTF_8);
     } catch (Exception e) {
       throw new IllegalStateException("could not read " + path, e);
@@ -170,37 +178,49 @@ public class TreeSitterEngine implements AutoCloseable {
   @PreDestroy
   @Override
   public void close() {
-    available = false;
+    closing = true;
     closeQuietly();
   }
 
   private void closeQuietly() {
+    closing = true;
     if (executor != null) {
       executor.shutdownNow();
-    }
-    if (parserPool != null) {
-      Parser parser;
-      while ((parser = parserPool.poll()) != null) {
-        try {
-          parser.close();
-        } catch (RuntimeException ignored) {
-          // best-effort on shutdown
-        }
-      }
-    }
-    if (javaTags != null) {
       try {
-        javaTags.close();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      executor = null;
+    }
+    for (Parser parser : parsers) {
+      try {
+        parser.close();
       } catch (RuntimeException ignored) {
-        // best-effort
+        // best effort during shutdown
       }
     }
-    if (arena != null) {
+    parsers.clear();
+    parserPool = null;
+    for (LoadedLanguage loaded : languages.values()) {
+      closeQuery(loaded.query());
+    }
+    languages.clear();
+    if (languageArena != null) {
       try {
-        arena.close();
+        languageArena.close();
       } catch (RuntimeException ignored) {
-        // best-effort
+        // best effort during shutdown
       }
+      languageArena = null;
+    }
+  }
+
+  private static void closeQuery(Query query) {
+    try {
+      query.close();
+    } catch (RuntimeException ignored) {
+      // best effort during shutdown or partial pack initialization
     }
   }
 }

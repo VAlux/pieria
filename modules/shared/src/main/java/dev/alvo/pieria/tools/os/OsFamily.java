@@ -8,7 +8,15 @@ public enum OsFamily {
   LINUX;
 
   public static OsFamily detect() {
-    return fromOsName(System.getProperty("os.name", ""));
+    return fromOsName(osName());
+  }
+
+  public static String osName() {
+    return System.getProperty("os.name", "");
+  }
+
+  public static String osArch() {
+    return System.getProperty("os.arch", "");
   }
 
   static OsFamily fromOsName(String osName) {

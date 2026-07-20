@@ -5,14 +5,12 @@ import java.util.Map;
 
 /**
  * Maps a file path to a language-pack id by extension. Polyglot by construction — adding a language
- * is one entry here plus a {@link CodeParser} that {@code supports} it. The first cut ships Java
- * only; unknown extensions return {@code ""} (the file is still indexed, with no symbols).
+ * is one registry entry plus a {@link CodeParser} that {@code supports} it. Unknown extensions
+ * return {@code ""} (the file is still indexed, with no symbols).
  */
 public final class LanguageDetector {
 
-  private static final Map<String, String> BY_EXTENSION = Map.ofEntries(
-    Map.entry("java", "java")
-  );
+  private static final Map<String, String> BY_EXTENSION = LanguagePackRegistry.byExtension();
 
   private LanguageDetector() {
   }

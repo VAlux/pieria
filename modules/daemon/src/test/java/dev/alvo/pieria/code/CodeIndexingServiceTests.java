@@ -96,6 +96,12 @@ class CodeIndexingServiceTests {
     assertThat(s.memoriesStored()).isEqualTo(1);
     assertThat(codeStore.counts(profileId).symbols()).isEqualTo(2);
 
+    var storedSymbols = codeStore.findSymbolsByName(profileId, List.of("Bar", "create"), 10);
+    var barSymbol = storedSymbols.stream().filter(symbol -> symbol.name().equals("Bar")).findFirst().orElseThrow();
+    assertThat(storedSymbols).filteredOn(symbol -> symbol.name().equals("create"))
+      .singleElement().extracting(dev.alvo.pieria.domain.code.CodeSymbol::parentSymbolId)
+      .isEqualTo(barSymbol.id());
+
     List<Memory> facts = memoryStore.listMemories(profileId, MemoryType.FACT, null);
     assertThat(facts).hasSize(1);
     Memory fact = facts.getFirst();
@@ -116,7 +122,7 @@ class CodeIndexingServiceTests {
       ? memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst()
       : null;
 
-    // The depends-on target entity should co-retrieve the file fact via the Phase 8 graph surface.
+    // The depends-on target entity should co-retrieve the file fact via the graph surface.
     String moduleEntityId = ContentId.forEntity(profileId, "module", "othermodule");
     assertThat(memoryStore.findMemoriesByEntities(profileId, List.of(moduleEntityId), 10))
       .extracting(Memory::id)

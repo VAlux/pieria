@@ -4,7 +4,7 @@ import dev.alvo.pieria.domain.ContentId;
 
 /**
  * A directed relation in the precise code graph (call/import/reference/inheritance/…). Unlike the
- * Phase 8 graph {@code Edge}, a {@code CodeEdge} carries a {@link EdgeConfidence} and is provenanced
+ * graph {@code Edge}, a {@code CodeEdge} carries a {@link EdgeConfidence} and is provenanced
  * to a <em>file</em> ({@code fileId}), not a memory: it is active while its file is in the index and
  * is replaced wholesale when that file is re-indexed. The {@code id} is content-addressed over
  * {@code (profileId, srcSymbolId, relation, dstRef, confidence)} (see {@link ContentId#forCodeEdge})

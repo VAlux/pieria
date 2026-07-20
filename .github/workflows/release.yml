@@ -21,11 +21,9 @@ on:
         required: false
         default: ""
 
-# Pin once; keep in sync with packaging/native/README.md.
+# sqlite-vec remains fetched by the workflow; Tree-sitter pins live in the shared Gradle task.
 env:
   SQLITE_VEC_VERSION: "0.1.9"
-  # Tree-sitter core; keep on the same minor line as the jtreesitter dep in modules/daemon/build.gradle.kts.
-  TREE_SITTER_VERSION: "0.25.10"
 
 permissions:
   contents: write
@@ -44,17 +42,14 @@ jobs:
           - os: macos-14 # Apple Silicon
             platform: macos-aarch64
             vec_lib: vec0.dylib
-            ts_suffix: dylib
             archive: tar
 #          - os: ubuntu-latest
 #            platform: linux-x86_64
 #            vec_lib: vec0.so
-#            ts_suffix: so
 #            archive: tar
 #          - os: windows-latest
 #            platform: windows-x86_64
 #            vec_lib: vec0.dll
-#            ts_suffix: dll
 #            archive: zip
     steps:
       - uses: actions/checkout@v4
@@ -87,22 +82,13 @@ jobs:
           curl -fsSL "$url" | tar -xz -C "$dir" "${{ matrix.vec_lib }}"
           ls -l "$dir"
 
-      # Build the Tree-sitter native libraries (core + Java grammar) from source so they get embedded
-      # into the native image; without them the daemon's code-symbol index is disabled. Pinned to the
-      # tree-sitter minor line of the jtreesitter dependency. See packaging/native/README.md.
-      # NOTE: uses cc (clang/gcc); a Windows runner needs an MSVC-based variant of this step.
-      - name: Build Tree-sitter libraries
-        if: runner.os != 'Windows'
+      # Use the same Gradle task as deployLocal so release artifacts cannot drift from local installs.
+      # Run the real grammar fixtures against those freshly built libraries with no skipped packs.
+      - name: Build and test Tree-sitter language packs
         run: |
-          dir="packaging/native/${{ matrix.platform }}"
-          mkdir -p "$dir"
-          git clone --depth 1 --branch "v${TREE_SITTER_VERSION}" https://github.com/tree-sitter/tree-sitter /tmp/tree-sitter
-          cc -shared -fPIC -O2 -I /tmp/tree-sitter/lib/include -I /tmp/tree-sitter/lib/src \
-            -o "$dir/libtree-sitter.${{ matrix.ts_suffix }}" /tmp/tree-sitter/lib/src/lib.c
-          git clone --depth 1 https://github.com/tree-sitter/tree-sitter-java /tmp/ts-java
-          cc -shared -fPIC -O2 -I /tmp/ts-java/src \
-            -o "$dir/tree-sitter-java.${{ matrix.ts_suffix }}" /tmp/ts-java/src/parser.c
-          ls -l "$dir"
+          ./gradlew :daemon:buildTreeSitterLibraries --no-daemon --stacktrace
+          PIERIA_TEST_NATIVE_DIR="$PWD/modules/daemon/build/generated/treesitter-native/${{ matrix.platform }}" \
+            ./gradlew test --no-daemon --stacktrace
 
       - name: Build native distribution
         run: ./gradlew :daemon:nativeDist --no-daemon --stacktrace

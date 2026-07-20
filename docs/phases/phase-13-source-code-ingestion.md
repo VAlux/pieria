@@ -1,5 +1,13 @@
 # Phase 13 - Source-Code Ingestion / Persistent Code Intelligence Index
 
+## Current status
+
+The persistent index, retrieval channels, and onboarding path are implemented. Bundled deterministic
+parsing currently covers every default source extension: Java, Kotlin, Scala, JavaScript/JSX,
+TypeScript/TSX, SCSS, Python, Go, Rust, Ruby, PHP, C#, C, C++, and Swift. Plain CSS and indented Sass
+remain out of scope. Installations upgraded from an earlier pack set must run
+`pieria onboard --source-code --reindex` to rebuild existing file indexes.
+
 ## Objective
 
 Build a persistent, polyglot source-code intelligence index from the actual repository. Parse the repo
@@ -11,8 +19,8 @@ existing ingestion/retrieval pipeline, and add two retrieval channels — a `Sym
 `pieria onboard --source-code` path and a `POST /v1/profiles/{name}/code` daemon endpoint.
 
 A language is a *data pack* (a Tree-sitter grammar plus `.scm` tag/import queries), so adding a
-language never touches the pipeline; the initial set ships Java, Kotlin, Scala, TypeScript/JavaScript,
-Python, Go, and Rust, and unknown extensions degrade to path/module/dependency-only facts.
+language never touches the pipeline; the bundled set covers every default source extension, and
+unknown extensions degrade to path/module/dependency-only facts.
 
 Hard dependency on Phase 2 (content-addressed IDs, store transaction, vectorization outbox),
 Phase 3 (retrieval channels + weighted RRF), and Phase 8 (graph `entities`/`edges` + `GraphChannel`).
@@ -67,8 +75,9 @@ Out of scope (explicit follow-ups):
    - `CodeFile`: content-addressed `id` over `(profileId, repoRelPath, contentHash)`; `language`,
      `repoRelPath`, `contentHash`, `loc`, `moduleId`, `indexedAt`.
    - `CodeSymbol`: `id` over `(profileId, fileId, kind, qualifiedName, signatureHash)`; `kind`
-     (`module`/`package`/`class`/`interface`/`method`/`function`/`field`/`endpoint`/`config-key`/
-     `test`), `name`, `qualifiedName` (best-effort FQN), `signature`, `visibility`, `startLine`/
+     (`module`/`package`/`class`/`interface`/`enum`/`type-alias`/`method`/`function`/`field`/
+     `variable`/`mixin`/`selector`/`endpoint`/`config-key`/`test`), `name`, `qualifiedName`
+     (best-effort FQN), `signature`, `visibility`, `startLine`/
      `endLine`, `language`, `parentSymbolId`.
    - `CodeEdge`: `id` over `(profileId, srcSymbolId, relation, dstRef, confidence)`; `relation`
      (`calls`/`references`/`imports`/`extends`/`implements`/`depends-on`/`tests`/`handles-route`),
@@ -108,15 +117,17 @@ Out of scope (explicit follow-ups):
    - `LanguagePack`: language id, file extensions, Tree-sitter grammar handle, tag query (`.scm`),
      import query, optional route/config rules. A registry keyed by extension.
    - Adding a language = adding a pack (grammar lib + `.scm` resources); no pipeline code changes.
-   - Ship the initial set (Java, Kotlin, Scala, TypeScript/JavaScript, Python, Go, Rust). Unknown
+   - Ship packs for every extension in `DiscoveryConfig.DEFAULT_SOURCE_EXTENSIONS`. Unknown
      extensions produce a `CodeFile` + module/dependency facts only, no symbols.
 
 5. Integrate Tree-sitter in the daemon (single-writer keeps parsing daemon-side).
    - Use `jtreesitter` (the official FFM/Panama binding — no JNI), in-process. The tree-sitter runtime
      plus per-language grammar libs are provisioned by **reusing the existing sqlite-vec mechanism**:
-     drop grammar `.dylib`/`.so`/`.dll` into `packaging/native/<os>-<arch>/`, stage them as classpath
-     resources via a `Sync` task sibling to `embedVecExtensions`, and add a `TreeSitterLibraryResolver`
-     mirroring `VecExtensionResolver` (config → env → sidecar dir → embedded resource extracted to the
+     compile pinned grammar sources for the host platform, stage the resulting `.dylib`/`.so`/`.dll`
+     files as classpath resources via a `Sync` task sibling to `embedVecExtensions`, and add a
+     `TreeSitterLibraryResolver`
+     that always extracts grammar libraries from embedded resources (the core runtime alone retains
+     config/env/sidecar fallbacks before its embedded resource in the
      app-data runtime dir, loaded by absolute path). Missing grammars degrade gracefully — that
      language is skipped; no grammars at all means the code index is simply absent.
    - A `TreeSitterEngine` bean owns a long-lived `Arena`, the loaded `Language` handles, and the `.scm`

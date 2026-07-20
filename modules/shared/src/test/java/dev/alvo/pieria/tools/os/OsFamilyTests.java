@@ -28,7 +28,7 @@ class OsFamilyTests {
 
   @Test
   void detectReflectsCurrentJvmOsName() {
-    String currentOsName = System.getProperty("os.name", "");
+    String currentOsName = OsFamily.osName();
     assertThat(OsFamily.detect()).isEqualTo(OsFamily.fromOsName(currentOsName));
   }
 }

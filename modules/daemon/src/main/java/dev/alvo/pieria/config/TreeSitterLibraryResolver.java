@@ -1,5 +1,6 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.tools.os.OsFamily;
 import dev.alvo.pieria.tools.io.NativeResourceExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +21,10 @@ import java.util.Optional;
  * extracted to the app-data runtime directory, then loaded by absolute path (FFM {@code dlopen}), so
  * the daemon ships self-contained with no sidecar. Resolution order per library, first match wins:
  * configured path → environment variable → a file next to the running binary/jar (or sibling
- * {@code lib/}) → the embedded resource. An empty result is not an error — {@link TreeSitterEngine}
- * then degrades that language (or all of Tree-sitter) gracefully.
+ * {@code lib/}) → the embedded resource for the core runtime. Grammar locations are deliberately
+ * not configurable: every language grammar is extracted from the daemon's embedded resources. An
+ * empty result is not an error — {@link TreeSitterEngine} then degrades that language (or all of
+ * Tree-sitter) gracefully.
  */
 @Component
 public class TreeSitterLibraryResolver {
@@ -36,18 +39,24 @@ public class TreeSitterLibraryResolver {
     this.pathResolver = pathResolver;
   }
 
-  /** Resolve the core {@code libtree-sitter} library. */
+  /**
+   * Resolve the core {@code libtree-sitter} library.
+   */
   public Optional<Path> resolveCore() {
     return resolve("libtree-sitter", properties.corePath(), System.getenv("PIERIA_TREESITTER_CORE"));
   }
 
-  /** Resolve the grammar library for {@code language} (currently only {@code java}). */
+  /**
+   * Resolve an embedded grammar library. TypeScript and TSX share one library.
+   */
   public Optional<Path> resolveGrammar(String language) {
-    if ("java".equals(language)) {
-      return resolve("tree-sitter-java", properties.javaGrammarPath(),
-        System.getenv("PIERIA_TREESITTER_JAVA_GRAMMAR"));
-    }
-    return Optional.empty();
+    String baseName = switch (language) {
+      case "java", "javascript", "typescript", "scss", "kotlin", "scala", "python", "go",
+           "rust", "ruby", "php", "c-sharp", "c", "cpp", "swift" -> "tree-sitter-" + language;
+      case "tsx" -> "tree-sitter-typescript";
+      default -> null;
+    };
+    return baseName == null ? Optional.empty() : extractEmbedded(baseName, OsFamily.osName(), OsFamily.osArch());
   }
 
   private Optional<Path> resolve(String baseName, String configuredPath, String envPath) {
@@ -56,7 +65,7 @@ public class TreeSitterLibraryResolver {
     if (explicit.isPresent()) {
       return explicit;
     }
-    String osName = osName();
+    String osName = OsFamily.osName();
     String fileName = baseName + "." + NativeResourceExtractor.librarySuffix(osName);
     List<Path> candidateDirs = NativeResourceExtractor.installCandidateDirectories(TreeSitterLibraryResolver.class);
     for (Path dir : candidateDirs) {
@@ -65,7 +74,7 @@ public class TreeSitterLibraryResolver {
         return Optional.of(candidate.toAbsolutePath().normalize());
       }
     }
-    return extractEmbedded(baseName, osName, osArch());
+    return extractEmbedded(baseName, osName, OsFamily.osArch());
   }
 
   private Optional<Path> extractEmbedded(String baseName, String osName, String osArch) {
@@ -85,11 +94,4 @@ public class TreeSitterLibraryResolver {
     }
   }
 
-  private static String osName() {
-    return System.getProperty("os.name", "");
-  }
-
-  private static String osArch() {
-    return System.getProperty("os.arch", "");
-  }
 }

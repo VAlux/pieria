@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.tools.os.OsFamily;
 import java.util.Locale;
 
 /**
@@ -11,8 +12,8 @@ public final class PlatformSupport {
   }
 
   public static Platform detect() {
-    String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    String arch = normalizeArch(System.getProperty("os.arch", ""));
+    String os = OsFamily.osName().toLowerCase(Locale.ROOT);
+    String arch = normalizeArch(OsFamily.osArch());
     if (os.contains("mac") || os.contains("darwin")) {
       return new MacOsPlatform(arch);
     }

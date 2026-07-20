@@ -17,17 +17,25 @@ import java.util.List;
  */
 public interface CodeParser {
 
-  /** Whether this parser handles the given language-pack id (e.g. {@code "java"}). */
+  /**
+   * Whether this parser handles the given language-pack id (e.g. {@code "java"}).
+   */
   boolean supports(String language);
 
-  /** Parse one file; never throws for ordinary syntax problems — returns what it could extract. */
+  /**
+   * Parse one file; never throws for ordinary syntax problems — returns what it could extract.
+   */
   ParseResult parse(ParseInput input);
 
-  /** One file to parse. */
+  /**
+   * One file to parse.
+   */
   record ParseInput(String repoRelPath, String language, String content) {
   }
 
-  /** The id-free structural output for one file. */
+  /**
+   * The id-free structural output for one file.
+   */
   record ParseResult(List<ParsedSymbol> symbols, List<ParsedEdge> edges) {
 
     public ParseResult {

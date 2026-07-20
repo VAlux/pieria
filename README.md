@@ -47,7 +47,9 @@ the durable memory that survives compaction and restarts:
 - **Knowledge graph** — ingestion extracts entities and relations alongside memories, so
   recall can traverse from a first-wave hit to what it's connected to.
 - **Code intelligence** — `pieria onboard --source-code` builds a tree-sitter symbol and
-  call graph over the repo, making the codebase itself a retrieval channel.
+  call graph over Java, Kotlin, Scala, JavaScript/TypeScript, SCSS, Python, Go, Rust, Ruby, PHP,
+  C#, C/C++, and Swift, making the codebase itself a
+  retrieval channel.
 - **Tunable recall cost** — three inference tiers (`evidence`, `analyzed`, `synthesized`)
   trade latency and model calls against answer richness, per call or per profile.
 - **Deterministic temporal reasoning** — date math is computed in code, not guessed by a
@@ -284,6 +286,15 @@ pieria onboard                      # scan the project dir: markdown, plain-text
 pieria onboard --source-code        # ...and build the tree-sitter code index too
 pieria onboard --dry-run            # list the sources that would be sent, contact nothing
 ```
+
+The bundled Tree-sitter language packs support: C, C++, C#, Go, Java, JavaScript, Kotlin, PHP,
+Python, Ruby, Rust, Scala, SCSS, Swift, TypeScript, and TSX. Plain CSS and indented Sass are not
+parsed. After upgrading Pieria to a release with new or updated language packs, run
+`pieria onboard --source-code --reindex` once so previously indexed files are rebuilt with the
+installed grammars.
+
+Local native installations built with `./gradlew :daemon:deployLocal` compile and bundle the same
+pinned grammar set used by release artifacts; no manual grammar installation is required.
 
 With no positional argument it scans the project directory. Give it **targets** and it
 onboards only those, dispatching each by type:
