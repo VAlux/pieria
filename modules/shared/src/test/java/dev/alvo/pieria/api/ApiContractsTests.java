@@ -8,6 +8,7 @@ import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.CodeIndexResponse;
 import dev.alvo.pieria.api.response.ErrorResponse;
+import dev.alvo.pieria.api.response.ExportLineResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,8 @@ class ApiContractsTests {
       // responses, incl. deeply nested records
       CodeIndexResponse.class,
       ErrorResponse.class,
+      ExportLineResponse.class,
+      ExportLineResponse.ExportMemory.class,
       RecallResponse.class,
       RecallResponse.CodeEvidence.class,
       RecallResponse.RecallDebug.class,
