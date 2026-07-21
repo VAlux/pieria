@@ -76,9 +76,14 @@ public class DataSourceConfig {
     // enable_load_extension is a xerial connection property: without it load_extension() throws.
     // busy_timeout makes a connection wait (up to N ms) for a held write lock instead of failing
     // immediately with SQLITE_BUSY — SQLite is single-writer, so the vectorization worker would
-    // otherwise collide with concurrent ingestion / code-index write transactions. Applied to every
-    // pooled connection by the xerial driver.
-    String url = "jdbc:sqlite:" + path + "?enable_load_extension=true&busy_timeout=5000";
+    // otherwise collide with concurrent ingestion / code-index write transactions. IMMEDIATE makes
+    // xerial start Spring-managed transactions with BEGIN IMMEDIATE, reserving the writer before a
+    // transaction's first read. Without it, a keyed-memory SELECT can open a deferred read snapshot,
+    // another connection can commit vectorization, and the later memory INSERT fails with
+    // SQLITE_BUSY_SNAPSHOT because the stale snapshot cannot be upgraded. Both settings apply to
+    // every pooled connection.
+    String url = "jdbc:sqlite:" + path
+      + "?enable_load_extension=true&busy_timeout=5000&transaction_mode=IMMEDIATE";
     HikariDataSource dataSource = DataSourceBuilder.create()
       .type(HikariDataSource.class)
       .driverClassName("org.sqlite.JDBC")
