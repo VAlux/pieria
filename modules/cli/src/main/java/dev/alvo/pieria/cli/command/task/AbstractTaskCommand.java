@@ -2,6 +2,7 @@ package dev.alvo.pieria.cli.command.task;
 
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.cli.modules.update.BuildInfo;
 import dev.alvo.pieria.client.TaskClient;
 import dev.alvo.pieria.client.exception.DaemonClientException;
 import dev.alvo.pieria.client.exception.DaemonNotFoundException;
@@ -27,7 +28,7 @@ abstract class AbstractTaskCommand implements Callable<Integer> {
   @Override
   public final Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    TaskClient client = new TaskClient(url);
+    TaskClient client = new TaskClient(url, BuildInfo.clientIdentity());
     try {
       return run(client);
     } catch (DaemonUnavailableException e) {

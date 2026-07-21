@@ -1,4 +1,4 @@
-import { $, el, api, escapeHtml } from "../util/dom.js";
+import { $, el, api, apiFetch, escapeHtml } from "../util/dom.js";
 import { typeColor } from "../util/palette.js";
 import { relTime } from "../util/format.js";
 import { state } from "./state.js";
@@ -15,7 +15,7 @@ export function loadMemories(force) {
   $("memPager").innerHTML = "";
   renderBanner(list, "Loading memories…");
   const q = "/memories?includeSuperseded=" + (state.includeSuperseded ? "true" : "false");
-  fetch(api(state.profile, q), { headers: { Accept: "application/json" } })
+  apiFetch(api(state.profile, q), { headers: { Accept: "application/json" } })
     .then(function (r) { if (!r.ok) throw new Error("Request failed (" + r.status + ")."); return r.json(); })
     .then(function (data) {
       state.memories = data.memories || [];
@@ -138,7 +138,7 @@ function scrollListTop() {
 
 export function forgetMemory(m) {
   if (!confirm("Forget this memory?\n\n" + (m.content || "").slice(0, 160))) return;
-  fetch(api(state.profile, "/memories/" + encodeURIComponent(m.id)), { method: "DELETE" })
+  apiFetch(api(state.profile, "/memories/" + encodeURIComponent(m.id)), { method: "DELETE" })
     .then(function (r) {
       if (r.status === 204) {
         state.memories = state.memories.filter(function (x) { return x.id !== m.id; });

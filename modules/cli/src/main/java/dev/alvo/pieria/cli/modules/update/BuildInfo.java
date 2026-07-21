@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.client.ClientIdentity;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -55,5 +56,10 @@ public final class BuildInfo {
 
   public static boolean isKnown(String version) {
     return version != null && !version.isBlank() && !UNKNOWN.equals(version);
+  }
+
+  /** Caller metadata shared by every daemon client created by the CLI. */
+  public static ClientIdentity clientIdentity() {
+    return new ClientIdentity("cli", null, "cli", current());
   }
 }

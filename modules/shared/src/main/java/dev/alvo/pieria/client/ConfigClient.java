@@ -16,6 +16,10 @@ public final class ConfigClient {
     this(new DaemonTransport(baseUrl));
   }
 
+  public ConfigClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
+  }
+
   private String path(String profile) {
     return "/v1/profiles/" + DaemonTransport.segment(profile) + "/config";
   }

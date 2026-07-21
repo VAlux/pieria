@@ -1,5 +1,6 @@
 package dev.alvo.pieria.client;
 
+import dev.alvo.pieria.api.AuditHeaders;
 import dev.alvo.pieria.api.response.ErrorResponse;
 import dev.alvo.pieria.client.exception.DaemonConflictException;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
@@ -24,15 +25,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 final class DaemonTransport {
   private final String baseUrl;
   private final HttpClient http;
+  private final ClientIdentity identity;
   private final ObjectMapper json = JsonMapper.builder()
     .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false)
     .build();
 
   DaemonTransport(String baseUrl) {
+    this(baseUrl, ClientIdentity.directApi());
+  }
+
+  DaemonTransport(String baseUrl, ClientIdentity identity) {
     if (baseUrl == null || baseUrl.isBlank()) {
       throw new IllegalArgumentException("base URL must not be blank");
     }
@@ -42,6 +49,7 @@ final class DaemonTransport {
       throw new IllegalArgumentException("invalid daemon base URL: " + baseUrl);
     }
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    this.identity = identity == null ? ClientIdentity.directApi() : identity;
   }
 
   static String segment(String value) {
@@ -127,7 +135,21 @@ final class DaemonTransport {
   }
 
   private HttpRequest.Builder builder(String path, Duration timeout) {
-    return HttpRequest.newBuilder(uri(path)).timeout(timeout);
+    HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path)).timeout(timeout)
+      .header(AuditHeaders.CLIENT, value(identity.client(), "api"))
+      .header(AuditHeaders.CHANNEL, value(identity.channel(), "http"))
+      .header(AuditHeaders.REQUEST_ID, UUID.randomUUID().toString());
+    if (identity.harness() != null && !identity.harness().isBlank()) {
+      builder.header(AuditHeaders.HARNESS, identity.harness());
+    }
+    if (identity.version() != null && !identity.version().isBlank()) {
+      builder.header(AuditHeaders.CLIENT_VERSION, identity.version());
+    }
+    return builder;
+  }
+
+  private static String value(String value, String fallback) {
+    return value == null || value.isBlank() ? fallback : value;
   }
 
   private String sendJson(HttpRequest.Builder builder, String method, Object body, boolean kebab) {

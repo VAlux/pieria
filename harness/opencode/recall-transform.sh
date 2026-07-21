@@ -19,6 +19,7 @@ set -e
 
 _SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 _HARNESS_DIR=$(cd "${_SCRIPT_DIR}/.." && pwd)
+export PIERIA_HARNESS="opencode"
 
 # Pass the original system prompt through first.
 cat

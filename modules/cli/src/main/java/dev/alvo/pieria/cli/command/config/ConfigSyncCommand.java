@@ -3,6 +3,7 @@ package dev.alvo.pieria.cli.command.config;
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.cli.modules.update.BuildInfo;
 import dev.alvo.pieria.client.ConfigClient;
 import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
@@ -68,11 +69,11 @@ public final class ConfigSyncCommand implements Callable<Integer> {
       return 0;
     }
 
-    if (!new HealthClient(url).reachable()) {
+    if (!new HealthClient(url, BuildInfo.clientIdentity()).reachable()) {
       return daemonDown(url);
     }
     try {
-      var effective = new ConfigClient(url).put(resolvedProfile, config.pieria());
+      var effective = new ConfigClient(url, BuildInfo.clientIdentity()).put(resolvedProfile, config.pieria());
       log.info("Synced config overrides to profile '{}'. Effective config:", resolvedProfile);
       log.info("{}", ConfigCodec.toJson(effective));
       return 0;

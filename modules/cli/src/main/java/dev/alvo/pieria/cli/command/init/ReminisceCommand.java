@@ -5,6 +5,7 @@ import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.log.ProgressReporter;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.task.TaskPoller;
+import dev.alvo.pieria.cli.modules.update.BuildInfo;
 import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.client.ReminiscenceClient;
 import dev.alvo.pieria.client.TaskClient;
@@ -54,13 +55,13 @@ public final class ReminisceCommand implements Callable<Integer> {
     String resolvedProfile = resolveProfile(dir);
     String url = DaemonUrls.resolve(daemonUrl);
 
-    if (!new HealthClient(url).reachable()) {
+    if (!new HealthClient(url, BuildInfo.clientIdentity()).reachable()) {
       return daemonDown(url);
     }
 
     if (dryRun) {
       try {
-        long orphans = new ReminiscenceClient(url).orphanCount(resolvedProfile);
+        long orphans = new ReminiscenceClient(url, BuildInfo.clientIdentity()).orphanCount(resolvedProfile);
         log.info("Profile '{}' has {} orphan memor{} that a run would adopt.",
           resolvedProfile, orphans, orphans == 1 ? "y" : "ies");
         return 0;
@@ -80,8 +81,8 @@ public final class ReminisceCommand implements Callable<Integer> {
     log.info("Adopting orphan memories into the graph for profile '{}'…", profile);
     ProgressReporter reporter = new ProgressReporter();
     try {
-      String taskId = new ReminiscenceClient(url).submit(profile, "reminisce").taskId();
-      TaskStatusResponse task = new TaskPoller(new TaskClient(url)).await(taskId, reporter);
+      String taskId = new ReminiscenceClient(url, BuildInfo.clientIdentity()).submit(profile, "reminisce").taskId();
+      TaskStatusResponse task = new TaskPoller(new TaskClient(url, BuildInfo.clientIdentity())).await(taskId, reporter);
       reporter.finish();
       if ("SUCCEEDED".equals(task.status())) {
         report(task.result());

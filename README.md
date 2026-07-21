@@ -432,6 +432,7 @@ pieria profile memories <name>         # list memories (filter by type/session)
 pieria profile recall <name> <query>   # run retrieval from the shell
 pieria profile remember <name> ...     # store one memory explicitly
 pieria profile forget <name> <id>      # mark a memory invalid
+pieria profile audit <name>            # search profile calls, callers, and Pieria outputs
 pieria profile export <name>           # export all memories as NDJSON
 ```
 
@@ -455,6 +456,8 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | GET    | `/v1/profiles/{name}/graph`           | The entity-relation graph as JSON.          |
 | GET    | `/v1/profiles/{name}/graph/view`      | A browsable HTML view of the graph.         |
 | GET    | `/v1/profiles/{name}/export`          | Export all memories (NDJSON).               |
+| GET    | `/v1/profiles/{name}/audit`           | Search cursor-paginated profile audit events. |
+| GET    | `/v1/profiles/{name}/audit/{id}`      | Read one event with retained request/response bodies. |
 | GET/PUT/DELETE | `/v1/profiles/{name}/config`  | Read, push, or clear per-profile overrides. |
 | POST   | `/v1/profiles/{name}/code`            | Index source files (deterministic, model-free). |
 | POST   | `/v1/profiles/{name}/code/async`      | Index as a background task, optional summarization. |
@@ -464,6 +467,16 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | GET    | `/v1/profiles/{name}/reminisce/orphans` | Count edgeless memories (no model call).  |
 | GET/DELETE | `/v1/tasks`, `/v1/tasks/{id}`     | List, inspect, and cancel daemon tasks.     |
 | GET    | `/pieria-health`, `/pieria-status`    | Liveness and daemon status.                 |
+
+Every profile-scoped call except audit browsing itself is appended to the profile's audit history.
+Events include request correlation, operation, caller/harness/channel, timing, status, errors, and
+request/response payloads. Pieria retains the first 1 MiB of each body by default while hashing and
+counting the complete byte stream; configure the cap with `pieria.audit.max-body-bytes`. Async work
+adds a linked terminal event with its result. Deleting a profile also deletes its audit history.
+
+Pieria's gateway, CLI, console, and installed hooks declare their identity with `X-Pieria-Client`,
+`X-Pieria-Harness`, `X-Pieria-Channel`, and `X-Pieria-Client-Version`. These headers provide useful
+local attribution, not authenticated identity; untagged callers appear as direct API access.
 
 Example recall:
 

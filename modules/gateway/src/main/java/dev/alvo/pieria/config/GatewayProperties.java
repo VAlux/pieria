@@ -13,10 +13,14 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * {@code PIERIA_DAEMON_URL} environment variable.
  */
 @ConfigurationProperties(prefix = "pieria.gateway")
-public record GatewayProperties(@DefaultValue("") String daemonUrl) {
+public record GatewayProperties(@DefaultValue("") String daemonUrl,
+                                @DefaultValue("") String harness) {
   public GatewayProperties {
     if (daemonUrl == null || daemonUrl.isBlank()) {
       daemonUrl = System.getenv().getOrDefault("PIERIA_DAEMON_URL", "http://127.0.0.1:8077");
+    }
+    if (harness == null || harness.isBlank()) {
+      harness = System.getenv().getOrDefault("PIERIA_HARNESS", "");
     }
   }
 }

@@ -1,4 +1,4 @@
-import { $, el, api } from "../util/dom.js";
+import { $, el, api, apiFetch } from "../util/dom.js";
 import { state } from "./state.js";
 import { toast } from "./toast.js";
 
@@ -6,7 +6,7 @@ export function exportProfile() {
   if (!state.profile) return;
   const btn = $("exportBtn");
   btn.disabled = true;
-  fetch(api(state.profile, "/export"), { headers: { Accept: "application/x-ndjson" } })
+  apiFetch(api(state.profile, "/export"), { headers: { Accept: "application/x-ndjson" } })
     .then(function (r) { if (!r.ok) throw new Error("Export failed (" + r.status + ")"); return r.text(); })
     .then(function (text) {
       const blob = new Blob([text], { type: "application/x-ndjson" });

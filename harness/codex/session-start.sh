@@ -33,6 +33,7 @@ _HARNESS_DIR=$(cd "${_SCRIPT_DIR}/.." && pwd)
 
 QUERY="${PIERIA_RECALL_QUERY:-What should I know about this project before starting a new session? Summarize key facts, active tasks, and recent decisions.}"
 LIMIT="${PIERIA_RECALL_LIMIT:-10}"
+export PIERIA_HARNESS="codex"
 
 sh "${_HARNESS_DIR}/recall.sh" "$QUERY" "$LIMIT"
 exit 0

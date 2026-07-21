@@ -2,6 +2,7 @@ package dev.alvo.pieria.cli.command.profile;
 
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
+import dev.alvo.pieria.cli.modules.update.BuildInfo;
 import dev.alvo.pieria.client.ProfileClient;
 import dev.alvo.pieria.client.exception.DaemonClientException;
 import dev.alvo.pieria.client.exception.DaemonConflictException;
@@ -31,7 +32,7 @@ abstract class AbstractProfileCommand implements Callable<Integer> {
   @Override
   public final Integer call() {
     String url = DaemonUrls.resolve(daemonUrl);
-    ProfileClient client = new ProfileClient(url);
+    ProfileClient client = new ProfileClient(url, BuildInfo.clientIdentity());
     try {
       return run(client);
     } catch (DaemonUnavailableException e) {

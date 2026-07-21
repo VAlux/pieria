@@ -1,4 +1,4 @@
-import { $, api } from "../util/dom.js";
+import { $, api, apiFetch } from "../util/dom.js";
 import { state } from "./state.js";
 import { toast } from "./toast.js";
 import { refreshProfileCounts } from "./profiles.js";
@@ -23,7 +23,7 @@ export function submitAdd() {
   const btn = $("addSubmit");
   btn.disabled = true;
   status.style.color = ""; status.innerHTML = '<span class="spinner"></span> Storing…';
-  fetch(api(state.profile, "/memories"), {
+  apiFetch(api(state.profile, "/memories"), {
     method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(reqBody)
   })

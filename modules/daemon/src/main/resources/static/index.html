@@ -19,6 +19,7 @@
       <button data-view="add">Add</button>
       <button data-view="recall">Recall</button>
       <button data-view="stats">Statistics</button>
+      <button data-view="audit">Audit</button>
       <button data-view="graph">Graph</button>
     </nav>
     <div class="spacer"></div>
@@ -111,6 +112,59 @@
     <!-- ===== Stats ===== -->
     <section class="view" id="view-stats">
       <div id="statsBody"></div>
+    </section>
+
+    <!-- ===== Audit ===== -->
+    <section class="view" id="view-audit">
+      <div class="controls audit-controls">
+        <input id="auditSearch" class="grow" placeholder="search requests, responses, ids, errors…" autocomplete="off">
+        <select id="auditOperation" title="Filter by operation">
+          <option value="">All operations</option>
+          <option value="recall">recall</option>
+          <option value="memory.remember">remember</option>
+          <option value="memory.list">list memories</option>
+          <option value="memory.forget">forget</option>
+          <option value="ingest.transcript">transcript ingest</option>
+          <option value="ingest">ingest</option>
+          <option value="task.completed">task completed</option>
+          <option value="onboard.async">onboard</option>
+          <option value="code.index">code index</option>
+          <option value="config.update">config update</option>
+          <option value="export">export</option>
+        </select>
+        <select id="auditClient" title="Filter by caller">
+          <option value="">All clients</option>
+          <option value="gateway">gateway</option>
+          <option value="hook">hook</option>
+          <option value="cli">CLI</option>
+          <option value="console">console</option>
+          <option value="api">direct API</option>
+        </select>
+        <select id="auditHarness" title="Filter by harness">
+          <option value="">All harnesses</option>
+          <option value="claude-code">Claude Code</option>
+          <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
+        </select>
+        <select id="auditOutcome" title="Filter by outcome">
+          <option value="">All outcomes</option>
+          <option value="success">success</option>
+          <option value="failure">failure</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+        <label class="audit-date-field">
+          <span>From</span>
+          <input id="auditFrom" type="datetime-local" title="Completed at or after">
+        </label>
+        <label class="audit-date-field">
+          <span>To</span>
+          <input id="auditTo" type="datetime-local" title="Completed at or before">
+        </label>
+        <label class="check"><input type="checkbox" id="auditTruncated"> truncated only</label>
+        <button id="auditClear">Clear</button>
+      </div>
+      <div id="auditList" class="audit-list"></div>
+      <div id="auditPager" class="pager"></div>
     </section>
 
     <!-- ===== Graph ===== -->

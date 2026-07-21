@@ -7,8 +7,16 @@ import { closeDrawer, forgetDrawerMemory } from "./drawer.js";
 import { submitAdd } from "./add.js";
 import { submitRecall } from "./recall.js";
 import { exportProfile } from "./export.js";
+import { applyAuditFilters, clearAuditFilters } from "./audit.js";
 
-const VIEWS = ["memories", "add", "recall", "stats", "graph"];
+const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph"];
+let auditSearchTimer = null;
+
+function applyAuditFiltersNow() {
+  clearTimeout(auditSearchTimer);
+  auditSearchTimer = null;
+  applyAuditFilters();
+}
 
 function wireUp() {
   $("profileSelect").addEventListener("change", function () { selectProfile($("profileSelect").value); });
@@ -28,6 +36,21 @@ function wireUp() {
   $("recallBtn").addEventListener("click", submitRecall);
   $("recallQuery").addEventListener("keydown", function (e) { if (e.key === "Enter") submitRecall(); });
   $("exportBtn").addEventListener("click", exportProfile);
+  $("auditClear").addEventListener("click", function () {
+    clearTimeout(auditSearchTimer);
+    auditSearchTimer = null;
+    clearAuditFilters();
+  });
+  ["auditOperation", "auditClient", "auditHarness", "auditOutcome", "auditFrom", "auditTo",
+    "auditTruncated"].forEach(function (id) { $(id).addEventListener("change", applyAuditFiltersNow); });
+  $("auditSearch").addEventListener("input", function () {
+    clearTimeout(auditSearchTimer);
+    auditSearchTimer = setTimeout(applyAuditFilters, 250);
+  });
+  $("auditSearch").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    applyAuditFiltersNow();
+  });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerBackdrop").addEventListener("click", closeDrawer);
   $("drawerDelete").addEventListener("click", forgetDrawerMemory);

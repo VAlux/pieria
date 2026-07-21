@@ -3,7 +3,7 @@ description: Recall relevant memories from Pieria for a query
 ---
 Prior context recalled from Pieria for "$ARGUMENTS":
 
-!`sh <PIERIA_HARNESS_DIR>/recall.sh "$ARGUMENTS" 10`
+!`sh <PIERIA_HARNESS_DIR>/recall.sh "$ARGUMENTS" 10 opencode`
 
 Use the recalled context above where relevant (verify against current code before relying on it).
 

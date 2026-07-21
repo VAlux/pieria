@@ -2,6 +2,7 @@ import { $, el } from "../util/dom.js";
 import { state } from "./state.js";
 import { loadMemories } from "./memories.js";
 import { loadStats } from "./stats.js";
+import { loadAudit } from "./audit.js";
 import { showGraph } from "../graph/index.js";
 
 // Reflect the active tab in the nav, the visible section, and the URL, then (re)load its data.
@@ -22,6 +23,7 @@ export function loadActiveView(profileChanged) {
   if (!state.profile) return;
   if (state.view === "memories") loadMemories(profileChanged);
   else if (state.view === "stats") loadStats();
+  else if (state.view === "audit") loadAudit(profileChanged);
   else if (state.view === "graph") showGraph(state.profile, profileChanged);
   // add + recall views are lazy (populated on submit).
 }

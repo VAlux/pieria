@@ -26,7 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class StubDaemon implements AutoCloseable {
 
   /** A request the stub received. */
-  public record Recorded(String method, String path, String body) {
+  public record Recorded(String method, String path, String rawQuery, String body) {
   }
 
   private record Response(int status, String body) {
@@ -110,7 +110,8 @@ public final class StubDaemon implements AutoCloseable {
   private void handle(HttpExchange exchange) throws IOException {
     String path = exchange.getRequestURI().getPath();
     byte[] body = exchange.getRequestBody().readAllBytes();
-    requests.add(new Recorded(exchange.getRequestMethod(), path, new String(body, StandardCharsets.UTF_8)));
+    requests.add(new Recorded(exchange.getRequestMethod(), path, exchange.getRequestURI().getRawQuery(),
+      new String(body, StandardCharsets.UTF_8)));
 
     Response response = resolve(path);
     byte[] out = response.body().getBytes(StandardCharsets.UTF_8);

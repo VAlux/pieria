@@ -155,6 +155,7 @@ public final class CodexInstaller implements HarnessInstaller {
     server.put("command", ctx.gatewayCommand());
     ObjectNode env = toml.newObject();
     env.put("PIERIA_DAEMON_URL", ctx.daemonUrl());
+    env.put("PIERIA_HARNESS", "codex");
     if (ctx.hasProfile()) {
       env.put("PIERIA_PROFILE", ctx.profile());
     }

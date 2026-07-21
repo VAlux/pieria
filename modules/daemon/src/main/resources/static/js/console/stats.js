@@ -1,4 +1,4 @@
-import { $, el, api, addRow, escapeHtml } from "../util/dom.js";
+import { $, el, api, apiFetch, addRow, escapeHtml } from "../util/dom.js";
 import { typeColor } from "../util/palette.js";
 import { fmtDate, fmtInt } from "../util/format.js";
 import { state } from "./state.js";
@@ -7,7 +7,7 @@ import { renderBanner } from "./router.js";
 export function loadStats() {
   const body = $("statsBody");
   renderBanner(body, "Loading statistics…");
-  fetch(api(state.profile, "/stats"), { headers: { Accept: "application/json" } })
+  apiFetch(api(state.profile, "/stats"), { headers: { Accept: "application/json" } })
     .then(function (r) { if (!r.ok) throw new Error("Request failed (" + r.status + ")."); return r.json(); })
     .then(function (s) { renderStats(s); })
     .catch(function (e) { renderBanner(body, e.message, true); });

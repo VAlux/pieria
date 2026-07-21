@@ -159,6 +159,7 @@ public final class OpenCodeInstaller implements HarnessInstaller {
     server.set("command", command);
     ObjectNode env = json.newObject();
     env.put("PIERIA_DAEMON_URL", ctx.daemonUrl());
+    env.put("PIERIA_HARNESS", "opencode");
     if (ctx.hasProfile()) {
       env.put("PIERIA_PROFILE", ctx.profile());
     }

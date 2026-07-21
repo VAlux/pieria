@@ -1,5 +1,7 @@
 package dev.alvo.pieria.task;
 
+import dev.alvo.pieria.audit.AuditRecorder;
+import dev.alvo.pieria.audit.AuditRequestContext;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
@@ -48,6 +50,17 @@ public class TaskRegistry {
 
   private final Map<UUID, Entry> tasks = new ConcurrentHashMap<>();
   private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+  private final AuditRecorder auditRecorder;
+
+  /** Test/standalone constructor: task execution works without profile audit persistence. */
+  public TaskRegistry() {
+    this.auditRecorder = null;
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public TaskRegistry(AuditRecorder auditRecorder) {
+    this.auditRecorder = auditRecorder;
+  }
 
   /**
    * Per-task bookkeeping: the live snapshot, the worker {@link Future} (for interrupt-on-cancel),
@@ -57,13 +70,15 @@ public class TaskRegistry {
     final AtomicReference<TaskSnapshot> ref;
     final String kind;
     final String profile;
+    final AuditRequestContext auditContext;
     volatile Future<?> future;
     volatile boolean cancelRequested;
 
-    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile) {
+    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext) {
       this.ref = ref;
       this.kind = kind;
       this.profile = profile;
+      this.auditContext = auditContext;
     }
   }
 
@@ -83,7 +98,7 @@ public class TaskRegistry {
   public UUID submit(String kind, String profile, Function<IngestProgressListener, JsonNode> work) {
     UUID id = UUID.randomUUID();
     AtomicReference<TaskSnapshot> ref = new AtomicReference<>(TaskSnapshot.running(Instant.now()));
-    Entry entry = new Entry(ref, kind, profile);
+    Entry entry = new Entry(ref, kind, profile, AuditRequestContext.current());
     tasks.put(id, entry);
     evictExpired();
 
@@ -99,15 +114,18 @@ public class TaskRegistry {
         JsonNode result = work.apply(listener);
         ref.updateAndGet(s -> s.succeeded(result, Instant.now()));
         log.info("task {} succeeded ({})", id, kind);
+        auditTerminal(id, entry);
       } catch (TaskCancelledException e) {
         log.info("task {} cancelled", id);
         ref.updateAndGet(s -> s.cancelled(Instant.now()));
+        auditTerminal(id, entry);
       } catch (ModelUnavailableException e) {
         // Classify and log the full cause chain: the bare wrapper message ("model extraction failed")
         // hid the real HTTP status / connection error that explains the failure.
         String reason = ModelFailures.describe(e);
         log.warn("task {} failed: model unavailable: {}", id, reason, e);
         ref.updateAndGet(s -> s.failed("model-unavailable", reason, Instant.now()));
+        auditTerminal(id, entry);
       } catch (Throwable e) {
         // Catch Throwable, not just RuntimeException: the work runs via executor.submit(Runnable),
         // so any escaping Throwable (e.g. a GraalVM MissingReflectionRegistrationError from
@@ -122,10 +140,21 @@ public class TaskRegistry {
           String message = e.getMessage() == null ? e.toString() : e.getMessage();
           ref.updateAndGet(s -> s.failed("failure", message, Instant.now()));
         }
+        auditTerminal(id, entry);
       }
     });
 
     return id;
+  }
+
+  private void auditTerminal(UUID id, Entry entry) {
+    if (auditRecorder == null || entry.auditContext == null) {
+      return;
+    }
+    TaskSnapshot snapshot = entry.ref.get();
+    auditRecorder.recordTaskTerminal(entry.auditContext, id.toString(), entry.kind,
+      snapshot.startedAt(), snapshot.finishedAt(), snapshot.status().name(), snapshot.result(),
+      snapshot.errorKind(), snapshot.errorMessage());
   }
 
   /**
@@ -189,7 +218,7 @@ public class TaskRegistry {
   }
 
   @PreDestroy
-  void shutdown() {
+  public void shutdown() {
     executor.shutdownNow();
   }
 }

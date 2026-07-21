@@ -25,3 +25,12 @@ export function addRow(dl, k, v) {
 export function api(profile, path) {
   return "/v1/profiles/" + encodeURIComponent(profile) + path;
 }
+
+export function apiFetch(url, options) {
+  const opts = Object.assign({}, options || {});
+  const headers = new Headers(opts.headers || {});
+  headers.set("X-Pieria-Client", "console");
+  headers.set("X-Pieria-Channel", "console");
+  opts.headers = headers;
+  return fetch(url, opts);
+}

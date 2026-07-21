@@ -9,6 +9,7 @@ import dev.alvo.pieria.cli.log.ProgressReporter;
 import dev.alvo.pieria.cli.modules.config.ProjectConfigLoader;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
 import dev.alvo.pieria.cli.modules.task.TaskPoller;
+import dev.alvo.pieria.cli.modules.update.BuildInfo;
 import dev.alvo.pieria.client.exception.DaemonClientException;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
@@ -135,11 +136,11 @@ public final class OnboardCommand implements Callable<Integer> {
       return 0;
     }
 
-    if (!new HealthClient(url).reachable()) {
+    if (!new HealthClient(url, BuildInfo.clientIdentity()).reachable()) {
       return daemonDown(url);
     }
-    OnboardingClient onboarding = new OnboardingClient(url);
-    TaskClient tasks = new TaskClient(url);
+    OnboardingClient onboarding = new OnboardingClient(url, BuildInfo.clientIdentity());
+    TaskClient tasks = new TaskClient(url, BuildInfo.clientIdentity());
     pushConfigOverrides(url, resolvedProfile, config);
     return seed(onboarding, tasks, resolvedProfile, sources);
   }
@@ -371,7 +372,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return;
     }
     try {
-      new ConfigClient(url).put(resolvedProfile, config.pieria());
+      new ConfigClient(url, BuildInfo.clientIdentity()).put(resolvedProfile, config.pieria());
       log.info("Pushed project config overrides to profile '{}'.", resolvedProfile);
     } catch (DaemonUnavailableException e) {
       log.error("Could not push config overrides (daemon unreachable); run 'pieria config sync' later.");

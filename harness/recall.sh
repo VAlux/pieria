@@ -35,6 +35,7 @@ PROFILE="${PIERIA_RESOLVED_PROFILE:-default}"
 
 DAEMON_URL="${PIERIA_DAEMON_URL:-http://127.0.0.1:8077}"
 TIMEOUT="${PIERIA_RECALL_TIMEOUT:-8}"
+HARNESS="${3:-${PIERIA_HARNESS:-unknown}}"
 
 # python3 is required for safe JSON escaping of an arbitrary query; degrade to no-op without it.
 if ! command -v python3 >/dev/null 2>&1; then
@@ -69,6 +70,9 @@ RESPONSE=$(curl \
   --max-time "$TIMEOUT" \
   --header 'Content-Type: application/json' \
   --header 'Accept: text/plain' \
+  --header 'X-Pieria-Client: hook' \
+  --header "X-Pieria-Harness: ${HARNESS}" \
+  --header 'X-Pieria-Channel: hook' \
   --data "$PAYLOAD" \
   "${DAEMON_URL}/v1/profiles/${PROFILE}/recall" 2>/dev/null)
 CURL_EXIT=$?

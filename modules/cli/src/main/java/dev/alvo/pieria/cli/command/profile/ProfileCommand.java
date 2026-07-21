@@ -21,6 +21,7 @@ import picocli.CommandLine.Command;
     ProfileRecallCommand.class,
     ProfileRememberCommand.class,
     ProfileForgetCommand.class,
+    ProfileAuditCommand.class,
     ProfileExportCommand.class,
     ProfileResolveCommand.class
   }

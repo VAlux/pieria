@@ -204,6 +204,10 @@ public class SqliteMemoryStore implements MemoryStore {
     jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM profile_usage WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM profile_inference_usage WHERE profile_id = ?").param(profileId).update();
+    jdbc.sql("""
+        DELETE FROM profile_audit_events
+        WHERE profile_id = ? OR profile_name = (SELECT name FROM profiles WHERE id = ?)
+        """).params(profileId, profileId).update();
     jdbc.sql("DELETE FROM profiles WHERE id = ?").param(profileId).update();
   }
 

@@ -1,4 +1,4 @@
-import { $, el } from "../util/dom.js";
+import { $, el, apiFetch } from "../util/dom.js";
 import { state } from "./state.js";
 import { renderBanner, loadActiveView, syncUrl } from "./router.js";
 
@@ -8,7 +8,7 @@ const profileSelect = () => $("profileSelect");
 export function loadProfiles(preferred) {
   const sel = profileSelect();
   sel.disabled = true;
-  return fetch("/v1/profiles", { headers: { Accept: "application/json" } })
+  return apiFetch("/v1/profiles", { headers: { Accept: "application/json" } })
     .then(function (r) { if (!r.ok) throw new Error("Request failed (" + r.status + ")."); return r.json(); })
     .then(function (data) {
       const profiles = (data.profiles || []).slice().sort(function (a, b) {
@@ -41,7 +41,7 @@ export function loadProfiles(preferred) {
 // Best-effort re-sync of the selector's per-profile counts after a mutation.
 export function refreshProfileCounts() {
   const sel = profileSelect();
-  fetch("/v1/profiles", { headers: { Accept: "application/json" } })
+  apiFetch("/v1/profiles", { headers: { Accept: "application/json" } })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (data) {
       if (!data) return;

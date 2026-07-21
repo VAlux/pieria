@@ -16,6 +16,10 @@ public final class TaskClient {
     this(new DaemonTransport(baseUrl));
   }
 
+  public TaskClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
+  }
+
   public TaskListResponse list() {
     return transport.parse(transport.get("/v1/tasks", Duration.ofSeconds(15)), TaskListResponse.class);
   }

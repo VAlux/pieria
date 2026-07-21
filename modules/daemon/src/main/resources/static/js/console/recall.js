@@ -1,4 +1,4 @@
-import { $, el, api } from "../util/dom.js";
+import { $, el, api, apiFetch } from "../util/dom.js";
 import { typeColor } from "../util/palette.js";
 import { relTime } from "../util/format.js";
 import { state } from "./state.js";
@@ -15,7 +15,7 @@ export function submitRecall() {
   btn.disabled = true;
   const loading = mode === "synthesized" ? "Recalling… this can take a while." : "Recalling…";
   out.innerHTML = '<div class="panel"><span class="spinner"></span> ' + loading + "</div>";
-  fetch(api(state.profile, "/recall"), {
+  apiFetch(api(state.profile, "/recall"), {
     method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ query: query, limit: limit, mode: mode })
   })

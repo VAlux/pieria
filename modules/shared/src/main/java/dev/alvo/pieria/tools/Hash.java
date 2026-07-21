@@ -43,12 +43,18 @@ public final class Hash {
     }
   }
 
-  private static MessageDigest sha256Digest() {
+  /** A fresh SHA-256 digest for streaming callers. */
+  public static MessageDigest sha256Digest() {
     try {
       return MessageDigest.getInstance("SHA-256");
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("SHA-256 unavailable", e);
     }
+  }
+
+  /** Hex-encode every byte in {@code bytes}. */
+  public static String hex(byte[] bytes) {
+    return hex(bytes, bytes.length);
   }
 
   private static String hex(byte[] digest, int byteCount) {

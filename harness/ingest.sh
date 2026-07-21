@@ -80,6 +80,9 @@ HTTP_STATUS=$(curl \
   --output "$_RESP_FILE" \
   --max-time 30 \
   --header 'Content-Type: application/x-ndjson' \
+  --header 'X-Pieria-Client: hook' \
+  --header "X-Pieria-Harness: ${HARNESS}" \
+  --header 'X-Pieria-Channel: hook' \
   --data-binary "$DATA_ARG" \
   "$ENDPOINT" 2>"$_ERR_FILE")
 CURL_EXIT=$?

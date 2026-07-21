@@ -231,6 +231,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     server.put("command", ctx.gatewayCommand());
     ObjectNode env = json.newObject();
     env.put("PIERIA_DAEMON_URL", ctx.daemonUrl());
+    env.put("PIERIA_HARNESS", "claude-code");
     if (ctx.hasProfile()) {
       env.put("PIERIA_PROFILE", ctx.profile());
     }

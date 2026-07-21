@@ -16,6 +16,10 @@ public final class OnboardingClient {
     this(new DaemonTransport(baseUrl));
   }
 
+  public OnboardingClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
+  }
+
   public TaskSubmitResponse submit(String profile, OnboardPlanRequest request, String label) {
     String path = DaemonTransport.withQuery(
       "/v1/profiles/" + DaemonTransport.segment(profile) + "/onboard/async", "label", label);

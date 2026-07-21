@@ -2,6 +2,7 @@ package dev.alvo.pieria.mcp;
 
 import dev.alvo.pieria.config.GatewayProperties;
 import dev.alvo.pieria.client.ProfileClient;
+import dev.alvo.pieria.client.ClientIdentity;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -22,7 +23,10 @@ public class GatewayConfig {
 
   @Bean
   ProfileClient daemonClient(GatewayProperties props) {
-    return new ProfileClient(props.daemonUrl());
+    String version = GatewayConfig.class.getPackage().getImplementationVersion();
+    return new ProfileClient(props.daemonUrl(), new ClientIdentity(
+      "gateway", props.harness().isBlank() ? null : props.harness(), "mcp",
+      version == null ? "unknown" : version));
   }
 
   @Bean

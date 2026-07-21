@@ -54,6 +54,7 @@ PROFILE="${PIERIA_RESOLVED_PROFILE:-default}"
 
 DAEMON_URL="${PIERIA_DAEMON_URL:-http://127.0.0.1:8077}"
 TIMEOUT="${PIERIA_REMEMBER_TIMEOUT:-8}"
+HARNESS="${2:-${PIERIA_HARNESS:-unknown}}"
 
 # python3 is required for safe JSON escaping of arbitrary content.
 if ! command -v python3 >/dev/null 2>&1; then
@@ -88,6 +89,9 @@ HTTP_STATUS=$(curl \
   --output "$_RESP_FILE" \
   --max-time "$TIMEOUT" \
   --header 'Content-Type: application/json' \
+  --header 'X-Pieria-Client: hook' \
+  --header "X-Pieria-Harness: ${HARNESS}" \
+  --header 'X-Pieria-Channel: hook' \
   --data "$PAYLOAD" \
   "${DAEMON_URL}/v1/profiles/${PROFILE}/memories" 2>/dev/null)
 CURL_EXIT=$?

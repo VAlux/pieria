@@ -1,4 +1,4 @@
-import { $, el, escapeHtml } from "../util/dom.js";
+import { $, el, apiFetch, escapeHtml } from "../util/dom.js";
 import { g, colorFor, resetColors } from "./state.js";
 import { tick, startSim } from "./simulation.js";
 import { fit } from "./interaction.js";
@@ -25,7 +25,7 @@ export function load(profile) {
   }
   g.loadedProfile = profile;
   setBanner("Loading <b>" + escapeHtml(profile) + "</b>…", false);
-  fetch("/v1/profiles/" + encodeURIComponent(profile) + "/graph", { headers: { Accept: "application/json" } })
+  apiFetch("/v1/profiles/" + encodeURIComponent(profile) + "/graph", { headers: { Accept: "application/json" } })
     .then(function (r) {
       if (r.status === 404) throw new Error("Profile \"" + profile + "\" not found.");
       if (!r.ok) throw new Error("Request failed (" + r.status + ").");

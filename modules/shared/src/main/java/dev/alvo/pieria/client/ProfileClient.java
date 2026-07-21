@@ -1,6 +1,9 @@
 package dev.alvo.pieria.client;
 
 import dev.alvo.pieria.api.request.RecallRequest;
+import dev.alvo.pieria.api.request.AuditListRequest;
+import dev.alvo.pieria.api.response.AuditEventDetail;
+import dev.alvo.pieria.api.response.AuditListResponse;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
@@ -20,6 +23,10 @@ public final class ProfileClient {
 
   public ProfileClient(String baseUrl) {
     this(new DaemonTransport(baseUrl));
+  }
+
+  public ProfileClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
   }
 
   private String profile(String name) {
@@ -65,7 +72,27 @@ public final class ProfileClient {
     return transport.get(profile(name) + "/export", Duration.ofSeconds(30));
   }
 
+  public AuditListResponse audit(String name, AuditListRequest request) {
+    String path = DaemonTransport.withQuery(profile(name) + "/audit",
+      "q", request.search(), "operation", request.operation(), "client", request.client(),
+      "harness", request.harness(), "channel", request.channel(), "outcome", request.outcome(),
+      "status", string(request.status()), "session", request.session(), "taskId", request.taskId(),
+      "requestId", request.requestId(), "from", request.from(), "to", request.to(),
+      "truncated", string(request.truncated()), "limit", string(request.limit()),
+      "cursor", request.cursor());
+    return transport.parse(transport.get(path, Duration.ofSeconds(30)), AuditListResponse.class);
+  }
+
+  public AuditEventDetail auditDetail(String name, String id) {
+    return transport.parse(transport.get(profile(name) + "/audit/" + DaemonTransport.segment(id),
+      Duration.ofSeconds(30)), AuditEventDetail.class);
+  }
+
   public String toJson(Object value) {
     return transport.toJson(value);
+  }
+
+  private static String string(Object value) {
+    return value == null ? null : value.toString();
   }
 }

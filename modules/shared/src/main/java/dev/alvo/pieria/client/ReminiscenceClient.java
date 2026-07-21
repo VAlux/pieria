@@ -20,6 +20,10 @@ public final class ReminiscenceClient {
     this(new DaemonTransport(baseUrl));
   }
 
+  public ReminiscenceClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
+  }
+
   /** Submit an orphan-adoption run; returns the task id to poll via {@link TaskClient}. */
   public TaskSubmitResponse submit(String profile, String label) {
     String path = DaemonTransport.withQuery(

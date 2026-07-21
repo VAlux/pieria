@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -93,6 +94,20 @@ class DaemonClientsTests {
   }
 
   @Test
+  void declaredClientIdentityAndRequestCorrelationAreSent() {
+    ProfileClient attributed = new ProfileClient("http://127.0.0.1:" + server.getAddress().getPort(),
+      new ClientIdentity("gateway", "codex", "mcp", "1.2.3"));
+    attributed.list();
+
+    Request request = requests.getLast();
+    assertThat(request.header("X-Pieria-Client")).isEqualTo("gateway");
+    assertThat(request.header("X-Pieria-Harness")).isEqualTo("codex");
+    assertThat(request.header("X-Pieria-Channel")).isEqualTo("mcp");
+    assertThat(request.header("X-Pieria-Client-Version")).isEqualTo("1.2.3");
+    assertThat(request.header("X-Pieria-Request-Id")).isNotBlank();
+  }
+
+  @Test
   void taskOnboardingAndConfigClientsAreTyped() {
     assertThat(tasks.list().tasks()).hasSize(1);
     assertThat(tasks.status("task/1").status()).isEqualTo("RUNNING");
@@ -154,7 +169,7 @@ class DaemonClientsTests {
   private void handle(HttpExchange exchange) throws IOException {
     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
     requests.add(new Request(exchange.getRequestMethod(), exchange.getRequestURI().getRawPath(),
-      exchange.getRequestURI().getRawQuery(), body));
+      exchange.getRequestURI().getRawQuery(), body, exchange.getRequestHeaders()));
     int status = forcedStatus == 0 ? defaultStatus(exchange) : forcedStatus;
     String response = forcedBody == null ? defaultBody(exchange) : forcedBody;
     byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
@@ -219,5 +234,11 @@ class DaemonClientsTests {
     return "";
   }
 
-  private record Request(String method, String rawPath, String rawQuery, String body) { }
+  private record Request(String method, String rawPath, String rawQuery, String body,
+                         Map<String, List<String>> headers) {
+    String header(String name) {
+      return headers.entrySet().stream().filter(e -> e.getKey().equalsIgnoreCase(name))
+        .flatMap(e -> e.getValue().stream()).findFirst().orElse(null);
+    }
+  }
 }

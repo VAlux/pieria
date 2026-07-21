@@ -29,6 +29,10 @@ public final class HealthClient {
     this(new DaemonTransport(baseUrl));
   }
 
+  public HealthClient(String baseUrl, ClientIdentity identity) {
+    this(new DaemonTransport(baseUrl, identity));
+  }
+
   public boolean reachable() {
     try {
       transport.probe(PIERIA_HEALTH_PATH, TIMEOUT);
