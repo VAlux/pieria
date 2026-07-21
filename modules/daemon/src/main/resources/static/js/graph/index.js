@@ -5,6 +5,7 @@ import { bindInteraction, fit } from "./interaction.js";
 import { load } from "./data.js";
 
 let initialized = false;
+let graphResizeObserver = null;
 
 // One-time setup: bind the canvas, interaction handlers, resize, and toolbar controls.
 function initGraph() {
@@ -19,6 +20,12 @@ function initGraph() {
   window.addEventListener("resize", function () {
     if (document.body.classList.contains("view-graph")) { resize(); draw(); }
   });
+  if (window.ResizeObserver) {
+    graphResizeObserver = new ResizeObserver(function () {
+      if (document.body.classList.contains("view-graph")) { resize(); draw(); }
+    });
+    graphResizeObserver.observe($("view-graph"));
+  }
 
   $("graphSearch").addEventListener("input", function () {
     g.searchTerm = $("graphSearch").value.trim().toLowerCase();

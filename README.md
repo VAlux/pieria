@@ -332,6 +332,11 @@ show as a stats backlog. Graph extraction runs in a separate `onboard-graph` chi
 the CLI prints its id and exits successfully without waiting. If the daemon restarts mid-enrichment,
 the orphan rows remain available to a later `pieria reminisce` run.
 
+Each source is isolated from the next: if markdown, text, PDF, web, or source-code onboarding fails,
+the daemon logs the full failure and continues with the remaining sources. The terminal task result
+contains an `errors` list, and the CLI prints the complete list after reporting successful sources;
+partial onboarding exits with status 1 so automation does not mistake it for complete success.
+
 > Requires the daemon to be running and a model provider reachable.
 
 ### Weave orphan memories into the graph

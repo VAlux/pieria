@@ -2,64 +2,88 @@ import { $, el, apiFetch } from "../util/dom.js";
 import { state } from "./state.js";
 import { renderBanner, loadActiveView, syncUrl } from "./router.js";
 
-const profileSelect = () => $("profileSelect");
+const profileList = () => $("profileList");
 
-// Populate the selector from /v1/profiles and select `preferred` (falling back to the first).
+function sortedProfiles(data) {
+  return (data.profiles || []).slice().sort(function (a, b) {
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function renderProfileState(message, isError) {
+  const list = profileList();
+  list.innerHTML = "";
+  const row = el("li", "side-panel-status" + (isError ? " err" : ""), message);
+  list.appendChild(row);
+}
+
+function renderProfiles(profiles) {
+  const list = profileList();
+  list.innerHTML = "";
+  profiles.forEach(function (profile) {
+    const row = el("li");
+    const button = el("button", "side-panel-item", profile.name + " (" + profile.memoryCount + ")");
+    button.type = "button";
+    button.dataset.profile = profile.name;
+    button.title = profile.name + " (" + profile.memoryCount + ")";
+    if (profile.name === state.profile) {
+      button.classList.add("active");
+      button.setAttribute("aria-current", "page");
+    }
+    row.appendChild(button);
+    list.appendChild(row);
+  });
+}
+
+function markSelected(profile) {
+  profileList().querySelectorAll("button[data-profile]").forEach(function (button) {
+    const selected = button.dataset.profile === profile;
+    button.classList.toggle("active", selected);
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+// Populate the panel list from /v1/profiles and select `preferred` (falling back to the first).
 export function loadProfiles(preferred) {
-  const sel = profileSelect();
-  sel.disabled = true;
+  renderProfileState("Loading profiles…");
   return apiFetch("/v1/profiles", { headers: { Accept: "application/json" } })
     .then(function (r) { if (!r.ok) throw new Error("Request failed (" + r.status + ")."); return r.json(); })
     .then(function (data) {
-      const profiles = (data.profiles || []).slice().sort(function (a, b) {
-        return a.name.localeCompare(b.name);
-      });
+      const profiles = sortedProfiles(data);
       if (!profiles.length) {
-        sel.innerHTML = '<option value="">No profiles</option>';
+        renderProfileState("No profiles");
         renderBanner($("memList"), "No profiles found. Ingest or store a memory first.");
         return;
       }
-      sel.innerHTML = "";
-      profiles.forEach(function (p) {
-        const opt = el("option");
-        opt.value = p.name;
-        opt.textContent = p.name + " (" + p.memoryCount + ")";
-        sel.appendChild(opt);
-      });
-      sel.disabled = false;
       const chosen = (preferred && profiles.some(function (p) {
         return p.name === preferred;
       })) ? preferred : profiles[0].name;
+      renderProfiles(profiles);
       selectProfile(chosen);
     })
     .catch(function (e) {
-      sel.innerHTML = '<option value="">Unavailable</option>';
+      renderProfileState("Profiles unavailable", true);
       renderBanner($("memList"), e.message, true);
     });
 }
 
-// Best-effort re-sync of the selector's per-profile counts after a mutation.
+// Best-effort re-sync of the panel's per-profile counts after a mutation.
 export function refreshProfileCounts() {
-  const sel = profileSelect();
   apiFetch("/v1/profiles", { headers: { Accept: "application/json" } })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (data) {
       if (!data) return;
-      (data.profiles || []).forEach(function (p) {
-        for (let i = 0; i < sel.options.length; i++) {
-          if (sel.options[i].value === p.name) {
-            sel.options[i].textContent = p.name + " (" + p.memoryCount + ")";
-          }
-        }
-      });
+      const profiles = sortedProfiles(data);
+      if (profiles.length) renderProfiles(profiles);
+      else renderProfileState("No profiles");
     }).catch(function () {});
 }
 
 export function selectProfile(profile) {
   if (!profile) return;
-  const sel = profileSelect();
   state.profile = profile;
-  sel.value = profile;
+  markSelected(profile);
   $("profileLabel").textContent = "· " + profile;
   syncUrl();
   loadActiveView(true);   // reload whatever view is active

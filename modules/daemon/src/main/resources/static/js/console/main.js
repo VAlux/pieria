@@ -8,6 +8,7 @@ import { submitAdd } from "./add.js";
 import { submitRecall } from "./recall.js";
 import { exportProfile } from "./export.js";
 import { applyAuditFilters, clearAuditFilters } from "./audit.js";
+import { initSidePanel } from "./side-panel.js";
 
 const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph"];
 let auditSearchTimer = null;
@@ -19,7 +20,10 @@ function applyAuditFiltersNow() {
 }
 
 function wireUp() {
-  $("profileSelect").addEventListener("change", function () { selectProfile($("profileSelect").value); });
+  $("profileList").addEventListener("click", function (e) {
+    const button = e.target.closest("button[data-profile]");
+    if (button) selectProfile(button.dataset.profile);
+  });
   $("nav").addEventListener("click", function (e) {
     const b = e.target.closest("button[data-view]");
     if (b) setView(b.dataset.view);
@@ -58,6 +62,7 @@ function wireUp() {
 }
 
 function boot() {
+  initSidePanel();
   wireUp();
   const params = new URLSearchParams(location.search);
   const initialView = params.get("view");

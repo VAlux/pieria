@@ -5,6 +5,7 @@ import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.parser.pdf.PDFParser;
+import org.apache.tika.parser.pdf.PDFParserConfig;
 import org.apache.tika.sax.BodyContentHandler;
 import org.springframework.stereotype.Component;
 import org.xml.sax.SAXException;
@@ -28,7 +29,20 @@ import java.nio.file.Path;
 @Component
 public class TikaPdfExtractor implements PdfExtractor {
 
+  private static final PDFParserConfig TEXT_ONLY_CONFIG = textOnlyConfig();
+
   private final PDFParser parser = new PDFParser();
+
+  private static PDFParserConfig textOnlyConfig() {
+    PDFParserConfig config = new PDFParserConfig();
+    // Onboarding needs the PDF's existing text, not rendered pages or OCR. Keeping those paths
+    // disabled also prevents PDFBox from reaching AWT image code, which GraalVM native-image does
+    // not currently support on macOS.
+    config.setOcrStrategy(PDFParserConfig.OCR_STRATEGY.NO_OCR);
+    config.setImageStrategy(PDFParserConfig.IMAGE_STRATEGY.NONE);
+    config.setExtractInlineImages(false);
+    return config;
+  }
 
   @Override
   public ExtractedPdf extract(Path pdf) {
@@ -36,8 +50,10 @@ public class TikaPdfExtractor implements PdfExtractor {
     // Hint the resource name so Tika's type detection has the extension to work with.
     metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, pdf.getFileName().toString());
     BodyContentHandler handler = new BodyContentHandler(-1);
+    ParseContext context = new ParseContext();
+    context.set(PDFParserConfig.class, TEXT_ONLY_CONFIG);
     try (InputStream in = Files.newInputStream(pdf)) {
-      parser.parse(in, handler, metadata, new ParseContext());
+      parser.parse(in, handler, metadata, context);
     } catch (IOException | SAXException | TikaException e) {
       throw new PdfExtractException("failed to extract " + pdf.getFileName() + ": " + e.getMessage(), e);
     }

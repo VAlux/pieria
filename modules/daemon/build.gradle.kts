@@ -42,6 +42,17 @@ dependencies {
 		// Drop the activation impl; jakarta.activation-api (below) stays for JAXB's link-time refs.
 		exclude(group = "org.eclipse.angus", module = "angus-activation")
 	}
+	constraints {
+		// Tika 3.3.1 pins PDFBox 3.0.7, whose PDDocument.<clinit> eagerly reaches AWT. PDFBox
+		// 3.0.8 removes that warm-up (PDFBOX-6214), allowing PDDocument and the logging backend to
+		// retain their normal runtime initialization in a macOS native image. Keep all PDFBox 3.x
+		// modules aligned, and remove these constraints once a Tika upgrade supplies 3.0.8 or later.
+		implementation("org.apache.pdfbox:fontbox:3.0.8")
+		implementation("org.apache.pdfbox:pdfbox:3.0.8")
+		implementation("org.apache.pdfbox:pdfbox-io:3.0.8")
+		implementation("org.apache.pdfbox:pdfbox-tools:3.0.8")
+		implementation("org.apache.pdfbox:xmpbox:3.0.8")
+	}
 	// JAXB links against the activation API; keep it even though the angus impl is excluded above.
 	implementation("jakarta.activation:jakarta.activation-api:2.1.4")
 	runtimeOnly("org.xerial:sqlite-jdbc")

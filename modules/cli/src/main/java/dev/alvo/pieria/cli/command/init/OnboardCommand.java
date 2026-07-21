@@ -23,8 +23,10 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -263,23 +265,24 @@ public final class OnboardCommand implements Callable<Integer> {
       reporter.finish();
       if ("SUCCEEDED".equals(task.status())) {
         PlanSuccess success = planSuccess(task.result());
-        for (int i = 0; i < success.sources().size(); i++) {
-          Source source = i < sources.size() ? sources.get(i)
-            : new Source(success.sources().get(i).sourceType(), null);
-          report(source, success.sources().get(i));
-        }
+        reportSources(sources, success);
+        int enrichmentExit = 0;
         if (success.graphTaskId() != null && !success.graphTaskId().isBlank()) {
           log.info("Core ready. Graph enrichment queued as task {} for {} candidate(s).",
             success.graphTaskId(), success.graphCandidates());
           if (waitForEnrichment) {
-            return awaitEnrichment(tasks, success.graphTaskId());
+            enrichmentExit = awaitEnrichment(tasks, success.graphTaskId());
           }
         } else if (noEnrichGraph) {
           log.info("Core ready. Graph enrichment was skipped.");
         } else {
           log.info("Core ready. No graph enrichment candidates remain.");
         }
-        return 0;
+        reportErrors(sources, success.errors());
+        if (enrichmentExit != 0) {
+          return enrichmentExit;
+        }
+        return success.errors().isEmpty() ? 0 : 1;
       }
       if ("model-unavailable".equals(task.errorKind())) {
         log.error("The daemon is up but a core onboarding model call failed.");
@@ -311,6 +314,44 @@ public final class OnboardCommand implements Callable<Integer> {
       reporter.finish();
       log.error("Onboard failed (HTTP -1): {}", e.getMessage());
       return 1;
+    }
+  }
+
+  /** Report successful source results while accounting for failed sources omitted from the list. */
+  private void reportSources(List<Source> requested, PlanSuccess success) {
+    Set<Integer> failed = new HashSet<>();
+    for (SourceFailure error : success.errors()) {
+      if (error.sourceNumber() > 0) {
+        failed.add(error.sourceNumber());
+      }
+    }
+
+    int resultIndex = 0;
+    for (int i = 0; i < requested.size() && resultIndex < success.sources().size(); i++) {
+      if (failed.contains(i + 1)) {
+        continue;
+      }
+      report(requested.get(i), success.sources().get(resultIndex++));
+    }
+    while (resultIndex < success.sources().size()) {
+      Success result = success.sources().get(resultIndex++);
+      report(new Source(result.sourceType(), null), result);
+    }
+  }
+
+  /** Print the complete non-fatal source error list after every source has been attempted. */
+  private void reportErrors(List<Source> sources, List<SourceFailure> errors) {
+    if (errors.isEmpty()) {
+      return;
+    }
+    log.error("Onboarding completed with {} source error{}:", errors.size(),
+      errors.size() == 1 ? "" : "s");
+    for (SourceFailure error : errors) {
+      String label = error.sourceNumber() > 0 && error.sourceNumber() <= sources.size()
+        ? sources.get(error.sourceNumber() - 1).label()
+        : error.sourceType();
+      log.error("  - source {}/{} ({}): {}: {}", error.sourceNumber(), sources.size(), label,
+        error.errorType(), error.message());
     }
   }
 
@@ -417,7 +458,7 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private static PlanSuccess planSuccess(tools.jackson.databind.JsonNode result) {
     if (result == null) {
-      return new PlanSuccess(List.of(), null, 0);
+      return new PlanSuccess(List.of(), null, 0, List.of());
     }
     List<Success> sources = new ArrayList<>();
     var values = result.get("sources");
@@ -426,8 +467,16 @@ public final class OnboardCommand implements Callable<Integer> {
         sources.add(success(value));
       }
     }
+    List<SourceFailure> errors = new ArrayList<>();
+    var errorValues = result.get("errors");
+    if (errorValues != null && errorValues.isArray()) {
+      for (var value : errorValues) {
+        errors.add(new SourceFailure(integer(value, "sourceNumber", 0),
+          text(value, "sourceType"), text(value, "errorType"), text(value, "message")));
+      }
+    }
     return new PlanSuccess(sources, nullableText(result, "graphEnrichmentTaskId"),
-      integer(result, "graphCandidates", 0));
+      integer(result, "graphCandidates", 0), errors);
   }
 
   private static String text(tools.jackson.databind.JsonNode node, String field) {
@@ -451,7 +500,10 @@ public final class OnboardCommand implements Callable<Integer> {
                          Integer documentsSkipped,
                          Integer symbols, Integer edges, Integer summariesStored) { }
 
-  private record PlanSuccess(List<Success> sources, String graphTaskId, int graphCandidates) { }
+  private record SourceFailure(int sourceNumber, String sourceType, String errorType, String message) { }
+
+  private record PlanSuccess(List<Success> sources, String graphTaskId, int graphCandidates,
+                             List<SourceFailure> errors) { }
 
   /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */
   private record Source(String label, SourceSpec spec) {

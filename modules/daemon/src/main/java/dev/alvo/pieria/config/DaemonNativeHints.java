@@ -4,6 +4,7 @@ import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
+import dev.alvo.pieria.onboarding.OnboardError;
 import dev.alvo.pieria.onboarding.OnboardResult;
 import dev.alvo.pieria.onboarding.OnboardPlanResult;
 import dev.alvo.pieria.reminiscence.ReminiscenceResult;
@@ -127,6 +128,7 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
 
   private static Class<?>[] taskResultTypes() {
     return new Class<?>[] {
+      OnboardError.class,
       OnboardResult.class,
       OnboardPlanResult.class,
       ReminiscenceResult.class

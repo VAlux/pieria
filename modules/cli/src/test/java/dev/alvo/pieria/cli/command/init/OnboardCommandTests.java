@@ -290,6 +290,35 @@ class OnboardCommandTests {
     }
   }
 
+  @Test
+  void partialFailureReportsAllErrorsAfterLaterSourcesAndReturnsOne(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/onboard/async", 202, "{\"taskId\":\"t1\"}");
+      daemon.stub("/tasks/t1", 200,
+        "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":["
+          + "{\"sourceType\":\"markdown\",\"documents\":1,\"memoriesStored\":2},"
+          + "{\"sourceType\":\"text\",\"documents\":0,\"memoriesStored\":0},"
+          + "{\"sourceType\":\"source-code\",\"documents\":2,\"memoriesStored\":2,"
+          + "\"symbols\":8,\"edges\":3,\"summariesStored\":0}],"
+          + "\"errors\":[{\"sourceNumber\":3,\"sourceType\":\"pdf\","
+          + "\"errorType\":\"UnsatisfiedLinkError\",\"message\":\"Can't load library: awt\"}]}}" );
+
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.sourceCode = true;
+      Result result = run(cmd);
+
+      assertThat(result.code()).isEqualTo(1);
+      assertThat(result.out())
+        .contains("Done (markdown documentation). Stored 2 memories")
+        .contains("Done (source-code index). Indexed 2 file(s), 8 symbol(s), 3 edge(s)")
+        .contains("Core ready");
+      assertThat(result.err())
+        .contains("Onboarding completed with 1 source error:")
+        .contains("source 3/4 (PDF documents): UnsatisfiedLinkError: Can't load library: awt");
+    }
+  }
+
   private static int count(String value, String needle) {
     return (value.length() - value.replace(needle, "").length()) / needle.length();
   }

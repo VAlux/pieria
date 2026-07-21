@@ -1,11 +1,17 @@
 package dev.alvo.pieria.config;
 
 import dev.alvo.pieria.model.OpenAiModelGateway;
+import dev.alvo.pieria.onboarding.OnboardError;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.junit.jupiter.api.Test;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,6 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * reflection always works), catching a missing hint at test time instead of in the native binary.
  */
 class DaemonNativeHintsTests {
+
+  private static final String NATIVE_IMAGE_PROPERTIES =
+    "META-INF/native-image/dev.alvo/pieria-daemon/native-image.properties";
 
   @Test
   void everyStructuredOutputRecordIsRegisteredForNativeReflection() {
@@ -52,5 +61,38 @@ class DaemonNativeHintsTests {
       .as("com.openai.models.ErrorObject needs declared-constructor + declared-method hints so the "
         + "SDK can parse provider error bodies in the native daemon")
       .isTrue();
+  }
+
+  @Test
+  void onboardingErrorIsRegisteredForTaskResultSerialization() {
+    RuntimeHints hints = new RuntimeHints();
+    new DaemonNativeHints().registerHints(hints, getClass().getClassLoader());
+
+    assertThat(RuntimeHintsPredicates.reflection().onType(OnboardError.class).test(hints))
+      .as("onboarding errors are serialized inside the async task result")
+      .isTrue();
+  }
+
+  @Test
+  void pdfBoxNativeRuntimeRequirementsAreConfigured() throws IOException {
+    Properties properties = new Properties();
+    try (InputStream in = getClass().getClassLoader().getResourceAsStream(NATIVE_IMAGE_PROPERTIES)) {
+      assertThat(in).as("missing %s", NATIVE_IMAGE_PROPERTIES).isNotNull();
+      properties.load(in);
+    }
+
+    assertThat(properties.getProperty("Args"))
+      .as("PDFBox needs Windows-1252 without capturing PDFBox or logging state in the image heap")
+      .contains("-H:+AddAllCharsets")
+      .doesNotContain("--initialize-at-build-time=org.apache.pdfbox")
+      .doesNotContain("org.apache.commons.logging")
+      .doesNotContain("ch.qos.logback");
+  }
+
+  @Test
+  void pdfBoxIncludesTheNativeImageInitializationFix() {
+    assertThat(PDDocument.class.getPackage().getImplementationVersion())
+      .as("PDFBox 3.0.8 contains PDFBOX-6214 and no longer warms up AWT in PDDocument.<clinit>")
+      .isEqualTo("3.0.8");
   }
 }
