@@ -6,8 +6,11 @@ import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.graph.GraphSnapshot;
+import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.NeighborHop;
+import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -1030,6 +1033,11 @@ public class SqliteMemoryStore implements MemoryStore {
 
   private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
 
+  /** Edge columns qualified with the {@code e} alias — {@code edges} and {@code memories} share
+   *  {@code id}, {@code profile_id} and {@code created_at}, so any query joining both must qualify. */
+  private static final String EDGE_COLUMNS =
+    "e.id, e.profile_id, e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, e.created_at";
+
   private static Entity mapEntity(ResultSet rs) throws SQLException {
     return new Entity(
       rs.getString("id"),
@@ -1037,6 +1045,17 @@ public class SqliteMemoryStore implements MemoryStore {
       rs.getString("type"),
       rs.getString("name"),
       rs.getString("payload"),
+      Instant.parse(rs.getString("created_at")));
+  }
+
+  private static Edge mapEdge(ResultSet rs) throws SQLException {
+    return new Edge(
+      rs.getString("id"),
+      rs.getString("profile_id"),
+      rs.getString("source_entity_id"),
+      rs.getString("target_entity_id"),
+      rs.getString("relation"),
+      rs.getString("memory_id"),
       Instant.parse(rs.getString("created_at")));
   }
 
@@ -1269,30 +1288,56 @@ public class SqliteMemoryStore implements MemoryStore {
    * bounded by {@code fanout}. Returns distinct neighbor entity ids in that order.
    */
   private List<String> activeNeighbors(String profileId, List<String> frontier, int fanout) {
+    return activeNeighbors(profileId, frontier, fanout, List.of());
+  }
+
+  /**
+   * As above, but keeping only neighbours whose entity type is in {@code types} ({@code types}
+   * empty means no type restriction). The filter is applied in SQL so {@code fanout} bounds the
+   * neighbours the caller actually wants rather than being spent on filtered-out rows.
+   */
+  private List<String> activeNeighbors(String profileId, List<String> frontier, int fanout,
+                                       List<String> types) {
     if (frontier.isEmpty() || fanout <= 0) {
       return List.of();
     }
-    String placeholders = String.join(", ", frontier.stream().map(_ -> "?").toList());
+    // One branch per direction, each an index-friendly equality lookup on the frontier. A single
+    // OR'd predicate would defeat idx_edge_source / idx_edge_target.
+    String outgoing = neighborBranch("e.source_entity_id", "e.target_entity_id", frontier, types);
+    String incoming = neighborBranch("e.target_entity_id", "e.source_entity_id", frontier, types);
+
     List<Object> params = new ArrayList<>();
     params.add(profileId);
     params.addAll(frontier);
+    params.addAll(types);
     params.add(profileId);
     params.addAll(frontier);
+    params.addAll(types);
     params.add(fanout);
-    List<String> rows = jdbc.sql("SELECT neighbor FROM ( "
-        + "  SELECT e.target_entity_id AS neighbor, e.created_at AS ca FROM edges e "
-        + "    JOIN memories m ON m.id = e.memory_id "
-        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.source_entity_id IN (" + placeholders + ") "
-        + "  UNION ALL "
-        + "  SELECT e.source_entity_id AS neighbor, e.created_at AS ca FROM edges e "
-        + "    JOIN memories m ON m.id = e.memory_id "
-        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.target_entity_id IN (" + placeholders + ") "
-        + ") ORDER BY ca DESC, neighbor ASC LIMIT ?")
+
+    List<String> rows = jdbc.sql("SELECT neighbor FROM ( " + outgoing + " UNION ALL " + incoming
+        + " ) ORDER BY ca DESC, neighbor ASC LIMIT ?")
       .params(params)
       .query(String.class)
       .list();
-    LinkedHashSet<String> distinct = new LinkedHashSet<>(rows);
-    return List.copyOf(distinct);
+    return List.copyOf(new LinkedHashSet<>(rows));
+  }
+
+  /**
+   * One direction of the neighbour lookup: match the frontier on {@code fromColumn}, return the
+   * entity on {@code toColumn}. Parameters bind in the order (profileId, frontier…, types…).
+   */
+  private static String neighborBranch(String fromColumn, String toColumn,
+                                       List<String> frontier, List<String> types) {
+    String frontierParams = String.join(", ", frontier.stream().map(_ -> "?").toList());
+    String typeJoin = types.isEmpty() ? ""
+      : " JOIN entities en ON en.id = " + toColumn;
+    String typeFilter = types.isEmpty() ? ""
+      : " AND en.type IN (" + String.join(", ", types.stream().map(_ -> "?").toList()) + ")";
+    return "SELECT " + toColumn + " AS neighbor, e.created_at AS ca FROM edges e "
+      + "JOIN memories m ON m.id = e.memory_id" + typeJoin + " "
+      + "WHERE e.profile_id = ? AND m.superseded = 0 AND " + fromColumn + " IN (" + frontierParams + ")"
+      + typeFilter;
   }
 
   @Override
@@ -1380,36 +1425,266 @@ public class SqliteMemoryStore implements MemoryStore {
       .list();
   }
 
-  @Override
-  public GraphSnapshot graphSnapshot(String profileId) {
-    // Active edges (source memory not superseded) with a snippet of the provenance memory. Newest
-    // first so the viewer's link list reads most-recent-first.
-    List<GraphSnapshot.Link> links = jdbc.sql(
-        "SELECT e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, m.content "
-          + "FROM edges e JOIN memories m ON m.id = e.memory_id "
-          + "WHERE e.profile_id = ? AND m.superseded = 0 "
-          + "ORDER BY e.created_at DESC, e.id")
-      .param(profileId)
-      .query((rs, _) -> new GraphSnapshot.Link(
-        rs.getString("source_entity_id"),
-        rs.getString("target_entity_id"),
-        rs.getString("relation"),
-        rs.getString("memory_id"),
-        rs.getString("content")))
-      .list();
+  // ---- graph explorer reads ------------------------------------------------------------------
+  //
+  // Every query below reaches the edges table through an equality predicate that idx_edge_source or
+  // idx_edge_target can serve. Correlating entities and edges with a single
+  // `ON (source = id OR target = id)` predicate instead defeats both indexes and degrades to a full
+  // memories scan per entity — on a 45k-edge profile that is the difference between 60ms and 180s.
 
-    // Only entities that are an endpoint of an active edge — isolated nodes have nothing to draw.
-    List<Entity> nodes = jdbc.sql(
-        "SELECT DISTINCT en.id, en.profile_id, en.type, en.name, en.payload, en.created_at "
-          + "FROM entities en "
-          + "JOIN edges e ON (e.source_entity_id = en.id OR e.target_entity_id = en.id) "
-          + "JOIN memories m ON m.id = e.memory_id "
-          + "WHERE en.profile_id = ? AND m.superseded = 0 "
-          + "ORDER BY en.name")
+  /** The ids of every entity an active edge touches, as a subquery. Binds profileId twice. */
+  private static final String CONNECTED_ENTITY_IDS = """
+    SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
+      WHERE e.profile_id = ? AND m.superseded = 0 \
+    UNION \
+    SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
+      WHERE e.profile_id = ? AND m.superseded = 0""";
+
+  @Override
+  public GraphCounts graphCounts(String profileId) {
+    int edges = jdbc.sql("SELECT COUNT(*) FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "WHERE e.profile_id = ? AND m.superseded = 0")
       .param(profileId)
+      .query(Integer.class)
+      .single();
+
+    int entities = jdbc.sql("SELECT COUNT(*) FROM entities en WHERE en.profile_id = ? "
+        + "AND en.id IN (" + CONNECTED_ENTITY_IDS + ")")
+      .params(profileId, profileId, profileId)
+      .query(Integer.class)
+      .single();
+
+    return new GraphCounts(entities, edges);
+  }
+
+  @Override
+  public Map<String, Integer> entityTypeCounts(String profileId) {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    jdbc.sql("SELECT type, COUNT(*) AS c FROM entities WHERE profile_id = ? "
+        + "GROUP BY type ORDER BY c DESC, type ASC")
+      .param(profileId)
+      .query((rs, _) -> Map.entry(rs.getString("type"), rs.getInt("c")))
+      .list()
+      .forEach(e -> counts.put(e.getKey(), e.getValue()));
+    return counts;
+  }
+
+  @Override
+  public List<RankedEntity> topEntitiesByDegree(String profileId, List<String> types, int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    List<String> typeFilter = cleaned(types);
+    String typeClause = typeFilter.isEmpty() ? ""
+      : " AND en.type IN (" + String.join(", ", typeFilter.stream().map(_ -> "?").toList()) + ")";
+
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.add(profileId);
+    params.add(profileId);
+    params.addAll(typeFilter);
+    params.add(limit);
+
+    return jdbc.sql("SELECT en.id, en.profile_id, en.type, en.name, en.payload, en.created_at, d.deg "
+        + "FROM (SELECT eid, COUNT(*) AS deg FROM (" + degreeRows() + ") GROUP BY eid) d "
+        + "JOIN entities en ON en.id = d.eid "
+        + "WHERE en.profile_id = ?" + typeClause + " "
+        + "ORDER BY d.deg DESC, en.name ASC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> new RankedEntity(mapEntity(rs), rs.getInt("deg")))
+      .list();
+  }
+
+  @Override
+  public List<RankedEntity> searchEntities(String profileId, String query, List<String> types, int limit) {
+    if (query == null || query.isBlank() || limit <= 0) {
+      return List.of();
+    }
+    List<String> typeFilter = cleaned(types);
+    String typeClause = typeFilter.isEmpty() ? ""
+      : " AND type IN (" + String.join(", ", typeFilter.stream().map(_ -> "?").toList()) + ")";
+
+    // Names are stored already normalized (lowercased, collapsed) and SQLite's LIKE is
+    // case-insensitive for ASCII, so a bare substring match is the right lookup here.
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.add("%" + escapeLike(query.trim()) + "%");
+    params.addAll(typeFilter);
+    // Match on name (indexed prefix scan degrades to a profile-scoped scan for infix matches), then
+    // rank the shortlist by degree. Over-fetch so the degree ranking has something to choose from
+    // rather than just returning the alphabetically-first `limit` matches.
+    params.add(Math.min(limit * 5, 500));
+
+    List<Entity> matches = jdbc.sql("SELECT " + ENTITY_COLUMNS + " FROM entities "
+        + "WHERE profile_id = ? AND name LIKE ? ESCAPE '\\'" + typeClause + " "
+        + "ORDER BY LENGTH(name) ASC, name ASC LIMIT ?")
+      .params(params)
       .query((rs, _) -> mapEntity(rs))
       .list();
+    if (matches.isEmpty()) {
+      return List.of();
+    }
 
-    return new GraphSnapshot(nodes, links);
+    Map<String, Integer> degrees = entityDegrees(profileId, matches.stream().map(Entity::id).toList());
+    return matches.stream()
+      .map(e -> new RankedEntity(e, degrees.getOrDefault(e.id(), 0)))
+      .sorted(Comparator.comparingInt(RankedEntity::degree).reversed()
+        .thenComparing(r -> r.entity().name()))
+      .limit(limit)
+      .toList();
+  }
+
+  @Override
+  public List<NeighborHop> graphNeighborhood(String profileId, String seedEntityId, int depth,
+                                             List<String> types, int fanout) {
+    if (seedEntityId == null || seedEntityId.isBlank()) {
+      return List.of();
+    }
+    List<String> typeFilter = cleaned(types);
+    List<NeighborHop> result = new ArrayList<>();
+    LinkedHashSet<String> visited = new LinkedHashSet<>();
+    visited.add(seedEntityId);
+    result.add(new NeighborHop(seedEntityId, 0));
+
+    List<String> frontier = List.of(seedEntityId);
+    for (int hop = 1; hop <= Math.max(0, depth) && !frontier.isEmpty(); hop++) {
+      List<String> next = new ArrayList<>();
+      for (String neighbor : activeNeighbors(profileId, frontier, fanout, typeFilter)) {
+        if (visited.add(neighbor)) {
+          next.add(neighbor);
+          result.add(new NeighborHop(neighbor, hop));
+        }
+      }
+      frontier = next;
+    }
+    return List.copyOf(result);
+  }
+
+  @Override
+  public List<Edge> inducedEdges(String profileId, List<String> entityIds) {
+    List<String> distinct = cleaned(entityIds);
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.addAll(distinct);
+
+    return jdbc.sql("SELECT " + EDGE_COLUMNS + " "
+        + "FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "WHERE e.profile_id = ? AND m.superseded = 0 "
+        + "AND e.source_entity_id IN (" + placeholders + ") "
+        + "AND e.target_entity_id IN (" + placeholders + ") "
+        + "ORDER BY e.created_at DESC, e.id ASC")
+      .params(params)
+      .query((rs, _) -> mapEdge(rs))
+      .list();
+  }
+
+  @Override
+  public List<Entity> findEntitiesByIds(String profileId, List<String> entityIds) {
+    List<String> distinct = cleaned(entityIds);
+    if (distinct.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+
+    return jdbc.sql("SELECT " + ENTITY_COLUMNS + " FROM entities "
+        + "WHERE profile_id = ? AND id IN (" + placeholders + ")")
+      .params(params)
+      .query((rs, _) -> mapEntity(rs))
+      .list();
+  }
+
+  @Override
+  public Map<String, Integer> entityDegrees(String profileId, List<String> entityIds) {
+    List<String> distinct = cleaned(entityIds);
+    if (distinct.isEmpty()) {
+      return Map.of();
+    }
+    String placeholders = String.join(", ", distinct.stream().map(_ -> "?").toList());
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(distinct);
+    params.add(profileId);
+    params.addAll(distinct);
+
+    Map<String, Integer> degrees = new HashMap<>();
+    jdbc.sql("SELECT eid, COUNT(*) AS deg FROM ( "
+        + "  SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 "
+        + "    AND e.source_entity_id IN (" + placeholders + ") "
+        + "  UNION ALL "
+        + "  SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 "
+        + "    AND e.target_entity_id IN (" + placeholders + ") "
+        + ") GROUP BY eid")
+      .params(params)
+      .query((rs, _) -> Map.entry(rs.getString("eid"), rs.getInt("deg")))
+      .list()
+      .forEach(e -> degrees.put(e.getKey(), e.getValue()));
+    return degrees;
+  }
+
+  @Override
+  public List<IncidentEdge> incidentEdges(String profileId, String entityId, int limit) {
+    if (entityId == null || entityId.isBlank() || limit <= 0) {
+      return List.of();
+    }
+    // Two indexed equality branches rather than one OR'd predicate, then the far-end entity joined
+    // on the id the branch already produced.
+    return jdbc.sql("SELECT x.id, x.profile_id, x.source_entity_id, x.target_entity_id, "
+        + "x.relation, x.memory_id, x.created_at, x.outgoing, "
+        + "o.id AS o_id, o.profile_id AS o_profile_id, o.type AS o_type, o.name AS o_name, "
+        + "o.payload AS o_payload, o.created_at AS o_created_at "
+        + "FROM ( "
+        + "  SELECT " + EDGE_COLUMNS + ", 1 AS outgoing, e.target_entity_id AS other_id "
+        + "    FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.source_entity_id = ? "
+        + "  UNION ALL "
+        + "  SELECT " + EDGE_COLUMNS + ", 0 AS outgoing, e.source_entity_id AS other_id "
+        + "    FROM edges e JOIN memories m ON m.id = e.memory_id "
+        + "    WHERE e.profile_id = ? AND m.superseded = 0 AND e.target_entity_id = ? "
+        + ") x JOIN entities o ON o.id = x.other_id "
+        + "ORDER BY x.created_at DESC, x.id ASC LIMIT ?")
+      .params(profileId, entityId, profileId, entityId, limit)
+      .query((rs, _) -> new IncidentEdge(
+        mapEdge(rs),
+        new Entity(
+          rs.getString("o_id"),
+          rs.getString("o_profile_id"),
+          rs.getString("o_type"),
+          rs.getString("o_name"),
+          rs.getString("o_payload"),
+          Instant.parse(rs.getString("o_created_at"))),
+        rs.getInt("outgoing") == 1))
+      .list();
+  }
+
+  /** Degree source rows: every active-edge endpoint, once per incidence. Binds profileId twice. */
+  private static String degreeRows() {
+    return "SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id "
+      + "  WHERE e.profile_id = ? AND m.superseded = 0 "
+      + "UNION ALL "
+      + "SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id "
+      + "  WHERE e.profile_id = ? AND m.superseded = 0";
+  }
+
+  /** Null-safe, blank-free, order-preserving de-duplication for id / type parameter lists. */
+  private static List<String> cleaned(List<String> values) {
+    if (values == null || values.isEmpty()) {
+      return List.of();
+    }
+    return values.stream().filter(v -> v != null && !v.isBlank()).distinct().toList();
+  }
+
+  /** Escape LIKE wildcards so a user's {@code %} or {@code _} matches literally. */
+  private static String escapeLike(String value) {
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }
 }

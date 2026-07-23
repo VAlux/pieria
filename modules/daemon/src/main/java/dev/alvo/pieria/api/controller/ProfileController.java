@@ -5,7 +5,6 @@ import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.ExportLineResponse;
-import dev.alvo.pieria.api.response.GraphResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
@@ -21,7 +20,6 @@ import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.domain.ExportRow;
-import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -53,9 +51,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
-import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -328,37 +323,6 @@ public class ProfileController {
   public ResponseEntity<Void> forget(@PathVariable String name, @PathVariable String id) {
     profileService.forget(name, id);
     return ResponseEntity.noContent().build();
-  }
-
-  /**
-   * The profile's entity-relation graph as node/link JSON for the force-directed viewer. Only
-   * entities connected by an edge off an active (non-superseded) memory are returned. Edge
-   * provenance snippets are truncated for a compact payload.
-   */
-  @GetMapping("/graph")
-  public GraphResponse graph(@PathVariable String name) {
-    GraphSnapshot snapshot = profileService.graph(name);
-
-    List<GraphResponse.Node> nodes = snapshot.nodes().stream()
-      .map(e -> new GraphResponse.Node(e.id(), e.type(), e.name()))
-      .toList();
-    List<GraphResponse.Link> links = snapshot.links().stream()
-      .map(l -> new GraphResponse.Link(l.sourceEntityId(), l.targetEntityId(), l.relation(),
-        l.memoryId(), oneLine(l.memoryContent(), 200)))
-      .toList();
-
-    return new GraphResponse(nodes, links);
-  }
-
-  /**
-   * Convenience entry point for humans: redirect to the console's graph tab with this profile
-   * pre-selected, so {@code /v1/profiles/{name}/graph/view} opens a ready-to-use page.
-   */
-  @GetMapping("/graph/view")
-  public ResponseEntity<Void> graphView(@PathVariable String name) {
-    var viewer = URI.create("/index.html?view=graph&profile=%s"
-      .formatted(URLEncoder.encode(name, StandardCharsets.UTF_8)));
-    return ResponseEntity.status(HttpStatus.FOUND).location(viewer).build();
   }
 
   @GetMapping(value = "/export", produces = NDJSON)

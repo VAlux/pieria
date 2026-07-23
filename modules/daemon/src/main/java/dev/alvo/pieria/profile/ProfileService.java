@@ -2,7 +2,6 @@ package dev.alvo.pieria.profile;
 
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.error.NotFoundException;
-import dev.alvo.pieria.domain.graph.GraphSnapshot;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -44,11 +43,6 @@ public class ProfileService {
     if (!store.forgetMemory(profile.id(), memoryId)) {
       throw NotFoundException.memory(memoryId);
     }
-  }
-
-  public GraphSnapshot graph(String name) {
-    Profile profile = findOrThrow(name);
-    return store.graphSnapshot(profile.id());
   }
 
   public List<ExportRow> export(String name) {

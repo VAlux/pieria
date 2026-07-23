@@ -363,43 +363,6 @@ class ProfileApiTests {
       .andExpect(status().isNoContent());
   }
 
-  @Test
-  void graphReturnsNodesAndLinksWithProvenance() throws Exception {
-    Profile p = store.getOrCreateProfile("graphtest");
-    store.insertMemory(p.id(), dev.alvo.pieria.domain.memory.Memory.of(
-      dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta", "s1", null, null));
-    String memId = dev.alvo.pieria.domain.ContentId.forMemory(p.id(), "s1",
-      dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta");
-    var alpha = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "alpha", "{}"));
-    var beta = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "beta", "{}"));
-    store.upsertEdge(p.id(), new dev.alvo.pieria.domain.graph.Edge(
-      null, p.id(), alpha.id(), beta.id(), "uses", memId, null));
-
-    mvc.perform(get("/v1/profiles/graphtest/graph"))
-      .andExpect(status().isOk())
-      .andExpect(jsonPath("$.nodes", org.hamcrest.Matchers.hasSize(2)))
-      .andExpect(jsonPath("$.links", org.hamcrest.Matchers.hasSize(1)))
-      .andExpect(jsonPath("$.links[0].relation", is("uses")))
-      .andExpect(jsonPath("$.links[0].source", is(alpha.id())))
-      .andExpect(jsonPath("$.links[0].target", is(beta.id())))
-      .andExpect(jsonPath("$.links[0].memory", is("alpha uses beta")));
-  }
-
-  @Test
-  void graphOnMissingProfileIsNotFound() throws Exception {
-    mvc.perform(get("/v1/profiles/ghost/graph"))
-      .andExpect(status().isNotFound())
-      .andExpect(jsonPath("$.error", is("not_found")));
-  }
-
-  @Test
-  void graphViewRedirectsToStaticViewerWithProfile() throws Exception {
-    mvc.perform(get("/v1/profiles/alice/graph/view"))
-      .andExpect(status().isFound())
-      .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
-        .redirectedUrl("/index.html?view=graph&profile=alice"));
-  }
-
   private String remember() throws Exception {
     String response = mvc.perform(post("/v1/profiles/alice/memories")
         .contentType("application/json")

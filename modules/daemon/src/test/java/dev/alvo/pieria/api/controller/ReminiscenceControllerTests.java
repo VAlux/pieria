@@ -99,7 +99,7 @@ class ReminiscenceControllerTests {
     assertThat(terminal.status().name()).isEqualTo("SUCCEEDED");
     assertThat(terminal.result().get("memoriesScanned").asInt()).isEqualTo(2);
     assertThat(terminal.result().get("memoriesAdopted").asInt()).isEqualTo(2);
-    assertThat(store.graphSnapshot(p.id()).links()).isNotEmpty();
+    assertThat(store.graphCounts(p.id()).edgeCount()).isPositive();
   }
 
   @Test
@@ -108,7 +108,7 @@ class ReminiscenceControllerTests {
 
     assertThat(controller.orphans("ctl-count").orphans()).isEqualTo(3L);
     // Dry-run only: nothing was adopted.
-    assertThat(store.graphSnapshot(p.id()).links()).isEmpty();
+    assertThat(store.graphCounts(p.id()).edgeCount()).isZero();
     assertThat(store.countGraphOrphans(p.id())).isEqualTo(3L);
   }
 }

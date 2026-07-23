@@ -1,0 +1,40 @@
+d3-force — vendored third-party dependency
+==========================================
+
+File:    d3-force.js
+Package: d3-force@3.0.0  (https://github.com/d3/d3-force)
+License: ISC (reproduced below)
+
+Why it is checked in
+--------------------
+The console is served straight out of the daemon jar and must work with no network access and no
+build step, so the dependency is committed rather than fetched or bundled at build time.
+
+The file is the pre-bundled ES module, which already inlines d3-force's own dependencies
+(d3-quadtree, d3-dispatch, d3-timer) and imports nothing at runtime. That matters: the plain
+`+esm` builds served by some CDNs keep live CDN imports and would break offline.
+
+Regenerating
+------------
+    curl -s "https://esm.sh/d3-force@3.0.0/es2022/d3-force.bundle.mjs" -o d3-force.js
+
+After regenerating, verify it is still self-contained — this must print nothing:
+
+    grep -o 'from *"[^"]*"' d3-force.js
+
+
+ISC License
+-----------
+Copyright 2010-2021 Mike Bostock
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.

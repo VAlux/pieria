@@ -3,10 +3,11 @@ import { state } from "./state.js";
 import { loadMemories } from "./memories.js";
 import { loadStats } from "./stats.js";
 import { loadAudit } from "./audit.js";
-import { showGraph } from "../graph/index.js";
+import { showGraph, hideGraph } from "../graph/index.js";
 
 // Reflect the active tab in the nav, the visible section, and the URL, then (re)load its data.
 export function setView(view) {
+  const leavingGraph = state.view === "graph" && view !== "graph";
   state.view = view;
   document.querySelectorAll(".nav button").forEach(function (b) {
     b.classList.toggle("active", b.dataset.view === view);
@@ -15,6 +16,9 @@ export function setView(view) {
     s.classList.toggle("active", s.id === "view-" + view);
   });
   document.body.classList.toggle("view-graph", view === "graph");
+  // Hand the graph its own teardown rather than relying on CSS alone: it owns a running
+  // simulation and pointer state that must not keep working behind another tab.
+  if (leavingGraph) hideGraph();
   syncUrl();
   loadActiveView(false);
 }

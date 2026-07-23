@@ -88,7 +88,7 @@ class ReminiscenceServiceTests {
     assertEquals(3, result.memoriesAdopted());   // the NOGRAPH one yields nothing
     assertEquals(6, result.entitiesAdded());      // 2 per adopted memory
     assertEquals(3, result.edgesAdded());         // 1 per adopted memory
-    assertFalse(store.graphSnapshot(p.id()).links().isEmpty());
+    assertTrue(store.graphCounts(p.id()).edgeCount() > 0);
     assertEquals(0L, store.countGraphOrphans(p.id()), "every scanned memory is stamped");
 
     // Re-run: nothing left to adopt.

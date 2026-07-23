@@ -3,8 +3,11 @@ package dev.alvo.pieria.storage;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.graph.GraphSnapshot;
+import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.NeighborHop;
+import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -425,12 +428,85 @@ public interface MemoryStore {
   }
 
   /**
-   * A read-only snapshot of the profile's entity-relation graph for visualization: all active edges
-   * (source memory not superseded) plus the entities they connect. Isolated entities are omitted.
-   * See {@link dev.alvo.pieria.domain.graph.GraphSnapshot}.
+   * Profile-wide graph totals for the explorer's status line: connected entities and active edges.
+   *
+   * <p>Every read below shares one definition of "active": the edge's provenance memory is not
+   * superseded. Entities reachable only through superseded edges are invisible to all of them.
    */
-  default GraphSnapshot graphSnapshot(String profileId) {
-    throw new UnsupportedOperationException("graphSnapshot(...) not implemented");
+  default GraphCounts graphCounts(String profileId) {
+    throw new UnsupportedOperationException("graphCounts(...) not implemented");
+  }
+
+  /**
+   * Entity counts per normalized type across the whole profile, highest count first. Drives the
+   * explorer's type facet, so it counts every entity — including ones no active edge touches.
+   */
+  default Map<String, Integer> entityTypeCounts(String profileId) {
+    throw new UnsupportedOperationException("entityTypeCounts(...) not implemented");
+  }
+
+  /**
+   * The profile's hubs: entities with the highest active-edge degree, capped at {@code limit}.
+   * When {@code types} is non-empty only entities of those types are considered. This is the
+   * explorer's landing set — the whole graph is never returned.
+   */
+  default List<RankedEntity> topEntitiesByDegree(String profileId, List<String> types, int limit) {
+    throw new UnsupportedOperationException("topEntitiesByDegree(...) not implemented");
+  }
+
+  /**
+   * Entity name search for the explorer's search box: case-insensitive substring match over
+   * normalized names, ranked by degree, optionally narrowed to {@code types}, capped at
+   * {@code limit}. Unlike {@link #findEntitiesByName} (exact names, retrieval seeding) this is a
+   * human-facing lookup.
+   */
+  default List<RankedEntity> searchEntities(String profileId, String query, List<String> types, int limit) {
+    throw new UnsupportedOperationException("searchEntities(...) not implemented");
+  }
+
+  /**
+   * Bounded breadth-first walk out from {@code seedEntityId} over active edges, up to {@code depth}
+   * hops and at most {@code fanout} newly-discovered entities per hop, optionally restricted to
+   * {@code types}. Returns the seed (hop {@code 0}) followed by everything reached, in BFS order.
+   *
+   * <p>Distinct from {@link #neighborhood} — that one seeds from many entities and returns bare ids
+   * for the retrieval graph channel; this one carries hop distance and a type filter for the viewer.
+   */
+  default List<NeighborHop> graphNeighborhood(String profileId, String seedEntityId, int depth,
+                                              List<String> types, int fanout) {
+    throw new UnsupportedOperationException("graphNeighborhood(...) not implemented");
+  }
+
+  /**
+   * Active edges with <em>both</em> endpoints inside {@code entityIds} — the edges the viewer can
+   * actually draw once its node set is fixed. Edges leaving the set are omitted rather than drawn
+   * as dangling stubs.
+   */
+  default List<Edge> inducedEdges(String profileId, List<String> entityIds) {
+    throw new UnsupportedOperationException("inducedEdges(...) not implemented");
+  }
+
+  /**
+   * Hydrate entities by id, profile-scoped. Ids not present in the profile are silently skipped.
+   */
+  default List<Entity> findEntitiesByIds(String profileId, List<String> entityIds) {
+    throw new UnsupportedOperationException("findEntitiesByIds(...) not implemented");
+  }
+
+  /**
+   * Active-edge degree per entity id. Ids with no active edge are absent from the map rather than
+   * mapped to zero.
+   */
+  default Map<String, Integer> entityDegrees(String profileId, List<String> entityIds) {
+    throw new UnsupportedOperationException("entityDegrees(...) not implemented");
+  }
+
+  /**
+   * Every active edge touching {@code entityId}, in either direction, with the entity at the far end
+   * resolved, newest first, capped at {@code limit}. Backs the inspector's relation list.
+   */
+  default List<IncidentEdge> incidentEdges(String profileId, String entityId, int limit) {
+    throw new UnsupportedOperationException("incidentEdges(...) not implemented");
   }
 
   /**

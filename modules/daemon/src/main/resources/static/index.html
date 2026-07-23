@@ -196,42 +196,59 @@
 
     <!-- ===== Graph ===== -->
     <section class="view" id="view-graph">
-      <canvas id="graphCanvas"></canvas>
-
       <div class="graph-toolbar">
-        <input id="graphSearch" class="grow" placeholder="highlight nodes…" autocomplete="off">
-        <button id="graphReload" title="Reload graph">Reload</button>
-        <button id="graphFit" title="Fit to screen">Fit</button>
+        <div class="graph-search">
+          <input id="graphSearch" placeholder="search entities…" autocomplete="off"
+                 aria-label="Search entities" aria-autocomplete="list">
+          <div class="graph-search-results" id="graphSearchResults"></div>
+        </div>
+        <label class="graph-depth">
+          <span>Depth</span>
+          <select id="graphDepth" title="How many hops out from the focused entity">
+            <option value="1" selected>1 hop</option>
+            <option value="2">2 hops</option>
+            <option value="3">3 hops</option>
+          </select>
+        </label>
+        <span class="spacer"></span>
+        <button id="graphFit" title="Frame everything currently drawn">Fit</button>
+        <button id="graphReset" title="Back to the profile overview">Reset</button>
       </div>
 
-      <div class="graph-legend" id="graphLegend" style="display:none">
-        <div class="section">
-          <h4>Entity types <span class="muted" id="graphTypeCount"></span></h4>
-          <div id="graphLegendRows"></div>
-        </div>
-        <div class="section">
-          <h4>How to read</h4>
-          <div class="row">
-            <span class="key"><span class="dot dot-sm"></span><span class="dot dot-lg" style="margin-left:3px"></span></span>
-            node size = number of links
-          </div>
-          <div class="row">
-            <span class="key"><span class="edge-line"></span></span>
-            arrow points source → target
-          </div>
-          <div class="row">
-            <span class="key"><span class="glyph">◍</span></span>
-            hover a node or edge for details
-          </div>
-          <div class="row">
-            <span class="key"><span class="glyph">⌕</span></span>
-            “highlight” dims non-matches
-          </div>
-          <div class="row muted">drag to move · scroll to zoom · drag a node to pin</div>
-        </div>
-      </div>
+      <div class="graph-body">
+        <div class="graph-stage">
+          <canvas id="graphCanvas"></canvas>
+          <div class="graph-hover-card" id="graphHoverCard"></div>
+          <div class="graph-status-host" id="graphStatus" style="display:none"></div>
 
-      <div class="graph-stats" id="graphStatsBox" style="display:none"></div>
+          <div class="graph-types" id="graphTypes">
+            <div class="graph-types-header">
+              <h4>Entity types <span class="muted" id="graphTypeSummary"></span></h4>
+              <div class="graph-types-actions">
+                <button id="graphTypeAll" type="button" title="Show every entity type">All</button>
+                <button id="graphTypeNone" type="button" title="Hide every entity type">None</button>
+              </div>
+            </div>
+            <div class="graph-type-list" id="graphTypeList"></div>
+          </div>
+
+          <div class="graph-footer" id="graphFooter"></div>
+        </div>
+
+        <aside class="graph-inspector" id="graphInspector" aria-label="Entity inspector">
+          <header>
+            <span class="chip" id="graphInspectorChip" style="display:none"></span>
+            <h3 id="graphInspectorTitle"></h3>
+            <span class="spacer"></span>
+            <button id="graphInspectorClose" title="Clear selection" style="display:none">✕</button>
+          </header>
+          <div class="graph-inspector-body" id="graphInspectorBody">
+            <div class="graph-inspector-status">
+              Click a node to inspect it. Double-click to pull in its neighbours.
+            </div>
+          </div>
+        </aside>
+      </div>
     </section>
     </main>
   </div>
@@ -249,7 +266,6 @@
   </aside>
 
   <div class="toast" id="toast"></div>
-  <div id="graphTooltip"></div>
 
   <script type="module" src="js/console/main.js"></script>
 </body>

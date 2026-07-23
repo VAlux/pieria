@@ -4,8 +4,11 @@ import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
-import dev.alvo.pieria.domain.graph.GraphSnapshot;
+import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.NeighborHop;
+import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -199,11 +202,6 @@ class StubMemoryStore implements MemoryStore {
 
   @Override
   public List<String> neighborhood(String profileId, List<String> seedEntityIds, int depth, int fanout) {
-    return List.of();
-  }
-
-  @Override
-  public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
     return List.of();
   }
 
@@ -440,31 +438,199 @@ class StubMemoryStore implements MemoryStore {
       : ContentId.forEdge(profileId, edge.sourceEntityId(), edge.relation(), edge.targetEntityId(), edge.memoryId());
     Edge stored = new Edge(id, profileId, edge.sourceEntityId(), edge.targetEntityId(),
       edge.relation(), edge.memoryId(), edge.createdAt() == null ? Instant.now() : edge.createdAt());
-    edges.computeIfAbsent(profileId, k -> new ArrayList<>()).add(stored);
+    // Insert-or-ignore on the content-addressed id, mirroring the real store: re-upserting the same
+    // edge must not duplicate it.
+    List<Edge> profileEdges = edges.computeIfAbsent(profileId, k -> new ArrayList<>());
+    if (profileEdges.stream().noneMatch(e -> e.id().equals(id))) {
+      profileEdges.add(stored);
+    }
     return stored;
   }
 
-  @Override
-  public GraphSnapshot graphSnapshot(String profileId) {
+  /** Edges whose provenance memory is still active — the predicate every graph read shares. */
+  private List<Edge> activeEdges(String profileId) {
     Map<String, Memory> mem = memories.getOrDefault(profileId, Map.of());
-    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
-
-    List<GraphSnapshot.Link> links = new ArrayList<>();
-    java.util.LinkedHashSet<String> connected = new java.util.LinkedHashSet<>();
-    for (Edge e : edges.getOrDefault(profileId, List.of())) {
-      Memory m = mem.get(e.memoryId());
-      if (m == null || m.superseded()) {
-        continue; // edge is off a superseded (or missing) memory
-      }
-      links.add(new GraphSnapshot.Link(e.sourceEntityId(), e.targetEntityId(), e.relation(),
-        e.memoryId(), m.content()));
-      connected.add(e.sourceEntityId());
-      connected.add(e.targetEntityId());
-    }
-    List<Entity> nodes = connected.stream()
-      .map(ents::get)
-      .filter(java.util.Objects::nonNull)
+    return edges.getOrDefault(profileId, List.of()).stream()
+      .filter(e -> {
+        Memory m = mem.get(e.memoryId());
+        return m != null && !m.superseded();
+      })
       .toList();
-    return new GraphSnapshot(nodes, links);
+  }
+
+  /** Active-edge degree for every entity the profile connects. */
+  private Map<String, Integer> allDegrees(String profileId) {
+    Map<String, Integer> degrees = new LinkedHashMap<>();
+    for (Edge e : activeEdges(profileId)) {
+      degrees.merge(e.sourceEntityId(), 1, Integer::sum);
+      degrees.merge(e.targetEntityId(), 1, Integer::sum);
+    }
+    return degrees;
+  }
+
+  @Override
+  public GraphCounts graphCounts(String profileId) {
+    List<Edge> active = activeEdges(profileId);
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+    long connected = allDegrees(profileId).keySet().stream().filter(ents::containsKey).count();
+    return new GraphCounts((int) connected, active.size());
+  }
+
+  @Override
+  public Map<String, Integer> entityTypeCounts(String profileId) {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    entities.getOrDefault(profileId, Map.of()).values()
+      .forEach(e -> counts.merge(e.type(), 1, Integer::sum));
+    return counts;
+  }
+
+  @Override
+  public List<RankedEntity> topEntitiesByDegree(String profileId, List<String> types, int limit) {
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+    return allDegrees(profileId).entrySet().stream()
+      .filter(e -> ents.containsKey(e.getKey()))
+      .filter(e -> types == null || types.isEmpty() || types.contains(ents.get(e.getKey()).type()))
+      .map(e -> new RankedEntity(ents.get(e.getKey()), e.getValue()))
+      .sorted(Comparator.comparingInt(RankedEntity::degree).reversed()
+        .thenComparing(r -> r.entity().name()))
+      .limit(Math.max(0, limit))
+      .toList();
+  }
+
+  @Override
+  public List<RankedEntity> searchEntities(String profileId, String query, List<String> types, int limit) {
+    if (query == null || query.isBlank() || limit <= 0) {
+      return List.of();
+    }
+    String needle = query.trim().toLowerCase(java.util.Locale.ROOT);
+    Map<String, Integer> degrees = allDegrees(profileId);
+    return entities.getOrDefault(profileId, Map.of()).values().stream()
+      .filter(e -> e.name() != null && e.name().toLowerCase(java.util.Locale.ROOT).contains(needle))
+      .filter(e -> types == null || types.isEmpty() || types.contains(e.type()))
+      .map(e -> new RankedEntity(e, degrees.getOrDefault(e.id(), 0)))
+      .sorted(Comparator.comparingInt(RankedEntity::degree).reversed()
+        .thenComparing(r -> r.entity().name()))
+      .limit(limit)
+      .toList();
+  }
+
+  @Override
+  public List<NeighborHop> graphNeighborhood(String profileId, String seedEntityId, int depth,
+                                             List<String> types, int fanout) {
+    if (seedEntityId == null || seedEntityId.isBlank()) {
+      return List.of();
+    }
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+    List<Edge> active = activeEdges(profileId);
+
+    List<NeighborHop> out = new ArrayList<>();
+    java.util.LinkedHashSet<String> visited = new java.util.LinkedHashSet<>();
+    visited.add(seedEntityId);
+    out.add(new NeighborHop(seedEntityId, 0));
+
+    List<String> frontier = List.of(seedEntityId);
+    for (int hop = 1; hop <= Math.max(0, depth) && !frontier.isEmpty(); hop++) {
+      List<String> next = new ArrayList<>();
+      int budget = fanout;
+      for (Edge e : active) {
+        String neighbor = frontier.contains(e.sourceEntityId()) ? e.targetEntityId()
+          : frontier.contains(e.targetEntityId()) ? e.sourceEntityId()
+          : null;
+        if (neighbor == null || budget <= 0) {
+          continue;
+        }
+        Entity other = ents.get(neighbor);
+        if (types != null && !types.isEmpty() && (other == null || !types.contains(other.type()))) {
+          continue;
+        }
+        if (visited.add(neighbor)) {
+          next.add(neighbor);
+          out.add(new NeighborHop(neighbor, hop));
+          budget--;
+        }
+      }
+      frontier = next;
+    }
+    return List.copyOf(out);
+  }
+
+  @Override
+  public List<Edge> inducedEdges(String profileId, List<String> entityIds) {
+    if (entityIds == null || entityIds.isEmpty()) {
+      return List.of();
+    }
+    return activeEdges(profileId).stream()
+      .filter(e -> entityIds.contains(e.sourceEntityId()) && entityIds.contains(e.targetEntityId()))
+      .toList();
+  }
+
+  @Override
+  public List<Entity> findEntitiesByIds(String profileId, List<String> entityIds) {
+    if (entityIds == null || entityIds.isEmpty()) {
+      return List.of();
+    }
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+    return entityIds.stream().map(ents::get).filter(java.util.Objects::nonNull).toList();
+  }
+
+  @Override
+  public Map<String, Integer> entityDegrees(String profileId, List<String> entityIds) {
+    if (entityIds == null || entityIds.isEmpty()) {
+      return Map.of();
+    }
+    Map<String, Integer> all = allDegrees(profileId);
+    Map<String, Integer> out = new LinkedHashMap<>();
+    entityIds.forEach(id -> {
+      Integer deg = all.get(id);
+      if (deg != null) {
+        out.put(id, deg);
+      }
+    });
+    return out;
+  }
+
+  @Override
+  public List<IncidentEdge> incidentEdges(String profileId, String entityId, int limit) {
+    if (entityId == null || entityId.isBlank() || limit <= 0) {
+      return List.of();
+    }
+    Map<String, Entity> ents = entities.getOrDefault(profileId, Map.of());
+    List<IncidentEdge> out = new ArrayList<>();
+    for (Edge e : activeEdges(profileId)) {
+      boolean outgoing = entityId.equals(e.sourceEntityId());
+      boolean incoming = entityId.equals(e.targetEntityId());
+      if (!outgoing && !incoming) {
+        continue;
+      }
+      Entity other = ents.get(outgoing ? e.targetEntityId() : e.sourceEntityId());
+      if (other != null) {
+        out.add(new IncidentEdge(e, other, outgoing));
+      }
+      if (out.size() >= limit) {
+        break;
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
+    if (entityIds == null || entityIds.isEmpty() || limit <= 0) {
+      return List.of();
+    }
+    Map<String, Memory> mem = memories.getOrDefault(profileId, Map.of());
+    java.util.LinkedHashSet<Memory> out = new java.util.LinkedHashSet<>();
+    for (Edge e : activeEdges(profileId)) {
+      if (entityIds.contains(e.sourceEntityId()) || entityIds.contains(e.targetEntityId())) {
+        Memory m = mem.get(e.memoryId());
+        if (m != null) {
+          out.add(m);
+        }
+      }
+      if (out.size() >= limit) {
+        break;
+      }
+    }
+    return List.copyOf(out);
   }
 }

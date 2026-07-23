@@ -20,4 +20,8 @@ public class NotFoundException extends RuntimeException {
   public static NotFoundException task(String id) {
     return new NotFoundException("No task with id '" + id + "'");
   }
+
+  public static NotFoundException entity(String id) {
+    return new NotFoundException("No graph entity with id '" + id + "'");
+  }
 }

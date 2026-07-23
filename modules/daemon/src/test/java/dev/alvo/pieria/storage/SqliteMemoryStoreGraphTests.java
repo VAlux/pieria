@@ -2,8 +2,12 @@ package dev.alvo.pieria.storage;
 
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.domain.ContentId;
+import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.NeighborHop;
+import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -180,40 +184,214 @@ class SqliteMemoryStoreGraphTests {
     assertFalse(reached.contains(old.get(0).id()), "but its edge is off a superseded memory");
   }
 
+  // ---- graph explorer reads --------------------------------------------------------------------
+
   @Test
-  void graphSnapshotReturnsConnectedNodesAndActiveEdgesWithProvenance() {
-    Profile p = store.getOrCreateProfile("g-snapshot");
+  void graphCountsCountsActiveEdgesAndTheEntitiesTheyConnect() {
+    Profile p = store.getOrCreateProfile("g-counts");
     store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s1", null, null), frag("alpha", "uses", "beta"));
+    // Edgeless memory: contributes no entities and no edges.
+    store.store(p.id(), Memory.of(MemoryType.FACT, "unconnected", "s2", null, null));
 
-    var snapshot = store.graphSnapshot(p.id());
+    var counts = store.graphCounts(p.id());
 
-    assertEquals(2, snapshot.nodes().size());
-    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("alpha")));
-    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("beta")));
-
-    assertEquals(1, snapshot.links().size());
-    var link = snapshot.links().get(0);
-    assertEquals("uses", link.relation());
-    assertEquals(entityId(p.id(), "alpha"), link.sourceEntityId());
-    assertEquals(entityId(p.id(), "beta"), link.targetEntityId());
-    assertEquals("alpha uses beta", link.memoryContent());
+    assertEquals(2, counts.entityCount());
+    assertEquals(1, counts.edgeCount());
   }
 
   @Test
-  void graphSnapshotOmitsSupersededEdgesAndNowIsolatedNodes() {
-    Profile p = store.getOrCreateProfile("g-snapshot-supersede");
+  void graphCountsOmitsEntitiesLeftIsolatedBySupersession() {
+    Profile p = store.getOrCreateProfile("g-counts-supersede");
     // Both share topic key "k": the second supersedes the first. "old" only ever appears on the
-    // now-superseded edge, so it must drop out of the snapshot entirely.
+    // now-superseded edge, so it stops counting as connected.
     store.store(p.id(), Memory.of(MemoryType.FACT, "old uses redis", "s1", "k", null), frag("old", "uses", "redis"));
     store.store(p.id(), Memory.of(MemoryType.FACT, "new uses redis", "s2", "k", null), frag("new", "uses", "redis"));
 
-    var snapshot = store.graphSnapshot(p.id());
+    var counts = store.graphCounts(p.id());
 
-    assertEquals(1, snapshot.links().size(), "only the active edge survives");
-    assertEquals(2, snapshot.nodes().size(), "redis + new; old is isolated once its edge is gone");
-    assertFalse(snapshot.nodes().stream().anyMatch(n -> n.name().equals("old")));
-    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("new")));
-    assertTrue(snapshot.nodes().stream().anyMatch(n -> n.name().equals("redis")));
+    assertEquals(1, counts.edgeCount(), "only the active edge survives");
+    assertEquals(2, counts.entityCount(), "redis + new; old is isolated once its edge is gone");
+    // The row itself is retained — supersession is logical, never a physical delete.
+    assertEquals(1, store.findEntitiesByName(p.id(), List.of("old"), 1).size());
+  }
+
+  @Test
+  void entityTypeCountsGroupsEveryEntityByType() {
+    Profile p = store.getOrCreateProfile("g-facets");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s1", null, null), frag("alpha", "uses", "beta"));
+    store.upsertEntity(p.id(), Entity.of("person", "ada", "{}"));
+
+    var counts = store.entityTypeCounts(p.id());
+
+    assertEquals(2, counts.get("concept"));
+    assertEquals(1, counts.get("person"));
+  }
+
+  @Test
+  void topEntitiesByDegreeRanksHubsFirstAndHonoursTheTypeFilter() {
+    Profile p = store.getOrCreateProfile("g-top");
+    // "hub" is touched by three edges; each leaf by one.
+    store.store(p.id(), Memory.of(MemoryType.FACT, "hub uses one", "s1", null, null), frag("hub", "uses", "one"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "hub uses two", "s2", null, null), frag("hub", "uses", "two"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "hub uses three", "s3", null, null), frag("hub", "uses", "three"));
+
+    List<RankedEntity> ranked = store.topEntitiesByDegree(p.id(), List.of(), 10);
+
+    assertEquals("hub", ranked.get(0).entity().name());
+    assertEquals(3, ranked.get(0).degree());
+    assertEquals(4, ranked.size());
+
+    assertTrue(store.topEntitiesByDegree(p.id(), List.of("person"), 10).isEmpty(),
+      "no concept entity survives a person-only filter");
+    assertEquals(4, store.topEntitiesByDegree(p.id(), List.of("concept"), 10).size());
+  }
+
+  @Test
+  void topEntitiesByDegreeIgnoresEdgesOffSupersededMemories() {
+    Profile p = store.getOrCreateProfile("g-top-supersede");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old uses redis", "s1", "k", null), frag("old", "uses", "redis"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new uses redis", "s2", "k", null), frag("new", "uses", "redis"));
+
+    List<RankedEntity> ranked = store.topEntitiesByDegree(p.id(), List.of(), 10);
+
+    assertEquals(2, ranked.size());
+    assertFalse(ranked.stream().anyMatch(r -> r.entity().name().equals("old")));
+    assertEquals(1, ranked.get(0).degree(), "redis keeps only its one active edge");
+  }
+
+  @Test
+  void searchEntitiesMatchesSubstringsAndRanksByDegree() {
+    Profile p = store.getOrCreateProfile("g-search");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "retrieval uses one", "s1", null, null),
+      frag("retrieval service", "uses", "one"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "retrieval uses two", "s2", null, null),
+      frag("retrieval service", "uses", "two"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "retrieval channel uses three", "s3", null, null),
+      frag("retrieval channel", "uses", "three"));
+
+    List<RankedEntity> matches = store.searchEntities(p.id(), "retrieval", List.of(), 10);
+
+    assertEquals(2, matches.size());
+    assertEquals("retrieval service", matches.get(0).entity().name(), "the better-connected match leads");
+    assertEquals(2, matches.get(0).degree());
+
+    assertTrue(store.searchEntities(p.id(), "nothing-matches-this", List.of(), 10).isEmpty());
+  }
+
+  @Test
+  void searchEntitiesTreatsWildcardsLiterally() {
+    Profile p = store.getOrCreateProfile("g-search-wildcards");
+    store.upsertEntity(p.id(), Entity.of("concept", "alpha", "{}"));
+    store.upsertEntity(p.id(), Entity.of("concept", "100% coverage", "{}"));
+
+    // A bare "%" must not behave as "match everything".
+    List<RankedEntity> matches = store.searchEntities(p.id(), "%", List.of(), 10);
+
+    assertEquals(1, matches.size());
+    assertEquals("100% coverage", matches.get(0).entity().name());
+  }
+
+  @Test
+  void graphNeighborhoodTagsHopDistanceAndStopsAtTheRequestedDepth() {
+    Profile p = store.getOrCreateProfile("g-hops");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "b uses c", "s2", null, null), frag("b", "uses", "c"));
+
+    String a = entityId(p.id(), "a");
+    String b = entityId(p.id(), "b");
+    String c = entityId(p.id(), "c");
+
+    List<NeighborHop> oneHop = store.graphNeighborhood(p.id(), a, 1, List.of(), 50);
+    assertEquals(List.of(a, b), oneHop.stream().map(NeighborHop::entityId).toList());
+    assertEquals(0, oneHop.get(0).hop());
+    assertEquals(1, oneHop.get(1).hop());
+
+    List<NeighborHop> twoHops = store.graphNeighborhood(p.id(), a, 2, List.of(), 50);
+    assertEquals(3, twoHops.size());
+    assertEquals(2, twoHops.stream().filter(n -> n.entityId().equals(c)).findFirst().orElseThrow().hop());
+  }
+
+  @Test
+  void graphNeighborhoodAppliesTheTypeFilterAndSkipsSupersededEdges() {
+    Profile p = store.getOrCreateProfile("g-hops-filter");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old uses redis", "s1", "k", null), frag("old", "uses", "redis"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new uses redis", "s2", "k", null), frag("new", "uses", "redis"));
+
+    String redis = entityId(p.id(), "redis");
+    List<String> reached = store.graphNeighborhood(p.id(), redis, 1, List.of(), 50).stream()
+      .map(NeighborHop::entityId)
+      .toList();
+
+    assertTrue(reached.contains(entityId(p.id(), "new")));
+    assertFalse(reached.contains(entityId(p.id(), "old")), "its edge is off a superseded memory");
+
+    // Only the seed survives a filter that matches no neighbour type.
+    assertEquals(List.of(redis),
+      store.graphNeighborhood(p.id(), redis, 1, List.of("person"), 50).stream()
+        .map(NeighborHop::entityId).toList());
+  }
+
+  @Test
+  void inducedEdgesKeepsOnlyEdgesWithBothEndpointsInTheSet() {
+    Profile p = store.getOrCreateProfile("g-induced");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "b uses c", "s2", null, null), frag("b", "uses", "c"));
+
+    String a = entityId(p.id(), "a");
+    String b = entityId(p.id(), "b");
+
+    List<Edge> induced = store.inducedEdges(p.id(), List.of(a, b));
+
+    assertEquals(1, induced.size(), "b→c leaves the set and is dropped rather than dangling");
+    assertEquals(a, induced.get(0).sourceEntityId());
+    assertEquals(b, induced.get(0).targetEntityId());
+    assertEquals("uses", induced.get(0).relation());
+  }
+
+  @Test
+  void entityDegreesOmitsEntitiesWithNoActiveEdge() {
+    Profile p = store.getOrCreateProfile("g-degrees");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    Entity lonely = store.upsertEntity(p.id(), Entity.of("concept", "lonely", "{}"));
+
+    String a = entityId(p.id(), "a");
+    var degrees = store.entityDegrees(p.id(), List.of(a, lonely.id()));
+
+    assertEquals(1, degrees.get(a));
+    assertFalse(degrees.containsKey(lonely.id()), "absent rather than zero");
+  }
+
+  @Test
+  void incidentEdgesResolvesBothDirectionsWithTheFarEndEntity() {
+    Profile p = store.getOrCreateProfile("g-incident");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "c uses b", "s2", null, null), frag("c", "uses", "b"));
+
+    String b = entityId(p.id(), "b");
+    List<IncidentEdge> incident = store.incidentEdges(p.id(), b, 50);
+
+    assertEquals(2, incident.size());
+    assertTrue(incident.stream().noneMatch(IncidentEdge::outgoing), "b is the target of both edges");
+    assertEquals(List.of("a", "c"),
+      incident.stream().map(i -> i.other().name()).sorted().toList());
+
+    // From the other end the same edge reads as outgoing.
+    List<IncidentEdge> fromA = store.incidentEdges(p.id(), entityId(p.id(), "a"), 50);
+    assertEquals(1, fromA.size());
+    assertTrue(fromA.get(0).outgoing());
+    assertEquals("b", fromA.get(0).other().name());
+  }
+
+  @Test
+  void incidentEdgesSkipsEdgesOffSupersededMemories() {
+    Profile p = store.getOrCreateProfile("g-incident-supersede");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old uses redis", "s1", "k", null), frag("old", "uses", "redis"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new uses redis", "s2", "k", null), frag("new", "uses", "redis"));
+
+    List<IncidentEdge> incident = store.incidentEdges(p.id(), entityId(p.id(), "redis"), 50);
+
+    assertEquals(1, incident.size());
+    assertEquals("new", incident.get(0).other().name());
   }
 
   @Test
@@ -273,7 +451,7 @@ class SqliteMemoryStoreGraphTests {
     store.attachGraph(p.id(), orphan.stored().id(), frag("alpha", "uses", "beta"));
 
     assertEquals(1L, edgeCount(p.id()));
-    assertEquals(1, store.graphSnapshot(p.id()).links().size());
+    assertEquals(1, store.graphCounts(p.id()).edgeCount());
     // Adopted → no longer an orphan.
     assertEquals(0L, store.countGraphOrphans(p.id()));
     assertTrue(store.findGraphOrphans(p.id(), 100).isEmpty());

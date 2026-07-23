@@ -1,61 +1,181 @@
-/* Memory-graph view. Lives inside the console as the #view-graph tab, so every overlay is
-   positioned relative to the view container (not the viewport) to sit below the top nav. */
+/* Memory-graph explorer. Lives inside the console as the #view-graph tab.
+
+   Layout: a toolbar across the top, then a body split into the canvas stage (which flexes) and a
+   docked inspector column on the right. Overlays — hover card, type facet, status, footer — are
+   positioned against the stage, never the viewport, so they cannot escape the tab. That matters:
+   an absolutely-positioned overlay parented to <body> stays on screen when another view is
+   active. */
+
 /* Unlike the other views, the graph is full-bleed: drop the console's centered max-width column. */
-#view-graph { position: relative; height: 100%; overflow: hidden; max-width: none; margin: 0; }
-#view-graph canvas { display: block; width: 100%; height: 100%; cursor: grab; }
-#view-graph canvas.dragging { cursor: grabbing; }
+#view-graph {
+  max-width: none; margin: 0;
+  height: 100%; min-height: 0;
+  flex-direction: column;
+}
+#view-graph.active { display: flex; }
 
+/* ---- toolbar ---- */
 .graph-toolbar {
-  position: absolute; top: 12px; left: 12px; right: 12px;
+  flex: none;
   display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-  pointer-events: none; z-index: 5;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
-.graph-toolbar > * { pointer-events: auto; }
-.graph-toolbar .grow { flex: 1 1 160px; min-width: 120px; max-width: 320px; }
+.graph-toolbar .spacer { flex: 1 1 auto; }
+.graph-depth { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 
-.graph-legend {
-  position: absolute; bottom: 12px; left: 12px; z-index: 5;
+/* ---- entity search ---- */
+.graph-search { position: relative; flex: 1 1 280px; max-width: 380px; min-width: 180px; }
+.graph-search input { width: 100%; }
+
+.graph-search-results {
+  display: none;
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  max-height: 320px; overflow-y: auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+}
+.graph-search-results.is-open { display: block; }
+.graph-search-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: 0; background: none; text-align: left;
+}
+.graph-search-row:hover { background: var(--panel); }
+.graph-search-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-search-meta { flex: none; color: var(--muted); font-size: 12px; }
+.graph-search-empty { padding: 10px; color: var(--muted); font-size: 13px; }
+
+/* ---- body split ---- */
+.graph-body { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
+.graph-stage { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+#graphCanvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+#graphCanvas.dragging { cursor: grabbing; }
+
+/* ---- type facet ---- */
+.graph-types {
+  position: absolute; top: 12px; left: 12px; z-index: 5;
+  width: 232px; max-height: calc(100% - 64px);
+  display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  padding: 10px 12px; width: 232px;
-  max-height: calc(100% - 40px); overflow-y: auto;
+  padding: 10px 12px;
 }
-.graph-legend h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
-.graph-legend .section + .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.graph-legend .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 13px; }
-.graph-legend .key { flex: none; width: 26px; display: flex; align-items: center; justify-content: center; }
-.graph-legend .muted { color: var(--muted); font-size: 12px; }
-#graphLegendRows { max-height: 168px; overflow-y: auto; }
-.swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
-.dot { border-radius: 50%; background: var(--muted); flex: none; }
-.dot-sm { width: 7px; height: 7px; }
-.dot-lg { width: 15px; height: 15px; }
-.glyph { color: var(--muted); font-size: 15px; line-height: 1; }
-.edge-line { width: 22px; height: 0; border-top: 2px solid var(--muted); position: relative; }
-.edge-line::after {
-  content: ""; position: absolute; right: -1px; top: -4px;
-  border-left: 6px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+.graph-types-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.graph-types h4 {
+  flex: 1 1 auto; margin: 0;
+  font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px;
 }
+.graph-types h4 .muted { text-transform: none; letter-spacing: 0; }
+.graph-types-actions { display: flex; gap: 4px; }
+.graph-types-actions button { padding: 2px 7px; font-size: 11px; border-radius: 6px; }
 
-.graph-stats {
+.graph-type-list { overflow-y: auto; min-height: 0; }
+.graph-type-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 0; font-size: 13px; cursor: pointer; user-select: none;
+}
+.graph-type-row input { width: 14px; height: 14px; flex: none; accent-color: var(--accent); }
+.graph-type-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-type-count { flex: none; color: var(--muted); font-size: 12px; }
+.swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+/* ---- hover card ----
+   A child of the stage, so `.view { display:none }` takes it away with the tab. */
+.graph-hover-card {
+  display: none;
+  position: absolute; z-index: 12; pointer-events: none;
+  max-width: 300px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.hover-title { font-weight: 600; word-break: break-word; }
+.hover-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.hover-type { color: var(--text); }
+.hover-more { color: var(--accent); }
+.hover-hint { color: var(--muted); font-size: 11px; margin-top: 5px; }
+
+/* ---- status + footer ---- */
+.graph-status-host {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none; padding: 24px;
+}
+.graph-status {
+  max-width: 460px; text-align: center; color: var(--muted); line-height: 1.6;
+}
+.graph-status.err { color: var(--danger); }
+
+.graph-footer {
   position: absolute; bottom: 12px; right: 12px; z-index: 5;
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  padding: 8px 12px; color: var(--muted); font-size: 12px; text-align: right;
+  padding: 6px 11px; color: var(--muted); font-size: 12px;
+  max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.graph-stats b { color: var(--text); }
+.graph-footer:empty { display: none; }
 
-#graphTooltip {
-  position: fixed; z-index: 60; pointer-events: none; display: none;
-  max-width: 320px; background: var(--panel-2); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+/* ---- docked inspector ---- */
+.graph-inspector {
+  flex: 0 0 340px; width: 340px; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--border);
 }
-#graphTooltip .t-title { font-weight: 600; }
-#graphTooltip .t-type { color: var(--muted); font-size: 12px; }
-#graphTooltip .t-rel { color: var(--accent); font-weight: 600; }
-#graphTooltip .t-mem { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.graph-inspector header {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.graph-inspector header h3 {
+  margin: 0; font-size: 15px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.graph-inspector header .spacer { flex: 1 1 auto; }
+.graph-inspector-body { flex: 1 1 auto; overflow-y: auto; padding: 14px; min-height: 0; }
+.graph-inspector-status { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.graph-inspector-status.err { color: var(--danger); }
 
-.graph-banner {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  text-align: center; color: var(--muted); max-width: 420px; padding: 0 20px; z-index: 4;
+.graph-inspector-summary { margin-bottom: 16px; }
+.graph-inspector-counts { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.graph-inspector-actions { display: flex; gap: 8px; }
+.graph-inspector-actions button { padding: 5px 10px; font-size: 13px; }
+
+.graph-inspector-section + .graph-inspector-section { margin-top: 18px; }
+.graph-inspector-section h4 {
+  margin: 0 0 8px; font-size: 12px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .6px;
 }
-.graph-banner.err { color: var(--danger); }
-.graph-banner h2 { color: var(--text); margin: 0 0 8px; }
+
+.graph-relation-group + .graph-relation-group { margin-top: 12px; }
+.graph-relation-label { font-size: 12px; color: var(--accent); margin-bottom: 3px; }
+.graph-relation-label .muted { color: var(--muted); }
+.graph-relation-row {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 4px 6px; margin-left: -6px;
+  border: 0; border-radius: 6px; background: none; text-align: left; font-size: 13px;
+}
+.graph-relation-row:hover { background: var(--panel-2); }
+.graph-relation-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-relation-type { flex: none; color: var(--muted); font-size: 11px; }
+
+.graph-memory-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer;
+}
+.graph-memory-row + .graph-memory-row { border-top: 1px solid var(--border); }
+.graph-memory-row:hover { background: var(--panel-2); }
+.graph-memory-body { flex: 1 1 auto; min-width: 0; }
+.graph-memory-content {
+  font-size: 13px; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.graph-memory-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+/* ---- narrow viewports ----
+   Below the split's comfortable width the inspector becomes a bottom drawer, and the type facet
+   collapses so the canvas keeps usable area. */
+@media (max-width: 900px) {
+  .graph-body { flex-direction: column; }
+  .graph-inspector {
+    flex: 0 0 auto; width: auto; max-height: 45%;
+    border-left: 0; border-top: 1px solid var(--border);
+  }
+  .graph-types { width: 180px; max-height: 190px; }
+}
