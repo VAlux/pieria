@@ -176,7 +176,7 @@ public final class DaemonEvalClient {
   private JsonNode awaitTask(String taskId, Duration timeout, String operation) {
     long deadline = System.nanoTime() + timeout.toNanos();
     long pollMs = 1000;
-    String lastPhase = null;
+    String lastLaneProgress = null;
     while (true) {
       JsonNode task = getJson("/v1/tasks/" + encode(taskId), POLL_REQUEST_TIMEOUT);
       if (task == null) {
@@ -188,10 +188,14 @@ public final class DaemonEvalClient {
         continue;
       }
       String status = task.path("status").asText("");
-      String phase = task.path("phase").asText(null);
-      if (phase != null && !phase.equals(lastPhase)) {
-        log.info("ingest task {} — phase {} ({}/{})", taskId, phase, task.path("done").asInt(), task.path("total").asInt());
-        lastPhase = phase;
+      JsonNode lane = task.path("lanes").isArray() && !task.path("lanes").isEmpty()
+        ? task.path("lanes").get(0) : null;
+      String laneProgress = lane == null ? null
+        : lane.path("name").asText() + ':' + lane.path("state").asText() + ':' + lane.path("phase").asText();
+      if (laneProgress != null && !laneProgress.equals(lastLaneProgress)) {
+        log.info("{} task {} — {} {} ({}/{})", operation, taskId, lane.path("name").asText(),
+          lane.path("phase").asText("starting"), lane.path("done").asInt(), lane.path("total").asInt());
+        lastLaneProgress = laneProgress;
       }
       switch (status) {
         case "SUCCEEDED" -> {

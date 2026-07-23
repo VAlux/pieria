@@ -34,7 +34,7 @@ public class WebOnboardingSource implements OnboardingSource<SourceSpec.Web> {
   }
 
   @Override
-  public OnboardResult ingest(String profile, SourceSpec.Web spec, IngestProgressListener progress) {
+  public OnboardingWork begin(String profile, SourceSpec.Web spec, IngestProgressListener progress) {
     List<ContentDocument> documents = new ArrayList<>();
     for (String url : spec.urls()) {
       try {
@@ -46,8 +46,8 @@ public class WebOnboardingSource implements OnboardingSource<SourceSpec.Web> {
         log.warn("onboard web: failed to fetch {} ({}); skipping", url, e.toString());
       }
     }
-    return ingestor.ingest(profile, "web", documents, spec.extractionSamples(),
-      Boolean.TRUE.equals(spec.refresh()), progress);
+    return OnboardingWork.completed(ingestor.ingest(profile, "web", documents,
+      spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
   }
 
   /** Provenance line for a fetched page: URL plus title when the page has one. */

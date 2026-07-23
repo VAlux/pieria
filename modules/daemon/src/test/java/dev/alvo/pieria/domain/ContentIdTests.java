@@ -22,9 +22,26 @@ class ContentIdTests {
   }
 
   @Test
+  void profileScopedMessageIdMatchesFixedVectorAndVariesByProfile() {
+    String id = ContentId.forMessage("prof-1", "s1", "user", "hello");
+
+    assertThat(id).isEqualTo("f1062cb2308f2c360236a44f50ce208c");
+    assertThat(id).isNotEqualTo(ContentId.forMessage("prof-2", "s1", "user", "hello"));
+  }
+
+  @Test
   void threeArgMemoryIdMatchesFixedVector() {
     assertThat(ContentId.forMemory("s1", MemoryType.FACT, "The sky is blue"))
       .isEqualTo("98f9392f6c0981f187c5a9fbf95959d4");
+  }
+
+  @Test
+  void profileScopedMemoryIdMatchesFixedVectorAndVariesByProfile() {
+    String id = ContentId.forMemory("prof-1", "s1", MemoryType.FACT, "The sky is blue");
+
+    assertThat(id).isEqualTo("d56d6fa1b3a564d80959942caad78617");
+    assertThat(id).isNotEqualTo(
+      ContentId.forMemory("prof-2", "s1", MemoryType.FACT, "The sky is blue"));
   }
 
   @Test

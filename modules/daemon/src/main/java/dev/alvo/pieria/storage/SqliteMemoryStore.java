@@ -23,7 +23,6 @@ import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -166,16 +165,15 @@ public class SqliteMemoryStore implements MemoryStore {
     return findProfile(name).orElseGet(() -> {
       Profile created = new Profile(UUID.randomUUID().toString(), name, Instant.now());
 
-      try {
-        jdbc.sql("INSERT INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
-          .params(created.id(), created.name(), created.createdAt().toString())
-          .update();
-
+      int inserted = jdbc.sql("INSERT OR IGNORE INTO profiles (id, name, created_at) VALUES (?, ?, ?)")
+        .params(created.id(), created.name(), created.createdAt().toString())
+        .update();
+      if (inserted == 1) {
         return created;
-      } catch (DuplicateKeyException raceCondition) {
-        // Another writer created it between our SELECT and INSERT: re-select the winner.
-        return findProfile(name).orElseThrow(() -> raceCondition);
       }
+      // Another lane created it between our SELECT and INSERT: re-select the winner.
+      return findProfile(name).orElseThrow(() ->
+        new IllegalStateException("profile was ignored as duplicate but cannot be re-selected: " + name));
     });
   }
 
@@ -433,27 +431,44 @@ public class SqliteMemoryStore implements MemoryStore {
     }
 
     for (Message message : messages) {
-      String id = ContentId.forMessage(sessionId, message.role(), message.content());
+      String id = resolveMessageId(profileId, sessionId, message);
       String createdAt = (message.createdAt() == null ? Instant.now() : message.createdAt()).toString();
-      jdbc.sql("""
+      int inserted = jdbc.sql("""
           INSERT OR IGNORE INTO messages \
           (id, profile_id, session_id, role, content, created_at) \
           VALUES (?, ?, ?, ?, ?, ?)""")
         .params(id, profileId, sessionId, message.role(), message.content(), createdAt)
         .update();
+      if (inserted == 0 && !messageIdOwnedByProfile(id, profileId)) {
+        throw new IllegalStateException("message id collision across profiles: " + id);
+      }
     }
+  }
+
+  /**
+   * Keep existing databases idempotent: reuse a legacy unscoped id only when this profile already
+   * owns it. Otherwise generate the new profile-scoped id so identical transcripts can coexist.
+   */
+  private String resolveMessageId(String profileId, String sessionId, Message message) {
+    String legacyId = ContentId.forMessage(sessionId, message.role(), message.content());
+    if (messageIdOwnedByProfile(legacyId, profileId)) {
+      return legacyId;
+    }
+    return ContentId.forMessage(profileId, sessionId, message.role(), message.content());
   }
 
   @Override
   @Transactional
   public Memory insertMemory(String profileId, Memory memory) {
-    String id = memory.id() != null
-      ? memory.id()
-      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+    return insertMemoryRecord(profileId, memory).stored();
+  }
+
+  private MemoryInsert insertMemoryRecord(String profileId, Memory memory) {
+    String id = resolveMemoryId(profileId, memory);
     Instant createdAt = memory.createdAt() == null ? Instant.now() : memory.createdAt();
     String payload = memory.payload() == null ? "{}" : memory.payload();
 
-    jdbc.sql("""
+    int inserted = jdbc.sql("""
         INSERT OR IGNORE INTO memories \
         (id, profile_id, session_id, type, content, topic_key, supersedes, \
         superseded, payload, embed_text, created_at) \
@@ -472,7 +487,13 @@ public class SqliteMemoryStore implements MemoryStore {
         createdAt.toString())
       .update();
 
-    return new Memory(
+    if (inserted == 0) {
+      Memory existing = memoryByIdAndProfile(id, profileId).orElseThrow(() ->
+        new IllegalStateException("memory id collision across profiles: " + id));
+      return new MemoryInsert(existing, false);
+    }
+
+    return new MemoryInsert(new Memory(
       id,
       memory.sessionId(),
       memory.type(),
@@ -482,7 +503,42 @@ public class SqliteMemoryStore implements MemoryStore {
       memory.superseded(),
       payload,
       memory.embedText(),
-      createdAt);
+      createdAt), true);
+  }
+
+  /**
+   * Reuse an active legacy unscoped id only when this profile owns it; this preserves idempotency
+   * for pre-upgrade data without allowing another profile's row to absorb the new write.
+   */
+  private String resolveMemoryId(String profileId, Memory memory) {
+    if (memory.id() != null) {
+      return memory.id();
+    }
+    String legacyId = ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+    if (jdbc.sql("SELECT EXISTS(SELECT 1 FROM memories WHERE id = ? AND profile_id = ? AND superseded = 0)")
+      .params(legacyId, profileId)
+      .query(Integer.class)
+      .single() == 1) {
+      return legacyId;
+    }
+    return ContentId.forMemory(profileId, memory.sessionId(), memory.type(), memory.content());
+  }
+
+  private Optional<Memory> memoryByIdAndProfile(String memoryId, String profileId) {
+    return jdbc.sql(
+        """
+          SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at \
+          FROM memories WHERE id = ? AND profile_id = ?""")
+      .params(memoryId, profileId)
+      .query((rs, _) -> mapMemory(rs))
+      .optional();
+  }
+
+  private boolean messageIdOwnedByProfile(String id, String profileId) {
+    return jdbc.sql("SELECT EXISTS(SELECT 1 FROM messages WHERE id = ? AND profile_id = ?)")
+      .params(id, profileId)
+      .query(Integer.class)
+      .single() == 1;
   }
 
   @Override
@@ -490,9 +546,7 @@ public class SqliteMemoryStore implements MemoryStore {
   public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
     String supersededId = null;
 
-    String id = memory.id() != null
-      ? memory.id()
-      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+    String id = resolveMemoryId(profileId, memory);
 
     boolean keyed = (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)
       && memory.topicKey() != null;
@@ -535,7 +589,8 @@ public class SqliteMemoryStore implements MemoryStore {
       memory.embedText(),
       memory.createdAt());
 
-    Memory stored = insertMemory(profileId, toInsert);
+    MemoryInsert insert = insertMemoryRecord(profileId, toInsert);
+    Memory stored = insert.stored();
 
     // Persist the extracted graph in the same transaction, tagging each edge with this memory's id
     // as provenance. The fragment is empty for the two-arg store path and for TASK memories.
@@ -553,7 +608,10 @@ public class SqliteMemoryStore implements MemoryStore {
       enqueuedVector = affected > 0;
     }
 
-    return new StoreOutcome(stored, supersededId, enqueuedVector);
+    return new StoreOutcome(stored, supersededId, enqueuedVector, insert.inserted());
+  }
+
+  private record MemoryInsert(Memory stored, boolean inserted) {
   }
 
   @Override

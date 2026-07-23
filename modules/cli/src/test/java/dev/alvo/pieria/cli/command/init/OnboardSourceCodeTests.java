@@ -14,19 +14,16 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for {@code pieria onboard --source-code}. Discovery now happens daemon-side, so the command
- * only sends a {@code SourceSpec.SourceCode} (root + resolved {@code [discovery]} config) to the
- * onboarding endpoint; the actual file enumeration is covered by the daemon's {@code CodeDiscovery}
- * tests. The command sends all sources in one ordered composite request.
+ * Tests for code-only {@code pieria onboard --source-code}. Discovery happens daemon-side, so the
+ * command sends only a {@code SourceSpec.SourceCode} (root + resolved {@code [discovery]} config) to
+ * the onboarding endpoint; actual file enumeration is covered by the daemon's {@code CodeDiscovery}
+ * tests.
  */
 class OnboardSourceCodeTests {
 
-  /** Terminal payload of a composite task ending with the source-code result. */
+  /** Terminal payload of a code-only composite task. */
   private static String codeTask(int files, int memories, int symbols, int edges, int summaries) {
     return "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":["
-      + "{\"sourceType\":\"markdown\",\"documents\":0,\"memoriesStored\":0},"
-      + "{\"sourceType\":\"text\",\"documents\":0,\"memoriesStored\":0},"
-      + "{\"sourceType\":\"pdf\",\"documents\":0,\"memoriesStored\":0},"
       + "{\"sourceType\":\"source-code\""
       + ",\"documents\":" + files + ",\"memoriesStored\":" + memories
       + ",\"symbols\":" + symbols + ",\"edges\":" + edges + ",\"summariesStored\":" + summaries + "}]}}";
@@ -67,7 +64,10 @@ class OnboardSourceCodeTests {
       String codeBody = daemon.lastRequestTo("/onboard/async").body();
       assertThat(codeBody)
         .contains("\"type\":\"source-code\"")
-        .contains(proj.toAbsolutePath().normalize().toString());
+        .contains(proj.toAbsolutePath().normalize().toString())
+        .doesNotContain("\"type\":\"markdown\"")
+        .doesNotContain("\"type\":\"text\"")
+        .doesNotContain("\"type\":\"pdf\"");
       // Without --summarize the flag is absent so the daemon's config decides.
       assertThat(codeBody).doesNotContain("\"summarize\":true");
       assertThat(r.out()).contains("Indexed 1 file(s), 3 symbol(s), 1 edge(s)");
@@ -103,7 +103,8 @@ class OnboardSourceCodeTests {
       Result r = run(cmd);
 
       assertThat(r.code()).isZero();
-      assertThat(r.out()).contains("Would seed").contains("source code under");
+      assertThat(r.out()).contains("Would seed").contains("1 source(s)").contains("source code under")
+        .doesNotContain("markdown under").doesNotContain("text under").doesNotContain("PDFs under");
       assertThat(daemon.requests()).isEmpty();
     }
   }

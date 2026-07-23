@@ -32,22 +32,25 @@ import java.util.concurrent.Callable;
 /**
  * {@code pieria onboard} — seed a Pieria memory profile from a project's sources.
  *
- * <p>Two modes, chosen by whether positional {@code TARGET}s are given:
+ * <p>Targets determine what is scanned:
  * <ul>
- *   <li><b>No targets</b> — scan the project dir for <em>everything</em>: markdown, plain-text, and
- *       PDF documents, plus the source-code intelligence index when {@code --source-code} is set.</li>
+ *   <li><b>No targets</b> — scan the project dir for markdown, plain-text, and PDF documents and
+ *       build the source-code intelligence index.</li>
  *   <li><b>Targets given</b> — onboard only the named targets, each dispatched by type: an
  *       {@code http(s)://} URL → web page; a {@code .md}/{@code .txt}/{@code .pdf} file → that single
  *       document; a directory → scanned like the no-targets mode.</li>
  * </ul>
  *
- * <p>The daemon does the discovery, reading, and fetching itself. All sources run sequentially in
- * one composite background task; re-running is idempotent (the daemon's content-addressed ids mean
- * unchanged content adds no duplicate memories).
+ * <p>{@code --content} and {@code --source-code} select one lane when supplied alone; neither or
+ * both select all applicable lanes. URLs and individual document files apply only to the content
+ * lane, while source-code indexing requires a directory. The daemon does the discovery, reading,
+ * and fetching itself, and runs the content and code lanes concurrently in one composite background
+ * task. Re-running is idempotent (content-addressed ids keep unchanged content from adding duplicate
+ * memories).
  */
 @Command(
   name = "onboard",
-  description = "Seed a Pieria memory profile",
+  description = "Seed a Pieria memory profile from content and source code",
   mixinStandardHelpOptions = true
 )
 public final class OnboardCommand implements Callable<Integer> {
@@ -58,7 +61,7 @@ public final class OnboardCommand implements Callable<Integer> {
     paramLabel = "TARGET",
     arity = "0..*",
     description = "URLs / files / directories to onboard; omit to scan the project dir. "
-      + "Each is dispatched by type: http(s) URL → web page, .md/.txt/.pdf → that file, directory → scanned.")
+      + "URLs and .md/.txt/.pdf files feed content; directories feed the selected lanes.")
   List<String> targets = new ArrayList<>();
 
   @Option(names = "--project-dir", description = "Project directory to scan when no TARGET is given (default: current directory).")
@@ -76,7 +79,7 @@ public final class OnboardCommand implements Callable<Integer> {
   @Option(names = "--dry-run", description = "List the sources that would be sent, without contacting the daemon.")
   boolean dryRun;
 
-  @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md (excluded by default as already-in-context).")
+  @Option(names = "--include-agent-docs", description = "Also seed CLAUDE.md / AGENTS.md in the content lane (excluded by default as already-in-context).")
   boolean includeAgentDocs;
 
   @Option(names = "--extraction-samples",
@@ -84,18 +87,21 @@ public final class OnboardCommand implements Callable<Integer> {
       How many independent extract passes to run per chunk (default: 1). Extraction is \
       stochastic, so more samples catch more of each chunk's facts in one run; their union is \
       de-duplicated. Higher = more complete but proportionally more model calls.""")
-  int extractionSamples = 1;
+  Integer extractionSamples;
 
-  @Option(names = "--source-code", description = "Also build a source-code intelligence index from a directory target's tracked source files.")
+  @Option(names = "--content", description = "Select content onboarding (markdown, text, PDF, and web); alone, skip source-code indexing.")
+  boolean content;
+
+  @Option(names = "--source-code", description = "Select source-code indexing; alone, skip content onboarding. Requires directory targets.")
   boolean sourceCode;
 
-  @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Only affects --source-code.")
+  @Option(names = "--reindex", description = "Re-parse all source files even if unchanged (bypass the content-hash skip). Use after a parser upgrade. Requires the code lane.")
   boolean reindex;
 
-  @Option(names = "--refresh", description = "Re-ingest all content documents even if unchanged since the last onboard (bypass the ingest ledger). Affects markdown/text/pdf/web sources.")
+  @Option(names = "--refresh", description = "Re-ingest all content documents even if unchanged since the last onboard (bypass the ingest ledger). Requires the content lane.")
   boolean refresh;
 
-  @Option(names = "--summarize", description = "After indexing, write LLM-synthesized architecture/module summary memories (uses the daemon's synthesis model; unchanged code is skipped). Only affects --source-code.")
+  @Option(names = "--summarize", description = "After indexing, write LLM-synthesized architecture/module summary memories (uses the daemon's synthesis model; unchanged code is skipped). Requires the code lane.")
   boolean summarize;
 
   @Option(names = "--no-enrich-graph", description = "Skip automatic background graph enrichment.")
@@ -108,6 +114,10 @@ public final class OnboardCommand implements Callable<Integer> {
   public Integer call() {
     if (noEnrichGraph && waitForEnrichment) {
       log.error("--no-enrich-graph and --wait-for-enrichment are mutually exclusive.");
+      return 2;
+    }
+    LaneSelection lanes = laneSelection();
+    if (!validateLaneModifiers(lanes)) {
       return 2;
     }
     Path dir = projectDir.toAbsolutePath().normalize();
@@ -124,7 +134,7 @@ public final class OnboardCommand implements Callable<Integer> {
       return 2;
     }
 
-    List<Source> sources = buildSources(dir, config);
+    List<Source> sources = buildSources(dir, config, lanes);
     if (sources.isEmpty()) {
       log.error("No onboardable targets (all were unsupported or missing).");
       return 2;
@@ -151,22 +161,25 @@ public final class OnboardCommand implements Callable<Integer> {
    * Assemble the sources to seed. No targets ⇒ scan the project dir for everything; targets given
    * ⇒ dispatch each by type (URL / .md / .txt / .pdf / directory), URLs coalesced into one web source.
    */
-  private List<Source> buildSources(Path dir, PieriaConfigFile config) {
-    int samples = Math.max(1, extractionSamples);
+  private List<Source> buildSources(Path dir, PieriaConfigFile config, LaneSelection lanes) {
+    int samples = Math.max(1, extractionSamples == null ? 1 : extractionSamples);
     if (targets.isEmpty()) {
-      return scanDirectory(dir, config, samples);
+      return scanDirectory(dir, config, samples, lanes);
     }
-    return classifyTargets(config, samples);
+    return classifyTargets(config, samples, lanes);
   }
 
-  /** The everything-in-a-directory expansion: markdown + text + pdf, plus source-code when asked. */
-  private List<Source> scanDirectory(Path dir, PieriaConfigFile config, int samples) {
+  /** Expand a directory into the sources selected for the content and/or code lanes. */
+  private List<Source> scanDirectory(Path dir, PieriaConfigFile config, int samples,
+                                     LaneSelection lanes) {
     List<Source> sources = new ArrayList<>();
-    sources.add(new Source("markdown documentation",
-      new SourceSpec.Markdown(dir.toString(), includeAgentDocs, samples, refreshOrNull())));
-    sources.add(new Source("text documents", new SourceSpec.Text(dir.toString(), samples, refreshOrNull())));
-    sources.add(new Source("PDF documents", new SourceSpec.Pdf(dir.toString(), samples, refreshOrNull())));
-    if (sourceCode) {
+    if (lanes.content()) {
+      sources.add(new Source("markdown documentation",
+        new SourceSpec.Markdown(dir.toString(), includeAgentDocs, samples, refreshOrNull())));
+      sources.add(new Source("text documents", new SourceSpec.Text(dir.toString(), samples, refreshOrNull())));
+      sources.add(new Source("PDF documents", new SourceSpec.Pdf(dir.toString(), samples, refreshOrNull())));
+    }
+    if (lanes.code()) {
       sources.add(new Source("source-code index",
         new SourceSpec.SourceCode(dir.toString(), reindex, summarize ? Boolean.TRUE : null, config.discovery())));
     }
@@ -174,15 +187,18 @@ public final class OnboardCommand implements Callable<Integer> {
   }
 
   /** Dispatch each positional target by type; unsupported/missing targets are warned and skipped. */
-  private List<Source> classifyTargets(PieriaConfigFile config, int samples) {
+  private List<Source> classifyTargets(PieriaConfigFile config, int samples, LaneSelection lanes) {
     Path cwd = Path.of("").toAbsolutePath();
     List<Source> sources = new ArrayList<>();
     List<String> urls = new ArrayList<>();
-    boolean sawDirectory = false;
 
     for (String target : targets) {
       if (isUrl(target)) {
-        urls.add(target);
+        if (lanes.content()) {
+          urls.add(target);
+        } else {
+          log.error("URL target is content-only and was skipped in --source-code mode: {}.", target);
+        }
         continue;
       }
       Path abs = toAbsolute(cwd, target);
@@ -191,14 +207,17 @@ public final class OnboardCommand implements Callable<Integer> {
         continue;
       }
       if (Files.isDirectory(abs)) {
-        sources.addAll(scanDirectory(abs, config, samples));
-        sawDirectory = true;
+        sources.addAll(scanDirectory(abs, config, samples, lanes));
         continue;
       }
       String name = abs.getFileName() == null ? "" : abs.getFileName().toString().toLowerCase(Locale.ROOT);
       SourceSpec spec = fileSpec(abs, name, samples);
       if (spec == null) {
         log.error("Unsupported target (not a URL, .md/.txt/.pdf file, or directory): {} (skipped).", target);
+        continue;
+      }
+      if (!lanes.content()) {
+        log.error("Document target is content-only and was skipped in --source-code mode: {}.", target);
         continue;
       }
       if (!Files.exists(abs)) {
@@ -211,10 +230,44 @@ public final class OnboardCommand implements Callable<Integer> {
       sources.add(new Source("web pages (" + urls.size() + ")",
         new SourceSpec.Web(List.copyOf(urls), samples, refreshOrNull())));
     }
-    if (sourceCode && !sawDirectory) {
-      log.error("--source-code needs a directory target; ignoring.");
-    }
     return sources;
+  }
+
+  /** Neither selector, or both selectors, means all applicable lanes. */
+  private LaneSelection laneSelection() {
+    if (content == sourceCode) {
+      return LaneSelection.ALL;
+    }
+    return content ? LaneSelection.CONTENT : LaneSelection.CODE;
+  }
+
+  /** Reject lane-specific modifiers while validation can still avoid config and daemon access. */
+  private boolean validateLaneModifiers(LaneSelection lanes) {
+    if (lanes == LaneSelection.CONTENT) {
+      if (reindex) {
+        log.error("--reindex requires source-code onboarding and cannot be used with --content alone.");
+        return false;
+      }
+      if (summarize) {
+        log.error("--summarize requires source-code onboarding and cannot be used with --content alone.");
+        return false;
+      }
+    }
+    if (lanes == LaneSelection.CODE) {
+      if (refresh) {
+        log.error("--refresh requires content onboarding and cannot be used with --source-code alone.");
+        return false;
+      }
+      if (includeAgentDocs) {
+        log.error("--include-agent-docs requires content onboarding and cannot be used with --source-code alone.");
+        return false;
+      }
+      if (extractionSamples != null) {
+        log.error("--extraction-samples requires content onboarding and cannot be used with --source-code alone.");
+        return false;
+      }
+    }
+    return true;
   }
 
   /** A single-file source spec for a known documentation extension, or null when unsupported. */
@@ -504,6 +557,28 @@ public final class OnboardCommand implements Callable<Integer> {
 
   private record PlanSuccess(List<Success> sources, String graphTaskId, int graphCandidates,
                              List<SourceFailure> errors) { }
+
+  private enum LaneSelection {
+    ALL(true, true),
+    CONTENT(true, false),
+    CODE(false, true);
+
+    private final boolean content;
+    private final boolean code;
+
+    LaneSelection(boolean content, boolean code) {
+      this.content = content;
+      this.code = code;
+    }
+
+    boolean content() {
+      return content;
+    }
+
+    boolean code() {
+      return code;
+    }
+  }
 
   /** A source to seed: a human label (for logs) and the wire spec sent to the daemon. */
   private record Source(String label, SourceSpec spec) {

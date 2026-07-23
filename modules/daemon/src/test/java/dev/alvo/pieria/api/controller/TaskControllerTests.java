@@ -41,7 +41,7 @@ class TaskControllerTests {
   @Test
   void listAndStatusExposeTaskMetadata() throws InterruptedException {
     UUID id = registry.submit("onboard", "pieria", progress -> {
-      progress.onPhase("extract", 1, 1);
+      progress.lane("content").onPhase("extract", 1, 1);
       return mapper.valueToTree(Map.of("count", 2));
     });
     awaitTerminal(id);
@@ -53,12 +53,22 @@ class TaskControllerTests {
     assertThat(summary.profile()).isEqualTo("pieria");
     assertThat(summary.status()).isEqualTo("SUCCEEDED");
     assertThat(summary.startedAtEpochMs()).isPositive();
+    assertThat(summary.lanes()).singleElement().satisfies(lane -> {
+      assertThat(lane.name()).isEqualTo("content");
+      assertThat(lane.state()).isEqualTo("COMPLETED");
+    });
 
     TaskStatusResponse status = controller.status(id.toString());
     assertThat(status.kind()).isEqualTo("onboard");
     assertThat(status.profile()).isEqualTo("pieria");
     assertThat(status.status()).isEqualTo("SUCCEEDED");
     assertThat(status.result().get("count").asInt()).isEqualTo(2);
+    var wire = mapper.valueToTree(status);
+    assertThat(wire.path("lanes").isArray()).isTrue();
+    assertThat(wire.has("phase")).isFalse();
+    assertThat(wire.has("done")).isFalse();
+    assertThat(wire.has("total")).isFalse();
+    assertThat(wire.has("phaseStartedAtEpochMs")).isFalse();
   }
 
   @Test
@@ -80,8 +90,9 @@ class TaskControllerTests {
     CountDownLatch started = new CountDownLatch(1);
     UUID id = registry.submit("ingest", "p", progress -> {
       started.countDown();
+      var lane = progress.lane("ingest");
       for (int i = 0; i < 100_000; i++) {
-        progress.onPhase("extract", i, 100_000);
+        lane.onPhase("extract", i, 100_000);
         try {
           Thread.sleep(5);
         } catch (InterruptedException e) {

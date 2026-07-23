@@ -6,25 +6,34 @@ import static dev.alvo.pieria.tools.Hash.hash128;
 import static dev.alvo.pieria.tools.StringKit.nullToEmpty;
 
 /**
- * Content-addressed identifiers: {@code SHA-256(sessionId + role + content)} truncated
- * to 128 bits, hex-encoded. Re-ingesting the same conversation yields identical ids, making
- * inserts idempotent via {@code INSERT OR IGNORE}.
+ * Content-addressed identifiers truncated to 128 bits and hex-encoded. Persisted message and
+ * memory ids include the owning profile id so identical content can coexist in different profiles
+ * while re-ingestion within one profile remains idempotent.
  */
 public final class ContentId {
 
   private ContentId() {
   }
 
-  /**
-   * Id for a message: hashes session, role, and content.
-   */
+  /** Legacy unscoped message id, retained to recognize rows written before profile namespacing. */
   public static String forMessage(String sessionId, String role, String content) {
     return hash128(nullToEmpty(sessionId), nullToEmpty(role), nullToEmpty(content));
   }
 
   /**
-   * Id for a memory: hashes session, type, and canonical content. Distinct content or type
-   * produces a distinct id; identical extracted memories collapse to one row.
+   * Profile-scoped message id used for new persisted rows. The three-argument form remains available
+   * to recognize ids written before profile namespacing was introduced.
+   */
+  public static String forMessage(String profileId, String sessionId, String role, String content) {
+    return hash128(
+      nullToEmpty(profileId),
+      nullToEmpty(sessionId),
+      nullToEmpty(role),
+      nullToEmpty(content));
+  }
+
+  /**
+   * Legacy unscoped memory id, retained to recognize rows written before profile namespacing.
    *
    * <p>Backwards-compatible 3-arg form: delegates to the full form with null
    * {@code topicKey}/{@code payload}.
@@ -34,7 +43,20 @@ public final class ContentId {
   }
 
   /**
-   * Id for a memory incorporating identity-defining fields: session, type, canonical content,
+   * Profile-scoped memory id used for new persisted rows. The three-argument form remains available
+   * to recognize ids written before profile namespacing was introduced.
+   */
+  public static String forMemory(
+    String profileId, String sessionId, MemoryType type, String content) {
+    return hash128(
+      nullToEmpty(profileId),
+      nullToEmpty(sessionId),
+      type.wire(),
+      nullToEmpty(content));
+  }
+
+  /**
+   * Legacy unscoped id incorporating identity-defining fields: session, type, canonical content,
    * {@code topicKey}, and {@code payload}. Two keyed memories with the same content but distinct
    * topic keys (or distinct payloads) therefore receive distinct ids, while remaining fully
    * deterministic. The 3-arg overload is equivalent to passing null for both extra fields, so the

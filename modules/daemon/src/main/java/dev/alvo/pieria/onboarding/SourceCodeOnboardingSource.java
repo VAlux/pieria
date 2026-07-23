@@ -9,6 +9,7 @@ import dev.alvo.pieria.code.CodeSummarizationService.SummarizationResult;
 import dev.alvo.pieria.config.CodeSummarizationProperties;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
+import dev.alvo.pieria.task.TaskCancelledException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -46,7 +47,7 @@ public class SourceCodeOnboardingSource implements OnboardingSource<SourceSpec.S
   }
 
   @Override
-  public OnboardResult ingest(String profile, SourceSpec.SourceCode spec, IngestProgressListener progress) {
+  public OnboardingWork begin(String profile, SourceSpec.SourceCode spec, IngestProgressListener progress) {
     Path root = Roots.require(spec.root());
     DiscoveryConfig discovery = spec.discovery() != null ? spec.discovery() : DiscoveryConfig.defaults();
     List<SourceFile> files = CodeDiscovery.create(root, discovery).discover();
@@ -54,20 +55,23 @@ public class SourceCodeOnboardingSource implements OnboardingSource<SourceSpec.S
     CodeIndexSummary summary = indexing.index(profile, null, files, spec.reindex(), progress);
 
     boolean summarize = spec.summarize() != null ? spec.summarize() : summarizationProperties.enabled();
-    SummarizationResult summaries = SummarizationResult.empty();
-    if (summarize) {
-      try {
-        summaries = summarization.summarize(profile, files, progress);
-      } catch (RuntimeException e) {
-        log.warn("onboard source-code: summarization failed ({}); index result unaffected", e.toString());
+    return finishProgress -> {
+      SummarizationResult summaries = SummarizationResult.empty();
+      if (summarize) {
+        try {
+          summaries = summarization.summarize(profile, files, finishProgress);
+        } catch (TaskCancelledException e) {
+          throw e;
+        } catch (RuntimeException e) {
+          log.warn("onboard source-code: summarization failed ({}); index result unaffected", e.toString());
+        }
       }
-    }
-
-    return OnboardResult.code(
-      summary.filesReceived(),
-      summary.memoriesStored(),
-      summary.symbols(),
-      summary.resolvedEdges() + summary.heuristicEdges(),
-      summaries.stored());
+      return OnboardResult.code(
+        summary.filesReceived(),
+        summary.memoriesStored(),
+        summary.symbols(),
+        summary.resolvedEdges() + summary.heuristicEdges(),
+        summaries.stored());
+    };
   }
 }

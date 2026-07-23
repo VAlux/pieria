@@ -3,6 +3,7 @@ package dev.alvo.pieria.cli.command.init;
 import dev.alvo.pieria.cli.testsupport.StubDaemon;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * result; {@code --config-dir} pins the global config dir to the temp project so tests never read
  * the real OS config dir.
  *
- * <p>With no positional targets the command scans the project dir for everything (markdown, text,
- * pdf); positional targets switch it to per-target dispatch (URL / .md / .txt / .pdf / directory).
+ * <p>With no positional targets the command scans the project dir for both content and source code;
+ * positional targets switch it to per-target dispatch (URL / .md / .txt / .pdf / directory).
  */
 class OnboardCommandTests {
 
@@ -45,7 +47,9 @@ class OnboardCommandTests {
       "{\"status\":\"SUCCEEDED\",\"result\":{\"sources\":["
         + "{\"sourceType\":\"markdown\",\"documents\":1,\"memoriesStored\":1},"
         + "{\"sourceType\":\"text\",\"documents\":0,\"memoriesStored\":0},"
-        + "{\"sourceType\":\"pdf\",\"documents\":0,\"memoriesStored\":0}]}}");
+        + "{\"sourceType\":\"pdf\",\"documents\":0,\"memoriesStored\":0},"
+        + "{\"sourceType\":\"source-code\",\"documents\":0,\"memoriesStored\":0,"
+        + "\"symbols\":0,\"edges\":0,\"summariesStored\":0}]}}");
   }
 
   private static List<String> onboardBodies(StubDaemon daemon) {
@@ -72,6 +76,18 @@ class OnboardCommandTests {
   }
 
   @Test
+  void helpDescribesIndependentLaneSelectors() {
+    String usage = new CommandLine(new OnboardCommand()).getUsageMessage().replaceAll("\\s+", " ");
+
+    assertThat(usage)
+      .contains("--content")
+      .contains("alone, skip source-code indexing")
+      .contains("--source-code")
+      .contains("alone, skip content onboarding")
+      .contains("Requires directory targets");
+  }
+
+  @Test
   void dryRunReportsAllScanSourcesAndNeverContactsDaemon(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
@@ -83,15 +99,17 @@ class OnboardCommandTests {
       assertThat(r.code()).isZero();
       assertThat(r.out())
         .contains("Would seed")
+        .contains("4 source(s)")
         .contains("markdown under")
         .contains("text under")
-        .contains("PDFs under");
+        .contains("PDFs under")
+        .contains("source code under");
       assertThat(daemon.requests()).isEmpty();
     }
   }
 
   @Test
-  void scanModeSendsMarkdownTextAndPdfRootedAtProjectDir(@TempDir Path proj) throws IOException {
+  void scanModeSendsContentAndSourceCodeRootedAtProjectDir(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     String root = proj.toAbsolutePath().normalize().toString();
     try (StubDaemon daemon = StubDaemon.start()) {
@@ -103,12 +121,35 @@ class OnboardCommandTests {
       List<String> bodies = onboardBodies(daemon);
       assertThat(bodies).hasSize(1);
       assertThat(bodies.getFirst()).contains("\"type\":\"markdown\"").contains(root)
-        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"");
+        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"")
+        .contains("\"type\":\"source-code\"");
+      assertThat(count(bodies.getFirst(), "\"type\":")).isEqualTo(4);
     }
   }
 
   @Test
-  void sourceCodeFlagAddsSourceCodeSpecInScanMode(@TempDir Path proj) throws IOException {
+  void contentFlagSelectsOnlyContentSources(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.content = true;
+
+      Result r = run(cmd);
+
+      assertThat(r.code()).isZero();
+      assertThat(onboardBodies(daemon)).singleElement().satisfies(body -> {
+        assertThat(body).contains("\"type\":\"markdown\"")
+          .contains("\"type\":\"text\"")
+          .contains("\"type\":\"pdf\"")
+          .doesNotContain("\"type\":\"source-code\"");
+        assertThat(count(body, "\"type\":")).isEqualTo(3);
+      });
+    }
+  }
+
+  @Test
+  void sourceCodeFlagSelectsOnlyCodeSource(@TempDir Path proj) throws IOException {
     writeReadme(proj);
     try (StubDaemon daemon = StubDaemon.start()) {
       stubSuccess(daemon);
@@ -118,9 +159,30 @@ class OnboardCommandTests {
       Result r = run(cmd);
 
       assertThat(r.code()).isZero();
-      assertThat(onboardBodies(daemon))
-        .hasSize(1)
-        .anySatisfy(b -> assertThat(b).contains("\"type\":\"source-code\""));
+      assertThat(onboardBodies(daemon)).singleElement().satisfies(body -> {
+        assertThat(body).contains("\"type\":\"source-code\"")
+          .doesNotContain("\"type\":\"markdown\"")
+          .doesNotContain("\"type\":\"text\"")
+          .doesNotContain("\"type\":\"pdf\"");
+        assertThat(count(body, "\"type\":")).isEqualTo(1);
+      });
+    }
+  }
+
+  @Test
+  void bothSelectorsSubmitTheSameSourcesAsTheDefault(@TempDir Path proj) throws IOException {
+    writeReadme(proj);
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+
+      assertThat(run(command(proj, daemon.baseUrl())).code()).isZero();
+      OnboardCommand explicit = command(proj, daemon.baseUrl());
+      explicit.content = true;
+      explicit.sourceCode = true;
+      assertThat(run(explicit).code()).isZero();
+
+      assertThat(onboardBodies(daemon)).hasSize(2);
+      assertThat(onboardBodies(daemon).get(1)).isEqualTo(onboardBodies(daemon).get(0));
     }
   }
 
@@ -171,7 +233,8 @@ class OnboardCommandTests {
       assertThat(bodies.get(0))
         .contains("\"type\":\"web\"")
         .contains("http://example.com")
-        .contains("https://example.org");
+        .contains("https://example.org")
+        .doesNotContain("\"type\":\"source-code\"");
     }
   }
 
@@ -196,12 +259,13 @@ class OnboardCommandTests {
       assertThat(bodies.getFirst()).contains("\"type\":\"markdown\"")
         .contains(md.toAbsolutePath().normalize().toString())
         .contains("\"type\":\"text\"").contains(txt.toAbsolutePath().normalize().toString())
-        .contains("\"type\":\"pdf\"").contains(pdf.toAbsolutePath().normalize().toString());
+        .contains("\"type\":\"pdf\"").contains(pdf.toAbsolutePath().normalize().toString())
+        .doesNotContain("\"type\":\"source-code\"");
     }
   }
 
   @Test
-  void directoryTargetExpandsToMarkdownTextAndPdf(@TempDir Path proj) throws IOException {
+  void directoryTargetExpandsToContentAndSourceCode(@TempDir Path proj) throws IOException {
     Path docs = Files.createDirectory(proj.resolve("docs"));
     Files.writeString(docs.resolve("a.md"), "# A");
     String root = docs.toAbsolutePath().normalize().toString();
@@ -216,7 +280,55 @@ class OnboardCommandTests {
       List<String> bodies = onboardBodies(daemon);
       assertThat(bodies).hasSize(1);
       assertThat(bodies.getFirst()).contains(root).contains("\"type\":\"markdown\"")
-        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"");
+        .contains("\"type\":\"text\"").contains("\"type\":\"pdf\"")
+        .contains("\"type\":\"source-code\"");
+    }
+  }
+
+  @Test
+  void codeOnlyMixedTargetsSkipFilesAndUrlsButKeepDirectories(@TempDir Path proj) throws IOException {
+    Path docs = Files.createDirectory(proj.resolve("docs"));
+    Path guide = proj.resolve("guide.md");
+    Files.writeString(guide, "# Guide");
+    try (StubDaemon daemon = StubDaemon.start()) {
+      stubSuccess(daemon);
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.sourceCode = true;
+      cmd.targets = List.of(guide.toString(), "https://example.com/guide", docs.toString());
+
+      Result result = run(cmd);
+
+      assertThat(result.code()).isZero();
+      assertThat(result.err())
+        .contains("Document target is content-only")
+        .contains("URL target is content-only");
+      assertThat(onboardBodies(daemon)).singleElement().satisfies(body -> {
+        assertThat(body).contains("\"type\":\"source-code\"")
+          .contains(docs.toAbsolutePath().normalize().toString())
+          .doesNotContain("\"type\":\"markdown\"")
+          .doesNotContain("https://example.com/guide");
+        assertThat(count(body, "\"type\":")).isEqualTo(1);
+      });
+    }
+  }
+
+  @Test
+  void codeOnlyWithoutDirectoryExitsTwoWithoutContactingDaemon(@TempDir Path proj) throws IOException {
+    Path guide = proj.resolve("guide.md");
+    Files.writeString(guide, "# Guide");
+    try (StubDaemon daemon = StubDaemon.start()) {
+      OnboardCommand cmd = command(proj, daemon.baseUrl());
+      cmd.sourceCode = true;
+      cmd.targets = List.of(guide.toString(), "https://example.com/guide");
+
+      Result result = run(cmd);
+
+      assertThat(result.code()).isEqualTo(2);
+      assertThat(result.err())
+        .contains("Document target is content-only")
+        .contains("URL target is content-only")
+        .contains("No onboardable targets");
+      assertThat(daemon.requests()).isEmpty();
     }
   }
 
@@ -304,9 +416,7 @@ class OnboardCommandTests {
           + "\"errors\":[{\"sourceNumber\":3,\"sourceType\":\"pdf\","
           + "\"errorType\":\"UnsatisfiedLinkError\",\"message\":\"Can't load library: awt\"}]}}" );
 
-      OnboardCommand cmd = command(proj, daemon.baseUrl());
-      cmd.sourceCode = true;
-      Result result = run(cmd);
+      Result result = run(command(proj, daemon.baseUrl()));
 
       assertThat(result.code()).isEqualTo(1);
       assertThat(result.out())
@@ -410,6 +520,46 @@ class OnboardCommandTests {
 
     assertThat(result.code()).isEqualTo(2);
     assertThat(result.err()).contains("mutually exclusive");
+  }
+
+  @Test
+  void laneSpecificModifiersAreRejectedBeforeConfigOrDaemonAccess(@TempDir Path proj) throws IOException {
+    Files.writeString(proj.resolve("config.toml"), "this is not valid = [toml");
+    try (StubDaemon daemon = StubDaemon.start()) {
+      assertModifierRejected(proj, daemon, cmd -> {
+        cmd.content = true;
+        cmd.reindex = true;
+      }, "--reindex");
+      assertModifierRejected(proj, daemon, cmd -> {
+        cmd.content = true;
+        cmd.summarize = true;
+      }, "--summarize");
+      assertModifierRejected(proj, daemon, cmd -> {
+        cmd.sourceCode = true;
+        cmd.refresh = true;
+      }, "--refresh");
+      assertModifierRejected(proj, daemon, cmd -> {
+        cmd.sourceCode = true;
+        cmd.includeAgentDocs = true;
+      }, "--include-agent-docs");
+      assertModifierRejected(proj, daemon, cmd -> {
+        cmd.sourceCode = true;
+        cmd.extractionSamples = 1;
+      }, "--extraction-samples");
+
+      assertThat(daemon.requests()).isEmpty();
+    }
+  }
+
+  private static void assertModifierRejected(Path proj, StubDaemon daemon,
+                                             Consumer<OnboardCommand> configure, String option) {
+    OnboardCommand cmd = command(proj, daemon.baseUrl());
+    configure.accept(cmd);
+
+    Result result = run(cmd);
+
+    assertThat(result.code()).isEqualTo(2);
+    assertThat(result.err()).contains(option).doesNotContain("Failed to load config");
   }
 
   private record Result(int code, String out, String err) {

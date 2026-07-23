@@ -47,8 +47,13 @@ public class ReminiscenceController {
   public TaskSubmitResponse reminisceAsync(@PathVariable String name,
                                            @RequestParam(name = "label", required = false) String label) {
     String kind = label == null || label.isBlank() ? "reminisce" : label;
-    UUID taskId = tasks.submit(kind, name, progress ->
-      objectMapper.valueToTree(reminiscence.adoptOrphans(name, progress)));
+    UUID taskId = tasks.submit(kind, name, progress -> {
+      var graph = progress.lane("graph");
+      graph.start();
+      var result = reminiscence.adoptOrphans(name, graph);
+      graph.complete();
+      return objectMapper.valueToTree(result);
+    });
     return new TaskSubmitResponse(taskId.toString());
   }
 

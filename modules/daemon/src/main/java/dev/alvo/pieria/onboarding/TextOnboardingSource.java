@@ -34,7 +34,7 @@ public class TextOnboardingSource implements OnboardingSource<SourceSpec.Text> {
   }
 
   @Override
-  public OnboardResult ingest(String profile, SourceSpec.Text spec, IngestProgressListener progress) {
+  public OnboardingWork begin(String profile, SourceSpec.Text spec, IngestProgressListener progress) {
     Path root = Roots.requireFileOrDirectory(spec.root());
     List<Doc> docs = TextDiscovery.create(root).discover();
 
@@ -45,8 +45,8 @@ public class TextOnboardingSource implements OnboardingSource<SourceSpec.Text> {
         documents.add(new ContentDocument("Text document — " + doc.relative(), text));
       }
     }
-    return ingestor.ingest(profile, "text", documents, spec.extractionSamples(),
-      Boolean.TRUE.equals(spec.refresh()), progress);
+    return OnboardingWork.completed(ingestor.ingest(profile, "text", documents,
+      spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
   }
 
   /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */

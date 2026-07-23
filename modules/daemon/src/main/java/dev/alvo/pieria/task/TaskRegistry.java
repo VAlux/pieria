@@ -2,7 +2,6 @@ package dev.alvo.pieria.task;
 
 import dev.alvo.pieria.audit.AuditRecorder;
 import dev.alvo.pieria.audit.AuditRequestContext;
-import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.annotation.PreDestroy;
@@ -23,13 +22,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /**
  * In-memory registry of async daemon tasks. {@link #submit} starts the work on a virtual thread and
  * returns immediately with a task id; the work reports progress through an
- * {@link IngestProgressListener} that atomically swaps the task's {@link TaskSnapshot}, which a
+ * {@link TaskProgress} that atomically swaps the task's {@link TaskSnapshot}, which a
  * client reads (lock-free) via {@link #find} or {@link #all}. Terminal tasks are evicted after a
  * short TTL so the map stays bounded; progress is not persisted across daemon restarts.
  *
@@ -73,6 +73,7 @@ public class TaskRegistry {
     final AuditRequestContext auditContext;
     volatile Future<?> future;
     volatile boolean cancelRequested;
+    final AtomicBoolean auditRecorded = new AtomicBoolean();
 
     Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext) {
       this.ref = ref;
@@ -90,30 +91,29 @@ public class TaskRegistry {
 
   /**
    * Register and start a task tagged with {@code kind} (e.g. {@code "ingest"}, {@code "code"}, or a
-   * caller-supplied label) and {@code profile}. {@code work} receives a progress listener and
+   * caller-supplied label) and {@code profile}. {@code work} receives a named-lane progress owner and
    * returns the terminal result payload. A {@link TaskCancelledException} is recorded as
    * {@code CANCELLED}; a {@link ModelUnavailableException} as {@code model-unavailable}; any other
    * failure as {@code failure}.
    */
-  public UUID submit(String kind, String profile, Function<IngestProgressListener, JsonNode> work) {
+  public UUID submit(String kind, String profile, Function<TaskProgress, JsonNode> work) {
     UUID id = UUID.randomUUID();
     AtomicReference<TaskSnapshot> ref = new AtomicReference<>(TaskSnapshot.running(Instant.now()));
     Entry entry = new Entry(ref, kind, profile, AuditRequestContext.current());
     tasks.put(id, entry);
     evictExpired();
 
-    IngestProgressListener listener = (phase, done, total) -> {
-      if (entry.cancelRequested) {
-        throw new TaskCancelledException();
-      }
-      ref.updateAndGet(s -> s.withProgress(phase, done, total));
-    };
+    TaskProgress progress = new TaskProgress(ref, () -> entry.cancelRequested);
 
     entry.future = executor.submit(() -> {
       try {
-        JsonNode result = work.apply(listener);
+        JsonNode result = work.apply(progress);
         ref.updateAndGet(s -> s.succeeded(result, Instant.now()));
-        log.info("task {} succeeded ({})", id, kind);
+        if (ref.get().status() == TaskStatus.SUCCEEDED) {
+          log.info("task {} succeeded ({})", id, kind);
+        } else {
+          log.info("task {} completed after cancellation ({})", id, kind);
+        }
         auditTerminal(id, entry);
       } catch (TaskCancelledException e) {
         log.info("task {} cancelled", id);
@@ -148,7 +148,7 @@ public class TaskRegistry {
   }
 
   private void auditTerminal(UUID id, Entry entry) {
-    if (auditRecorder == null || entry.auditContext == null) {
+    if (auditRecorder == null || entry.auditContext == null || !entry.auditRecorded.compareAndSet(false, true)) {
       return;
     }
     TaskSnapshot snapshot = entry.ref.get();
@@ -202,10 +202,12 @@ public class TaskRegistry {
       return CancelOutcome.ALREADY_TERMINAL;
     }
     entry.cancelRequested = true;
+    entry.ref.updateAndGet(snapshot -> snapshot.cancelled(Instant.now()));
     Future<?> future = entry.future;
     if (future != null) {
       future.cancel(true);
     }
+    auditTerminal(id, entry);
     return CancelOutcome.CANCELLED;
   }
 

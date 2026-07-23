@@ -34,12 +34,12 @@ public class OnboardingService {
    * {@link IllegalArgumentException} (→ HTTP 400) when no source handles the spec's type.
    */
   @SuppressWarnings("unchecked")
-  public OnboardResult ingest(String profile, SourceSpec spec, IngestProgressListener progress) {
+  public OnboardingWork begin(String profile, SourceSpec spec, IngestProgressListener progress) {
     OnboardingSource<SourceSpec> source =
       (OnboardingSource<SourceSpec>) registry.get(spec.getClass());
     if (source == null) {
       throw new IllegalArgumentException("no onboarding source for spec type " + spec.getClass().getSimpleName());
     }
-    return source.ingest(profile, spec, progress);
+    return source.begin(profile, spec, progress);
   }
 }

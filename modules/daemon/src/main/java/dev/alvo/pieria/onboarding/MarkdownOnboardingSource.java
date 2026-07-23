@@ -34,7 +34,7 @@ public class MarkdownOnboardingSource implements OnboardingSource<SourceSpec.Mar
   }
 
   @Override
-  public OnboardResult ingest(String profile, SourceSpec.Markdown spec, IngestProgressListener progress) {
+  public OnboardingWork begin(String profile, SourceSpec.Markdown spec, IngestProgressListener progress) {
     Path root = Roots.requireFileOrDirectory(spec.root());
     List<Doc> docs = MarkdownDiscovery.create(root).discover(spec.includeAgentDocs());
 
@@ -45,8 +45,8 @@ public class MarkdownOnboardingSource implements OnboardingSource<SourceSpec.Mar
         documents.add(new ContentDocument("Project documentation — " + doc.relative(), text));
       }
     }
-    return ingestor.ingest(profile, "markdown", documents, spec.extractionSamples(),
-      Boolean.TRUE.equals(spec.refresh()), progress);
+    return OnboardingWork.completed(ingestor.ingest(profile, "markdown", documents,
+      spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
   }
 
   /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */

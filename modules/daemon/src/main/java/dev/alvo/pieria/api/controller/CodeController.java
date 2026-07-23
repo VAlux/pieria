@@ -11,6 +11,7 @@ import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.code.CodeSummarizationService;
 import dev.alvo.pieria.code.CodeSummarizationService.SummarizationResult;
 import dev.alvo.pieria.config.CodeSummarizationProperties;
+import dev.alvo.pieria.task.TaskCancelledException;
 import dev.alvo.pieria.task.TaskRegistry;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -91,15 +92,20 @@ public class CodeController {
 
     String kind = label == null || label.isBlank() ? "code" : label;
     UUID taskId = tasks.submit(kind, name, progress -> {
-      CodeIndexSummary summary = indexing.index(name, request.treeHash(), files, request.reindex(), progress);
+      var code = progress.lane("code");
+      code.start();
+      CodeIndexSummary summary = indexing.index(name, request.treeHash(), files, request.reindex(), code);
       SummarizationResult summaries = SummarizationResult.empty();
       if (summarize) {
         try {
-          summaries = summarization.summarize(name, files, progress);
+          summaries = summarization.summarize(name, files, code);
+        } catch (TaskCancelledException e) {
+          throw e;
         } catch (RuntimeException e) {
           log.warn("code summarization failed ({}); index result unaffected", e.toString());
         }
       }
+      code.complete();
       return objectMapper.valueToTree(toResponse(summary, summaries));
     });
     return new TaskSubmitResponse(taskId.toString());

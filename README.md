@@ -84,7 +84,12 @@ The daemon runs two pipelines over a pluggable storage backend:
   weighted RRF fusion → deterministic temporal facts → synthesis.
 
 Long-running work (onboarding, code indexing, reminiscence, async ingest) is submitted as a
-**daemon task** and polled — `pieria task list` shows what's in flight.
+**daemon task** and polled — `pieria task list` shows what's in flight. Progress is reported only
+as an ordered `lanes` array. Each lane has a stable name, state (`QUEUED`, `RUNNING`, `WAITING`,
+`COMPLETED`, `FAILED`, or `CANCELLED`), phase, counters, and phase-start timestamp. Async ingest uses
+`ingest`, direct code indexing uses `code`, and graph/reminiscence work uses `graph`. Onboarding uses
+only the applicable `content` and/or `code` lanes: mixed plans run both concurrently, code summaries
+wait for content, and graph enrichment is considered only after both lanes finish.
 
 ### Ingestion pipeline
 
@@ -282,9 +287,11 @@ accumulated. `pieria onboard` solves this cold start by seeding the profile from
 already have:
 
 ```bash
-pieria onboard                      # scan the project dir: markdown, plain-text, and PDF docs
-pieria onboard --source-code        # ...and build the tree-sitter code index too
-pieria onboard --dry-run            # list the sources that would be sent, contact nothing
+pieria onboard                         # content + source-code lanes (the default), run concurrently
+pieria onboard --content               # content lane only: markdown, text, PDF, and web
+pieria onboard --source-code           # code lane only: tree-sitter symbol and call-graph index
+pieria onboard --content --source-code # explicit equivalent of the default
+pieria onboard --dry-run               # list the sources that would be sent, contact nothing
 ```
 
 The bundled Tree-sitter language packs support: C, C++, C#, Go, Java, JavaScript, Kotlin, PHP,
@@ -300,10 +307,15 @@ With no positional argument it scans the project directory. Give it **targets** 
 onboards only those, dispatching each by type:
 
 ```bash
-pieria onboard docs/SPEC.md               # a single .md / .txt / .pdf file
-pieria onboard ./docs ./adr               # directories, scanned
-pieria onboard https://example.com/guide  # an http(s) URL → fetched web page
+pieria onboard docs/SPEC.md               # a single content-only .md / .txt / .pdf file
+pieria onboard ./docs ./adr               # directories: content + code by default
+pieria onboard https://example.com/guide  # a content-only http(s) URL → fetched web page
 ```
+
+Source-code selection requires directory targets. Individual document files and URLs participate
+only in the content lane; code-only mode warns and skips them, and exits with status 2 without
+contacting the daemon when no directory target remains. “All” always means all applicable lanes, so
+file and URL targets stay content-only even with the default or both selectors.
 
 Documents are enumerated via `git ls-files` (so build output and gitignored files are
 skipped) and run through the normal ingest pipeline — the daemon's extraction, verification,
@@ -316,21 +328,24 @@ Useful flags:
 
 | Flag | Effect |
 |------|--------|
-| `--source-code` | Also build a symbol + call-graph index from tracked source files, powering the symbol-FTS and code-graph retrieval channels. |
+| `--content` | Select markdown, plain-text, PDF, and web onboarding only. |
+| `--source-code` | Select only the symbol + call-graph index from directory targets. With `--content`, explicitly select both lanes. |
 | `--summarize` | After indexing, write LLM-synthesized architecture and per-module summary memories. |
 | `--reindex` | Re-parse every source file even if unchanged. Use after a parser upgrade. |
+| `--refresh` | Re-ingest content documents even if unchanged. |
 | `--extraction-samples <n>` | Run `n` independent extract passes per chunk and union the results. Extraction is stochastic, so more samples catch more facts — at proportionally more model calls. |
 | `--include-agent-docs` | Also seed `CLAUDE.md` / `AGENTS.md`. |
 | `--no-enrich-graph` | Finish core onboarding without scheduling graph enrichment. |
 | `--wait-for-enrichment` | Wait for the graph child task too (mutually exclusive with `--no-enrich-graph`). |
 | `--profile`, `--daemon-url`, `--config-dir` | Standard overrides. |
 
-The CLI pushes project profile overrides first, then submits every source as one ordered daemon
-task. “Core ready” means raw messages are searchable, extracted memories are verified and stored,
-and non-task memories are queued for embedding. Embeddings drain asynchronously and may briefly
-show as a stats backlog. Graph extraction runs in a separate `onboard-graph` child task by default;
-the CLI prints its id and exits successfully without waiting. If the daemon restarts mid-enrichment,
-the orphan rows remain available to a later `pieria reminisce` run.
+The CLI pushes project profile overrides first, then submits every selected source as one daemon
+task. The daemon derives content and code lanes from that source list and runs both concurrently when
+both apply. “Core ready” means raw messages are searchable, extracted memories are verified and
+stored, and non-task memories are queued for embedding. Embeddings drain asynchronously and may
+briefly show as a stats backlog. Graph extraction runs in a separate `onboard-graph` child task by
+default; the CLI prints its id and exits successfully without waiting. If the daemon restarts
+mid-enrichment, the orphan rows remain available to a later `pieria reminisce` run.
 
 Each source is isolated from the next: if markdown, text, PDF, web, or source-code onboarding fails,
 the daemon logs the full failure and continues with the remaining sources. The terminal task result
@@ -472,6 +487,33 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | GET    | `/v1/profiles/{name}/reminisce/orphans` | Count edgeless memories (no model call).  |
 | GET/DELETE | `/v1/tasks`, `/v1/tasks/{id}`     | List, inspect, and cancel daemon tasks.     |
 | GET    | `/pieria-health`, `/pieria-status`    | Liveness and daemon status.                 |
+
+Task status and task-list entries intentionally have no root-level scalar progress fields. Their
+progress contract is:
+
+```json
+{
+  "status": "RUNNING",
+  "lanes": [
+    {
+      "name": "content",
+      "state": "RUNNING",
+      "phase": "source 1/2 markdown: extract",
+      "done": 3,
+      "total": 8,
+      "phaseStartedAtEpochMs": 1784650000000
+    },
+    {
+      "name": "code",
+      "state": "WAITING",
+      "phase": "waiting for content",
+      "done": 42,
+      "total": 42,
+      "phaseStartedAtEpochMs": 1784650001000
+    }
+  ]
+}
+```
 
 Every profile-scoped call except audit browsing itself is appended to the profile's audit history.
 Events include request correlation, operation, caller/harness/channel, timing, status, errors, and

@@ -1,6 +1,7 @@
 package dev.alvo.pieria.storage;
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -27,6 +28,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -365,6 +367,83 @@ class SqliteMemoryStoreTests {
   }
 
   @Test
+  void identicalMessagesAndMemoriesCoexistAcrossProfiles() {
+    Profile first = store.getOrCreateProfile("cross-profile-a");
+    Profile second = store.getOrCreateProfile("cross-profile-b");
+    Message message = Message.of("shared-session", "user", "same transcript content");
+
+    store.insertMessages(first.id(), "shared-session", List.of(message));
+    store.insertMessages(second.id(), "shared-session", List.of(message));
+
+    String firstMessageId = messageId(first.id());
+    String secondMessageId = messageId(second.id());
+    assertNotEquals(firstMessageId, secondMessageId);
+    assertEquals(ContentId.forMessage(first.id(), "shared-session", "user", "same transcript content"),
+      firstMessageId);
+    assertEquals(ContentId.forMessage(second.id(), "shared-session", "user", "same transcript content"),
+      secondMessageId);
+
+    Memory memory = Memory.of(MemoryType.FACT, "same derived fact", "shared-session", null, null);
+    StoreOutcome firstStore = store.store(first.id(), memory);
+    StoreOutcome secondStore = store.store(second.id(), memory);
+
+    assertTrue(firstStore.inserted());
+    assertTrue(secondStore.inserted());
+    assertNotEquals(firstStore.stored().id(), secondStore.stored().id());
+    assertEquals(1, store.listMemories(first.id(), null, null).size());
+    assertEquals(1, store.listMemories(second.id(), null, null).size());
+  }
+
+  @Test
+  void legacyUnscopedIdsRemainIdempotentForOwnerButDoNotBlockAnotherProfile() {
+    Profile owner = store.getOrCreateProfile("legacy-owner");
+    Profile newcomer = store.getOrCreateProfile("legacy-newcomer");
+    String legacyMessageId = ContentId.forMessage("legacy-session", "user", "legacy shared message");
+    jdbc.sql("""
+        INSERT INTO messages (id, profile_id, session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)""")
+      .params(legacyMessageId, owner.id(), "legacy-session", "user", "legacy shared message",
+        java.time.Instant.now().toString())
+      .update();
+
+    Message message = Message.of("legacy-session", "user", "legacy shared message");
+    store.insertMessages(owner.id(), "legacy-session", List.of(message));
+    store.insertMessages(newcomer.id(), "legacy-session", List.of(message));
+
+    assertEquals(legacyMessageId, messageId(owner.id()));
+    assertEquals(ContentId.forMessage(
+      newcomer.id(), "legacy-session", "user", "legacy shared message"), messageId(newcomer.id()));
+
+    Memory memory = Memory.of(MemoryType.FACT, "legacy shared fact", "legacy-session", null, null);
+    String legacyMemoryId = ContentId.forMemory("legacy-session", MemoryType.FACT, "legacy shared fact");
+    jdbc.sql("""
+        INSERT INTO memories
+          (id, profile_id, session_id, type, content, superseded, payload, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, '{}', ?)""")
+      .params(legacyMemoryId, owner.id(), "legacy-session", "fact", "legacy shared fact",
+        java.time.Instant.now().toString())
+      .update();
+
+    StoreOutcome ownerStore = store.store(owner.id(), memory);
+    StoreOutcome newcomerStore = store.store(newcomer.id(), memory);
+
+    assertFalse(ownerStore.inserted());
+    assertEquals(legacyMemoryId, ownerStore.stored().id());
+    assertTrue(newcomerStore.inserted());
+    assertEquals(ContentId.forMemory(
+      newcomer.id(), "legacy-session", MemoryType.FACT, "legacy shared fact"),
+      newcomerStore.stored().id());
+    assertNotEquals(ownerStore.stored().id(), newcomerStore.stored().id());
+  }
+
+  private String messageId(String profileId) {
+    return jdbc.sql("SELECT id FROM messages WHERE profile_id = ?")
+      .param(profileId)
+      .query(String.class)
+      .single();
+  }
+
+  @Test
   void insertMemoryThenListReturnsIt() {
     Profile p = store.getOrCreateProfile("carol");
     Memory mem = Memory.of(MemoryType.FACT, "User prefers dark mode", "s1", null, null);
@@ -466,6 +545,7 @@ class SqliteMemoryStoreTests {
     assertNotNull(outcome.stored().id());
     assertNull(outcome.supersededId());
     assertTrue(outcome.enqueuedVector());
+    assertTrue(outcome.inserted());
     assertTrue(hasOutbox(outcome.stored().id()));
   }
 
@@ -518,6 +598,8 @@ class SqliteMemoryStoreTests {
     StoreOutcome second = store.store(p.id(), mem);
 
     assertEquals(first.stored().id(), second.stored().id());
+    assertTrue(first.inserted());
+    assertFalse(second.inserted());
     assertTrue(first.enqueuedVector());
     assertFalse(second.enqueuedVector());
     assertEquals(1, outboxCount());

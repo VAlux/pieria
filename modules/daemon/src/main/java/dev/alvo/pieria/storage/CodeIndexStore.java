@@ -37,6 +37,15 @@ public interface CodeIndexStore {
   Optional<String> fileContentHash(String profileId, String repoRelPath);
 
   /**
+   * Whether the stored substrate for this file can produce a derived {@code code:file:} memory:
+   * at least one symbol, or at least one relation projected by the code indexer. Used to distinguish
+   * a legitimately memory-less unchanged file from an incomplete index that needs repair.
+   */
+  default boolean hasRecallableFileStructure(String profileId, String repoRelPath) {
+    return false;
+  }
+
+  /**
    * Atomically re-index one file: upsert the file row, delete its prior symbols and edges, and
    * insert the new sets — all in one transaction. Symbol/edge {@code fileId}/{@code profileId} are
    * filled from {@code file} when null.

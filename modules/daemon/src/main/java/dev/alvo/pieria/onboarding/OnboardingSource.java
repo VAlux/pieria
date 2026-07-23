@@ -22,8 +22,9 @@ public interface OnboardingSource<S extends SourceSpec> {
   Class<S> specType();
 
   /**
-   * Discover and ingest the source into {@code profile}, reporting coarse pipeline progress through
-   * {@code progress}. Runs on a background task, so it may block on model calls / IO.
+   * Perform discovery and core ingestion/indexing, returning any work that must be deferred until
+   * the scheduler's lane barrier. Content sources return an already-completed work handle; source
+   * code defers optional narrative summaries to {@link OnboardingWork#finish}.
    */
-  OnboardResult ingest(String profile, S spec, IngestProgressListener progress);
+  OnboardingWork begin(String profile, S spec, IngestProgressListener progress);
 }

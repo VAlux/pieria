@@ -170,7 +170,12 @@ public class CodeIndexingService {
       : file.contentHash();
 
     if (!reindex && codeStore.fileContentHash(profileId, path).filter(contentHash::equals).isPresent()) {
-      return FileResult.skipped();
+      boolean hasDerivedMemory = !store.findActiveByTopicKey(
+        profileId, MemoryType.FACT, "code:file:" + path).isEmpty();
+      if (hasDerivedMemory || !codeStore.hasRecallableFileStructure(profileId, path)) {
+        return FileResult.skipped();
+      }
+      log.debug("code index: repairing missing derived memory for unchanged file {}", path);
     }
 
     String language = (file.language() == null || file.language().isBlank())
@@ -253,7 +258,9 @@ public class CodeIndexingService {
     Memory memory = Memory.of(MemoryType.FACT, content, CODE_SESSION, "code:file:" + path, payload);
 
     MemoryStore.StoreOutcome outcome = store.store(profileId, memory);
-    r.memoriesStored++;
+    if (outcome.inserted()) {
+      r.memoriesStored++;
+    }
     if (outcome.supersededId() != null) {
       r.memoriesSuperseded++;
     }

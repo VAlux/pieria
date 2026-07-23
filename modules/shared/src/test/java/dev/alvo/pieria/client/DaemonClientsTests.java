@@ -220,13 +220,14 @@ class DaemonClientsTests {
       return "{\"ingestion\":{\"chunk-size-chars\":1000}}";
     }
     if (path.equals("/v1/tasks")) {
-      return "{\"tasks\":[{\"id\":\"task-1\",\"status\":\"RUNNING\",\"done\":0,\"total\":0,"
-        + "\"startedAtEpochMs\":0,\"phaseStartedAtEpochMs\":0}]}";
+      return "{\"tasks\":[{\"id\":\"task-1\",\"status\":\"RUNNING\",\"lanes\":["
+        + "{\"name\":\"ingest\",\"state\":\"RUNNING\",\"done\":0,\"total\":0,"
+        + "\"phaseStartedAtEpochMs\":0}],\"startedAtEpochMs\":0}]}";
     }
     if (path.startsWith("/v1/tasks/")) {
       return method.equals("DELETE")
-        ? "{\"status\":\"CANCELLED\",\"done\":0,\"total\":0,\"startedAtEpochMs\":0,\"phaseStartedAtEpochMs\":0}"
-        : "{\"status\":\"RUNNING\",\"done\":0,\"total\":0,\"startedAtEpochMs\":0,\"phaseStartedAtEpochMs\":0}";
+        ? "{\"status\":\"CANCELLED\",\"lanes\":[],\"startedAtEpochMs\":0}"
+        : "{\"status\":\"RUNNING\",\"lanes\":[],\"startedAtEpochMs\":0}";
     }
     if (method.equals("PUT")) {
       return "{\"name\":\"created\",\"memoryCount\":0}";

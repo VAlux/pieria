@@ -9,6 +9,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,7 +39,7 @@ class TaskRegistryTests {
   @Test
   void successfulTaskExposesResult() throws InterruptedException {
     UUID id = registry.submit("ingest", "p", progress -> {
-      progress.onPhase("extract", 1, 1);
+      progress.lane("ingest").onPhase("extract", 1, 1);
       return mapper.valueToTree(Map.of("count", 3));
     });
 
@@ -46,6 +47,10 @@ class TaskRegistryTests {
     assertThat(s.status()).isEqualTo(TaskStatus.SUCCEEDED);
     assertThat(s.result().get("count").asInt()).isEqualTo(3);
     assertThat(s.errorKind()).isNull();
+    assertThat(s.lanes()).singleElement().satisfies(lane -> {
+      assertThat(lane.name()).isEqualTo("ingest");
+      assertThat(lane.state()).isEqualTo(TaskLaneState.COMPLETED);
+    });
   }
 
   @Test
@@ -107,8 +112,9 @@ class TaskRegistryTests {
     CountDownLatch started = new CountDownLatch(1);
     UUID id = registry.submit("ingest", "p", progress -> {
       started.countDown();
+      TaskLane lane = progress.lane("ingest");
       for (int i = 0; i < 100_000; i++) {
-        progress.onPhase("extract", i, 100_000);
+        lane.onPhase("extract", i, 100_000);
         try {
           Thread.sleep(5);
         } catch (InterruptedException e) {
@@ -137,5 +143,63 @@ class TaskRegistryTests {
     UUID id = registry.submit("ingest", "p", progress -> mapper.valueToTree(Map.of("count", 0)));
     awaitTerminal(id);
     assertThat(registry.cancel(id)).isEqualTo(CancelOutcome.ALREADY_TERMINAL);
+  }
+
+  @Test
+  void laneTransitionsThroughQueuedRunningWaitingAndCompleted() throws Exception {
+    CountDownLatch queued = new CountDownLatch(1);
+    CountDownLatch start = new CountDownLatch(1);
+    CountDownLatch running = new CountDownLatch(1);
+    CountDownLatch wait = new CountDownLatch(1);
+    CountDownLatch waiting = new CountDownLatch(1);
+    CountDownLatch complete = new CountDownLatch(1);
+    UUID id = registry.submit("graph", "p", progress -> {
+      TaskLane lane = progress.lane("graph");
+      queued.countDown();
+      await(start);
+      lane.start();
+      running.countDown();
+      await(wait);
+      lane.waiting("dependency");
+      waiting.countDown();
+      await(complete);
+      lane.complete();
+      return tools.jackson.databind.node.JsonNodeFactory.instance.nullNode();
+    });
+
+    assertThat(queued.await(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(registry.find(id).orElseThrow().lanes().getFirst().state()).isEqualTo(TaskLaneState.QUEUED);
+    start.countDown();
+    assertThat(running.await(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(registry.find(id).orElseThrow().lanes().getFirst().state()).isEqualTo(TaskLaneState.RUNNING);
+    wait.countDown();
+    assertThat(waiting.await(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(registry.find(id).orElseThrow().lanes().getFirst()).satisfies(lane -> {
+      assertThat(lane.state()).isEqualTo(TaskLaneState.WAITING);
+      assertThat(lane.phase()).isEqualTo("dependency");
+    });
+    complete.countDown();
+    assertThat(awaitTerminal(id).lanes().getFirst().state()).isEqualTo(TaskLaneState.COMPLETED);
+  }
+
+  @Test
+  void taskFailureMarksEveryUnfinishedLaneFailed() throws InterruptedException {
+    UUID id = registry.submit("onboard", "p", progress -> {
+      progress.lane("content").start();
+      progress.lane("code");
+      throw new IllegalStateException("boom");
+    });
+
+    assertThat(awaitTerminal(id).lanes()).extracting(TaskLaneSnapshot::state)
+      .containsExactly(TaskLaneState.FAILED, TaskLaneState.FAILED);
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      latch.await();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new TaskCancelledException();
+    }
   }
 }

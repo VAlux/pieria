@@ -3,6 +3,7 @@ package dev.alvo.pieria.api.controller;
 import dev.alvo.pieria.api.response.TaskListResponse;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.api.response.TaskSummary;
+import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.task.TaskRegistry;
 import dev.alvo.pieria.task.TaskRegistry.CancelOutcome;
@@ -46,8 +47,8 @@ public class TaskController {
     TaskInfo info = tasks.findInfo(id).orElseThrow(() -> NotFoundException.task(taskId));
     TaskSnapshot s = info.snapshot();
     return new TaskStatusResponse(
-      s.status().name(), info.kind(), info.profile(), s.phase(), s.done(), s.total(),
-      epochMs(s.startedAt()), epochMs(s.phaseStartedAt()), s.errorKind(), s.errorMessage(), s.result());
+      s.status().name(), info.kind(), info.profile(), lanes(s), epochMs(s.startedAt()),
+      s.errorKind(), s.errorMessage(), s.result());
   }
 
   /**
@@ -67,9 +68,14 @@ public class TaskController {
   private static TaskSummary toSummary(TaskInfo info) {
     TaskSnapshot s = info.snapshot();
     return new TaskSummary(
-      info.id().toString(), info.kind(), info.profile(), s.status().name(), s.phase(),
-      s.done(), s.total(), epochMs(s.startedAt()), epochMs(s.phaseStartedAt()),
-      s.errorKind(), s.errorMessage());
+      info.id().toString(), info.kind(), info.profile(), s.status().name(), lanes(s),
+      epochMs(s.startedAt()), s.errorKind(), s.errorMessage());
+  }
+
+  private static List<TaskLaneProgress> lanes(TaskSnapshot snapshot) {
+    return snapshot.lanes().stream().map(lane -> new TaskLaneProgress(
+      lane.name(), lane.state().name(), lane.phase(), lane.done(), lane.total(),
+      epochMs(lane.phaseStartedAt()))).toList();
   }
 
   private static long epochMs(Instant instant) {

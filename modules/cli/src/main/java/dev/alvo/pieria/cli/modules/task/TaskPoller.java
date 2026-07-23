@@ -18,7 +18,7 @@ public final class TaskPoller {
       if (!"RUNNING".equals(task.status())) {
         return task;
       }
-      progress.onProgress(task.phase() == null ? "starting" : task.phase(), task.done(), task.total());
+      progress.onProgress(task.lanes());
       try {
         Thread.sleep(1_000);
       } catch (InterruptedException e) {

@@ -23,15 +23,19 @@ class TaskCommandTests {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/v1/tasks", 200, """
         {"tasks":[\
-        {"id":"3f2ab100","kind":"onboard","profile":"pieria","status":"RUNNING","phase":"verify","done":12,"total":40},\
-        {"id":"9c7d0400","kind":"code","profile":"pieria","status":"SUCCEEDED","phase":"index","done":88,"total":88}]}""");
+        {"id":"3f2ab100","kind":"onboard","profile":"pieria","status":"RUNNING","lanes":[\
+          {"name":"content","state":"RUNNING","phase":"verify","done":12,"total":40,"phaseStartedAtEpochMs":0},\
+          {"name":"code","state":"WAITING","phase":"waiting for content","done":88,"total":88,"phaseStartedAtEpochMs":0}]},\
+        {"id":"9c7d0400","kind":"code","profile":"pieria","status":"SUCCEEDED","lanes":[\
+          {"name":"code","state":"COMPLETED","phase":"index","done":88,"total":88,"phaseStartedAtEpochMs":0}]}]}""");
 
       Captured out = run("task", "list", "--daemon-url", daemon.baseUrl());
 
       assertThat(out.code).isEqualTo(0);
       assertThat(out.stdout)
         .contains("3f2ab100").contains("onboard").contains("pieria")
-        .contains("RUNNING").contains("verify 12/40 (30%)")
+        .contains("RUNNING").contains("content:verify 12/40 (30%)")
+        .contains("code:waiting for content")
         .contains("9c7d0400").contains("SUCCEEDED");
     }
   }
@@ -52,7 +56,8 @@ class TaskCommandTests {
   void attachByIdFollowsProgressToSuccess() {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stubSequence("/v1/tasks/t1",
-        "{\"status\":\"RUNNING\",\"phase\":\"extract\",\"done\":1,\"total\":2}",
+        "{\"status\":\"RUNNING\",\"lanes\":[{\"name\":\"ingest\",\"state\":\"RUNNING\","
+          + "\"phase\":\"extract\",\"done\":1,\"total\":2,\"phaseStartedAtEpochMs\":0}]}",
         "{\"status\":\"SUCCEEDED\",\"result\":{\"count\":4}}");
 
       Captured out = run("task", "t1", "--daemon-url", daemon.baseUrl());

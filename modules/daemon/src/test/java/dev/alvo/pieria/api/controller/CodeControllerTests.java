@@ -106,6 +106,7 @@ class CodeControllerTests {
         List.of(new FileDto("Bar.java", "java", "h1", "class Bar {}"))));
     assertThat(forced.filesSkippedUnchanged()).isEqualTo(0);
     assertThat(forced.filesParsed()).isEqualTo(1);
+    assertThat(forced.memoriesStored()).isZero();
 
     CodeStatusResponse status = controller.status("code");
     assertThat(status.present()).isTrue();

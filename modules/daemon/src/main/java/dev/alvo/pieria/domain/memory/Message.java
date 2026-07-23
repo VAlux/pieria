@@ -6,7 +6,8 @@ import java.time.Instant;
 
 /**
  * A single conversation message. {@code id} is content-addressed
- * ({@link ContentId#forMessage}) so re-ingesting the same transcript is idempotent.
+ * ({@link ContentId#forMessage(String, String, String, String)}) so re-ingesting the same transcript
+ * into one profile is idempotent while identical transcripts can coexist across profiles.
  * {@code id}/{@code createdAt} may be null on inbound messages and are assigned at store time.
  */
 public record Message(

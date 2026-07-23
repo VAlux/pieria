@@ -178,8 +178,11 @@ public class ProfileController {
 
     String kind = label == null || label.isBlank() ? "ingest" : label;
     UUID taskId = tasks.submit(kind, name, progress -> {
+      var ingest = progress.lane("ingest");
+      ingest.start();
       List<Memory> stored =
-        ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples(), progress);
+        ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples(), ingest);
+      ingest.complete();
       return objectMapper.valueToTree(Map.of("count", stored.size()));
     });
     return new TaskSubmitResponse(taskId.toString());

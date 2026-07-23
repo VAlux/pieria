@@ -132,7 +132,7 @@ class StubMemoryStore implements MemoryStore {
   public Memory insertMemory(String profileId, Memory memory) {
     String id = memory.id() != null
       ? memory.id()
-      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+      : ContentId.forMemory(profileId, memory.sessionId(), memory.type(), memory.content());
     Instant createdAt = memory.createdAt() != null ? memory.createdAt() : Instant.now();
     Memory stored = new Memory(id, memory.sessionId(), memory.type(), memory.content(),
       memory.topicKey(), memory.supersedes(), memory.superseded(),
@@ -147,7 +147,7 @@ class StubMemoryStore implements MemoryStore {
 
     String id = memory.id() != null
       ? memory.id()
-      : ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
+      : ContentId.forMemory(profileId, memory.sessionId(), memory.type(), memory.content());
 
     boolean keyed = (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)
       && memory.topicKey() != null;
@@ -173,6 +173,7 @@ class StubMemoryStore implements MemoryStore {
     Memory toInsert = new Memory(id, memory.sessionId(), memory.type(), memory.content(),
       memory.topicKey(), supersededId != null ? supersededId : memory.supersedes(),
       memory.superseded(), memory.payload(), memory.embedText(), memory.createdAt());
+    boolean inserted = !memories.computeIfAbsent(profileId, _ -> new LinkedHashMap<>()).containsKey(id);
     Memory stored = insertMemory(profileId, toInsert);
 
     boolean enqueuedVector = false;
@@ -182,7 +183,7 @@ class StubMemoryStore implements MemoryStore {
       enqueuedVector = true;
     }
 
-    return new StoreOutcome(stored, supersededId, enqueuedVector);
+    return new StoreOutcome(stored, supersededId, enqueuedVector, inserted);
   }
 
   // Graph surface: empty so the second-wave graph channel runs cleanly (0 hits) in API slice tests.

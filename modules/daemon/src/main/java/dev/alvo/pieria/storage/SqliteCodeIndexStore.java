@@ -164,6 +164,24 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
   }
 
   @Override
+  public boolean hasRecallableFileStructure(String profileId, String repoRelPath) {
+    return jdbc.sql("""
+        SELECT EXISTS(
+          SELECT 1 FROM code_symbols s
+          JOIN code_files f ON f.id = s.file_id
+          WHERE f.profile_id = ? AND f.repo_rel_path = ?
+          UNION ALL
+          SELECT 1 FROM code_edges e
+          JOIN code_files f ON f.id = e.file_id
+          WHERE f.profile_id = ? AND f.repo_rel_path = ?
+            AND e.relation IN ('depends-on', 'tests', 'handles-route')
+        )""")
+      .params(profileId, repoRelPath, profileId, repoRelPath)
+      .query(Integer.class)
+      .single() == 1;
+  }
+
+  @Override
   @Transactional
   public void replaceFileIndex(String profileId, CodeFile file, List<CodeSymbol> symbols, List<CodeEdge> edges) {
     CodeFile stored = upsertCodeFile(profileId, file);

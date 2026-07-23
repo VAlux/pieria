@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.task;
 
+import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.api.response.TaskListResponse;
 import dev.alvo.pieria.api.response.TaskSummary;
 import dev.alvo.pieria.cli.log.Durations;
@@ -8,16 +9,9 @@ import picocli.CommandLine.Command;
 
 import java.util.List;
 
-/**
- * {@code pieria task list} — show running and recently-finished daemon tasks with their id, kind,
- * profile, status, progress and (for running tasks) an ETA, so you can find a task you detached
- * from, copy its id to re-attach ({@code pieria task <id>}) or to {@code pieria task kill <id>}.
- */
-@Command(
-  name = "list",
-  description = "List running and recently-finished daemon tasks.",
-  mixinStandardHelpOptions = true
-)
+/** {@code pieria task list} — show all task lanes in a compact ordered progress column. */
+@Command(name = "list", description = "List running and recently-finished daemon tasks.",
+  mixinStandardHelpOptions = true)
 public final class TaskListCommand extends AbstractTaskCommand {
 
   @Override
@@ -28,45 +22,45 @@ public final class TaskListCommand extends AbstractTaskCommand {
       log.info("No tasks. (Finished tasks are kept for a few minutes; the daemon forgets them on restart.)");
       return 0;
     }
-
-    log.info(String.format("%-36s  %-9s %-14s %-10s %-22s %s",
-      "ID", "KIND", "PROFILE", "STATUS", "PROGRESS", "ETA"));
-    for (TaskSummary t : tasks) {
-      log.info(String.format("%-36s  %-9s %-14s %-10s %-22s %s",
-        t.id(),
-        nullToDash(t.kind()),
-        nullToDash(t.profile()),
-        t.status(),
-        progress(t),
-        eta(t)));
+    log.info(String.format("%-36s  %-9s %-14s %-10s %s", "ID", "KIND", "PROFILE", "STATUS", "LANES"));
+    for (TaskSummary task : tasks) {
+      log.info(String.format("%-36s  %-9s %-14s %-10s %s", task.id(), nullToDash(task.kind()),
+        nullToDash(task.profile()), task.status(), progress(task)));
     }
     return 0;
   }
 
-  /** {@code "verify 12/40 (30%)"}, or just the phase / a dash when no counts are known yet. */
-  private static String progress(TaskSummary t) {
-    String phase = t.phase() == null ? "—" : t.phase();
-    if (t.total() <= 0) {
-      return phase;
+  private static String progress(TaskSummary task) {
+    if (task.lanes() == null || task.lanes().isEmpty()) {
+      return "—";
     }
-    int pct = (int) Math.round(Math.min(1.0, (double) t.done() / t.total()) * 100);
-    return phase + " " + t.done() + "/" + t.total() + " (" + pct + "%)";
+    return task.lanes().stream().map(TaskListCommand::laneProgress)
+      .collect(java.util.stream.Collectors.joining(" | "));
   }
 
-  /** Per-phase ETA from the observed rate since the phase started; {@code "—"} unless running. */
-  private static String eta(TaskSummary t) {
-    if (!"RUNNING".equals(t.status()) || t.total() <= 0 || t.done() <= 0 || t.phaseStartedAtEpochMs() <= 0) {
+  private static String laneProgress(TaskLaneProgress lane) {
+    if ("code".equals(lane.name()) && "WAITING".equals(lane.state())
+        && "waiting for content".equals(lane.phase())) {
+      return "code:waiting for content";
+    }
+    String phase = lane.phase() == null ? lane.state().toLowerCase() : lane.phase();
+    if (lane.total() <= 0) {
+      return lane.name() + ':' + phase;
+    }
+    int pct = (int) Math.round(Math.min(1.0, (double) lane.done() / lane.total()) * 100);
+    String eta = eta(lane);
+    return lane.name() + ':' + phase + ' ' + lane.done() + '/' + lane.total()
+      + " (" + pct + "%)" + (eta.equals("—") ? "" : " ETA " + eta);
+  }
+
+  private static String eta(TaskLaneProgress lane) {
+    if (!"RUNNING".equals(lane.state()) || lane.total() <= 0 || lane.done() <= 0
+        || lane.phaseStartedAtEpochMs() <= 0) {
       return "—";
     }
-    double elapsed = (System.currentTimeMillis() - t.phaseStartedAtEpochMs()) / 1000.0;
-    if (elapsed <= 0) {
-      return "—";
-    }
-    double rate = t.done() / elapsed;
-    if (rate <= 0) {
-      return "—";
-    }
-    return Durations.format(Math.round((t.total() - t.done()) / rate));
+    double elapsed = (System.currentTimeMillis() - lane.phaseStartedAtEpochMs()) / 1_000.0;
+    double rate = elapsed > 0 ? lane.done() / elapsed : 0;
+    return rate <= 0 ? "—" : Durations.format(Math.round((lane.total() - lane.done()) / rate));
   }
 
   private static String nullToDash(String value) {

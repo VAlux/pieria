@@ -37,6 +37,7 @@ class CodeIndexingServiceTests {
 
   private Path dbFile;
   private HikariDataSource dataSource;
+  private JdbcClient jdbc;
   private SqliteMemoryStore memoryStore;
   private SqliteCodeIndexStore codeStore;
   private CodeIndexingService service;
@@ -54,7 +55,7 @@ class CodeIndexingServiceTests {
     dataSource.setConnectionInitSql("PRAGMA journal_mode=WAL");
     Flyway.configure().dataSource(dataSource).load().migrate();
 
-    JdbcClient jdbc = JdbcClient.create(dataSource);
+    jdbc = JdbcClient.create(dataSource);
     memoryStore = new SqliteMemoryStore(jdbc);
     codeStore = new SqliteCodeIndexStore(jdbc);
 
@@ -137,6 +138,48 @@ class CodeIndexingServiceTests {
     assertThat(second.filesSkippedUnchanged()).isEqualTo(1);
     assertThat(second.memoriesStored()).isZero();
     assertThat(memoryStore.listMemories(profileId, MemoryType.FACT, null)).hasSize(1);
+  }
+
+  @Test
+  void identicalCodeCanBeIndexedIntoTwoProfilesWithIndependentMemories() {
+    service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    Profile copy = memoryStore.getOrCreateProfile("code-copy");
+
+    CodeIndexSummary copied = service.index("code-copy", "t", List.of(bar("h1", "class Bar {}")));
+
+    assertThat(copied.memoriesStored()).isEqualTo(1);
+    Memory originalFact = memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst();
+    Memory copiedFact = memoryStore.listMemories(copy.id(), MemoryType.FACT, null).getFirst();
+    assertThat(copiedFact.id()).isNotEqualTo(originalFact.id());
+
+    List<String> copiedSymbolIds = codeStore.findSymbolsByName(copy.id(), List.of("Bar", "create"), 10)
+      .stream().map(symbol -> symbol.id()).toList();
+    assertThat(memoryStore.findCodeMemoriesBySymbolIds(copy.id(), copiedSymbolIds, 10))
+      .extracting(Memory::id)
+      .containsExactly(copiedFact.id());
+  }
+
+  @Test
+  void unchangedIndexRepairsMissingDerivedMemory() {
+    service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    Memory fact = memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst();
+    jdbc.sql("DELETE FROM edges WHERE memory_id = ?").param(fact.id()).update();
+    jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?").param(fact.id()).update();
+    jdbc.sql("DELETE FROM memories WHERE id = ?").param(fact.id()).update();
+
+    CodeIndexSummary repaired = service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+
+    assertThat(repaired.filesParsed()).isEqualTo(1);
+    assertThat(repaired.filesSkippedUnchanged()).isZero();
+    assertThat(repaired.memoriesStored()).isEqualTo(1);
+    assertThat(memoryStore.listMemories(profileId, MemoryType.FACT, null))
+      .singleElement()
+      .extracting(Memory::topicKey)
+      .isEqualTo("code:file:Bar.java");
+
+    CodeIndexSummary stable = service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    assertThat(stable.filesSkippedUnchanged()).isEqualTo(1);
+    assertThat(stable.memoriesStored()).isZero();
   }
 
   @Test

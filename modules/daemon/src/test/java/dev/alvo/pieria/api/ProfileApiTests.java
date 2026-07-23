@@ -368,7 +368,7 @@ class ProfileApiTests {
     Profile p = store.getOrCreateProfile("graphtest");
     store.insertMemory(p.id(), dev.alvo.pieria.domain.memory.Memory.of(
       dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta", "s1", null, null));
-    String memId = dev.alvo.pieria.domain.ContentId.forMemory("s1",
+    String memId = dev.alvo.pieria.domain.ContentId.forMemory(p.id(), "s1",
       dev.alvo.pieria.domain.memory.MemoryType.FACT, "alpha uses beta");
     var alpha = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "alpha", "{}"));
     var beta = store.upsertEntity(p.id(), dev.alvo.pieria.domain.graph.Entity.of("concept", "beta", "{}"));

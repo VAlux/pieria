@@ -118,13 +118,14 @@ public interface MemoryStore {
   }
 
   /**
-   * Insert raw conversation messages with content-addressed ids (insert-or-ignore, idempotent).
+   * Insert raw conversation messages with profile-scoped content-addressed ids (insert-or-ignore,
+   * idempotent within one profile).
    */
   void insertMessages(String profileId, String sessionId, List<Message> messages);
 
   /**
-   * Insert a single memory with a content-addressed id (insert-or-ignore). Returns the stored
-   * memory with its assigned id and timestamp.
+   * Insert a single memory with a profile-scoped content-addressed id (insert-or-ignore). Returns
+   * the stored memory with its assigned id and timestamp.
    */
   Memory insertMemory(String profileId, Memory memory);
 
@@ -211,9 +212,10 @@ public interface MemoryStore {
 
   /**
    * Outcome of {@link #store(String, Memory)}: the stored memory, the id of any memory it
-   * superseded (or {@code null}), and whether a vectorization outbox row was enqueued.
+   * superseded (or {@code null}), whether a vectorization outbox row was enqueued, and whether this
+   * call inserted the memory row rather than reusing an idempotent existing row.
    */
-  record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector) {
+  record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector, boolean inserted) {
   }
 
   // ---- sqlite-vec index + FTS5 retrieval channels ----

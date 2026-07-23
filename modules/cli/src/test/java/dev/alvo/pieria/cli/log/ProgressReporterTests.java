@@ -1,10 +1,12 @@
 package dev.alvo.pieria.cli.log;
 
+import dev.alvo.pieria.api.response.TaskLaneProgress;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,17 +40,17 @@ class ProgressReporterTests {
     PrintStream out = new PrintStream(buf, true, StandardCharsets.UTF_8);
     ProgressReporter reporter = new ProgressReporter(false, out, () -> 0L);
 
-    reporter.update("extract", 1, 10); // 10% — first tick of the phase
-    reporter.update("extract", 1, 10); // same bucket — suppressed
-    reporter.update("extract", 5, 10); // 50% — new bucket
-    reporter.update("verify", 1, 2);   // phase change — always emitted
+    reporter.update(List.of(lane("content", "RUNNING", "extract", 1, 10)));
+    reporter.update(List.of(lane("content", "RUNNING", "extract", 1, 10)));
+    reporter.update(List.of(lane("content", "RUNNING", "extract", 5, 10)));
+    reporter.update(List.of(lane("content", "RUNNING", "verify", 1, 2)));
     reporter.finish();                 // no line in non-interactive mode
 
     String[] lines = buf.toString(StandardCharsets.UTF_8).trim().split("\\R");
     assertThat(lines).containsExactly(
-      "extract 10% (1/10)",
-      "extract 50% (5/10)",
-      "verify 50% (1/2)");
+      "content: extract 10% (1/10) [running] · ETA --",
+      "content: extract 50% (5/10) [running] · ETA --",
+      "content: verify 50% (1/2) [running] · ETA --");
   }
 
   @Test
@@ -57,9 +59,31 @@ class ProgressReporterTests {
     PrintStream out = new PrintStream(buf, true, StandardCharsets.UTF_8);
     ProgressReporter reporter = new ProgressReporter(true, out, () -> 0L);
 
-    reporter.update("extract", 5, 10);
+    reporter.update(List.of(lane("content", "RUNNING", "extract", 5, 10)));
     String rendered = buf.toString(StandardCharsets.UTF_8);
     assertThat(rendered).startsWith("\r");
     assertThat(rendered).contains("50%").contains("extract 5/10").contains("[#####");
+  }
+
+  @Test
+  void rendersMixedWaitingLaneAndThrottlesEachLaneIndependently() {
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(buf, true, StandardCharsets.UTF_8);
+    ProgressReporter reporter = new ProgressReporter(false, out, () -> 0L);
+
+    reporter.update(List.of(
+      lane("content", "RUNNING", "extract", 1, 10),
+      lane("code", "WAITING", "waiting for content", 2, 2)));
+    reporter.update(List.of(
+      lane("content", "RUNNING", "extract", 2, 10),
+      lane("code", "RUNNING", "summarize", 1, 4)));
+
+    assertThat(buf.toString(StandardCharsets.UTF_8)).contains(
+      "content: extract 10%", "code: waiting for content",
+      "content: extract 20%", "code: summarize 25%");
+  }
+
+  private static TaskLaneProgress lane(String name, String state, String phase, int done, int total) {
+    return new TaskLaneProgress(name, state, phase, done, total, 0);
   }
 }

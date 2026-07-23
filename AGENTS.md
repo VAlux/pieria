@@ -44,7 +44,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 ### Key design constraints
 
 - **Single daemon, single writer**: the daemon is the only writer to the embedded SQLite store. Harnesses connect through thin MCP stdio gateways. Never open the embedded DB directly from a harness.
-- **Content-addressed IDs**: message and memory IDs are `SHA-256(sessionId + role + content)` truncated to 128 bits, making ingest idempotent (insert-or-ignore on conflict).
+- **Content-addressed IDs**: message and memory IDs include `profileId` in the SHA-256 input and are truncated to 128 bits, making ingest idempotent within a profile while identical content can coexist across profiles. Legacy unscoped IDs remain readable and are reused only by their owning profile.
 - **Supersession, not deletion**: when a new keyed `fact` or `instruction` shares a `topic_key` with an existing memory, mark the old one superseded and point the new row's `supersedes` at it. Remove the old vector in the same transaction.
 - **Tasks excluded from vector index**: `task` memories are discoverable via FTS/listing but not embedded, to keep the index lean.
 - **Temporal arithmetic in Java, not the model**: date math and duration calculations are handled deterministically in code and injected into synthesis prompts as pre-computed facts.

@@ -32,9 +32,9 @@ class OnboardingServiceTests {
     }
 
     @Override
-    public OnboardResult ingest(String profile, S spec, IngestProgressListener progress) {
+    public OnboardingWork begin(String profile, S spec, IngestProgressListener progress) {
       ingested = true;
-      return OnboardResult.content(marker, 1, 1, 0);
+      return OnboardingWork.completed(OnboardResult.content(marker, 1, 1, 0));
     }
   }
 
@@ -44,8 +44,9 @@ class OnboardingServiceTests {
     StubSource<SourceSpec.Web> web = new StubSource<>(SourceSpec.Web.class, "web");
     OnboardingService service = new OnboardingService(List.of(markdown, web));
 
-    OnboardResult result = service.ingest("p",
-      new SourceSpec.Web(List.of("https://x"), null, null), IngestProgressListener.noop());
+    OnboardResult result = service.begin("p",
+      new SourceSpec.Web(List.of("https://x"), null, null), IngestProgressListener.noop())
+      .finish(IngestProgressListener.noop());
 
     assertThat(result.sourceType()).isEqualTo("web");
     assertThat(web.ingested).isTrue();
@@ -58,8 +59,9 @@ class OnboardingServiceTests {
     StubSource<SourceSpec.Pdf> pdf = new StubSource<>(SourceSpec.Pdf.class, "pdf");
     OnboardingService service = new OnboardingService(List.of(markdown, pdf));
 
-    OnboardResult result = service.ingest("p",
-      new SourceSpec.Pdf("/abs/proj", null, null), IngestProgressListener.noop());
+    OnboardResult result = service.begin("p",
+      new SourceSpec.Pdf("/abs/proj", null, null), IngestProgressListener.noop())
+      .finish(IngestProgressListener.noop());
 
     assertThat(result.sourceType()).isEqualTo("pdf");
     assertThat(pdf.ingested).isTrue();
@@ -71,7 +73,7 @@ class OnboardingServiceTests {
     OnboardingService service = new OnboardingService(
       List.of(new StubSource<>(SourceSpec.Markdown.class, "md")));
 
-    assertThatThrownBy(() -> service.ingest("p",
+    assertThatThrownBy(() -> service.begin("p",
       new SourceSpec.Web(List.of("https://x"), null, null), IngestProgressListener.noop()))
       .isInstanceOf(IllegalArgumentException.class)
       .hasMessageContaining("no onboarding source");
