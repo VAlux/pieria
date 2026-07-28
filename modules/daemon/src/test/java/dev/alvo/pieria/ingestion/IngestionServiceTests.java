@@ -125,6 +125,98 @@ class IngestionServiceTests {
   }
 
   @Test
+  void ingestAttributesChunkSourceTokensAcrossItsMemories() {
+    FakeModelGateway gateway = new FakeModelGateway() {
+      @Override
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+        return List.of(
+          new UnifiedCandidate("first distilled fact", classify("first distilled fact"),
+            chunk.index(), "extract", GraphFragment.empty()),
+          new UnifiedCandidate("second distilled fact", classify("second distilled fact"),
+            chunk.index(), "extract", GraphFragment.empty()),
+          new UnifiedCandidate("third distilled fact", classify("third distilled fact"),
+            chunk.index(), "extract", GraphFragment.empty()));
+      }
+    };
+
+    // One user message of 120 chars -> the transcript's source tokens for this ingest.
+    String raw = "z".repeat(120);
+    List<Memory> stored = service(gateway, VerifyMode.ALWAYS)
+      .ingest("proj", "pieria-init", List.of(msg("user", raw)));
+
+    assertEquals(3, stored.size());
+
+    long ingestedTokens = jdbc.sql("SELECT tokens_ingested FROM profile_usage WHERE profile_id = ?")
+      .param(store.findProfile("proj").orElseThrow().id())
+      .query(Long.class)
+      .single();
+    long attributed = jdbc.sql("SELECT COALESCE(SUM(source_tokens), 0) FROM memories WHERE profile_id = ?")
+      .param(store.findProfile("proj").orElseThrow().id())
+      .query(Long.class)
+      .single();
+
+    // Every memory carries a positive, equal slice, and no memory carries the whole chunk.
+    List<Long> slices = jdbc.sql("SELECT source_tokens FROM memories WHERE profile_id = ? ORDER BY id")
+      .param(store.findProfile("proj").orElseThrow().id())
+      .query(Long.class)
+      .list();
+    assertEquals(3, slices.size());
+    slices.forEach(s -> assertTrue(s > 0, "expected a positive source slice, got " + s));
+    assertEquals(1, slices.stream().distinct().count(), "slices should be equal across the chunk");
+
+    // The invariant: attributed source never exceeds what was actually fed in (allowing for the
+    // per-memory ceil rounding, at most one extra token per memory).
+    assertTrue(attributed <= ingestedTokens + slices.size(),
+      "attributed " + attributed + " must not exceed ingested " + ingestedTokens);
+  }
+
+  @Test
+  void overlappingChunksAttributeEachMessageOnlyOnce() {
+    // One distinct memory per chunk, so each chunk's whole source slice lands on a single row.
+    FakeModelGateway gateway = new FakeModelGateway() {
+      @Override
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+        String content = "c" + chunk.index() + "fact distilled from its chunk";
+        return List.of(new UnifiedCandidate(content, classify(content), chunk.index(),
+          "extract", GraphFragment.empty()));
+      }
+    };
+
+    // chunk-size-chars=10000 fits two ~4500-char messages per chunk; with
+    // chunk-overlap-messages=2 the chunker can only advance one message at a time, so six
+    // messages yield five deliberately overlapping chunks (each message appears in two of them).
+    List<Message> transcript = new ArrayList<>();
+    for (int i = 0; i < 6; i++) {
+      transcript.add(msg(i % 2 == 0 ? "user" : "assistant", ("m" + i + " ").repeat(1500)));
+    }
+
+    List<Memory> stored = service(gateway, VerifyMode.ALWAYS).ingest("proj", "overlap", transcript);
+    assertTrue(stored.size() >= 3,
+      "expected at least 3 overlapping chunks, got " + stored.size() + " memories");
+
+    String profileId = store.findProfile("proj").orElseThrow().id();
+    long ingestedTokens = jdbc.sql("SELECT tokens_ingested FROM profile_usage WHERE profile_id = ?")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+    long attributed = jdbc.sql("SELECT COALESCE(SUM(source_tokens), 0) FROM memories WHERE profile_id = ?")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+    long memoryCount = jdbc.sql("SELECT COUNT(*) FROM memories WHERE profile_id = ?")
+      .param(profileId)
+      .query(Long.class)
+      .single();
+
+    // The invariant that makes the savings metric defensible: overlapped messages are attributed
+    // to the first chunk that contains them, never once per chunk. Slack is the per-memory ceil
+    // rounding only (at most one token each).
+    assertTrue(attributed <= ingestedTokens + memoryCount,
+      "attributed " + attributed + " must not exceed ingested " + ingestedTokens
+        + " (+" + memoryCount + " rounding slack)");
+  }
+
+  @Test
   void unsupportedCandidateIsDropped() {
     List<Memory> stored = service.ingest("proj", "s1",
       List.of(msg("user", "this claim is UNSUPPORTED by anything")));

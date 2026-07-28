@@ -13,10 +13,11 @@ import java.util.stream.Stream;
 /**
  * Enumerates the markdown documentation of a project to seed a Pieria profile.
  *
- * <p>Primary source is {@code git ls-files '*.md'}, which naturally excludes build output,
- * {@code .git/}, {@code node_modules/}, and anything gitignored. When the directory is not a git
- * repository (or git is unavailable), it falls back to a filesystem walk that filters {@code *.md}
- * and skips the obvious non-source directories.
+ * <p>Primary source is {@link GitFiles} narrowed to {@code *.md} — every working-tree file git does
+ * not ignore, committed or not — which naturally excludes build output, {@code .git/},
+ * {@code node_modules/}, and anything gitignored. When the directory is not a git repository (or git
+ * is unavailable), it falls back to a filesystem walk that filters {@code *.md} and skips the
+ * obvious non-source directories.
  *
  * <p>{@code CLAUDE.md} and {@code AGENTS.md} are excluded by default: harnesses already load those
  * into context every session, so seeding them as memories is redundant. Pass {@code includeAgentDocs}
@@ -88,36 +89,10 @@ public final class MarkdownDiscovery {
   }
 
   /**
-   * Production reader: {@code git ls-files -z '*.md'}, fail-closed to empty on any error.
+   * Production reader: the shared {@link GitFiles} listing narrowed to {@code *.md}.
    */
   private static GitLsFiles realGitReader() {
-    return projectDir -> {
-      try {
-        Process process = new ProcessBuilder("git", "ls-files", "-z", "*.md")
-          .directory(projectDir.toFile())
-          .redirectErrorStream(true)
-          .start();
-        byte[] out = process.getInputStream().readAllBytes();
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-          return Optional.empty();
-        }
-        // -z gives NUL-separated paths (safe for spaces/newlines); drop the trailing empty token.
-        String raw = new String(out);
-        List<String> paths = new ArrayList<>();
-        for (String token : raw.split("\0")) {
-          if (!token.isBlank()) {
-            paths.add(token);
-          }
-        }
-        return Optional.of(paths);
-      } catch (IOException e) {
-        return Optional.empty();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return Optional.empty();
-      }
-    };
+    return projectDir -> GitFiles.list(projectDir, "*.md");
   }
 
   /**

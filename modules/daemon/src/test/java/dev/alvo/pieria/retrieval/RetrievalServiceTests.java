@@ -108,8 +108,30 @@ class RetrievalServiceTests {
       .mapToLong(rc -> Tokens.estimate(rc.memory().content()))
       .sum();
     assertThat(store.recordUsageCalls).isEqualTo(1);
-    assertThat(store.recordedEvidenceTokens).isEqualTo(expectedEvidence);
+    assertThat(store.recordedSourceTokens).isEqualTo(expectedEvidence);
     assertThat(store.recordedAnswerTokens).isEqualTo(Tokens.estimate(result.answer()));
+  }
+
+  @Test
+  void nonSynthesizingRecallChargesTheServedMemoryPayload() {
+    Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
+    Memory ftsOnly = mem("m2", "tea is grown in Assam", MemoryType.FACT, null, T0.plusSeconds(10));
+    FakeStore store = new FakeStore();
+    store.exactKey = List.of(shared);
+    store.ftsMemory = List.of(ftsOnly, shared);
+
+    // EVIDENCE tier: no synthesized answer, so what the caller received is the raw memory contents.
+    RecallResult result = service(store, new FakeModelGateway())
+      .recall("p", "tea", 10, false, RecallMode.EVIDENCE);
+
+    assertThat(result.answer()).isNull();
+    long servedPayload = result.candidates().stream()
+      .mapToLong(rc -> Tokens.estimate(rc.memory().content()))
+      .sum();
+    assertThat(servedPayload).isPositive();
+    assertThat(store.recordUsageCalls).isEqualTo(1);
+    // The served payload is charged, not zero — otherwise this tier would bank the full source.
+    assertThat(store.recordedAnswerTokens).isEqualTo(servedPayload);
   }
 
   @Test
@@ -464,7 +486,7 @@ class RetrievalServiceTests {
     RuntimeException graphError;
     int graphCalls;
     int recordUsageCalls;
-    long recordedEvidenceTokens = -1;
+    long recordedSourceTokens = -1;
     long recordedAnswerTokens = -1;
 
     @Override
@@ -473,10 +495,29 @@ class RetrievalServiceTests {
     }
 
     @Override
-    public void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
+    public void recordRecallUsage(String profileId, long sourceTokens, long answerTokens) {
       recordUsageCalls++;
-      recordedEvidenceTokens = evidenceTokens;
+      recordedSourceTokens = sourceTokens;
       recordedAnswerTokens = answerTokens;
+    }
+
+    // This fake has no separate provenance/source-token model: it stands in for a backend where
+    // each memory's source is its own content, mirroring the real store's remember-path default.
+    @Override
+    public long sumActiveSourceTokens(String profileId, java.util.Collection<String> memoryIds) {
+      if (memoryIds == null || memoryIds.isEmpty()) {
+        return 0L;
+      }
+      java.util.Map<String, Memory> byId = new java.util.LinkedHashMap<>();
+      java.util.stream.Stream.of(exactKey, ftsMemory, ftsMessage, vectorHits, graphMemories)
+        .flatMap(List::stream)
+        .forEach(m -> byId.putIfAbsent(m.id(), m));
+      return memoryIds.stream()
+        .distinct()
+        .map(byId::get)
+        .filter(java.util.Objects::nonNull)
+        .mapToLong(m -> Tokens.estimate(m.content()))
+        .sum();
     }
 
     @Override

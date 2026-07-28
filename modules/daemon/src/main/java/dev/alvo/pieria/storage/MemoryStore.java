@@ -19,7 +19,9 @@ import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.tools.Tokens;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,12 +81,21 @@ public interface MemoryStore {
   }
 
   /**
-   * Accumulate one recall into the profile's lifetime savings counters: bump {@code recall_count},
-   * add the headline saving ({@code max(0, evidenceTokens − answerTokens)}) and the naive-dump upper
-   * bound ({@code max(0, activeCorpusTokens − answerTokens)}, with the corpus total computed by the
-   * backend). Best-effort and accounting-only — a no-op for backends that do not track usage.
+   * Accumulate one recall into the profile's lifetime savings counters: bump {@code recall_count}
+   * and add {@code max(0, sourceTokens − answerTokens)} — the cost avoided by not re-reading the
+   * source material behind the evidence. Best-effort and accounting-only — a no-op for backends
+   * that do not track usage.
    */
-  default void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
+  default void recordRecallUsage(String profileId, long sourceTokens, long answerTokens) {
+  }
+
+  /**
+   * Σ {@code source_tokens} over the active memories among {@code memoryIds} within this profile —
+   * the raw source material behind a recall's evidence. Duplicate ids are counted once. Returns
+   * {@code 0} for an empty id set or a backend that does not track provenance.
+   */
+  default long sumActiveSourceTokens(String profileId, Collection<String> memoryIds) {
+    return 0L;
   }
 
   /**
@@ -154,8 +165,22 @@ public interface MemoryStore {
    * The graph extraction model call must happen <em>before</em> this method so no model I/O occurs
    * inside the transaction. An {@link GraphFragment#empty()} fragment makes this equivalent to the
    * two-arg form.
+   *
+   * <p>Source tokens default to the memory's own content: a memory written without ingest
+   * provenance (the explicit {@code remember} path) was never distilled from anything larger, so
+   * recalling it saves nothing.
    */
   default StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
+    return store(profileId, memory, graph, Tokens.estimate(memory.content()));
+  }
+
+  /**
+   * As {@link #store(String, Memory, GraphFragment)}, recording {@code sourceTokens} — the raw
+   * source material this memory was distilled from — on the stored row. Ingest passes each
+   * memory's proportional slice of its source chunk; the savings figure reported by
+   * {@link #recordRecallUsage} is computed against these totals.
+   */
+  default StoreOutcome store(String profileId, Memory memory, GraphFragment graph, long sourceTokens) {
     throw new UnsupportedOperationException("store(...) not implemented");
   }
 

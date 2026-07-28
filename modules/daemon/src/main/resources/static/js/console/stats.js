@@ -65,16 +65,15 @@ function renderStats(s) {
   impPanel.appendChild(el("h2", "section", "Impact"));
   const dl = el("dl", "rows");
   addRow(dl, "Recalls served", fmtInt(imp.recalls));
-  addRow(dl, "Tokens saved (evidence)", fmtInt(imp.tokensSavedEvidence));
-  addRow(dl, "Tokens saved (naive)", fmtInt(imp.tokensSavedNaive));
+  addRow(dl, "Est. tokens saved (vs. re-reading the source)", fmtInt(imp.tokensSaved));
   addRow(dl, "Tokens ingested", fmtInt(imp.tokensIngested));
   addRow(dl, "Tokens stored", fmtInt(imp.tokensStored));
   if (imp.contextWindowTokens) {
-    addRow(dl, "≈ context windows saved", (imp.tokensSavedEvidence / imp.contextWindowTokens).toFixed(1)
+    addRow(dl, "≈ context windows saved", (imp.tokensSaved / imp.contextWindowTokens).toFixed(1)
       + " × " + fmtInt(imp.contextWindowTokens));
   }
   if (imp.pricePerMillionTokens > 0) {
-    addRow(dl, "≈ cost saved", "$" + (imp.tokensSavedEvidence / 1e6 * imp.pricePerMillionTokens).toFixed(2));
+    addRow(dl, "≈ cost saved", "$" + (imp.tokensSaved / 1e6 * imp.pricePerMillionTokens).toFixed(2));
   }
   impPanel.appendChild(dl);
   grid.appendChild(impPanel);

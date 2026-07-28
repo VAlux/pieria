@@ -97,7 +97,7 @@ Fit: Read side already exists — `MemoryStore.graphSnapshot(profileId)` returns
 14. Local recall/usage analytics dashboard
 Phase: unassigned | Status: done (CLI, not a GUI dashboard)
 Who has it: Memori cloud. You already emit per-stage latency/token metrics to logs — a local read-only dashboard makes them usable. No telemetry leaves the machine, consistent with your design.
-Shipped: `model.usage` (`InferenceTier`/`TierUsage`/`InferenceUsageAccumulator`/`InferenceUsageSink`) plus `pieria profile stats` (`ProfileStatsCommand`), which renders per-profile memory counts, sessions, vectorization backlog, an "impact" panel (tokens saved vs. naive context dump), and per-tier spend/cost estimation. Still CLI-only — no GUI/read-only web dashboard.
+Shipped: `model.usage` (`InferenceTier`/`TierUsage`/`InferenceUsageAccumulator`/`InferenceUsageSink`) plus `pieria profile stats` (`ProfileStatsCommand`), which renders per-profile memory counts, sessions, vectorization backlog, an "impact" panel (estimated tokens saved vs. re-reading the source each answer was distilled from), and per-tier spend/cost estimation. Still CLI-only — no GUI/read-only web dashboard.
 
 15. Code-index freshness and watch mode
 Phase: unassigned | Status: in progress

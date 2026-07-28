@@ -395,6 +395,23 @@ public class IngestionService {
       transcriptByChunk.put(c.index(), c.transcript());
     }
 
+    // Raw source tokens per chunk: what re-reading this chunk's turns would cost, counting each
+    // message exactly once. Chunks deliberately overlap (pieria.ingestion.chunk-overlap-messages),
+    // so a message is attributed to the first chunk that contains it; summed over all chunks this
+    // equals the ingest's total message tokens, so per-memory slices never over-attribute.
+    Map<Integer, Long> sourceTokensByChunk = new HashMap<>();
+    int attributedThrough = -1; // highest absolute message index already attributed
+    for (Chunk c : chunks) {
+      long newTokens = 0;
+      for (int i = 0; i < c.messages().size(); i++) {
+        if (c.firstMessageIndex() + i > attributedThrough) {
+          newTokens += Tokens.estimate(c.messages().get(i).content());
+        }
+      }
+      attributedThrough = Math.max(attributedThrough, c.lastMessageIndex());
+      sourceTokensByChunk.put(c.index(), newTokens);
+    }
+
     // Group candidates by source chunk (first-seen order), then split each group into auto-passed
     // (grounded) and suspects that need the model verifier.
     LinkedHashMap<Integer, List<UnifiedCandidate>> byChunk = new LinkedHashMap<>();
@@ -499,6 +516,12 @@ public class IngestionService {
         // Batch graph-extract the non-task survivors (one call), then store each. Storing per
         // chunk keeps progress durable: a finished chunk's memories survive an interrupted run.
         if (!survivors.isEmpty()) {
+          // Split this chunk's source across the memories it produced, so the slices sum to the
+          // chunk (ceil rounding may add at most one token per memory).
+          long chunkSourceTokens = sourceTokensByChunk.getOrDefault(chunkIndex, 0L);
+          long perMemorySourceTokens =
+            (chunkSourceTokens + survivors.size() - 1) / survivors.size();
+
           // Tasks are excluded from the graph (as from the vector index); the rest are graph-extracted
           // in one batched, degradable call.
           List<String> graphContents = new ArrayList<>();
@@ -548,7 +571,7 @@ public class IngestionService {
 
             long storeStart = System.nanoTime();
             StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
-              graph, graphOutcome, k + 1, survivors.size());
+              graph, graphOutcome, perMemorySourceTokens, k + 1, survivors.size());
             sqliteStoreNanos += System.nanoTime() - storeStart;
             stored.add(s.stored());
             if (s.superseded()) {
@@ -643,10 +666,13 @@ public class IngestionService {
    * single fold thread so the store write stays serialized. Graph extraction is additive and
    * degradable: {@code graph} is already empty when extraction was skipped (tasks) or failed, and the
    * memory is stored regardless.
+   *
+   * <p>{@code sourceTokens} is this memory's proportional slice of its source chunk's raw turns —
+   * the re-read cost the impact panel reports against.
    */
   private StoredOne storeMemory(String profileId, String sessionId, String content,
                                 Classification classification, GraphFragment graph, GraphOutcome graphOutcome,
-                                int index, int total) {
+                                long sourceTokens, int index, int total) {
     log.debug("ingest classified candidate={}/{} type={} hasTopicKey={} interrogativeQueries={} graph={}",
       index, total, classification.type(), classification.topicKey() != null,
       classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size(),
@@ -658,7 +684,7 @@ public class IngestionService {
       null, sessionId, classification.type(), content, classification.topicKey(),
       null, false, payload, embedText, null);
 
-    MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph);
+    MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph, sourceTokens);
     log.debug("ingest stored candidate={}/{} memoryId={} type={} supersededId={} vectorEnqueued={}",
       index, total, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
       outcome.enqueuedVector());

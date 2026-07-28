@@ -39,6 +39,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -280,16 +281,24 @@ public class RetrievalService {
   }
 
   /**
-   * Accumulate this recall into the profile's lifetime savings counters (evidence-only headline +
-   * naive-dump upper bound, computed in the store). Accounting-only and best-effort: a failure here
-   * must never break recall, so it is logged and swallowed.
+   * Accumulate this recall into the profile's lifetime savings counter: the raw source material
+   * behind the evidence, minus what the caller actually received in its place. For synthesizing
+   * tiers that replacement is the synthesized answer; for the non-synthesizing tiers
+   * ({@code EVIDENCE}/{@code ANALYZED}, where {@code answer} is null) the caller is served the raw
+   * memory contents, so those tokens are the subtrahend instead of zero. Accounting-only and
+   * best-effort: a failure here must never break recall, so it is logged and swallowed.
    */
   private void recordUsage(String profileId, List<RecallCandidate> evidence, String answer) {
     try {
-      long evidenceTokens = evidence.stream()
-        .mapToLong(c -> Tokens.estimate(c.memory().content()))
-        .sum();
-      store.recordRecallUsage(profileId, evidenceTokens, Tokens.estimate(answer));
+      List<String> ids = evidence.stream()
+        .map(c -> c.memory().id())
+        .filter(Objects::nonNull)
+        .toList();
+      long sourceTokens = store.sumActiveSourceTokens(profileId, ids);
+      long servedTokens = answer != null
+        ? Tokens.estimate(answer)
+        : evidence.stream().mapToLong(c -> Tokens.estimate(c.memory().content())).sum();
+      store.recordRecallUsage(profileId, sourceTokens, servedTokens);
     } catch (RuntimeException e) {
       LOGGER.warn("recording recall usage failed ({}); continuing", e.toString());
     }

@@ -298,7 +298,7 @@ class ProfileApiTests {
       // The impact block is always present; explicit POST /memories does not record usage,
       // so the counters are zero, but the display knobs fall back to their defaults.
       .andExpect(jsonPath("$.impact.recalls", is(0)))
-      .andExpect(jsonPath("$.impact.tokensSavedEvidence", is(0)))
+      .andExpect(jsonPath("$.impact.tokensSaved", is(0)))
       .andExpect(jsonPath("$.impact.contextWindowTokens", is(200000)))
       // No inference spend recorded for this profile, so the spend block is omitted.
       .andExpect(jsonPath("$.spend").value(org.hamcrest.Matchers.nullValue()));

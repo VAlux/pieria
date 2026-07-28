@@ -146,6 +146,13 @@ class StubMemoryStore implements MemoryStore {
 
   @Override
   public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
+    return store(profileId, memory, graph, dev.alvo.pieria.tools.Tokens.estimate(memory.content()));
+  }
+
+  // This stub does not model provenance/source tokens separately; sourceTokens is accepted for
+  // interface conformance but not persisted (API slice tests don't assert on it).
+  @Override
+  public StoreOutcome store(String profileId, Memory memory, GraphFragment graph, long sourceTokens) {
     String supersededId = null;
 
     String id = memory.id() != null

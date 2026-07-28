@@ -14,9 +14,10 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * Enumerates a project's source files to index. Primary source is {@code git ls-files -z} (which
- * respects {@code .gitignore} and excludes build output / {@code .git} / {@code node_modules}); a
- * filesystem walk is the fallback outside a git repo.
+ * Enumerates a project's source files to index. Primary source is {@link GitFiles} — every
+ * working-tree file git does not ignore, committed or not (which respects {@code .gitignore} and
+ * excludes build output / {@code .git} / {@code node_modules}); a filesystem walk is the fallback
+ * outside a git repo.
  *
  * <p>What is kept is driven by {@link DiscoveryConfig} (the {@code [discovery]} section of the
  * layered config files, resolved by the client and carried in the source spec; code-baked defaults
@@ -138,33 +139,9 @@ public final class CodeDiscovery {
   }
 
   /**
-   * Production reader: {@code git ls-files -z}, fail-closed to empty on any error.
+   * Production reader: the shared {@link GitFiles} listing of all working-tree files.
    */
   private static MarkdownDiscovery.GitLsFiles realGitReader() {
-    return projectDir -> {
-      try {
-        Process process = new ProcessBuilder("git", "ls-files", "-z")
-          .directory(projectDir.toFile())
-          .redirectErrorStream(true)
-          .start();
-        byte[] out = process.getInputStream().readAllBytes();
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-          return Optional.empty();
-        }
-        List<String> paths = new ArrayList<>();
-        for (String token : new String(out, StandardCharsets.UTF_8).split("\0")) {
-          if (!token.isBlank()) {
-            paths.add(token);
-          }
-        }
-        return Optional.of(paths);
-      } catch (IOException e) {
-        return Optional.empty();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return Optional.empty();
-      }
-    };
+    return GitFiles::list;
   }
 }

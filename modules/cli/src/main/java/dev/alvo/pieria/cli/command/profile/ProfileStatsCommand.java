@@ -53,10 +53,9 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
   }
 
   /**
-   * The "Pieria impact" panel: a lifetime, relative (chars/4) estimate of tokens saved by answering
-   * from memory instead of re-feeding context. The evidence-only figure is the headline; the
-   * naive-dump figure is shown as an explicit upper bound. Omitted entirely for an older daemon that
-   * does not return the block.
+   * The "Pieria impact" panel: a lifetime, relative (chars/4) estimate of the tokens saved by
+   * answering from memory instead of re-reading the source material each answer was distilled from.
+   * Omitted entirely for an older daemon that does not return the block.
    */
   private void renderImpact(ProfileImpact impact) {
     if (impact == null) {
@@ -65,16 +64,16 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
     log.info("");
     log.info("Pieria impact");
     line("Recalls served", Long.toString(impact.recalls()));
-    line("Est. tokens saved", "~" + humanize(impact.tokensSavedEvidence()) + "   (evidence-only)");
-    line("  upper bound", "~" + humanize(impact.tokensSavedNaive()) + "   (naive dump-everything baseline)");
+    line("Est. tokens saved",
+      "~" + humanize(impact.tokensSaved()) + "   (vs. re-reading the source behind each answer)");
 
     if (impact.contextWindowTokens() > 0) {
-      double windows = impact.tokensSavedEvidence() / (double) impact.contextWindowTokens();
+      double windows = impact.tokensSaved() / (double) impact.contextWindowTokens();
       line("  ≈ context windows", String.format(Locale.ROOT, "%.1f  (%s)",
         windows, humanize(impact.contextWindowTokens())));
     }
     if (impact.pricePerMillionTokens() > 0.0) {
-      double cost = impact.tokensSavedEvidence() / 1_000_000.0 * impact.pricePerMillionTokens();
+      double cost = impact.tokensSaved() / 1_000_000.0 * impact.pricePerMillionTokens();
       line("  ≈ cost saved", String.format(Locale.ROOT, "$%.2f", cost));
     }
     if (impact.tokensStored() > 0) {

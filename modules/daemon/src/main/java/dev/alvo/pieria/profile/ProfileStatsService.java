@@ -32,7 +32,7 @@ public class ProfileStatsService {
     this.properties = properties;
   }
 
-  public record ImpactView(long recallCount, long tokensSavedEvidence, long tokensSavedNaive,
+  public record ImpactView(long recallCount, long tokensSaved,
                            long tokensIngested, long tokensStored,
                            int contextWindowTokens, double pricePerMillionTokens) {
   }
@@ -82,8 +82,7 @@ public class ProfileStatsService {
     double price = cfg == null ? 0.0 : cfg.pricePerMillionTokens();
     return new ImpactView(
       usage.recallCount(),
-      usage.tokensSavedEvidence(),
-      usage.tokensSavedNaive(),
+      usage.tokensSaved(),
       usage.tokensIngested(),
       usage.tokensStored(),
       window,

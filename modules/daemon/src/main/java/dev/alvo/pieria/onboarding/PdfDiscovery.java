@@ -13,10 +13,11 @@ import java.util.stream.Stream;
 /**
  * Enumerates the PDF documents of a project to seed a Pieria profile.
  *
- * <p>Primary source is {@code git ls-files '*.pdf'}, which naturally excludes build output,
- * {@code .git/}, {@code node_modules/}, and anything gitignored. When the directory is not a git
- * repository (or git is unavailable), it falls back to a filesystem walk that filters {@code *.pdf}
- * and skips the obvious non-source directories.
+ * <p>Primary source is {@link GitFiles} narrowed to {@code *.pdf} — every working-tree file git does
+ * not ignore, committed or not — which naturally excludes build output, {@code .git/},
+ * {@code node_modules/}, and anything gitignored. When the directory is not a git repository (or git
+ * is unavailable), it falls back to a filesystem walk that filters {@code *.pdf} and skips the
+ * obvious non-source directories.
  *
  * <h2>Testability</h2>
  * Git enumeration is an injected seam ({@link GitLsFiles}), so tests need no real repository.
@@ -72,36 +73,10 @@ public final class PdfDiscovery {
   }
 
   /**
-   * Production reader: {@code git ls-files -z '*.pdf'}, fail-closed to empty on any error.
+   * Production reader: the shared {@link GitFiles} listing narrowed to {@code *.pdf}.
    */
   private static GitLsFiles realGitReader() {
-    return projectDir -> {
-      try {
-        Process process = new ProcessBuilder("git", "ls-files", "-z", "*.pdf")
-          .directory(projectDir.toFile())
-          .redirectErrorStream(true)
-          .start();
-        byte[] out = process.getInputStream().readAllBytes();
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-          return Optional.empty();
-        }
-        // -z gives NUL-separated paths (safe for spaces/newlines); drop the trailing empty token.
-        String raw = new String(out);
-        List<String> paths = new ArrayList<>();
-        for (String token : raw.split("\0")) {
-          if (!token.isBlank()) {
-            paths.add(token);
-          }
-        }
-        return Optional.of(paths);
-      } catch (IOException e) {
-        return Optional.empty();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return Optional.empty();
-      }
-    };
+    return projectDir -> GitFiles.list(projectDir, "*.pdf");
   }
 
   /**

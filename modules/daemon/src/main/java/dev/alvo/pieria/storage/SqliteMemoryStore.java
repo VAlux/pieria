@@ -36,6 +36,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -277,31 +279,42 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   @Transactional
-  public void recordRecallUsage(String profileId, long evidenceTokens, long answerTokens) {
-    // Naive-dump upper bound: what a "inject everything every turn" memory layer would have paid.
-    // Computed here (one cheap grouped scan) against the active corpus at this instant.
-    long corpusChars = jdbc.sql("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE profile_id = ? AND superseded = 0")
-      .param(profileId)
-      .query(Long.class)
-      .single();
-
-    long corpusTokens = Tokens.fromChars(corpusChars);
-
-    long savedEvidence = Math.max(0, evidenceTokens - answerTokens);
-    long savedNaive = Math.max(0, corpusTokens - answerTokens);
+  public void recordRecallUsage(String profileId, long sourceTokens, long answerTokens) {
+    long saved = Math.max(0, sourceTokens - answerTokens);
 
     jdbc.sql("""
         INSERT INTO profile_usage \
-        (profile_id, recall_count, tokens_saved_evidence, tokens_saved_naive, tokens_recall_served, updated_at) \
-        VALUES (?, 1, ?, ?, ?, ?) \
+        (profile_id, recall_count, tokens_saved, tokens_recall_served, updated_at) \
+        VALUES (?, 1, ?, ?, ?) \
         ON CONFLICT (profile_id) DO UPDATE SET \
         recall_count = recall_count + 1, \
-        tokens_saved_evidence = tokens_saved_evidence + excluded.tokens_saved_evidence, \
-        tokens_saved_naive = tokens_saved_naive + excluded.tokens_saved_naive, \
+        tokens_saved = tokens_saved + excluded.tokens_saved, \
         tokens_recall_served = tokens_recall_served + excluded.tokens_recall_served, \
         updated_at = excluded.updated_at""")
-      .params(profileId, savedEvidence, savedNaive, answerTokens, Instant.now().toString())
+      .params(profileId, saved, answerTokens, Instant.now().toString())
       .update();
+  }
+
+  @Override
+  public long sumActiveSourceTokens(String profileId, Collection<String> memoryIds) {
+    if (memoryIds == null || memoryIds.isEmpty()) {
+      return 0L;
+    }
+    // Distinct: the same memory can surface from several retrieval channels, and its source must
+    // be counted once.
+    List<String> ids = memoryIds.stream().distinct().toList();
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+
+    List<Object> params = new ArrayList<>(ids.size() + 1);
+    params.add(profileId);
+    params.addAll(ids);
+
+    Long sum = jdbc.sql("SELECT COALESCE(SUM(source_tokens), 0) FROM memories "
+        + "WHERE profile_id = ? AND superseded = 0 AND id IN (" + placeholders + ")")
+      .params(params)
+      .query(Long.class)
+      .single();
+    return sum == null ? 0L : sum;
   }
 
   @Override
@@ -323,15 +336,14 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public ProfileUsage usageStats(String profileId) {
     return jdbc.sql("""
-        SELECT recall_count, ingest_count, tokens_saved_evidence, tokens_saved_naive, \
+        SELECT recall_count, ingest_count, tokens_saved, \
         tokens_recall_served, tokens_ingested, tokens_stored \
         FROM profile_usage WHERE profile_id = ?""")
       .param(profileId)
       .query((rs, _) -> new ProfileUsage(
         rs.getLong("recall_count"),
         rs.getLong("ingest_count"),
-        rs.getLong("tokens_saved_evidence"),
-        rs.getLong("tokens_saved_naive"),
+        rs.getLong("tokens_saved"),
         rs.getLong("tokens_recall_served"),
         rs.getLong("tokens_ingested"),
         rs.getLong("tokens_stored")))
@@ -463,10 +475,10 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public Memory insertMemory(String profileId, Memory memory) {
-    return insertMemoryRecord(profileId, memory).stored();
+    return insertMemoryRecord(profileId, memory, Tokens.estimate(memory.content())).stored();
   }
 
-  private MemoryInsert insertMemoryRecord(String profileId, Memory memory) {
+  private MemoryInsert insertMemoryRecord(String profileId, Memory memory, long sourceTokens) {
     String id = resolveMemoryId(profileId, memory);
     Instant createdAt = memory.createdAt() == null ? Instant.now() : memory.createdAt();
     String payload = memory.payload() == null ? "{}" : memory.payload();
@@ -474,8 +486,8 @@ public class SqliteMemoryStore implements MemoryStore {
     int inserted = jdbc.sql("""
         INSERT OR IGNORE INTO memories \
         (id, profile_id, session_id, type, content, topic_key, supersedes, \
-        superseded, payload, embed_text, created_at) \
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""")
+        superseded, payload, embed_text, created_at, source_tokens) \
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""")
       .params(
         id,
         profileId,
@@ -487,7 +499,8 @@ public class SqliteMemoryStore implements MemoryStore {
         memory.superseded() ? 1 : 0,
         payload,
         memory.embedText(),
-        createdAt.toString())
+        createdAt.toString(),
+        Math.max(0, sourceTokens))
       .update();
 
     if (inserted == 0) {
@@ -546,7 +559,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   @Transactional
-  public StoreOutcome store(String profileId, Memory memory, GraphFragment graph) {
+  public StoreOutcome store(String profileId, Memory memory, GraphFragment graph, long sourceTokens) {
     String supersededId = null;
 
     String id = resolveMemoryId(profileId, memory);
@@ -592,7 +605,7 @@ public class SqliteMemoryStore implements MemoryStore {
       memory.embedText(),
       memory.createdAt());
 
-    MemoryInsert insert = insertMemoryRecord(profileId, toInsert);
+    MemoryInsert insert = insertMemoryRecord(profileId, toInsert, sourceTokens);
     Memory stored = insert.stored();
 
     // Persist the extracted graph in the same transaction, tagging each edge with this memory's id

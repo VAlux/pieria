@@ -288,8 +288,7 @@ public class ProfileController {
 
     ProfileImpact impact = new ProfileImpact(
       s.impact().recallCount(),
-      s.impact().tokensSavedEvidence(),
-      s.impact().tokensSavedNaive(),
+      s.impact().tokensSaved(),
       s.impact().tokensIngested(),
       s.impact().tokensStored(),
       s.impact().contextWindowTokens(),

@@ -3,6 +3,7 @@ package dev.alvo.pieria.storage;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
@@ -267,33 +268,27 @@ class SqliteMemoryStoreTests {
   }
 
   @Test
-  void recordRecallUsageAccumulatesEvidenceAndNaiveBaseline() {
+  void recordRecallUsageAccumulatesSingleSavingsFigure() {
     Profile p = store.getOrCreateProfile("usage");
-    // Active corpus = 80 chars -> 20 tokens (chars/4) drives the naive-dump upper bound.
-    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "a".repeat(40), "s1", null, null));
-    store.insertMemory(p.id(), Memory.of(MemoryType.FACT, "b".repeat(40), "s2", null, null));
 
-    // evidence 12, answer 2 -> evidence saved 10; naive saved 20-2=18.
+    // source 12, answer 2 -> saved 10.
     store.recordRecallUsage(p.id(), 12, 2);
     ProfileUsage u = store.usageStats(p.id());
     assertEquals(1, u.recallCount());
-    assertEquals(10, u.tokensSavedEvidence());
-    assertEquals(18, u.tokensSavedNaive());
+    assertEquals(10, u.tokensSaved());
     assertEquals(2, u.tokensRecallServed());
 
-    // Second recall accumulates: evidence saved 4; naive 20-1=19.
+    // Second recall accumulates: saved 4 more.
     store.recordRecallUsage(p.id(), 5, 1);
     u = store.usageStats(p.id());
     assertEquals(2, u.recallCount());
-    assertEquals(14, u.tokensSavedEvidence());
-    assertEquals(37, u.tokensSavedNaive());
+    assertEquals(14, u.tokensSaved());
 
-    // An answer larger than the evidence/corpus floors both savings at zero.
+    // An answer larger than its source floors the saving at zero rather than going negative.
     store.recordRecallUsage(p.id(), 1, 100);
     u = store.usageStats(p.id());
     assertEquals(3, u.recallCount());
-    assertEquals(14, u.tokensSavedEvidence());
-    assertEquals(37, u.tokensSavedNaive());
+    assertEquals(14, u.tokensSaved());
   }
 
   @Test
@@ -755,4 +750,67 @@ class SqliteMemoryStoreTests {
       .query(Long.class)
       .single();
   }
+
+  @Test
+  void storePersistsProvidedSourceTokens() {
+    Profile p = store.getOrCreateProfile("src-tokens");
+    Memory m = Memory.of(MemoryType.FACT, "a distilled fact", "s1", null, null);
+
+    StoreOutcome outcome = store.store(p.id(), m, GraphFragment.empty(), 500);
+
+    long persisted = jdbc.sql("SELECT source_tokens FROM memories WHERE id = ?")
+      .param(outcome.stored().id())
+      .query(Long.class)
+      .single();
+    assertEquals(500, persisted);
+  }
+
+  @Test
+  void storeWithoutSourceTokensDefaultsToContentTokens() {
+    Profile p = store.getOrCreateProfile("src-default");
+    // 40 chars -> ceil(40/4) = 10 tokens. This is the explicit `remember` path: source is the
+    // memory itself, so a recall on it saves nothing.
+    Memory m = Memory.of(MemoryType.FACT, "a".repeat(40), "s1", null, null);
+
+    StoreOutcome outcome = store.store(p.id(), m);
+
+    long persisted = jdbc.sql("SELECT source_tokens FROM memories WHERE id = ?")
+      .param(outcome.stored().id())
+      .query(Long.class)
+      .single();
+    assertEquals(10, persisted);
+  }
+
+  @Test
+  void reStoringSameContentKeepsOriginalSourceTokens() {
+    Profile p = store.getOrCreateProfile("src-idempotent");
+    Memory m = Memory.of(MemoryType.FACT, "a stable fact", "s1", null, null);
+
+    StoreOutcome first = store.store(p.id(), m, GraphFragment.empty(), 400);
+    store.store(p.id(), m, GraphFragment.empty(), 999);
+
+    long persisted = jdbc.sql("SELECT source_tokens FROM memories WHERE id = ?")
+      .param(first.stored().id())
+      .query(Long.class)
+      .single();
+    assertEquals(400, persisted);
+  }
+
+  @Test
+  void sumActiveSourceTokensAddsUpOnlyTheRequestedActiveMemories() {
+    Profile p = store.getOrCreateProfile("sum-src");
+    StoreOutcome a = store.store(p.id(), Memory.of(MemoryType.FACT, "fact a", "s1", null, null),
+      GraphFragment.empty(), 300);
+    StoreOutcome b = store.store(p.id(), Memory.of(MemoryType.FACT, "fact b", "s1", null, null),
+      GraphFragment.empty(), 200);
+    store.store(p.id(), Memory.of(MemoryType.FACT, "fact c", "s1", null, null),
+      GraphFragment.empty(), 999);
+
+    assertEquals(500, store.sumActiveSourceTokens(p.id(), List.of(a.stored().id(), b.stored().id())));
+    // Duplicate ids must not be counted twice.
+    assertEquals(300, store.sumActiveSourceTokens(p.id(), List.of(a.stored().id(), a.stored().id())));
+    assertEquals(0, store.sumActiveSourceTokens(p.id(), List.of()));
+    assertEquals(0, store.sumActiveSourceTokens(p.id(), List.of("no-such-id")));
+  }
+
 }
