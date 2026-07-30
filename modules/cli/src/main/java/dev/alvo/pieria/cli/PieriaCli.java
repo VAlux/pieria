@@ -7,6 +7,7 @@ import dev.alvo.pieria.cli.command.daemon.DaemonStartCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonStatusCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonStopCommand;
 import dev.alvo.pieria.cli.command.harness.HarnessCommand;
+import dev.alvo.pieria.cli.command.hook.HookCommand;
 import dev.alvo.pieria.cli.command.init.OnboardCommand;
 import dev.alvo.pieria.cli.command.init.ReminisceCommand;
 import dev.alvo.pieria.cli.command.profile.ProfileCommand;
@@ -38,7 +39,8 @@ import picocli.CommandLine.Command;
     DaemonRestartCommand.class,
     DaemonLogsCommand.class,
     UpdateCommand.class,
-    ConfigCommand.class
+    ConfigCommand.class,
+    HookCommand.class
   }
 )
 public final class PieriaCli implements Runnable {
