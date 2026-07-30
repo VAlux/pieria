@@ -11,10 +11,9 @@ import java.util.Map;
 
 /**
  * Writes user-triggered slash-command templates (classpath resources under {@code harness/}) to a
- * harness's command directory, substituting placeholders (notably {@code <PIERIA_HARNESS_DIR>}) with
- * their resolved absolute values. Unlike {@link HookAssetWriter} (verbatim copy of shell scripts),
- * command templates must be rewritten so the embedded script paths are absolute at install time.
- * Idempotent: re-installing overwrites; uninstall deletes only the file it wrote.
+ * harness's command directory, substituting placeholders (notably {@code <PIERIA_BIN>}) with their
+ * resolved absolute values, so a template can invoke the installed {@code pieria} binary by absolute
+ * path. Idempotent: re-installing overwrites; uninstall deletes only the file it wrote.
  */
 public final class CommandAssetWriter {
 

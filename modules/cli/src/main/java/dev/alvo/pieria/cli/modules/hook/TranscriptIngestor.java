@@ -6,9 +6,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 
 /**
- * Posts a harness session transcript to the daemon, which parses the NDJSON server-side. Replaces
- * {@code harness/ingest.sh}; unlike that script it needs no session-id generation, because the
- * daemon mints one when the query parameter is absent.
+ * Posts a harness session transcript to the daemon, which parses the NDJSON server-side. Needs no
+ * session-id generation: the daemon mints one when the query parameter is absent.
  */
 public final class TranscriptIngestor {
 

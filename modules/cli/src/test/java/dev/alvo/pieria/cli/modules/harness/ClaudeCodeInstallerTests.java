@@ -25,7 +25,6 @@ class ClaudeCodeInstallerTests {
       tmp.resolve("user"),
       "/opt/pieria/bin/pieria-gateway",
       "/opt/pieria/bin/pieria",
-      tmp.resolve("home").resolve("harness"),
       profile,
       "http://127.0.0.1:8077",
       false,
@@ -64,7 +63,6 @@ class ClaudeCodeInstallerTests {
       Scope.PROJECT, tmp.resolve("proj"), tmp.resolve("user"),
       "C:\\Program Files\\Pieria\\bin\\pieria-gateway.exe",
       "C:\\Program Files\\Pieria\\bin\\pieria.exe",
-      tmp.resolve("home").resolve("harness"),
       "myproj", "http://127.0.0.1:8077", false, new Logger());
 
     installer.install(ctx);
@@ -80,7 +78,6 @@ class ClaudeCodeInstallerTests {
       Scope.PROJECT, tmp.resolve("proj"), tmp.resolve("user"),
       "C:\\Program Files\\Pieria\\bin\\pieria-gateway.exe",
       "C:\\Program Files\\Pieria\\bin\\pieria.exe",
-      tmp.resolve("home").resolve("harness"),
       "myproj", "http://127.0.0.1:8077", false, new Logger());
 
     installer.install(ctx);

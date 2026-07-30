@@ -40,20 +40,18 @@ tasks.test {
 	environment("PIERIA_DAEMON_URL", "http://127.0.0.1:1")
 }
 
-// --- Embed harness shell assets as classpath resources ---
-// The native release ships only bin/, so the hook scripts are not on disk afterwards. We embed
-// the canonical scripts from the repo's harness/ tree into the CLI binary; `pieria harness install`
-// extracts them to PIERIA_HOME/harness/. harness/ stays the single source of truth (no duplication
-// in Java). Mirrors the daemon's embedVecExtensions pattern.
+// --- Embed harness command templates as classpath resources ---
+// The native release ships only bin/, so the slash-command templates are not on disk afterwards. We
+// embed them from the repo's harness/ tree into the CLI binary; `pieria harness install` writes them
+// into each harness's command directory, substituting <PIERIA_BIN>. Lifecycle hooks need no assets:
+// they invoke `pieria hook ...` directly.
 val stageHarnessAssets by tasks.registering(Sync::class) {
-	description = "Stage harness shell scripts as embeddable classpath resources (harness/...)."
+	description = "Stage harness command templates as embeddable classpath resources (harness/...)."
 	into(layout.buildDirectory.dir("generated/harness-resources"))
-	// Nest under harness/ so the classpath resource paths are harness/profile-name.sh, etc.
+	// Nest under harness/ so the classpath resource paths are harness/claude-code/commands/*.md, etc.
 	from(rootProject.layout.projectDirectory.dir("harness")) {
 		into("harness")
 		include(
-			"profile-name.sh", "ingest.sh", "recall.sh", "remember.sh",
-			"claude-code/*.sh", "codex/*.sh", "opencode/*.sh",
 			"claude-code/commands/*.md", "codex/commands/*.md", "opencode/commands/*.md"
 		)
 	}

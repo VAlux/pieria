@@ -6,9 +6,8 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Fetches a ready-to-inject context block. Replaces {@code harness/recall.sh}, including its
- * health pre-flight: probing first keeps the common "daemon down" case at ~2s instead of waiting
- * out the recall timeout.
+ * Fetches a ready-to-inject context block, including a health pre-flight: probing first keeps the
+ * common "daemon down" case at ~2s instead of waiting out the recall timeout.
  *
  * <p>The daemon's {@code text/plain} recall always runs the EVIDENCE tier, so there is no mode to
  * pass — the old script's {@code fast: true} field had already been removed from

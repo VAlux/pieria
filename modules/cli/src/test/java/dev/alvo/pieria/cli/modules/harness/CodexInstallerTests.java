@@ -24,7 +24,6 @@ class CodexInstallerTests {
       tmp.resolve("user"),
       "/opt/pieria/bin/pieria-gateway",
       "/opt/pieria/bin/pieria",
-      tmp.resolve("home").resolve("harness"),
       profile,
       "http://127.0.0.1:8077",
       false,

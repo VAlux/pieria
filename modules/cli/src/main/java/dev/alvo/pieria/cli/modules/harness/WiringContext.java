@@ -11,8 +11,6 @@ import java.nio.file.Path;
  * @param userHome       the user home directory (used for user scope)
  * @param gatewayCommand absolute path to the {@code pieria-gateway} executable for the MCP command
  * @param cliCommand     absolute path to the {@code pieria} executable, invoked by lifecycle hooks
- * @param harnessDir     directory the hook scripts are extracted to ({@code PIERIA_HOME/harness});
- *                       still read by the Codex and OpenCode installers until Task 11 rewires them
  * @param profile        explicit profile slug, or null/blank to leave empty for auto-derivation
  * @param daemonUrl      daemon base URL injected into the MCP server env
  * @param dryRun         when true, print intended changes without writing
@@ -24,7 +22,6 @@ public record WiringContext(
   Path userHome,
   String gatewayCommand,
   String cliCommand,
-  Path harnessDir,
   String profile,
   String daemonUrl,
   boolean dryRun,

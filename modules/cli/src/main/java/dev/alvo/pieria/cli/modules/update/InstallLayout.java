@@ -89,8 +89,7 @@ public final class InstallLayout {
   }
 
   /**
-   * Harness dirs that actually exist on disk (a harness was wired). Hook-script refresh targets
-   * these; if empty, refresh is skipped.
+   * Harness dirs that actually exist on disk (a harness was wired).
    */
   public List<Path> existingHarnessDirs() {
     return harnessCandidates.stream().filter(Files::isDirectory).toList();

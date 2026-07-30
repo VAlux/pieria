@@ -8,9 +8,8 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 /**
- * Locates the Pieria install root ({@code PIERIA_HOME}), the {@code pieria-gateway} executable, and
- * the harness-assets directory. Resolution mirrors the packaging conventions in
- * {@code packaging/install.sh}:
+ * Locates the Pieria install root ({@code PIERIA_HOME}) and the {@code pieria-gateway}/{@code pieria}
+ * executables. Resolution mirrors the packaging conventions in {@code packaging/install.sh}:
  *
  * <ol>
  *   <li>{@code PIERIA_HOME} environment variable, if set;</li>
@@ -99,13 +98,6 @@ public final class PathResolver {
       }
     }
     return pieriaHome().resolve("bin").resolve(exeName).toString();
-  }
-
-  /**
-   * Directory the hook scripts are extracted to.
-   */
-  public Path harnessDir() {
-    return pieriaHome().resolve("harness");
   }
 
   public Path userHome() {

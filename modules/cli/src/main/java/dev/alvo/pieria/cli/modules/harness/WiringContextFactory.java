@@ -25,7 +25,6 @@ public final class WiringContextFactory {
       paths.userHome(),
       paths.gatewayCommand(),
       paths.cliCommand(),
-      paths.harnessDir(),
       profile,
       resolvedDaemon,
       dryRun,

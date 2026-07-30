@@ -473,14 +473,6 @@ val deployLocal by tasks.registering(Sync::class) {
 	into(providers.environmentVariable("PIERIA_HOME").orElse(
 		providers.systemProperty("user.home").map { "$it/.local/share/pieria" }
 	))
-	// `pieria harness install` extracts hook scripts into harness/<id>/ at runtime; the dist only
-	// ships them under harness/examples/. Without this, Sync would delete the wired scripts on every
-	// redeploy, leaving settings.json hooks pointing at missing files.
-	preserve {
-		include("harness/claude-code/**")
-		include("harness/codex/**")
-		include("harness/opencode/**")
-	}
 	// Re-sign in place after install: replacing the installed binary invalidates AMFI's cache for that
 	// path, so sign the final files so `pieria daemon restart` works immediately without a manual step.
 	doLast {

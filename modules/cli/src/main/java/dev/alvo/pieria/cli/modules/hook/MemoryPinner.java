@@ -7,8 +7,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Stores one memory explicitly, backing the {@code /pieria-remember} slash command. Replaces
- * {@code harness/remember.sh}.
+ * Stores one memory explicitly, backing the {@code /pieria-remember} slash command.
  *
  * <p>Unlike the background hooks this is an explicit user action, so a failure is reported on
  * stdout — the user must know the memory did not persist. The command still exits 0.
