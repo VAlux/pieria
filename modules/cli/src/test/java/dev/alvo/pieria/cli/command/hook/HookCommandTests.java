@@ -1,7 +1,6 @@
 package dev.alvo.pieria.cli.command.hook;
 
 import dev.alvo.pieria.cli.PieriaCli;
-import dev.alvo.pieria.cli.testsupport.StubDaemon;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -33,8 +32,12 @@ class HookCommandTests {
       .contains("session-start", "pre-compact", "stop", "session-end");
   }
 
+  // These two pin the fail-closed exit-0 contract on the no-transcript path.
+  // Command-level tests cannot reach a stub daemon here because HookContext.create() reads the
+  // real process environment; daemon-failure behavior (unreachable / non-2xx) is covered one
+  // layer down in TranscriptIngestorTests.
   @Test
-  void ingestHookExitsZeroWhenDaemonIsUnreachable() {
+  void ingestHookExitsZeroWhenNoTranscriptIsPresent() {
     assertThat(run("hook", "claude-code", "stop")).isZero();
   }
 
@@ -44,10 +47,7 @@ class HookCommandTests {
   }
 
   @Test
-  void ingestHookExitsZeroWhenDaemonRejectsThePayload() {
-    try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest/transcript", 400, "{\"message\":\"nope\"}");
-      assertThat(run("hook", "claude-code", "stop")).isZero();
-    }
+  void ingestHookExitsZeroWhenTranscriptEnvVarIsUnset() {
+    assertThat(run("hook", "claude-code", "stop")).isZero();
   }
 }
