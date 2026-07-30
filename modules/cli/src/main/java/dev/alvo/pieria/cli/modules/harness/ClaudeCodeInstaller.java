@@ -4,6 +4,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import dev.alvo.pieria.tools.StringKit;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -148,7 +150,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
     // 3. User-triggered slash commands.
     Path cmdDir = commandsDir(ctx);
-    Map<String, String> subs = Map.of("<PIERIA_BIN>", ctx.cliCommand());
+    Map<String, String> subs = Map.of("<PIERIA_BIN>", StringKit.quoteIfSpaced(ctx.cliCommand()));
     for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
       commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
     }

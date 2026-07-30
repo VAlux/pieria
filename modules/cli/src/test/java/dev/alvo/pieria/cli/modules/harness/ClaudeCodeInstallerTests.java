@@ -75,6 +75,22 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
+  void quotesTheBinaryInSlashCommandTemplatesToo(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = new WiringContext(
+      Scope.PROJECT, tmp.resolve("proj"), tmp.resolve("user"),
+      "C:\\Program Files\\Pieria\\bin\\pieria-gateway.exe",
+      "C:\\Program Files\\Pieria\\bin\\pieria.exe",
+      tmp.resolve("home").resolve("harness"),
+      "myproj", "http://127.0.0.1:8077", false, new Logger());
+
+    installer.install(ctx);
+
+    Path recall = installer.commandsDir(ctx).resolve("pieria-recall.md");
+    String body = Files.readString(recall);
+    assertThat(body).contains("\"C:\\Program Files\\Pieria\\bin\\pieria.exe\" hook recall");
+  }
+
+  @Test
   void reinstallIsIdempotentAndLeavesOneEntryPerEvent(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
 
