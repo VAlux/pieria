@@ -172,8 +172,11 @@ Per harness:
 - **Codex** — two `config.toml` hook entries. Its command templates are model-mediated (they
   instruct the model to call the MCP tool, never shell) and do not change.
 - **OpenCode** — `experimental.hook.session.compacting.plugin` → `hook opencode ingest`;
-  `experimental.chat.system.transform` → `hook opencode recall-transform`. Its command templates
-  are likewise model-mediated and unchanged.
+  `experimental.chat.system.transform` → `hook opencode recall-transform`. Its two command
+  templates **do** shell out (`` !`sh <PIERIA_HARNESS_DIR>/remember.sh …` ``) and must be rewritten
+  the same way Claude Code's are. An earlier draft of this spec claimed they were model-mediated
+  like Codex's; that was wrong, and leaving them alone would have stranded a dead
+  `<PIERIA_HARNESS_DIR>` placeholder in a working slash command.
 
 The `recall-transform` contract is preserved exactly: read the original system prompt from stdin,
 echo it unchanged, then append the recalled block under a `---` separator — appending nothing when
