@@ -98,6 +98,18 @@ final class DaemonTransport {
     return sendJson(builder(path, timeout), "POST", body, false);
   }
 
+  /**
+   * POST a pre-encoded body with an explicit content type and accept header — for endpoints that
+   * are not JSON-in/JSON-out (raw NDJSON transcript ingest, {@code text/plain} recall).
+   */
+  String postRaw(String path, byte[] body, String contentType, String accept, Duration timeout) {
+    HttpRequest.Builder builder = builder(path, timeout).header("Content-Type", contentType);
+    if (accept != null && !accept.isBlank()) {
+      builder.header("Accept", accept);
+    }
+    return send(builder.POST(HttpRequest.BodyPublishers.ofByteArray(body)).build());
+  }
+
   int probe(String path, Duration timeout) {
     HttpRequest request = builder(path, timeout).GET().build();
     try {

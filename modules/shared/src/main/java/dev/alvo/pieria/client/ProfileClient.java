@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.request.AuditListRequest;
 import dev.alvo.pieria.api.response.AuditEventDetail;
 import dev.alvo.pieria.api.response.AuditListResponse;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileListResponse;
@@ -12,7 +13,9 @@ import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.RecallResponse;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 
 public final class ProfileClient {
   private final DaemonTransport transport;
@@ -62,6 +65,31 @@ public final class ProfileClient {
   public MemoryResponse remember(String name, RememberRequest request) {
     return transport.parse(
       transport.post(profile(name) + "/memories", request, Duration.ofSeconds(60)), MemoryResponse.class);
+  }
+
+  /**
+   * Ingest a raw harness transcript. The daemon parses the NDJSON server-side using the parser
+   * registered for {@code harness}, so hook callers ship the exact file bytes. A null or blank
+   * {@code sessionId} is omitted so the daemon generates one.
+   */
+  public IngestResponse ingestTranscript(String name, String sessionId, String harness,
+                                         byte[] ndjson, Duration timeout) {
+    String path = DaemonTransport.withQuery(profile(name) + "/ingest/transcript",
+      "sessionId", sessionId, "harness", harness);
+    return transport.parse(
+      transport.postRaw(path, ndjson, "application/x-ndjson", null, timeout), IngestResponse.class);
+  }
+
+  /**
+   * Recall as a ready-to-inject text block rather than JSON. The daemon always runs the
+   * {@code EVIDENCE} tier for this representation and answers {@code 204} when nothing was
+   * recalled, which maps to an empty result.
+   */
+  public Optional<String> recallText(String name, RecallRequest request, Duration timeout) {
+    String body = transport.postRaw(profile(name) + "/recall",
+      transport.toJson(request).getBytes(StandardCharsets.UTF_8),
+      "application/json", "text/plain", timeout);
+    return body == null || body.isBlank() ? Optional.empty() : Optional.of(body);
   }
 
   public void forget(String name, String id) {
