@@ -31,6 +31,15 @@ tasks.compileJava {
 	options.compilerArgs.add("-Aproject=dev.alvo.pieria.cli")
 }
 
+tasks.test {
+	// CLI tests must never reach a real daemon. This repo dogfoods Pieria, so a developer
+	// machine usually HAS one live on the default port — without this pin, tests asserting
+	// fail-closed "daemon unavailable" behavior pass in CI and fail locally. Tests that DO
+	// want a daemon point at a StubDaemon through an explicit URL, so this only affects the
+	// env-var fallback in DaemonUrls.resolve.
+	environment("PIERIA_DAEMON_URL", "http://127.0.0.1:1")
+}
+
 // --- Embed harness shell assets as classpath resources ---
 // The native release ships only bin/, so the hook scripts are not on disk afterwards. We embed
 // the canonical scripts from the repo's harness/ tree into the CLI binary; `pieria harness install`
