@@ -4,10 +4,11 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import dev.alvo.pieria.tools.StringKit;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -26,14 +27,13 @@ import java.util.Map;
  */
 public final class OpenCodeInstaller implements HarnessInstaller {
 
-  private static final String INGEST_SCRIPT = "ingest.sh";
-  private static final String RECALL_TRANSFORM_RESOURCE = "harness/opencode/recall-transform.sh";
-  private static final String RECALL_TRANSFORM_SCRIPT_REL = "opencode/recall-transform.sh";
+  private static final String INGEST_MARKER = "hook opencode ingest";
+  private static final String RECALL_TRANSFORM_MARKER = "hook opencode recall-transform";
 
   /**
    * User-triggered slash commands installed under {@code .opencode/command/}. OpenCode commands
    * support {@code $ARGUMENTS} and {@code !`...`} shell injection, so these are deterministic —
-   * they shell out to the shared clients rather than relying on the model to call the MCP tool.
+   * they shell out to the pieria binary rather than relying on the model to call the MCP tool.
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
     put("pieria-remember.md", "harness/opencode/commands/pieria-remember.md");
@@ -41,7 +41,6 @@ public final class OpenCodeInstaller implements HarnessInstaller {
   }};
 
   private final JsonConfigMerger json = new JsonConfigMerger();
-  private final HookAssetWriter assets = new HookAssetWriter();
   private final CommandAssetWriter commands = new CommandAssetWriter();
 
   private static ObjectNode childIfObject(ObjectNode parent, String field) {
@@ -51,7 +50,7 @@ public final class OpenCodeInstaller implements HarnessInstaller {
     return parent.get(field) instanceof ObjectNode object ? object : null;
   }
 
-  /** Remove a string leaf field if its value references one of our scripts. */
+  /** Remove a string leaf field if its value references one of our hook commands. */
   private static boolean removeIfOurs(ObjectNode parent, String leaf, String marker) {
     if (parent == null) {
       return false;
@@ -67,11 +66,6 @@ public final class OpenCodeInstaller implements HarnessInstaller {
   @Override
   public String id() {
     return "opencode";
-  }
-
-  @Override
-  public List<String> requiredScriptResources() {
-    return List.of(RECALL_TRANSFORM_RESOURCE);
   }
 
   /** Config root: project {@code ./opencode.json}; user {@code ~/.config/opencode/opencode.json}. */
@@ -90,8 +84,6 @@ public final class OpenCodeInstaller implements HarnessInstaller {
 
   @Override
   public void install(WiringContext ctx) throws IOException {
-    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
-
     Path config = configFile(ctx);
     ObjectNode root = json.load(config);
 
@@ -102,15 +94,15 @@ public final class OpenCodeInstaller implements HarnessInstaller {
     // 2. Experimental lifecycle hooks.
     ObjectNode experimental = json.childObject(root, "experimental");
     ObjectNode compacting = json.childObject(json.childObject(experimental, "session"), "compacting");
-    compacting.put("plugin", "sh " + ctx.harnessDir().resolve(INGEST_SCRIPT));
+    compacting.put("plugin", HookCommandLine.of(ctx.cliCommand(), "hook", "opencode", "ingest"));
     ObjectNode system = json.childObject(json.childObject(experimental, "chat"), "system");
-    system.put("transform", "sh " + ctx.harnessDir().resolve(RECALL_TRANSFORM_SCRIPT_REL));
+    system.put("transform", HookCommandLine.of(ctx.cliCommand(), "hook", "opencode", "recall-transform"));
 
     json.save(config, root, ctx.dryRun(), ctx.log());
 
     // 3. User-triggered slash commands.
     Path cmdDir = commandsDir(ctx);
-    Map<String, String> subs = Map.of("<PIERIA_HARNESS_DIR>", ctx.harnessDir().toString());
+    Map<String, String> subs = Map.of("<PIERIA_BIN>", StringKit.quoteIfSpaced(ctx.cliCommand()));
     for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
       commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
     }
@@ -130,9 +122,9 @@ public final class OpenCodeInstaller implements HarnessInstaller {
 
     ObjectNode experimental = childIfObject(root, "experimental");
     ObjectNode compacting = childIfObject(childIfObject(experimental, "session"), "compacting");
-    changed |= removeIfOurs(compacting, "plugin", INGEST_SCRIPT);
+    changed |= removeIfOurs(compacting, "plugin", INGEST_MARKER);
     ObjectNode system = childIfObject(childIfObject(experimental, "chat"), "system");
-    changed |= removeIfOurs(system, "transform", RECALL_TRANSFORM_SCRIPT_REL);
+    changed |= removeIfOurs(system, "transform", RECALL_TRANSFORM_MARKER);
 
     if (changed) {
       json.save(config, root, ctx.dryRun(), ctx.log());

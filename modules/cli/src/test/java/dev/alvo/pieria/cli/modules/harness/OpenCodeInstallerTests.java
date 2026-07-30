@@ -32,7 +32,7 @@ class OpenCodeInstallerTests {
   }
 
   @Test
-  void installWritesMcpHooksCommandsAndExtractsScripts(@TempDir Path tmp) throws IOException {
+  void installWritesMcpHooksAndCommands(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
@@ -47,22 +47,32 @@ class OpenCodeInstallerTests {
 
     // Experimental lifecycle hooks.
     assertThat(config.path("experimental").path("session").path("compacting").path("plugin").asString())
-      .contains("ingest.sh");
+      .isEqualTo("/opt/pieria/bin/pieria hook opencode ingest");
     assertThat(config.path("experimental").path("chat").path("system").path("transform").asString())
-      .contains("recall-transform.sh");
+      .isEqualTo("/opt/pieria/bin/pieria hook opencode recall-transform");
 
-    // Slash commands written with the harness dir substituted.
+    // Slash commands written with the binary substituted.
     Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
     assertThat(Files.exists(remember)).isTrue();
     assertThat(Files.exists(installer.commandsDir(ctx).resolve("pieria-recall.md"))).isTrue();
     String body = Files.readString(remember);
-    assertThat(body).contains("remember.sh").doesNotContain("<PIERIA_HARNESS_DIR>");
-
-    // The recall-transform hook script is extracted.
-    assertThat(Files.exists(ctx.harnessDir().resolve("opencode").resolve("recall-transform.sh"))).isTrue();
-    assertThat(Files.exists(ctx.harnessDir().resolve("remember.sh"))).isTrue();
+    assertThat(body).contains("hook remember").doesNotContain("<PIERIA_BIN>");
 
     assertThat(installer.isInstalled(ctx)).isTrue();
+  }
+
+  @Test
+  void experimentalHooksInvokeTheBinaryNotAShellScript(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    ObjectNode config = json.load(installer.configFile(ctx));
+    String compacting = config.path("experimental").path("session")
+      .path("compacting").path("plugin").asString();
+    String transform = config.path("experimental").path("chat").path("system").path("transform").asString();
+
+    assertThat(compacting).isEqualTo("/opt/pieria/bin/pieria hook opencode ingest");
+    assertThat(transform).isEqualTo("/opt/pieria/bin/pieria hook opencode recall-transform");
   }
 
   @Test
@@ -75,7 +85,7 @@ class OpenCodeInstallerTests {
     // Single pieria server, single transform hook (string field, not accumulating).
     assertThat(config.path("mcp").path("pieria").path("type").asString()).isEqualTo("local");
     assertThat(config.path("experimental").path("chat").path("system").path("transform").asString())
-      .contains("recall-transform.sh");
+      .isEqualTo("/opt/pieria/bin/pieria hook opencode recall-transform");
   }
 
   @Test

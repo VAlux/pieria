@@ -6,9 +6,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,17 +21,18 @@ import java.util.Map;
 public final class CodexInstaller implements HarnessInstaller {
 
   /**
-   * Codex hook event -> embedded script under {@code harness/codex/}.
+   * Codex hook event → {@code pieria hook codex} subcommand.
    */
-  private static final Map<String, String> HOOK_SCRIPTS = new LinkedHashMap<>() {{
-    put("Stop", "stop.sh");
-    put("SessionStart", "session-start.sh");
+  private static final Map<String, String> HOOK_EVENTS = new LinkedHashMap<>() {{
+    put("SessionStart", "session-start");
+    put("Stop", "stop");
   }};
 
   /**
    * User-triggered slash commands, installed under {@code .codex/prompts/}. Codex prompts are
    * message templates (no shell execution), so these are model-mediated: they instruct the model to
-   * call the MCP {@code remember}/{@code recall} tools.
+   * call the MCP {@code remember}/{@code recall} tools. No {@code <PIERIA_BIN>} placeholder to
+   * substitute.
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
     put("pieria-remember.md", "harness/codex/commands/pieria-remember.md");
@@ -41,7 +40,6 @@ public final class CodexInstaller implements HarnessInstaller {
   }};
 
   private final TomlConfigMerger toml = new TomlConfigMerger();
-  private final HookAssetWriter assets = new HookAssetWriter();
   private final CommandAssetWriter commands = new CommandAssetWriter();
 
   private static void removePieriaEntries(ArrayNode hooks) {
@@ -53,27 +51,14 @@ public final class CodexInstaller implements HarnessInstaller {
     }
   }
 
+  /** Whether a hook command is one of Pieria's, i.e. {@code <pieria> hook codex <event>}. */
   private static boolean isPieriaHookCommand(String command) {
-    for (String script : HOOK_SCRIPTS.values()) {
-      if (command.contains("codex") && command.contains(script)) {
-        return true;
-      }
-    }
-    return false;
+    return command != null && command.contains("hook codex");
   }
 
   @Override
   public String id() {
     return "codex";
-  }
-
-  @Override
-  public List<String> requiredScriptResources() {
-    List<String> resources = new ArrayList<>();
-    for (String script : HOOK_SCRIPTS.values()) {
-      resources.add("harness/codex/" + script);
-    }
-    return resources;
   }
 
   Path configFile(WiringContext ctx) {
@@ -90,8 +75,6 @@ public final class CodexInstaller implements HarnessInstaller {
 
   @Override
   public void install(WiringContext ctx) throws IOException {
-    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
-
     Path config = configFile(ctx);
     ObjectNode root = toml.load(config);
 
@@ -102,15 +85,15 @@ public final class CodexInstaller implements HarnessInstaller {
     // [[hooks]] — replace any existing Pieria entries, then append ours.
     ArrayNode hooks = toml.childArray(root, "hooks");
     removePieriaEntries(hooks);
-    HOOK_SCRIPTS.forEach((event, script) -> hooks.add(hookEntry(ctx, event, script)));
+    HOOK_EVENTS.forEach((event, subcommand) -> hooks.add(hookEntry(ctx, event, subcommand)));
 
     toml.save(config, root, ctx.dryRun(), ctx.log());
 
-    // User-triggered slash commands (Codex prompts).
+    // User-triggered slash commands (Codex prompts). No placeholder substitution needed: these
+    // templates are model-mediated and contain no shell invocation.
     Path cmdDir = commandsDir(ctx);
-    Map<String, String> subs = Map.of("<PIERIA_HARNESS_DIR>", ctx.harnessDir().toString());
     for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
-      commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
+      commands.write(command.getValue(), cmdDir.resolve(command.getKey()), Map.of(), ctx.dryRun(), ctx.log());
     }
   }
 
@@ -163,10 +146,10 @@ public final class CodexInstaller implements HarnessInstaller {
     return server;
   }
 
-  private ObjectNode hookEntry(WiringContext ctx, String event, String script) {
+  private ObjectNode hookEntry(WiringContext ctx, String event, String subcommand) {
     ObjectNode entry = toml.newObject();
     entry.put("event", event);
-    entry.put("command", "sh " + ctx.harnessDir().resolve("codex").resolve(script));
+    entry.put("command", HookCommandLine.of(ctx.cliCommand(), "hook", "codex", subcommand));
     return entry;
   }
 }

@@ -5,8 +5,6 @@ import dev.alvo.pieria.client.exception.DaemonInterruptedException;
 import dev.alvo.pieria.client.HealthClient;
 import dev.alvo.pieria.cli.modules.daemon.DaemonProcessController;
 import dev.alvo.pieria.cli.modules.daemon.DaemonUrls;
-import dev.alvo.pieria.cli.modules.harness.HarnessRegistry;
-import dev.alvo.pieria.cli.modules.harness.HookAssetWriter;
 import dev.alvo.pieria.cli.modules.update.BinarySource;
 import dev.alvo.pieria.cli.modules.update.BinarySwapper;
 import dev.alvo.pieria.cli.modules.update.BuildInfo;
@@ -20,21 +18,19 @@ import dev.alvo.pieria.cli.modules.update.UpdateException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.net.URI;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
  * {@code pieria update} — replace the installed binaries and restart the daemon in one step.
  *
  * <p>Acquires a new distribution (a published release by default, or a locally-built one via
- * {@code --from-build}/{@code --from}), stops the daemon, atomically swaps the binaries, refreshes
- * the embedded hook scripts where a harness was wired, restarts the daemon, and waits for it to come
- * healthy. A daemon restart is transparent to a live Claude Code session; only a changed gateway or
- * hook script requires relaunching the harness.
+ * {@code --from-build}/{@code --from}), stops the daemon, atomically swaps the binaries, restarts the
+ * daemon, and waits for it to come healthy. A daemon restart is transparent to a live Claude Code
+ * session; the lifecycle hooks live inside the {@code pieria} binary itself, so swapping it updates
+ * them automatically — only a changed gateway binary requires relaunching the harness.
  *
  * <p>Acquisition happens before the daemon is stopped, so a failed download never leaves the system
  * serviceless. A failed swap rolls back and the daemon is restarted regardless.
@@ -62,9 +58,6 @@ public final class UpdateCommand implements Callable<Integer> {
 
   @Option(names = "--no-restart", description = "Swap binaries only; do not stop/start the daemon.")
   boolean noRestart;
-
-  @Option(names = "--no-harness-refresh", description = "Do not re-extract the lifecycle hook scripts.")
-  boolean noHarnessRefresh;
 
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
   String daemonUrl;
@@ -157,12 +150,7 @@ public final class UpdateCommand implements Callable<Integer> {
       return 1;
     }
 
-    // 5. Refresh hook scripts where a harness was wired.
-    if (!noHarnessRefresh) {
-      refreshHooks(install, false);
-    }
-
-    // 6. Restart and wait for health.
+    // 5. Restart and wait for health.
     if (restart) {
       startDaemon(daemon, client, url);
     }
@@ -198,10 +186,6 @@ public final class UpdateCommand implements Callable<Integer> {
       log.info("  daemon:   left running (--no-restart)");
     }
     log.info("  binaries: {}", BinarySource.BINARIES);
-    if (!noHarnessRefresh) {
-      List<Path> harness = install.existingHarnessDirs();
-      log.info("  hooks:    {}", harness.isEmpty() ? "none wired; skip" : "refresh " + harness);
-    }
     if (releaseSource) {
       log.info("  note:     would skip if installed version already matches (unless --force)");
     }
@@ -237,26 +221,6 @@ public final class UpdateCommand implements Callable<Integer> {
     log.error("warning: daemon did not become healthy within {}s; check its logs.", timeoutSeconds);
   }
 
-  private void refreshHooks(InstallLayout install, boolean dryRun) {
-    List<Path> dirs = install.existingHarnessDirs();
-    if (dirs.isEmpty()) {
-      return; // no harness wired; nothing references the scripts
-    }
-    HarnessRegistry registry = new HarnessRegistry();
-    List<String> resources = registry.all().stream()
-      .flatMap(installer -> installer.requiredScriptResources().stream())
-      .distinct()
-      .toList();
-    HookAssetWriter writer = new HookAssetWriter();
-    for (Path dir : dirs) {
-      try {
-        writer.extract(dir, resources, dryRun, log);
-      } catch (IOException e) {
-        log.error("warning: could not refresh hook scripts in {}: {}", dir, e.getMessage());
-      }
-    }
-  }
-
   private void report(String oldVersion, String newVersion, boolean releaseSource) {
     if (releaseSource && BuildInfo.isKnown(oldVersion) && BuildInfo.isKnown(newVersion)) {
       log.info("Updated {} → {}.", oldVersion, newVersion);
@@ -265,6 +229,6 @@ public final class UpdateCommand implements Callable<Integer> {
     } else {
       log.info("Update complete.");
     }
-    log.info("Restart Claude Code only if the gateway binary or hook scripts changed.");
+    log.info("Restart Claude Code only if the gateway binary changed.");
   }
 }

@@ -1,7 +1,6 @@
 package dev.alvo.pieria.cli.modules.harness;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * Wires one AI-agent harness into Pieria: registers the MCP gateway and installs the lifecycle
@@ -14,13 +13,6 @@ public interface HarnessInstaller {
    * Stable identifier used on the command line (e.g. {@code "claude-code"}).
    */
   String id();
-
-  /**
-   * Embedded hook-script resources this harness needs, as classpath paths
-   * (e.g. {@code "harness/claude-code/stop.sh"}). The shared scripts
-   * {@code harness/profile-name.sh} and {@code harness/ingest.sh} are always included.
-   */
-  List<String> requiredScriptResources();
 
   /**
    * Register the MCP server and install hooks for the given context.

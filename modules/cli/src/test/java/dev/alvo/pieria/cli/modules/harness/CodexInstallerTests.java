@@ -45,8 +45,18 @@ class CodexInstallerTests {
 
     ArrayNode hooks = (ArrayNode) root.path("hooks");
     assertThat(hooks.size()).isEqualTo(2);
-    assertThat(hooks.get(0).path("command").asString()).contains("codex").contains("stop.sh");
-    assertThat(Files.exists(ctx.harnessDir().resolve("codex").resolve("stop.sh"))).isTrue();
+    assertThat(hooks.get(0).path("command").asString()).contains("codex").contains("session-start");
+  }
+
+  @Test
+  void hooksInvokeTheBinaryNotAShellScript(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    String toml = Files.readString(installer.configFile(ctx));
+    assertThat(toml).contains("/opt/pieria/bin/pieria hook codex stop");
+    assertThat(toml).contains("/opt/pieria/bin/pieria hook codex session-start");
+    assertThat(toml).doesNotContain(".sh");
   }
 
   @Test

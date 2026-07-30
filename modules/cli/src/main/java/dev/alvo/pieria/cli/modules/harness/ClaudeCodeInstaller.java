@@ -104,11 +104,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     return "claude-code";
   }
 
-  @Override
-  public List<String> requiredScriptResources() {
-    return List.of();
-  }
-
   Path mcpFile(WiringContext ctx) {
     return ctx.scope() == Scope.USER
       ? ctx.userHome().resolve(".claude").resolve(".mcp.json")
