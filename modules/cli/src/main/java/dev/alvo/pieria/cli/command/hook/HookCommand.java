@@ -18,7 +18,9 @@ import picocli.CommandLine.Command;
   subcommands = {
     ClaudeCodeHookCommand.class,
     CodexHookCommand.class,
-    OpenCodeHookCommand.class
+    OpenCodeHookCommand.class,
+    HookRecallCommand.class,
+    HookRememberCommand.class
   }
 )
 public final class HookCommand implements Runnable {
