@@ -24,6 +24,7 @@ class ClaudeCodeInstallerTests {
       tmp.resolve("proj"),
       tmp.resolve("user"),
       "/opt/pieria/bin/pieria-gateway",
+      "/opt/pieria/bin/pieria",
       tmp.resolve("home").resolve("harness"),
       profile,
       "http://127.0.0.1:8077",
@@ -33,7 +34,7 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
-  void installWritesMcpHooksAndExtractsScripts(@TempDir Path tmp) throws IOException {
+  void installWritesMcpAndBinaryHookCommands(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
@@ -44,38 +45,91 @@ class ClaudeCodeInstallerTests {
     assertThat(server.path("env").path("PIERIA_PROFILE").asString()).isEqualTo("myproj");
 
     ObjectNode settings = json.load(installer.settingsFile(ctx));
-    String stopCmd = settings.path("hooks").path("Stop").get(0).path("hooks").get(0).path("command").asString();
-    assertThat(stopCmd).contains("claude-code").contains("stop.sh").contains(tmp.toString());
+    assertThat(hookCommand(settings, "Stop")).isEqualTo("/opt/pieria/bin/pieria hook claude-code stop");
+    assertThat(hookCommand(settings, "SessionStart"))
+      .isEqualTo("/opt/pieria/bin/pieria hook claude-code session-start");
+    assertThat(hookCommand(settings, "PreCompact"))
+      .isEqualTo("/opt/pieria/bin/pieria hook claude-code pre-compact");
+    assertThat(hookCommand(settings, "SessionEnd"))
+      .isEqualTo("/opt/pieria/bin/pieria hook claude-code session-end");
+  }
 
-    Path script = ctx.harnessDir().resolve("claude-code").resolve("session-start.sh");
-    assertThat(Files.exists(script)).isTrue();
-    assertThat(Files.exists(ctx.harnessDir().resolve("profile-name.sh"))).isTrue();
-    if (Files.getFileStore(script).supportsFileAttributeView("posix")) {
-      assertThat(Files.isExecutable(script)).isTrue();
-    }
+  private String hookCommand(ObjectNode settings, String event) {
+    return settings.path("hooks").path(event).get(0).path("hooks").get(0).path("command").asString();
   }
 
   @Test
-  void doesNotWirePerPromptHookButKeepsRecallClient(@TempDir Path tmp) throws IOException {
+  void quotesTheExecutableWhenTheInstallPathHasSpaces(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = new WiringContext(
+      Scope.PROJECT, tmp.resolve("proj"), tmp.resolve("user"),
+      "C:\\Program Files\\Pieria\\bin\\pieria-gateway.exe",
+      "C:\\Program Files\\Pieria\\bin\\pieria.exe",
+      tmp.resolve("home").resolve("harness"),
+      "myproj", "http://127.0.0.1:8077", false, new Logger());
+
+    installer.install(ctx);
+
+    ObjectNode settings = json.load(installer.settingsFile(ctx));
+    assertThat(hookCommand(settings, "Stop"))
+      .isEqualTo("\"C:\\Program Files\\Pieria\\bin\\pieria.exe\" hook claude-code stop");
+  }
+
+  @Test
+  void reinstallIsIdempotentAndLeavesOneEntryPerEvent(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+
+    installer.install(ctx);
+    installer.install(ctx);
+
+    ObjectNode settings = json.load(installer.settingsFile(ctx));
+    assertThat((ArrayNode) settings.path("hooks").path("Stop")).hasSize(1);
+    assertThat(hookCommand(settings, "Stop")).isEqualTo("/opt/pieria/bin/pieria hook claude-code stop");
+  }
+
+  @Test
+  void uninstallRemovesPieriaEntriesAndLeavesForeignOnesAlone(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    Path settingsFile = installer.settingsFile(ctx);
+    Files.createDirectories(settingsFile.getParent());
+    Files.writeString(settingsFile, """
+      {
+        "hooks": {
+          "Stop": [
+            {"matcher": "", "hooks": [{"type": "command", "command": "/usr/local/bin/other-tool report"}]}
+          ]
+        }
+      }
+      """);
+
+    installer.install(ctx);
+    installer.uninstall(ctx);
+
+    ObjectNode settings = json.load(settingsFile);
+    ArrayNode stop = (ArrayNode) settings.path("hooks").path("Stop");
+    assertThat(stop).hasSize(1);
+    assertThat(stop.get(0).path("hooks").get(0).path("command").asString())
+      .isEqualTo("/usr/local/bin/other-tool report");
+  }
+
+  @Test
+  void doesNotWirePerPromptHook(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
-    // The per-prompt UserPromptSubmit auto-recall is no longer installed.
     ObjectNode settings = json.load(installer.settingsFile(ctx));
     assertThat(settings.path("hooks").has("UserPromptSubmit")).isFalse();
-
-    // But recall.sh (shared) is still extracted — SessionStart and /pieria-recall use it.
-    assertThat(Files.exists(ctx.harnessDir().resolve("recall.sh"))).isTrue();
   }
 
   @Test
   void installStripsLegacyUserPromptSubmitHook(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
-    // Seed a prior install that had the per-prompt hook plus an unrelated user hook.
+    // Seed a prior install that had the per-prompt hook (current binary form) plus an unrelated
+    // user hook. UserPromptSubmit is no longer installed by Pieria at all (see
+    // doesNotWirePerPromptHook), so any leftover Pieria entry under this event is stale and pruned.
     Path settingsFile = installer.settingsFile(ctx);
     Files.createDirectories(settingsFile.getParent());
     Files.writeString(settingsFile, "{\"hooks\":{\"UserPromptSubmit\":["
-      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"sh /x/claude-code/user-prompt-submit.sh\"}]},"
+      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"/opt/pieria/bin/pieria hook claude-code user-prompt-submit\"}]},"
       + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo keep-me\"}]}]}}");
 
     installer.install(ctx);
@@ -88,20 +142,17 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
-  void wiresSessionEndHookAndExtractsScript(@TempDir Path tmp) throws IOException {
+  void wiresSessionEndHookCommand(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
     ObjectNode settings = json.load(installer.settingsFile(ctx));
-    String cmd = settings.path("hooks").path("SessionEnd").get(0)
-      .path("hooks").get(0).path("command").asString();
-    assertThat(cmd).contains("claude-code").contains("session-end.sh");
-
-    assertThat(Files.exists(ctx.harnessDir().resolve("claude-code").resolve("session-end.sh"))).isTrue();
+    assertThat(hookCommand(settings, "SessionEnd"))
+      .isEqualTo("/opt/pieria/bin/pieria hook claude-code session-end");
   }
 
   @Test
-  void installsSlashCommandsWithHarnessDirSubstituted(@TempDir Path tmp) throws IOException {
+  void installsSlashCommandsWithCliBinarySubstituted(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
 
@@ -112,9 +163,9 @@ class ClaudeCodeInstallerTests {
 
     String body = Files.readString(remember);
     assertThat(body)
-      .contains("remember.sh")
-      .contains(ctx.harnessDir().toString())
-      .doesNotContain("<PIERIA_HARNESS_DIR>");
+      .contains("hook remember")
+      .contains(ctx.cliCommand())
+      .doesNotContain("<PIERIA_BIN>");
 
     // Uninstall removes the command files.
     installer.uninstall(ctx);

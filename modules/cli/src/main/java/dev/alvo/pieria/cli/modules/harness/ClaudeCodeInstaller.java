@@ -6,7 +6,6 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,30 +22,18 @@ import java.util.Map;
 public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   /**
-   * Claude Code hook event -> embedded script under {@code harness/claude-code/}. {@code SessionStart}
-   * primes context with prior memories (via {@code harness/recall.sh}); {@code PreCompact}/{@code Stop}/
-   * {@code SessionEnd} ingest the transcript ({@code SessionEnd} captures on /clear, quit, and logout
-   * before the conversation is discarded).
-   *
-   * <p>The per-prompt {@code UserPromptSubmit} auto-recall was removed: it added a recall round-trip
-   * to every turn for low-precision, mostly-ambient context. On-demand recall now lives in the
-   * SessionStart primer plus the deterministic {@code /pieria-recall} slash command. See
-   * {@link #LEGACY_HOOK_SCRIPTS} for cleanup of prior installs.
+   * Claude Code hook event → {@code pieria hook claude-code} subcommand. SessionStart primes context
+   * with prior memories; PreCompact/Stop/SessionEnd capture the transcript.
    */
-  private static final Map<String, String> HOOK_SCRIPTS = new LinkedHashMap<>() {{
-    put("SessionStart", "session-start.sh");
-    put("PreCompact", "pre-compact.sh");
-    put("Stop", "stop.sh");
-    put("SessionEnd", "session-end.sh");
+  private static final Map<String, String> HOOK_EVENTS = new LinkedHashMap<>() {{
+    put("SessionStart", "session-start");
+    put("PreCompact", "pre-compact");
+    put("Stop", "stop");
+    put("SessionEnd", "session-end");
   }};
 
-  /**
-   * Hooks Pieria used to install but no longer does. Install and uninstall both strip these so an
-   * upgrade (re-running {@code harness install}) removes the stale entry and its script reference.
-   */
-  private static final Map<String, String> LEGACY_HOOK_SCRIPTS = new LinkedHashMap<>() {{
-    put("UserPromptSubmit", "user-prompt-submit.sh");
-  }};
+  /** Hook events Pieria used to install and no longer does. */
+  private static final List<String> LEGACY_EVENTS = List.of("UserPromptSubmit");
 
   /**
    * User-triggered slash commands: on-disk file name under {@code .claude/commands/} -> embedded
@@ -59,11 +46,10 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
   }};
 
   private final JsonConfigMerger json = new JsonConfigMerger();
-  private final HookAssetWriter assets = new HookAssetWriter();
   private final CommandAssetWriter commands = new CommandAssetWriter();
 
-  private static String hookCommand(WiringContext ctx, String script) {
-    return "sh " + ctx.harnessDir().resolve("claude-code").resolve(script);
+  private static String hookCommand(WiringContext ctx, String subcommand) {
+    return HookCommandLine.of(ctx.cliCommand(), "hook", "claude-code", subcommand);
   }
 
   /**
@@ -71,7 +57,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
    * {@code UserPromptSubmit} recall), pruning the event key if it becomes empty.
    */
   private static void stripLegacyHooks(ObjectNode hooks) {
-    for (String event : LEGACY_HOOK_SCRIPTS.keySet()) {
+    for (String event : LEGACY_EVENTS) {
       if (hooks.get(event) instanceof ArrayNode eventArray) {
         removePieriaEntries(eventArray);
         if (eventArray.isEmpty()) {
@@ -106,21 +92,9 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     return false;
   }
 
+  /** Whether a hook command is one of Pieria's, i.e. {@code <pieria> hook claude-code <event>}. */
   private static boolean isPieriaHookCommand(String command) {
-    if (!command.contains("claude-code")) {
-      return false;
-    }
-    for (String script : HOOK_SCRIPTS.values()) {
-      if (command.contains(script)) {
-        return true;
-      }
-    }
-    for (String script : LEGACY_HOOK_SCRIPTS.values()) {
-      if (command.contains(script)) {
-        return true;
-      }
-    }
-    return false;
+    return command != null && command.contains("hook claude-code");
   }
 
   @Override
@@ -130,11 +104,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   @Override
   public List<String> requiredScriptResources() {
-    List<String> resources = new ArrayList<>();
-    for (String script : HOOK_SCRIPTS.values()) {
-      resources.add("harness/claude-code/" + script);
-    }
-    return resources;
+    return List.of();
   }
 
   Path mcpFile(WiringContext ctx) {
@@ -157,8 +127,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   @Override
   public void install(WiringContext ctx) throws IOException {
-    assets.extract(ctx.harnessDir(), requiredScriptResources(), ctx.dryRun(), ctx.log());
-
     // 1. MCP server registration.
     Path mcp = mcpFile(ctx);
     ObjectNode mcpRoot = json.load(mcp);
@@ -170,17 +138,17 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     Path settings = settingsFile(ctx);
     ObjectNode settingsRoot = json.load(settings);
     ObjectNode hooks = json.childObject(settingsRoot, "hooks");
-    HOOK_SCRIPTS.forEach((event, script) -> {
+    HOOK_EVENTS.forEach((event, subcommand) -> {
       ArrayNode eventArray = json.childArray(hooks, event);
       removePieriaEntries(eventArray);
-      eventArray.add(hookGroup(ctx, script));
+      eventArray.add(hookGroup(ctx, subcommand));
     });
     stripLegacyHooks(hooks);
     json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
 
     // 3. User-triggered slash commands.
     Path cmdDir = commandsDir(ctx);
-    Map<String, String> subs = Map.of("<PIERIA_HARNESS_DIR>", ctx.harnessDir().toString());
+    Map<String, String> subs = Map.of("<PIERIA_BIN>", ctx.cliCommand());
     for (Map.Entry<String, String> command : COMMANDS.entrySet()) {
       commands.write(command.getValue(), cmdDir.resolve(command.getKey()), subs, ctx.dryRun(), ctx.log());
     }
@@ -200,7 +168,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     ObjectNode settingsRoot = json.load(settings);
     JsonNode hooks = settingsRoot.get("hooks");
     if (hooks instanceof ObjectNode hooksObject) {
-      for (String event : HOOK_SCRIPTS.keySet()) {
+      for (String event : HOOK_EVENTS.keySet()) {
         JsonNode eventNode = hooksObject.get(event);
         if (eventNode instanceof ArrayNode eventArray) {
           removePieriaEntries(eventArray);
@@ -242,13 +210,13 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
   /**
    * A Claude Code hook group: {@code { "matcher": "", "hooks": [ { "type":"command", "command":... } ] }}.
    */
-  private ObjectNode hookGroup(WiringContext ctx, String script) {
+  private ObjectNode hookGroup(WiringContext ctx, String subcommand) {
     ObjectNode group = json.newObject();
     group.put("matcher", "");
     ArrayNode inner = json.childArray(group, "hooks");
     ObjectNode hook = json.newObject();
     hook.put("type", "command");
-    hook.put("command", hookCommand(ctx, script));
+    hook.put("command", hookCommand(ctx, subcommand));
     inner.add(hook);
     return group;
   }

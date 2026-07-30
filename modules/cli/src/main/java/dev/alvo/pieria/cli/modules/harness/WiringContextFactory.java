@@ -24,6 +24,7 @@ public final class WiringContextFactory {
       projectDir.toAbsolutePath().normalize(),
       paths.userHome(),
       paths.gatewayCommand(),
+      paths.cliCommand(),
       paths.harnessDir(),
       profile,
       resolvedDaemon,
