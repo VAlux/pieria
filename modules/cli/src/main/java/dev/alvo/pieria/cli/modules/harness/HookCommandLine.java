@@ -1,5 +1,7 @@
 package dev.alvo.pieria.cli.modules.harness;
 
+import dev.alvo.pieria.tools.StringKit;
+
 /**
  * Builds the single command string a harness config stores for a hook.
  *
@@ -13,15 +15,10 @@ public final class HookCommandLine {
   }
 
   public static String of(String executable, String... args) {
-    StringBuilder command = new StringBuilder(quote(executable));
+    StringBuilder command = new StringBuilder(StringKit.quoteIfSpaced(executable));
     for (String arg : args) {
       command.append(' ').append(arg);
     }
     return command.toString();
-  }
-
-  private static String quote(String executable) {
-    boolean quoted = executable.startsWith("\"") && executable.endsWith("\"");
-    return quoted || !executable.contains(" ") ? executable : "\"" + executable + "\"";
   }
 }
