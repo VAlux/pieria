@@ -179,13 +179,22 @@ The `recall-transform` contract is preserved exactly: read the original system p
 echo it unchanged, then append the recalled block under a `---` separator — appending nothing when
 recall yields nothing.
 
-### Migration
+### Migration: none
 
-Existing installs point at `sh .../claude-code/stop.sh`. Migration rides the mechanism that already
-exists: `isPieriaHookCommand()` is extended to match both the legacy `sh .../<script>.sh` form and
-the new `... hook <harness> <event>` form. `stripLegacyHooks()` then prunes stale entries on
-re-install, and uninstall removes both forms. A user re-running `pieria harness install` is migrated
-with no manual edit.
+Existing installs point at `sh .../claude-code/stop.sh`. An earlier draft of this spec extended
+`isPieriaHookCommand()` to match both that form and the new one, so a re-install would migrate an
+existing config in place.
+
+That is dropped. Pieria has one user, who is content to uninstall and reinstall, so migration code
+would be dead the day it was written. `isPieriaHookCommand()` recognises only the binary form.
+
+The transition is handled operationally instead, and the order matters: **uninstall with the old
+binary before deploying the new one**, because only the pre-change code can recognise the `sh ...`
+entries it wrote. The full sequence is in the Rollout section of
+`docs/superpowers/plans/2026-07-30-cli-hooks.md`.
+
+`stripLegacyHooks()` and its `UserPromptSubmit` entry are untouched — they prune a hook Pieria
+removed long before this change and are unrelated.
 
 Slash-command templates swap the `<PIERIA_HARNESS_DIR>` placeholder for `<PIERIA_BIN>`, and
 `allowed-tools: Bash(sh:*)` for `Bash(pieria:*)`.
@@ -223,7 +232,8 @@ New tests:
 Extended tests:
 
 - `ClaudeCodeInstallerTests`, `CodexInstallerTests`, `OpenCodeInstallerTests` — emitted command
-  shape, quoting with a space in the install path, and migration of a legacy `sh ...` entry.
+  shape, quoting with a space in the install path, re-install idempotency, and uninstall leaving
+  non-Pieria hook entries untouched.
 
 `./gradlew test` must pass before commit.
 
