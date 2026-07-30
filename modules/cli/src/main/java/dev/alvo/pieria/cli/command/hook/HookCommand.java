@@ -16,7 +16,9 @@ import picocli.CommandLine.Command;
   hidden = true,
   description = "Harness-invoked lifecycle hooks (internal).",
   subcommands = {
-    ClaudeCodeHookCommand.class
+    ClaudeCodeHookCommand.class,
+    CodexHookCommand.class,
+    OpenCodeHookCommand.class
   }
 )
 public final class HookCommand implements Runnable {
