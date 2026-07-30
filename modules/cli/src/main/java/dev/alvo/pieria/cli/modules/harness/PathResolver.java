@@ -84,6 +84,24 @@ public final class PathResolver {
   }
 
   /**
+   * Absolute path to the {@code pieria} CLI executable — the command a harness invokes for hooks.
+   * Mirrors {@link #gatewayCommand()}.
+   */
+  public String cliCommand() {
+    String exeName = windows ? "pieria.exe" : "pieria";
+    if (selfExecutable.isPresent()) {
+      Path binDir = selfExecutable.get().getParent();
+      if (binDir != null) {
+        Path sibling = binDir.resolve(exeName);
+        if (Files.isRegularFile(sibling)) {
+          return sibling.toString();
+        }
+      }
+    }
+    return pieriaHome().resolve("bin").resolve(exeName).toString();
+  }
+
+  /**
    * Directory the hook scripts are extracted to.
    */
   public Path harnessDir() {
