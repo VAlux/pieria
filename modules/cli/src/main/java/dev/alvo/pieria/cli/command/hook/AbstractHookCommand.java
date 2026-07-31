@@ -30,7 +30,7 @@ abstract class AbstractHookCommand implements Callable<Integer> {
       switch (outcome) {
         case HookOutcome.Ok ok -> {
           if (!ok.stdout().isEmpty()) {
-            log.print(ok.stdout().endsWith("\n") ? ok.stdout() : ok.stdout() + "\n");
+            System.out.print(ok.stdout().endsWith("\n") ? ok.stdout() : ok.stdout() + "\n");
           }
         }
         case HookOutcome.Skipped skipped -> log.error("[{}] {}", label(), skipped.reason());

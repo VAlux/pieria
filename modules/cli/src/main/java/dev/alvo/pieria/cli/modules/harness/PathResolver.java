@@ -68,18 +68,7 @@ public final class PathResolver {
    * Absolute path to the {@code pieria-gateway} executable for the MCP {@code command}.
    */
   public String gatewayCommand() {
-    String exeName = windows ? "pieria-gateway.exe" : "pieria-gateway";
-    // Prefer a gateway sitting next to the running executable.
-    if (selfExecutable.isPresent()) {
-      Path binDir = selfExecutable.get().getParent();
-      if (binDir != null) {
-        Path sibling = binDir.resolve(exeName);
-        if (Files.isRegularFile(sibling)) {
-          return sibling.toString();
-        }
-      }
-    }
-    return pieriaHome().resolve("bin").resolve(exeName).toString();
+    return resolveExecutable(windows ? "pieria-gateway.exe" : "pieria-gateway");
   }
 
   /**
@@ -87,7 +76,14 @@ public final class PathResolver {
    * Mirrors {@link #gatewayCommand()}.
    */
   public String cliCommand() {
-    String exeName = windows ? "pieria.exe" : "pieria";
+    return resolveExecutable(windows ? "pieria.exe" : "pieria");
+  }
+
+  /**
+   * Resolves an absolute path to the named executable, preferring one sitting next to the running
+   * executable and falling back to {@code <PIERIA_HOME>/bin/<exeName>}.
+   */
+  private String resolveExecutable(String exeName) {
     if (selfExecutable.isPresent()) {
       Path binDir = selfExecutable.get().getParent();
       if (binDir != null) {

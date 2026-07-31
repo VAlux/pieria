@@ -6,8 +6,6 @@ import dev.alvo.pieria.tools.os.OsFamily;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.function.UnaryOperator;
 
 /**
@@ -24,28 +22,15 @@ import java.util.function.UnaryOperator;
 public final class InstallLayout {
 
   private final Path binDir;
-  private final List<Path> harnessCandidates;
 
-  InstallLayout(Path binDir, List<Path> harnessCandidates) {
+  InstallLayout(Path binDir) {
     this.binDir = binDir;
-    this.harnessCandidates = harnessCandidates;
   }
 
   public static InstallLayout resolve(UnaryOperator<String> env, Path userHome, Platform platform,
                                       Path explicitInstallRoot) {
     Path binDir = resolveBinDir(env, userHome, platform, explicitInstallRoot);
-    Path home = binDir.getParent() == null ? binDir : binDir.getParent();
-
-    List<Path> harness = new ArrayList<>();
-    harness.add(home.resolve("harness")); // canonical: <PIERIA_HOME>/harness
-    // Symlink quirk: when binaries are linked into a dir literally named "bin" (e.g. ~/.local/bin),
-    // the harness wiring resolved PIERIA_HOME to that dir's parent, so scripts live at ~/.local/harness.
-    Path linkDir = binSymlinkDir(env, userHome);
-    if (linkDir.getFileName() != null && "bin".equals(linkDir.getFileName().toString())
-      && linkDir.getParent() != null) {
-      harness.add(linkDir.getParent().resolve("harness"));
-    }
-    return new InstallLayout(binDir, harness.stream().distinct().toList());
+    return new InstallLayout(binDir);
   }
 
   private static Path resolveBinDir(UnaryOperator<String> env, Path userHome, Platform platform,
@@ -86,12 +71,5 @@ public final class InstallLayout {
 
   public Path binDir() {
     return binDir;
-  }
-
-  /**
-   * Harness dirs that actually exist on disk (a harness was wired).
-   */
-  public List<Path> existingHarnessDirs() {
-    return harnessCandidates.stream().filter(Files::isDirectory).toList();
   }
 }

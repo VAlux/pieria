@@ -39,7 +39,7 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   /**
    * User-triggered slash commands: on-disk file name under {@code .claude/commands/} -> embedded
-   * template resource. Deterministic — they shell out to the shared clients rather than relying on
+   * template resource. Deterministic — they shell out to the pieria binary rather than relying on
    * the model to call the MCP tool.
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{

@@ -382,12 +382,12 @@ pieria update --dry-run       # show exactly what would happen, change nothing
 ```
 
 It acquires the new distribution first (so a failed download never leaves you serviceless), stops
-the daemon, atomically swaps the binaries, re-extracts the lifecycle hook scripts if a harness is
-wired, restarts the daemon, and waits for it to come healthy. On macOS it clears the quarantine
-attribute and ad-hoc-signs the binaries so they aren't blocked by Gatekeeper. A daemon restart is
-transparent to a running Claude Code session (the gateway reconnects over HTTP) — you only need to
-relaunch the harness if the **gateway binary or a hook script** changed. (Currently macOS-only; on
-other platforms re-run the installer.)
+the daemon, atomically swaps the binaries, restarts the daemon, and waits for it to come healthy.
+On macOS it clears the quarantine attribute and ad-hoc-signs the binaries so they aren't blocked by
+Gatekeeper. A daemon restart is transparent to a running Claude Code session (the gateway reconnects
+over HTTP) — the lifecycle hooks live inside the `pieria` binary itself, so swapping it updates them
+automatically; you only need to relaunch the harness if the **gateway binary** changed. (Currently
+macOS-only; on other platforms re-run the installer.)
 
 ### Build from source
 

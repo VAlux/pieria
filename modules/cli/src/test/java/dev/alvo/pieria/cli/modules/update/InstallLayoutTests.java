@@ -44,16 +44,4 @@ class InstallLayoutTests {
 
     assertThat(layout.binDir()).isEqualTo(realBin.toRealPath());
   }
-
-  @Test
-  void existingHarnessDirsReportsOnlyDirsThatExist(@TempDir Path tmp) throws IOException {
-    Path linkDir = Files.createDirectories(tmp.resolve("local/bin"));
-    // The symlink-quirk candidate ~/.local/harness exists; the canonical one does not.
-    Path quirkHarness = Files.createDirectories(tmp.resolve("local/harness"));
-
-    InstallLayout layout = InstallLayout.resolve(
-      env(Map.of("PIERIA_BIN_DIR", linkDir.toString())), tmp, platform, null);
-
-    assertThat(layout.existingHarnessDirs()).contains(quirkHarness);
-  }
 }

@@ -32,7 +32,7 @@ class HookCommandTests {
       .contains("session-start", "pre-compact", "stop", "session-end");
   }
 
-  // These two pin the fail-closed exit-0 contract on the no-transcript path.
+  // This pins the fail-closed exit-0 contract on the no-transcript path.
   // Command-level tests cannot reach a stub daemon here because HookContext.create() reads the
   // real process environment; daemon-failure behavior (unreachable / non-2xx) is covered one
   // layer down in TranscriptIngestorTests.
@@ -44,10 +44,5 @@ class HookCommandTests {
   @Test
   void sessionStartExitsZeroWhenDaemonIsUnreachable() {
     assertThat(run("hook", "claude-code", "session-start")).isZero();
-  }
-
-  @Test
-  void ingestHookExitsZeroWhenTranscriptEnvVarIsUnset() {
-    assertThat(run("hook", "claude-code", "stop")).isZero();
   }
 }

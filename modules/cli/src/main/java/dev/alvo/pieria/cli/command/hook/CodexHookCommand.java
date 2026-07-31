@@ -13,6 +13,6 @@ public final class CodexHookCommand implements Runnable {
 
   @Override
   public void run() {
-    CommandLine.usage(this, System.out);
+    CommandLine.usage(this, System.err);
   }
 }

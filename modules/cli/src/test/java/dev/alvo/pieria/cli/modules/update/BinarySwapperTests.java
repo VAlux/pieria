@@ -6,7 +6,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,7 +33,7 @@ class BinarySwapperTests {
     for (String name : BinarySource.BINARIES) {
       writeFile(installBin.resolve(name), name + "-old");
     }
-    InstallLayout install = new InstallLayout(installBin, List.of());
+    InstallLayout install = new InstallLayout(installBin);
 
     TestPlatform platform = new TestPlatform();
     new BinarySwapper(platform).swap(dist, install);
@@ -63,7 +62,7 @@ class BinarySwapperTests {
     for (String name : BinarySource.BINARIES) {
       writeFile(installBin.resolve(name), name + "-old");
     }
-    InstallLayout install = new InstallLayout(installBin, List.of());
+    InstallLayout install = new InstallLayout(installBin);
 
     assertThatThrownBy(() -> new BinarySwapper(new TestPlatform()).swap(dist, install))
       .isInstanceOf(UpdateException.class);

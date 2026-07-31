@@ -27,7 +27,7 @@ public final class OpenCodeRecallTransformCommand extends AbstractHookCommand {
     } catch (IOException e) {
       return new HookOutcome.Failed("could not read the system prompt from stdin: " + e.getMessage());
     }
-    log.print(original);
+    System.out.print(original);
 
     HookContext ctx = HookContext.create(HarnessHookSpec.OPENCODE.id());
     HookOutcome recalled =
