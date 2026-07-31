@@ -474,7 +474,7 @@ val deployLocal by tasks.registering(Sync::class) {
 		providers.systemProperty("user.home").map { "$it/.local/share/pieria" }
 	))
 	// Re-sign in place after install: replacing the installed binary invalidates AMFI's cache for that
-	// path, so sign the final files so `pieria daemon restart` works immediately without a manual step.
+	// path, so sign the final files so `pieria restart` works immediately without a manual step.
 	doLast {
 		reSignAdhocMacOs(destinationDir.resolve("bin"), logger)
 	}

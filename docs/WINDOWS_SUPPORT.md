@@ -91,11 +91,11 @@ genuine design addition, not a fill-in-the-blank.
 ### 5. Daemon lifecycle has no Windows path, and two mechanisms disagree
 
 `DaemonProcessController.detectService()` returns `null` on Windows by design, so
-`pieria daemon start/stop/restart` always falls through to PID-file spawn.
+`pieria start` / `pieria stop` / `pieria restart` always fall through to PID-file spawn.
 
 - `packaging/install.ps1` registers a **logon Scheduled Task**, while
   `packaging/service/windows/pieria-service.ps1` refuses a real SCM install without a WinSW/NSSM
-  wrapper. Two divergent mechanisms, neither auto-detected by the CLI, so `pieria daemon restart`
+  wrapper. Two divergent mechanisms, neither auto-detected by the CLI, so `pieria restart`
   will not drive whatever the installer actually set up. **Pick one** — the Scheduled Task is the
   pragmatic choice since it needs no third-party wrapper — and teach `detectService()`,
   `startViaService()`, and `stopViaService()` to use `Start-ScheduledTask` / `Stop-ScheduledTask`.
