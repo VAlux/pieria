@@ -39,6 +39,22 @@ class TranscriptIngestorTests {
   }
 
   @Test
+  void usesExplicitSessionIdFromHookPayload(@TempDir Path tmp) throws IOException {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/ingest/transcript", 200, "{\"memories\":[]}");
+      Path transcript = Files.writeString(tmp.resolve("codex.jsonl"), "{\"role\":\"user\"}\n");
+      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of());
+
+      HookOutcome outcome =
+        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CODEX, transcript, "thr_123");
+
+      assertThat(outcome).isInstanceOf(HookOutcome.Ok.class);
+      StubDaemon.Recorded request = daemon.lastRequestTo("/ingest/transcript");
+      assertThat(request.rawQuery()).contains("sessionId=thr_123").contains("harness=codex");
+    }
+  }
+
+  @Test
   void skipsMissingFileWithoutContactingTheDaemon(@TempDir Path tmp) {
     try (StubDaemon daemon = StubDaemon.start()) {
       HookContext ctx = context(daemon.baseUrl(), tmp, Map.of());

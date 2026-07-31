@@ -32,11 +32,9 @@ public record HarnessHookSpec(
   public static final HarnessHookSpec CLAUDE_CODE = new HarnessHookSpec(
     "claude-code", List.of("CLAUDE_TRANSCRIPT_PATH"), "CLAUDE_SESSION_ID", PRIMER_QUERY, 10);
 
-  /** Codex has not settled on one transcript variable; probe the known candidates in order. */
+  /** Codex sends its transcript path and session id in the command hook's JSON stdin payload. */
   public static final HarnessHookSpec CODEX = new HarnessHookSpec(
-    "codex",
-    List.of("CODEX_TRANSCRIPT_PATH", "CODEX_SESSION_TRANSCRIPT", "CODEX_ROLLOUT_PATH"),
-    "CODEX_SESSION_ID", PRIMER_QUERY, 10);
+    "codex", List.of(), null, PRIMER_QUERY, 10);
 
   /** OpenCode pipes the transcript on stdin, so it declares no transcript env keys. */
   public static final HarnessHookSpec OPENCODE = new HarnessHookSpec(

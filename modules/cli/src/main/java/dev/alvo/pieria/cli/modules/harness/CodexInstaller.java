@@ -10,13 +10,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Wires the Codex CLI: an {@code [mcp_servers.pieria]} table plus {@code [[hooks]]} entries
- * ({@code Stop} ingestion, {@code SessionStart} recall) in {@code config.toml}.
- * Project scope writes {@code ./.codex/config.toml}; {@code --user} writes {@code ~/.codex/config.toml}.
+ * Wires the Codex CLI: an {@code [mcp_servers.pieria]} table in {@code config.toml}, plus
+ * {@code Stop} ingestion and {@code SessionStart} recall entries in {@code hooks.json}. Project
+ * scope writes under {@code ./.codex/}; {@code --user} writes under {@code ~/.codex/}.
  *
- * <p>VERIFY against current Codex CLI docs (as of 2026-05): the {@code [mcp_servers.*]} table,
- * the {@code [[hooks]]} structure, the event names, and the transcript env var. Codex command
- * hooks are recent and command-only.
+ * <p>VERIFY against current Codex CLI docs (as of 2026-07): the {@code [mcp_servers.*]} table,
+ * the {@code hooks.json} structure, event names, and stdin payload. Codex command hooks are recent
+ * and command-only.
  */
 public final class CodexInstaller implements HarnessInstaller {
 
@@ -40,15 +40,30 @@ public final class CodexInstaller implements HarnessInstaller {
   }};
 
   private final TomlConfigMerger toml = new TomlConfigMerger();
+  private final JsonConfigMerger json = new JsonConfigMerger();
   private final CommandAssetWriter commands = new CommandAssetWriter();
 
-  private static void removePieriaEntries(ArrayNode hooks) {
-    for (int i = hooks.size() - 1; i >= 0; i--) {
-      JsonNode command = hooks.get(i).get("command");
-      if (command != null && isPieriaHookCommand(command.asString())) {
-        hooks.remove(i);
+  /** Remove Pieria handlers while preserving unrelated handlers in the same matcher group. */
+  private static boolean removePieriaEntries(ArrayNode groups) {
+    boolean changed = false;
+    for (int groupIndex = groups.size() - 1; groupIndex >= 0; groupIndex--) {
+      JsonNode group = groups.get(groupIndex);
+      JsonNode handlers = group.get("hooks");
+      if (!(handlers instanceof ArrayNode handlerArray)) {
+        continue;
+      }
+      for (int handlerIndex = handlerArray.size() - 1; handlerIndex >= 0; handlerIndex--) {
+        JsonNode command = handlerArray.get(handlerIndex).get("command");
+        if (command != null && isPieriaHookCommand(command.asString())) {
+          handlerArray.remove(handlerIndex);
+          changed = true;
+        }
+      }
+      if (handlerArray.isEmpty()) {
+        groups.remove(groupIndex);
       }
     }
+    return changed;
   }
 
   /** Whether a hook command is one of Pieria's, i.e. {@code <pieria> hook codex <event>}. */
@@ -67,6 +82,12 @@ public final class CodexInstaller implements HarnessInstaller {
       : ctx.projectDir().resolve(".codex").resolve("config.toml");
   }
 
+  Path hooksFile(WiringContext ctx) {
+    return ctx.scope() == Scope.USER
+      ? ctx.userHome().resolve(".codex").resolve("hooks.json")
+      : ctx.projectDir().resolve(".codex").resolve("hooks.json");
+  }
+
   Path commandsDir(WiringContext ctx) {
     return ctx.scope() == Scope.USER
       ? ctx.userHome().resolve(".codex").resolve("prompts")
@@ -81,13 +102,18 @@ public final class CodexInstaller implements HarnessInstaller {
     // [mcp_servers.pieria]
     ObjectNode servers = toml.childObject(root, "mcp_servers");
     servers.set("pieria", mcpServerNode(ctx));
-
-    // [[hooks]] — replace any existing Pieria entries, then append ours.
-    ArrayNode hooks = toml.childArray(root, "hooks");
-    removePieriaEntries(hooks);
-    HOOK_EVENTS.forEach((event, subcommand) -> hooks.add(hookEntry(ctx, event, subcommand)));
-
     toml.save(config, root, ctx.dryRun(), ctx.log());
+
+    // hooks.json — replace any existing Pieria handlers, then append one group per event.
+    Path hooksFile = hooksFile(ctx);
+    ObjectNode hooksRoot = json.load(hooksFile);
+    ObjectNode hooks = json.childObject(hooksRoot, "hooks");
+    HOOK_EVENTS.forEach((event, subcommand) -> {
+      ArrayNode groups = json.childArray(hooks, event);
+      removePieriaEntries(groups);
+      groups.add(hookGroup(ctx, subcommand));
+    });
+    json.save(hooksFile, hooksRoot, ctx.dryRun(), ctx.log());
 
     // User-triggered slash commands (Codex prompts). No placeholder substitution needed: these
     // templates are model-mediated and contain no shell invocation.
@@ -109,15 +135,30 @@ public final class CodexInstaller implements HarnessInstaller {
       changed = true;
     }
 
-    JsonNode hooks = root.get("hooks");
-    if (hooks instanceof ArrayNode hooksArray) {
-      int before = hooksArray.size();
-      removePieriaEntries(hooksArray);
-      changed = changed || hooksArray.size() != before;
-    }
-
     if (changed) {
       toml.save(config, root, ctx.dryRun(), ctx.log());
+    }
+
+    Path hooksFile = hooksFile(ctx);
+    ObjectNode hooksRoot = json.load(hooksFile);
+    JsonNode hooks = hooksRoot.get("hooks");
+    if (hooks instanceof ObjectNode hooksObject) {
+      boolean hooksChanged = false;
+      for (String event : HOOK_EVENTS.keySet()) {
+        JsonNode groupsNode = hooksObject.get(event);
+        if (groupsNode instanceof ArrayNode groups) {
+          hooksChanged = removePieriaEntries(groups) || hooksChanged;
+          if (groups.isEmpty()) {
+            hooksObject.remove(event);
+          }
+        }
+      }
+      if (hooksObject.isEmpty()) {
+        hooksRoot.remove("hooks");
+      }
+      if (hooksChanged) {
+        json.save(hooksFile, hooksRoot, ctx.dryRun(), ctx.log());
+      }
     }
 
     Path cmdDir = commandsDir(ctx);
@@ -146,10 +187,16 @@ public final class CodexInstaller implements HarnessInstaller {
     return server;
   }
 
-  private ObjectNode hookEntry(WiringContext ctx, String event, String subcommand) {
-    ObjectNode entry = toml.newObject();
-    entry.put("event", event);
-    entry.put("command", HookCommandLine.of(ctx.cliCommand(), "hook", "codex", subcommand));
-    return entry;
+  private ObjectNode hookGroup(WiringContext ctx, String subcommand) {
+    ObjectNode group = json.newObject();
+    ArrayNode handlers = json.childArray(group, "hooks");
+    ObjectNode handler = json.newObject();
+    handler.put("type", "command");
+    handler.put("command", HookCommandLine.of(ctx.cliCommand(), "hook", "codex", subcommand));
+    if (subcommand.equals("stop")) {
+      handler.put("timeout", 30);
+    }
+    handlers.add(handler);
+    return group;
   }
 }

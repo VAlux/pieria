@@ -71,4 +71,13 @@ class OpenCodeHookCommandTests {
     String out = runCapturingStdout("{\"role\":\"user\"}\n", "hook", "opencode", "ingest");
     assertThat(out).isEmpty();
   }
+
+  @Test
+  void codexStopReadsJsonStdinAndExitsZeroWhenTranscriptIsMissing() {
+    String out = runCapturingStdout(
+      "{\"session_id\":\"thr_123\",\"transcript_path\":null}",
+      "hook", "codex", "stop");
+
+    assertThat(out).isEmpty();
+  }
 }

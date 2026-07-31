@@ -17,7 +17,7 @@ Both are installed by `pieria harness install [--user] [<harness>]`.
 | `pieria hook claude-code stop` | end of a turn | ingests the transcript |
 | `pieria hook claude-code session-end` | session ends, including `/clear` | ingests the transcript |
 | `pieria hook codex session-start` | session opens | prints a recalled context block |
-| `pieria hook codex stop` | session ends | ingests the transcript |
+| `pieria hook codex stop` | end of a turn | ingests the transcript |
 | `pieria hook opencode ingest` | compaction | ingests the transcript from **stdin** |
 | `pieria hook opencode recall-transform` | system-prompt transform | echoes stdin, then appends recalled context |
 | `pieria hook recall <query>` | `/pieria-recall` | prints a recalled context block |
@@ -31,10 +31,10 @@ The group is hidden from `pieria --help`; nothing here is meant to be typed by a
   transcript. A hook must never break or stall a session.
 - **stdout is payload.** Only the recall block and the remember confirmation go to stdout, because
   a harness injects a hook's stdout into the model's context. Diagnostics go to stderr.
-- **Input comes from the environment.** The harness passes the transcript path in its own variable
-  (`CLAUDE_TRANSCRIPT_PATH`, `CODEX_TRANSCRIPT_PATH`, …) and the CLI reads it directly. The command
-  string stored in harness config contains only literals — no `$VAR`, because expanding one needs a
-  shell, which Windows does not provide.
+- **Input follows the harness contract.** Claude Code supplies transcript metadata through its
+  environment, Codex writes a JSON hook payload containing `transcript_path` and `session_id` to
+  stdin, and OpenCode pipes raw transcript or prompt bytes to stdin. Stored command strings contain
+  only literals — no shell-expanded variables, so they remain portable to Windows.
 - **`PIERIA_DAEMON_URL`** and **`PIERIA_PROFILE`** are honoured, as they are for every `pieria`
   command.
 
@@ -48,6 +48,6 @@ The group is hidden from `pieria --help`; nothing here is meant to be typed by a
 
 ## Verifying against harness docs
 
-Hook event names and environment variables change across harness releases. The values Pieria relies
-on are listed in `HarnessHookSpec`; check them against current harness documentation when a hook
-stops firing.
+Hook event names and input payloads change across harness releases. The values Pieria relies on are
+listed in `HarnessHookSpec` and the harness-specific command adapter; check them against current
+harness documentation when a hook stops firing.

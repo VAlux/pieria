@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -40,13 +41,15 @@ class HookContextTests {
   @Test
   void transcriptResolvesFirstEnvKeyThatPointsAtAnExistingFile(@TempDir Path tmp) throws IOException {
     Path real = Files.writeString(tmp.resolve("rollout.jsonl"), "{}\n");
+    HarnessHookSpec spec = new HarnessHookSpec(
+      "test", List.of("FIRST_TRANSCRIPT", "SECOND_TRANSCRIPT"), null, "query", 1);
     HookContext ctx = new HookContext(
       Map.of(
-        "CODEX_TRANSCRIPT_PATH", tmp.resolve("missing.jsonl").toString(),
-        "CODEX_ROLLOUT_PATH", real.toString())::get,
-      tmp, "codex");
+        "FIRST_TRANSCRIPT", tmp.resolve("missing.jsonl").toString(),
+        "SECOND_TRANSCRIPT", real.toString())::get,
+      tmp, "test");
 
-    assertThat(ctx.firstExistingTranscript(HarnessHookSpec.CODEX)).contains(real);
+    assertThat(ctx.firstExistingTranscript(spec)).contains(real);
   }
 
   @Test
