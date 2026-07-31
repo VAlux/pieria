@@ -9,7 +9,6 @@ import dev.alvo.pieria.tools.StringKit;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,9 +33,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
     put("SessionEnd", "session-end");
   }};
 
-  /** Hook events Pieria used to install and no longer does. */
-  private static final List<String> LEGACY_EVENTS = List.of("UserPromptSubmit");
-
   /**
    * User-triggered slash commands: on-disk file name under {@code .claude/commands/} -> embedded
    * template resource. Deterministic — they shell out to the pieria binary rather than relying on
@@ -52,21 +48,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   private static String hookCommand(WiringContext ctx, String subcommand) {
     return HookCommandLine.of(ctx.cliCommand(), "hook", "claude-code", subcommand);
-  }
-
-  /**
-   * Strip any leftover Pieria groups for hooks we no longer install (e.g. the removed per-prompt
-   * {@code UserPromptSubmit} recall), pruning the event key if it becomes empty.
-   */
-  private static void stripLegacyHooks(ObjectNode hooks) {
-    for (String event : LEGACY_EVENTS) {
-      if (hooks.get(event) instanceof ArrayNode eventArray) {
-        removePieriaEntries(eventArray);
-        if (eventArray.isEmpty()) {
-          hooks.remove(event);
-        }
-      }
-    }
   }
 
   /**
@@ -140,7 +121,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
       removePieriaEntries(eventArray);
       eventArray.add(hookGroup(ctx, subcommand));
     });
-    stripLegacyHooks(hooks);
     json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
 
     // 3. User-triggered slash commands.
@@ -174,7 +154,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
           }
         }
       }
-      stripLegacyHooks(hooksObject);
       json.save(settings, settingsRoot, ctx.dryRun(), ctx.log());
     }
 

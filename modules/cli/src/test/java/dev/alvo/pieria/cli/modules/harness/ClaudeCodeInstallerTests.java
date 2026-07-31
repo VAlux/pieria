@@ -134,27 +134,6 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
-  void installStripsLegacyUserPromptSubmitHook(@TempDir Path tmp) throws IOException {
-    WiringContext ctx = ctx(tmp, "myproj");
-    // Seed a prior install that had the per-prompt hook (current binary form) plus an unrelated
-    // user hook. UserPromptSubmit is no longer installed by Pieria at all (see
-    // doesNotWirePerPromptHook), so any leftover Pieria entry under this event is stale and pruned.
-    Path settingsFile = installer.settingsFile(ctx);
-    Files.createDirectories(settingsFile.getParent());
-    Files.writeString(settingsFile, "{\"hooks\":{\"UserPromptSubmit\":["
-      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"/opt/pieria/bin/pieria hook claude-code user-prompt-submit\"}]},"
-      + "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"echo keep-me\"}]}]}}");
-
-    installer.install(ctx);
-
-    ObjectNode settings = json.load(settingsFile);
-    ArrayNode ups = (ArrayNode) settings.path("hooks").path("UserPromptSubmit");
-    // Pieria's legacy entry removed; the unrelated hook preserved.
-    assertThat(ups.size()).isEqualTo(1);
-    assertThat(ups.get(0).path("hooks").get(0).path("command").asString()).isEqualTo("echo keep-me");
-  }
-
-  @Test
   void wiresSessionEndHookCommand(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);
