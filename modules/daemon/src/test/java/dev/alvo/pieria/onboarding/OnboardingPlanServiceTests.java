@@ -173,8 +173,8 @@ class OnboardingPlanServiceTests {
     assertThat(terminal.status()).isEqualTo(TaskStatus.CANCELLED);
     assertThat(terminal.lanes()).extracting(lane -> lane.state())
       .containsOnly(TaskLaneState.CANCELLED);
-    assertThat(contentInterrupted).isTrue();
-    assertThat(codeInterrupted).isTrue();
+    awaitInterrupted(contentInterrupted, "content");
+    awaitInterrupted(codeInterrupted, "code");
     verify(reminiscence, never()).countOnboardingOrphans(any());
     verify(graphTasks, never()).submit(any(), any(), any());
   }
@@ -200,7 +200,7 @@ class OnboardingPlanServiceTests {
       new SourceSpec.Markdown("m", false, null, null), sourceCode("c")), true), new AtomicReference<>());
 
     assertThat(awaitTerminal(host, id).status()).isEqualTo(TaskStatus.FAILED);
-    assertThat(contentInterrupted).isTrue();
+    awaitInterrupted(contentInterrupted, "content");
     verify(reminiscence, never()).countOnboardingOrphans(any());
 
     AtomicBoolean summaryFinished = new AtomicBoolean();
@@ -251,6 +251,24 @@ class OnboardingPlanServiceTests {
       Thread.sleep(10);
     }
     throw new AssertionError("task did not finish");
+  }
+
+  /**
+   * Wait for a lane worker to record its interrupt. Cancellation marks the task terminal from the
+   * orchestrating thread ({@code TaskCancelledException}) and only <em>delivers</em> the interrupt
+   * to the lane workers afterwards, in the {@code finally} block, without joining them — so a
+   * terminal snapshot does not imply the workers have unwound yet. Asserting the flag directly is
+   * therefore racy; poll for it instead.
+   */
+  private static void awaitInterrupted(AtomicBoolean flag, String lane) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      if (flag.get()) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    throw new AssertionError(lane + " lane was not interrupted");
   }
 
   private static TaskSnapshot awaitLaneState(TaskRegistry registry, UUID id, String name,
