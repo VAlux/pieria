@@ -1,6 +1,8 @@
 package dev.alvo.pieria.cli.modules.update;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -10,6 +12,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/**
+ * {@code hardenStripsQuarantineThenCodesigns} asserts POSIX-style command arguments built from a
+ * {@code Path.of("/opt/...")}; that string form is only guaranteed on POSIX paths, so this class is
+ * macOS-only rather than gating just the one test.
+ */
+@EnabledOnOs(OS.MAC)
 class MacOsPlatformTests {
 
   @Test

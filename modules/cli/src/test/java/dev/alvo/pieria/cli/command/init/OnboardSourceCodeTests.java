@@ -29,6 +29,15 @@ class OnboardSourceCodeTests {
       + ",\"symbols\":" + symbols + ",\"edges\":" + edges + ",\"summariesStored\":" + summaries + "}]}}";
   }
 
+  /**
+   * A path as it appears inside the JSON request body: Jackson escapes {@code \} as {@code \\}, so
+   * on Windows a raw {@code Path.toString()} (backslash-separated) never appears literally in the
+   * body. No-op on POSIX paths, which contain no backslashes.
+   */
+  private static String jsonPath(Path path) {
+    return path.toString().replace("\\", "\\\\");
+  }
+
   private static OnboardCommand command(Path proj, String daemonUrl) {
     OnboardCommand cmd = new OnboardCommand();
     cmd.projectDir = proj;
@@ -64,7 +73,7 @@ class OnboardSourceCodeTests {
       String codeBody = daemon.lastRequestTo("/onboard/async").body();
       assertThat(codeBody)
         .contains("\"type\":\"source-code\"")
-        .contains(proj.toAbsolutePath().normalize().toString())
+        .contains(jsonPath(proj.toAbsolutePath().normalize()))
         .doesNotContain("\"type\":\"markdown\"")
         .doesNotContain("\"type\":\"text\"")
         .doesNotContain("\"type\":\"pdf\"");

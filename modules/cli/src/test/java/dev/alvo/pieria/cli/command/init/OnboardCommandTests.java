@@ -59,6 +59,15 @@ class OnboardCommandTests {
       .toList();
   }
 
+  /**
+   * A path as it appears inside the JSON request body: Jackson escapes {@code \} as {@code \\}, so
+   * on Windows a raw {@code Path.toString()} (backslash-separated) never appears literally in the
+   * body. No-op on POSIX paths, which contain no backslashes.
+   */
+  private static String jsonPath(Path path) {
+    return path.toString().replace("\\", "\\\\");
+  }
+
   private static Result run(OnboardCommand cmd) {
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -111,7 +120,7 @@ class OnboardCommandTests {
   @Test
   void scanModeSendsContentAndSourceCodeRootedAtProjectDir(@TempDir Path proj) throws IOException {
     writeReadme(proj);
-    String root = proj.toAbsolutePath().normalize().toString();
+    String root = jsonPath(proj.toAbsolutePath().normalize());
     try (StubDaemon daemon = StubDaemon.start()) {
       stubSuccess(daemon);
 
@@ -257,9 +266,9 @@ class OnboardCommandTests {
       List<String> bodies = onboardBodies(daemon);
       assertThat(bodies).hasSize(1);
       assertThat(bodies.getFirst()).contains("\"type\":\"markdown\"")
-        .contains(md.toAbsolutePath().normalize().toString())
-        .contains("\"type\":\"text\"").contains(txt.toAbsolutePath().normalize().toString())
-        .contains("\"type\":\"pdf\"").contains(pdf.toAbsolutePath().normalize().toString())
+        .contains(jsonPath(md.toAbsolutePath().normalize()))
+        .contains("\"type\":\"text\"").contains(jsonPath(txt.toAbsolutePath().normalize()))
+        .contains("\"type\":\"pdf\"").contains(jsonPath(pdf.toAbsolutePath().normalize()))
         .doesNotContain("\"type\":\"source-code\"");
     }
   }
@@ -268,7 +277,7 @@ class OnboardCommandTests {
   void directoryTargetExpandsToContentAndSourceCode(@TempDir Path proj) throws IOException {
     Path docs = Files.createDirectory(proj.resolve("docs"));
     Files.writeString(docs.resolve("a.md"), "# A");
-    String root = docs.toAbsolutePath().normalize().toString();
+    String root = jsonPath(docs.toAbsolutePath().normalize());
     try (StubDaemon daemon = StubDaemon.start()) {
       stubSuccess(daemon);
       OnboardCommand cmd = command(proj, daemon.baseUrl());
@@ -304,7 +313,7 @@ class OnboardCommandTests {
         .contains("URL target is content-only");
       assertThat(onboardBodies(daemon)).singleElement().satisfies(body -> {
         assertThat(body).contains("\"type\":\"source-code\"")
-          .contains(docs.toAbsolutePath().normalize().toString())
+          .contains(jsonPath(docs.toAbsolutePath().normalize()))
           .doesNotContain("\"type\":\"markdown\"")
           .doesNotContain("https://example.com/guide");
         assertThat(count(body, "\"type\":")).isEqualTo(1);
