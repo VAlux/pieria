@@ -13,8 +13,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class PdfDiscoveryTests {
 
+  // Assertions below hardcode "/"-separated expectations (matching git's own listing format);
+  // normalize the actual Path's native separator so the comparison is OS-independent.
   private static List<String> relatives(List<PdfDiscovery.Doc> docs) {
-    return docs.stream().map(d -> d.relative().toString()).toList();
+    return docs.stream().map(d -> d.relative().toString().replace('\\', '/')).toList();
   }
 
   @Test

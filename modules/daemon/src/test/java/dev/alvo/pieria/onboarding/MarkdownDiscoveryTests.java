@@ -13,8 +13,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MarkdownDiscoveryTests {
 
+  // Assertions below hardcode "/"-separated expectations (matching git's own listing format);
+  // normalize the actual Path's native separator so the comparison is OS-independent.
   private static List<String> relatives(List<MarkdownDiscovery.Doc> docs) {
-    return docs.stream().map(d -> d.relative().toString()).toList();
+    return docs.stream().map(d -> d.relative().toString().replace('\\', '/')).toList();
   }
 
   @Test

@@ -1,6 +1,8 @@
 package dev.alvo.pieria.packaging;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,7 +14,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ServiceScriptTests {
 
+	// The script itself only targets macOS launchd; running it through Windows/Linux Git Bash
+	// exercises nothing real and just adds a spurious cross-platform failure mode.
 	@Test
+	@EnabledOnOs(OS.MAC)
 	void launchdDryRunGeneratesDaemonOnlyPlist() throws Exception {
 		String output = runScript(
 			"packaging/service/macos/pieria-launchd.sh",
@@ -41,7 +46,10 @@ class ServiceScriptTests {
 		assertThat(programArguments).doesNotContain("pieria-gateway");
 	}
 
+	// The script itself only targets Linux systemd --user; running it through Windows/macOS Git
+	// Bash exercises nothing real and just adds a spurious cross-platform failure mode.
 	@Test
+	@EnabledOnOs(OS.LINUX)
 	void systemdDryRunGeneratesDaemonOnlyUserUnit() throws Exception {
 		String output = runScript(
 			"packaging/service/linux/pieria-systemd-user.sh",
