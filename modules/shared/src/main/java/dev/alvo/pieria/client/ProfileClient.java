@@ -12,6 +12,7 @@ import dev.alvo.pieria.api.response.ProfileListResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.TaskSubmitResponse;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -92,6 +93,18 @@ public final class ProfileClient {
       "sessionId", sessionId, "harness", harness, "partial", partial ? "true" : null);
     return transport.parse(
       transport.postRaw(path, ndjson, "application/x-ndjson", null, timeout), IngestResponse.class);
+  }
+
+  /**
+   * Submit a raw harness transcript for background ingestion. The response only acknowledges that
+   * the daemon accepted the task; callers that need its result can poll the returned task id.
+   */
+  public TaskSubmitResponse ingestTranscriptAsync(String name, String sessionId, String harness,
+                                                  byte[] ndjson, boolean partial, Duration timeout) {
+    String path = DaemonTransport.withQuery(profile(name) + "/ingest/transcript/async",
+      "sessionId", sessionId, "harness", harness, "partial", partial ? "true" : null);
+    return transport.parse(
+      transport.postRaw(path, ndjson, "application/x-ndjson", null, timeout), TaskSubmitResponse.class);
   }
 
   /**

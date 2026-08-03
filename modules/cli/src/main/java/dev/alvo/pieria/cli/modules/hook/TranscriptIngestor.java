@@ -10,13 +10,15 @@ import java.time.Duration;
  * session-id generation: the daemon mints one when the query parameter is absent.
  *
  * <p>Every method takes a {@code partial} flag. Pass {@code true} from an end-of-turn hook: the
- * conversation is still growing, so the daemon may defer its trailing chunk rather than re-extract
- * it on every turn. Pass {@code false} from a final capture (session end, pre-compaction), which
- * forces everything still outstanding to be extracted.
+ * conversation is still growing, so the daemon acknowledges a background task and may defer its
+ * trailing chunk rather than re-extract it on every turn. Pass {@code false} from a final capture
+ * (session end, pre-compaction), which stays synchronous and forces everything still outstanding
+ * to be extracted.
  */
 public final class TranscriptIngestor {
 
-  private static final Duration TIMEOUT = Duration.ofSeconds(30);
+  private static final Duration FINAL_INGEST_TIMEOUT = Duration.ofSeconds(30);
+  private static final Duration ASYNC_SUBMIT_TIMEOUT = Duration.ofSeconds(5);
 
   private TranscriptIngestor() {
   }
@@ -56,7 +58,13 @@ public final class TranscriptIngestor {
       return new HookOutcome.Skipped("transcript is empty; nothing to ingest");
     }
     try {
-      ctx.profiles().ingestTranscript(ctx.profile(), sessionId, spec.id(), transcript, partial, TIMEOUT);
+      if (partial) {
+        ctx.profiles().ingestTranscriptAsync(
+          ctx.profile(), sessionId, spec.id(), transcript, true, ASYNC_SUBMIT_TIMEOUT);
+      } else {
+        ctx.profiles().ingestTranscript(
+          ctx.profile(), sessionId, spec.id(), transcript, false, FINAL_INGEST_TIMEOUT);
+      }
       return HookOutcome.ok();
     } catch (RuntimeException e) {
       return new HookOutcome.Failed("ingest failed: " + e.getMessage());

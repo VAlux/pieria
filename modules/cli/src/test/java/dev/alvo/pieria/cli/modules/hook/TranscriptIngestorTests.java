@@ -52,15 +52,20 @@ class TranscriptIngestorTests {
   }
 
   @Test
-  void endOfTurnCaptureSendsPartialSoTheTrailingChunkCanBeDeferred(@TempDir Path tmp) throws IOException {
+  void endOfTurnCaptureIsAcknowledgedAsynchronouslyAndDefersTheTrailingChunk(@TempDir Path tmp)
+    throws IOException {
     try (StubDaemon daemon = StubDaemon.start()) {
-      daemon.stub("/ingest/transcript", 200, "{\"memories\":[]}");
+      daemon.stub("/ingest/transcript/async", 202, "{\"taskId\":\"task-1\"}");
       Path transcript = Files.writeString(tmp.resolve("t.jsonl"), "{\"role\":\"user\"}\n");
       HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_SESSION_ID", "s1"));
 
-      TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, true);
+      HookOutcome outcome =
+        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, true);
 
-      assertThat(daemon.lastRequestTo("/ingest/transcript").rawQuery()).contains("partial=true");
+      assertThat(outcome).isInstanceOf(HookOutcome.Ok.class);
+      StubDaemon.Recorded request = daemon.lastRequestTo("/ingest/transcript/async");
+      assertThat(request.rawQuery()).contains("partial=true");
+      assertThat(daemon.lastRequestTo("/ingest/transcript")).isNull();
     }
   }
 

@@ -39,7 +39,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14 # Apple Silicon
+          # Apple Silicon. The standard macos-14/15 runners give native-image only ~5.7GB of
+          # 3-core/7.5GB, where "Building universe" thrashes in GC (52-85% of stage time) until the
+          # deadlock watchdog aborts the build with exit 30. The xlarge variant is the smallest
+          # Apple Silicon runner with more headroom (6 cores / ~14GB); an Intel *-large runner would
+          # be cheaper but would silently change this artifact's architecture to x86_64.
+          - os: macos-15-xlarge
             platform: macos-aarch64
             vec_lib: vec0.dylib
             archive: tar

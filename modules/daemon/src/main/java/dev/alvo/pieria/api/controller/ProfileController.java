@@ -150,20 +150,47 @@ public class ProfileController {
                                          @RequestParam(name = "harness", defaultValue = "claude-code") String harness,
                                          @RequestParam(name = "partial", defaultValue = "false") boolean partial,
                                          @RequestBody String transcript) {
-    String resolvedSessionId = (sessionId == null || sessionId.isBlank())
-      ? "session-" + UUID.randomUUID()
-      : sessionId;
-
-    List<Message> messages = transcriptParsers.forHarness(harness).parse(transcript, resolvedSessionId);
+    ParsedTranscript parsed = parseTranscript(sessionId, harness, transcript);
+    List<Message> messages = parsed.messages();
     if (messages.isEmpty()) {
       return IngestResponse.of(List.of());
     }
 
     ChunkLedgerMode ledgerMode = partial ? ChunkLedgerMode.DEFER_TRAILING : ChunkLedgerMode.ENABLED;
     List<Memory> stored =
-      ingestionService.ingest(name, resolvedSessionId, messages, null, ledgerMode, IngestProgressListener.noop());
+      ingestionService.ingest(name, parsed.sessionId(), messages, null, ledgerMode, IngestProgressListener.noop());
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
+  }
+
+  /**
+   * Background variant of {@link #ingestTranscript}: parse and validate the transcript while the
+   * request is live, then hand extraction to the daemon task runner and acknowledge it immediately.
+   * Lifecycle hooks use this for routine end-of-turn captures, whose full transcript will be posted
+   * again on the next turn (and synchronously at the final boundary), so an interrupted daemon can
+   * recover without making the harness wait for model extraction.
+   */
+  @PostMapping(path = "/ingest/transcript/async", consumes = NDJSON)
+  @ResponseStatus(HttpStatus.ACCEPTED)
+  public TaskSubmitResponse ingestTranscriptAsync(
+    @PathVariable String name,
+    @RequestParam(name = "sessionId", required = false) String sessionId,
+    @RequestParam(name = "harness", defaultValue = "claude-code") String harness,
+    @RequestParam(name = "partial", defaultValue = "false") boolean partial,
+    @RequestBody String transcript
+  ) {
+    ParsedTranscript parsed = parseTranscript(sessionId, harness, transcript);
+    ChunkLedgerMode ledgerMode = partial ? ChunkLedgerMode.DEFER_TRAILING : ChunkLedgerMode.ENABLED;
+    UUID taskId = tasks.submit("ingest-transcript", name, progress -> {
+      var ingest = progress.lane("ingest");
+      ingest.start();
+      List<Memory> stored = parsed.messages().isEmpty()
+        ? List.of()
+        : ingestionService.ingest(name, parsed.sessionId(), parsed.messages(), null, ledgerMode, ingest);
+      ingest.complete();
+      return objectMapper.valueToTree(Map.of("count", stored.size()));
+    });
+    return new TaskSubmitResponse(taskId.toString());
   }
 
   /**
@@ -190,6 +217,17 @@ public class ProfileController {
       return objectMapper.valueToTree(Map.of("count", stored.size()));
     });
     return new TaskSubmitResponse(taskId.toString());
+  }
+
+  private ParsedTranscript parseTranscript(String sessionId, String harness, String transcript) {
+    String resolvedSessionId = (sessionId == null || sessionId.isBlank())
+      ? "session-" + UUID.randomUUID()
+      : sessionId;
+    List<Message> messages = transcriptParsers.forHarness(harness).parse(transcript, resolvedSessionId);
+    return new ParsedTranscript(resolvedSessionId, messages);
+  }
+
+  private record ParsedTranscript(String sessionId, List<Message> messages) {
   }
 
   @PostMapping("/memories")

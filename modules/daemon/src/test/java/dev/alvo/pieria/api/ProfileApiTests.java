@@ -138,6 +138,21 @@ class ProfileApiTests {
   }
 
   @Test
+  void asyncTranscriptIngestIsAcceptedForBackgroundProcessing() throws Exception {
+    String transcript = "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\","
+      + "\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"remember tea\"}]}}";
+
+    mvc.perform(post("/v1/profiles/hook-async/ingest/transcript/async")
+        .param("sessionId", "codex-thread-1")
+        .param("harness", "codex")
+        .param("partial", "true")
+        .contentType("application/x-ndjson")
+        .content(transcript))
+      .andExpect(status().isAccepted())
+      .andExpect(jsonPath("$.taskId", is(org.hamcrest.Matchers.notNullValue())));
+  }
+
+  @Test
   void blankQueryIsBadRequest() throws Exception {
     mvc.perform(post("/v1/profiles/alice/recall")
         .contentType("application/json")

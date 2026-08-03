@@ -85,17 +85,6 @@ file I/O, retry/backoff, time formatting) belongs in `shared`, not reimplemented
 - Postgres integration tests use Testcontainers and belong in Phase 6 only.
 - `./gradlew test` must pass before every commit.
 
-## Dogfooding: use Pieria as your own memory
-
-This repo is wired to its own daemon via the `pieria` MCP server (profile `pieria`),
-so working here exercises the product. Use it actively — recall is model-invoked, not a
-passive backdrop. Changes to the ingestion or retrieval path change what this session
-itself can remember and recall; a broken daemon means no memory tools until it's back up.
-
-The standing `recall`/`remember` policy lives in the user-level `CLAUDE.md`, and the MCP
-tool descriptions carry the mechanics (task boundaries, type mapping, `topicKey`
-supersession).
-
 ## Configuration
 
 The daemon binds to `127.0.0.1` by default and must never bind a public interface in local mode. Key properties to add in `application.properties` as implementation progresses: database path, daemon host/port, Ollama base URL, chat model name, embedding model name, and embedding dimension (fixes the `FLOAT[n]` column width — decide this once and avoid re-embedding later).

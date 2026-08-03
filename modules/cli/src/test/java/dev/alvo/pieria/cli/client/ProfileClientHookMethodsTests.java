@@ -45,6 +45,25 @@ class ProfileClientHookMethodsTests {
   }
 
   @Test
+  void ingestTranscriptAsyncPostsToBackgroundEndpointAndReturnsTaskId() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/ingest/transcript/async", 202, "{\"taskId\":\"task-1\"}");
+      ProfileClient client = new ProfileClient(daemon.baseUrl());
+
+      var submitted = client.ingestTranscriptAsync("proj", "sess-1", "codex",
+        "{}\n".getBytes(StandardCharsets.UTF_8), true, TIMEOUT);
+
+      assertThat(submitted.taskId()).isEqualTo("task-1");
+      StubDaemon.Recorded request = daemon.lastRequestTo("/ingest/transcript/async");
+      assertThat(request.method()).isEqualTo("POST");
+      assertThat(request.body()).isEqualTo("{}\n");
+      assertThat(request.rawQuery()).contains("sessionId=sess-1")
+        .contains("harness=codex")
+        .contains("partial=true");
+    }
+  }
+
+  @Test
   void recallTextReturnsBodyWhenDaemonAnswers() {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/recall", 200, "[pieria] prior context\n- (fact) something\n");
