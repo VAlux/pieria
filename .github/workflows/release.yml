@@ -39,12 +39,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple Silicon. The standard macos-14/15 runners give native-image only ~5.7GB of
-          # 3-core/7.5GB, where "Building universe" thrashes in GC (52-85% of stage time) until the
-          # deadlock watchdog aborts the build with exit 30. The xlarge variant is the smallest
-          # Apple Silicon runner with more headroom (6 cores / ~14GB); an Intel *-large runner would
-          # be cheaper but would silently change this artifact's architecture to x86_64.
-          - os: macos-15-xlarge
+          # Apple Silicon. This runner gives native-image only ~5.7GB of a 3-core/7.5GB machine,
+          # which is tight for this image — see the memory-tuned buildArgs in
+          # modules/daemon/build.gradle.kts. A larger Apple Silicon runner (macos-15-xlarge) would
+          # be the robust fix but is a billed runner; Intel *-large runners would silently change
+          # this artifact's architecture to x86_64.
+          - os: macos-14
             platform: macos-aarch64
             vec_lib: vec0.dylib
             archive: tar
@@ -99,7 +99,11 @@ jobs:
           PIERIA_TEST_NATIVE_DIR="$NATIVE_ROOT/modules/daemon/build/generated/treesitter-native/${{ matrix.platform }}" \
             ./gradlew test --no-daemon --stacktrace
 
+      # macOS runs on a 3-core/7.5GB runner where native-image is memory-starved; this switches on
+      # the memory-tuned buildArgs in modules/daemon/build.gradle.kts for that leg only.
       - name: Build native distribution
+        env:
+          PIERIA_CONSTRAINED_NATIVE_BUILD: ${{ runner.os == 'macOS' }}
         run: ./gradlew :daemon:nativeDist --no-daemon --stacktrace
 
       - name: Package archive

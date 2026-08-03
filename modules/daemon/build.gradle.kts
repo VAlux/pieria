@@ -83,11 +83,30 @@ tasks.jar {
 	enabled = true
 }
 
+// Opt-in memory tuning for native-image on a memory-constrained machine, set by the macOS leg of
+// .github/workflows/release.yml. That runner gives the builder only ~5.7GB of a 3-core/7.5GB
+// machine, where "Building universe" spends 52-85% of its time in GC until the deadlock watchdog
+// sees no activity and aborts the build (exit status 30). Gated rather than unconditional because
+// capping parallelism materially slows the roomier Linux/Windows runners and local builds.
+val constrainedNativeBuild = providers.environmentVariable("PIERIA_CONSTRAINED_NATIVE_BUILD")
+	.map { it.equals("true", ignoreCase = true) }
+	.getOrElse(false)
+
 graalvmNative {
 	binaries {
 		named("main") {
 			imageName.set("pieria-daemon")
 			mainClass.set("dev.alvo.pieria.PieriaApplication")
+			if (constrainedNativeBuild) {
+				buildArgs.addAll(
+					// Default is ~75% of system memory; the extra headroom directly reduces GC churn.
+					"-J-XX:MaxRAMPercentage=85",
+					// Fewer concurrent analysis threads means a smaller peak working set.
+					"--parallelism=2",
+					// Don't abort a build that is progressing slowly rather than deadlocked.
+					"-H:DeadlockWatchdogInterval=0"
+				)
+			}
 			buildArgs.addAll(
 				"--enable-url-protocols=http,https",
 				"-H:+ReportExceptionStackTraces",
