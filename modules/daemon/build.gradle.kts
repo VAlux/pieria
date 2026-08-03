@@ -279,8 +279,13 @@ val buildTreeSitterLibraries by tasks.registering {
 				symbols.forEach { appendLine("    $it") }
 			})
 
-			runCommand(listOf("link.exe", "/nologo", "/DLL", "/DEF:${defFile.absolutePath}",
-				"/OUT:${output.absolutePath}") + objFiles.map { it.absolutePath }, platformDir)
+			// Route the link through cl.exe (already resolving correctly above) rather than invoking
+			// link.exe directly: Git Bash's own coreutils `link` (hard-link creation, unrelated to
+			// linking) shadows MSVC's linker on PATH ahead of the MSVC toolchain directory under the
+			// runner's shell: bash steps. cl.exe finds its own co-located linker regardless of PATH
+			// order, so forwarding /DEF: via /link sidesteps the collision entirely.
+			runCommand(listOf(compiler, "/nologo", "/LD") + objFiles.map { it.absolutePath } +
+				listOf("/Fe:${output.absolutePath}", "/link", "/DEF:${defFile.absolutePath}"), platformDir)
 		}
 
 		fun compile(output: File, includes: List<File>, sources: List<File>,
