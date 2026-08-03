@@ -1,6 +1,7 @@
 package dev.alvo.pieria.onboarding;
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.VerifyMode;
@@ -172,7 +173,7 @@ class ContentIngestorTests {
       gateway = new CountingGateway();
       PieriaProperties props = new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
-        new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 32, 5, false, 5000),
+        new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 3, 3, 32, 5, false, 5000, true),
         null, null);
       IngestionService ingestionService = new IngestionService(store, gateway, normalizer,
         new Chunker(normalizer), EffectiveConfigResolver.withoutOverrides(props));

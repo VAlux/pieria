@@ -55,7 +55,7 @@ class IngestionServiceTests {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
       new PieriaProperties.Ingestion(10000, 2, 4, verifyMode,
-        1, 0, 0, false, 32, 5, false, 5000),
+        1, 0, 0, false, 3, 3, 32, 5, false, 5000, true),
       null,
       null);
   }
@@ -423,6 +423,186 @@ class IngestionServiceTests {
     TranscriptNormalizer normalizer = new TranscriptNormalizer();
     return new IngestionService(store, gateway, normalizer, new Chunker(normalizer),
       EffectiveConfigResolver.withoutOverrides(props(verifyMode)));
+  }
+
+  // ─── chunk-extraction ledger ────────────────────────────────────────────────────────────────
+  // The transcript hooks re-post the whole conversation every turn, so re-ingesting an unchanged
+  // prefix must cost no model calls. Chunker fills greedily from index 0, which is what makes every
+  // closed chunk byte-identical across re-ingests.
+
+  /** Small chunks so a handful of messages spans several of them. */
+  private static PieriaProperties ledgerProps(boolean chunkLedgerEnabled) {
+    return new PieriaProperties(null, null, null,
+      new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
+      new PieriaProperties.Ingestion(500, 2, 4, VerifyMode.NEVER,
+        1, 0, 0, false, 3, 3, 32, 5, false, 5000, chunkLedgerEnabled),
+      null,
+      null);
+  }
+
+  private IngestionService ledgerService(FakeModelGateway gateway, boolean chunkLedgerEnabled) {
+    TranscriptNormalizer normalizer = new TranscriptNormalizer();
+    return new IngestionService(store, gateway, normalizer, new Chunker(normalizer),
+      EffectiveConfigResolver.withoutOverrides(ledgerProps(chunkLedgerEnabled)));
+  }
+
+  /** Records which chunks actually reached the extraction model. */
+  private static class CountingGateway extends FakeModelGateway {
+    private final List<Integer> extracted = java.util.Collections.synchronizedList(new ArrayList<>());
+
+    @Override
+    public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+      extracted.add(chunk.index());
+      return super.extractUnified(chunk);
+    }
+
+    /** Sorted: extraction fans out across virtual threads, so completion order is not stable. */
+    List<Integer> extractedChunks() {
+      return extracted.stream().sorted().toList();
+    }
+
+    void reset() {
+      extracted.clear();
+    }
+  }
+
+  /** {@code count} distinct messages, each long enough that two of them fill a 500-char chunk. */
+  private static List<Message> longMessages(int count) {
+    List<Message> messages = new ArrayList<>();
+    for (int i = 0; i < count; i++) {
+      messages.add(msg("user", "turn " + i + " " + ("detail" + i).repeat(30)));
+    }
+    return messages;
+  }
+
+  @Test
+  void reIngestingAnUnchangedTranscriptMakesNoModelCalls() {
+    CountingGateway gateway = new CountingGateway();
+    IngestionService svc = ledgerService(gateway, true);
+    List<Message> messages = longMessages(6);
+
+    List<Memory> first = svc.ingest("proj", "s1", messages);
+    assertFalse(gateway.extractedChunks().isEmpty(), "the first ingest must extract something");
+    gateway.reset();
+
+    List<Memory> second = svc.ingest("proj", "s1", messages);
+
+    assertEquals(List.of(), gateway.extractedChunks(),
+      "an unchanged transcript must not reach the extraction model at all");
+    assertEquals(List.of(), second, "nothing new is stored when every chunk was already processed");
+    assertFalse(first.isEmpty(), "the first ingest still stores its memories");
+  }
+
+  @Test
+  void appendingTurnsReExtractsOnlyTheChunksThatChanged() {
+    CountingGateway gateway = new CountingGateway();
+    IngestionService svc = ledgerService(gateway, true);
+
+    svc.ingest("proj", "s1", longMessages(6));
+    int firstPassChunks = gateway.extractedChunks().size();
+    gateway.reset();
+
+    svc.ingest("proj", "s1", longMessages(8));
+
+    List<Integer> reExtracted = gateway.extractedChunks();
+    assertFalse(reExtracted.isEmpty(), "the appended turns must be extracted");
+    assertFalse(reExtracted.contains(0),
+      "chunk 0 is byte-identical after appending, so it must come from the ledger");
+    assertTrue(reExtracted.size() < firstPassChunks,
+      "only the tail should be re-extracted, not the whole transcript");
+  }
+
+  @Test
+  void chunksThatExtractNothingAreStillLedgered() {
+    // A gateway that finds nothing worth remembering: the chunks are still fully processed, so a
+    // re-ingest must not pay for them again.
+    CountingGateway gateway = new CountingGateway() {
+      @Override
+      public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+        super.extractUnified(chunk);
+        return List.of();
+      }
+    };
+    IngestionService svc = ledgerService(gateway, true);
+    List<Message> messages = longMessages(6);
+
+    svc.ingest("proj", "s1", messages);
+    assertFalse(gateway.extractedChunks().isEmpty());
+    gateway.reset();
+
+    svc.ingest("proj", "s1", messages);
+
+    assertEquals(List.of(), gateway.extractedChunks(),
+      "a chunk that yielded no candidates is finished and must not be re-extracted");
+  }
+
+  @Test
+  void partialCaptureDefersTheTrailingChunkAndAFlushPicksItUp() {
+    List<Message> messages = longMessages(6);
+
+    // Baseline: a final capture into a fresh session extracts every chunk.
+    CountingGateway baselineGateway = new CountingGateway();
+    ledgerService(baselineGateway, true)
+      .ingest("proj", "baseline", messages, null, ChunkLedgerMode.ENABLED, IngestProgressListener.noop());
+    List<Integer> allChunks = baselineGateway.extractedChunks();
+    assertTrue(allChunks.size() > 1, "need several chunks for this test to mean anything");
+    int trailing = allChunks.stream().mapToInt(Integer::intValue).max().orElseThrow();
+
+    CountingGateway gateway = new CountingGateway();
+    IngestionService svc = ledgerService(gateway, true);
+
+    svc.ingest("proj", "s1", messages, null, ChunkLedgerMode.DEFER_TRAILING, IngestProgressListener.noop());
+
+    assertFalse(gateway.extractedChunks().contains(trailing),
+      "the trailing chunk is still growing, so a per-turn capture must leave it alone");
+    assertEquals(allChunks.size() - 1, gateway.extractedChunks().size(),
+      "every chunk except the trailing one should be extracted");
+    gateway.reset();
+
+    // The final capture (session end / pre-compaction) flushes what was deferred.
+    svc.ingest("proj", "s1", messages, null, ChunkLedgerMode.ENABLED, IngestProgressListener.noop());
+
+    assertEquals(List.of(trailing), gateway.extractedChunks(),
+      "the flush must extract exactly the chunk that was deferred, and nothing already ledgered");
+  }
+
+  @Test
+  void disablingTheLedgerReExtractsEverything() {
+    CountingGateway gateway = new CountingGateway();
+    IngestionService svc = ledgerService(gateway, false);
+    List<Message> messages = longMessages(6);
+
+    svc.ingest("proj", "s1", messages);
+    List<Integer> firstPass = gateway.extractedChunks();
+    gateway.reset();
+
+    svc.ingest("proj", "s1", messages);
+
+    assertEquals(firstPass, gateway.extractedChunks(),
+      "with the kill switch off every ingest goes through the full pipeline, as before");
+  }
+
+  @Test
+  void ledgerSkippingDoesNotInflateSourceTokenAttribution() {
+    // Regression guard: source-token attribution walks every chunk in order so a message shared by
+    // two overlapping chunks is counted once. If the skipped chunks were dropped from that walk, a
+    // pending chunk following one would re-claim tokens already attributed by the earlier ingest.
+    CountingGateway gateway = new CountingGateway();
+    IngestionService svc = ledgerService(gateway, true);
+    List<Message> all = longMessages(8);
+
+    svc.ingest("proj", "s1", all.subList(0, 6));
+    List<Memory> second = svc.ingest("proj", "s1", all);
+
+    assertFalse(second.isEmpty(), "the appended turns must still produce memories");
+    String profileId = store.findProfile("proj").orElseThrow().id();
+    List<String> ids = store.listMemories(profileId, null, "s1").stream().map(Memory::id).toList();
+    long attributed = store.sumActiveSourceTokens(profileId, ids);
+    long rawTokens = all.stream().mapToLong(m -> dev.alvo.pieria.tools.Tokens.estimate(m.content())).sum();
+
+    assertTrue(attributed <= rawTokens + ids.size(),
+      "attributed source tokens (" + attributed + ") must not exceed the raw transcript ("
+        + rawTokens + ") beyond per-memory ceil rounding");
   }
 
   @Test

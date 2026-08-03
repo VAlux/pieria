@@ -47,11 +47,38 @@ public final class EntityNormalizer {
   }
 
   /**
-   * Normalize a relation label: trim, collapse whitespace, lowercase. Returns {@code ""} for
-   * null/blank input (callers should drop empty relations).
+   * Verb-form variants collapsed to the dominant stored form. The model returns the same relation in
+   * both base and third-person form across calls, which splits one relation into two nodes' worth of
+   * edges — the live graph carries {@code includes} (1,568 edges) alongside {@code include} (1,373).
+   * Only the observed high-frequency pairs are listed; unknown relations still pass through
+   * normalized rather than being dropped, so nothing is lost. Extend deliberately.
+   */
+  private static final Map<String, String> RELATION_ALIASES = Map.ofEntries(
+    Map.entry("include", "includes"),
+    Map.entry("use", "uses"),
+    Map.entry("contain", "contains"),
+    Map.entry("require", "requires"),
+    Map.entry("return", "returns"),
+    Map.entry("run", "runs"),
+    Map.entry("define", "defines"),
+    Map.entry("own", "owns"),
+    Map.entry("provide", "provides"),
+    Map.entry("support", "supports"),
+    Map.entry("extend", "extends"),
+    Map.entry("implement", "implements"),
+    Map.entry("depend on", "depends on"),
+    Map.entry("depends_on", "depends on"));
+
+  /**
+   * Normalize a relation label: trim, collapse whitespace, lowercase, then apply the alias map.
+   * Returns {@code ""} for null/blank input (callers should drop empty relations).
    */
   public static String normalizeRelation(String raw) {
-    return collapse(raw);
+    String base = collapse(raw);
+    if (base.isEmpty()) {
+      return "";
+    }
+    return RELATION_ALIASES.getOrDefault(base, base);
   }
 
   private static String collapse(String raw) {

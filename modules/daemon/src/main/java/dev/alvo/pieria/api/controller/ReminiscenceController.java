@@ -20,7 +20,7 @@ import java.util.UUID;
  * Orphan adoption ("reminiscence"): weave edgeless memories into the entity-relation graph by
  * retroactively running the ingest graph-extraction over their content. The adoption itself runs on
  * a background task (model-heavy); the terminal task result carries a
- * {@link dev.alvo.pieria.reminiscence.ReminiscenceResult} the client renders as the "done" line.
+ * {@link dev.alvo.pieria.api.response.ReminiscenceResult} the client renders as the "done" line.
  */
 @RestController
 @RequestMapping("/v1/profiles/{name}")

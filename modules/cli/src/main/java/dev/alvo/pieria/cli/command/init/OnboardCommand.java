@@ -2,6 +2,9 @@ package dev.alvo.pieria.cli.command.init;
 
 import dev.alvo.pieria.api.request.SourceSpec;
 import dev.alvo.pieria.api.request.OnboardPlanRequest;
+import dev.alvo.pieria.api.response.OnboardError;
+import dev.alvo.pieria.api.response.OnboardPlanResult;
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.client.*;
 import dev.alvo.pieria.cli.log.Logger;
@@ -18,6 +21,9 @@ import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -317,14 +323,14 @@ public final class OnboardCommand implements Callable<Integer> {
       TaskStatusResponse task = new TaskPoller(tasks).await(taskId, reporter);
       reporter.finish();
       if ("SUCCEEDED".equals(task.status())) {
-        PlanSuccess success = planSuccess(task.result());
+        OnboardPlanResult success = onboardPlanResult(task.result());
         reportSources(sources, success);
         int enrichmentExit = 0;
-        if (success.graphTaskId() != null && !success.graphTaskId().isBlank()) {
+        if (success.graphEnrichmentTaskId() != null && !success.graphEnrichmentTaskId().isBlank()) {
           log.info("Core ready. Graph enrichment queued as task {} for {} candidate(s).",
-            success.graphTaskId(), success.graphCandidates());
+            success.graphEnrichmentTaskId(), success.graphCandidates());
           if (waitForEnrichment) {
-            enrichmentExit = awaitEnrichment(tasks, success.graphTaskId());
+            enrichmentExit = awaitEnrichment(tasks, success.graphEnrichmentTaskId());
           }
         } else if (noEnrichGraph) {
           log.info("Core ready. Graph enrichment was skipped.");
@@ -371,9 +377,9 @@ public final class OnboardCommand implements Callable<Integer> {
   }
 
   /** Report successful source results while accounting for failed sources omitted from the list. */
-  private void reportSources(List<Source> requested, PlanSuccess success) {
+  private void reportSources(List<Source> requested, OnboardPlanResult success) {
     Set<Integer> failed = new HashSet<>();
-    for (SourceFailure error : success.errors()) {
+    for (OnboardError error : success.errors()) {
       if (error.sourceNumber() > 0) {
         failed.add(error.sourceNumber());
       }
@@ -387,19 +393,19 @@ public final class OnboardCommand implements Callable<Integer> {
       report(requested.get(i), success.sources().get(resultIndex++));
     }
     while (resultIndex < success.sources().size()) {
-      Success result = success.sources().get(resultIndex++);
+      OnboardResult result = success.sources().get(resultIndex++);
       report(new Source(result.sourceType(), null), result);
     }
   }
 
   /** Print the complete non-fatal source error list after every source has been attempted. */
-  private void reportErrors(List<Source> sources, List<SourceFailure> errors) {
+  private void reportErrors(List<Source> sources, List<OnboardError> errors) {
     if (errors.isEmpty()) {
       return;
     }
     log.error("Onboarding completed with {} source error{}:", errors.size(),
       errors.size() == 1 ? "" : "s");
-    for (SourceFailure error : errors) {
+    for (OnboardError error : errors) {
       String label = error.sourceNumber() > 0 && error.sourceNumber() <= sources.size()
         ? sources.get(error.sourceNumber() - 1).label()
         : error.sourceType();
@@ -434,7 +440,7 @@ public final class OnboardCommand implements Callable<Integer> {
   }
 
   /** Terminal "done" line — richer for the code index (symbols/edges/summaries), plain for content. */
-  private void report(Source source, Success s) {
+  private void report(Source source, OnboardResult s) {
     if (s.symbols() != null) {
       log.info("Done ({}). Indexed {} file(s), {} symbol(s), {} edge(s); stored {} memor{}.",
         source.label(), s.documents(), s.symbols(), s.edges(),
@@ -498,65 +504,15 @@ public final class OnboardCommand implements Callable<Integer> {
     return DaemonUrls.resolve(daemonUrl);
   }
 
-  private static Success success(tools.jackson.databind.JsonNode result) {
-    if (result == null) {
-      return new Success("", 0, 0, 0, null, null, null, null);
-    }
-    return new Success(text(result, "sourceType"), integer(result, "documents", 0),
-      integer(result, "memoriesStored", 0), integer(result, "graphDeferred", 0),
-      integer(result, "documentsSkipped", null),
-      integer(result, "symbols", null),
-      integer(result, "edges", null), integer(result, "summariesStored", null));
+  private static final ObjectMapper MAPPER = JsonMapper.builder()
+    .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false)
+    .build();
+  private static final OnboardPlanResult EMPTY_PLAN_RESULT =
+    new OnboardPlanResult(List.of(), 0, 0, 0, 0, 0, 0, 0, null, 0, List.of());
+
+  private static OnboardPlanResult onboardPlanResult(tools.jackson.databind.JsonNode result) {
+    return result == null ? EMPTY_PLAN_RESULT : MAPPER.treeToValue(result, OnboardPlanResult.class);
   }
-
-  private static PlanSuccess planSuccess(tools.jackson.databind.JsonNode result) {
-    if (result == null) {
-      return new PlanSuccess(List.of(), null, 0, List.of());
-    }
-    List<Success> sources = new ArrayList<>();
-    var values = result.get("sources");
-    if (values != null && values.isArray()) {
-      for (var value : values) {
-        sources.add(success(value));
-      }
-    }
-    List<SourceFailure> errors = new ArrayList<>();
-    var errorValues = result.get("errors");
-    if (errorValues != null && errorValues.isArray()) {
-      for (var value : errorValues) {
-        errors.add(new SourceFailure(integer(value, "sourceNumber", 0),
-          text(value, "sourceType"), text(value, "errorType"), text(value, "message")));
-      }
-    }
-    return new PlanSuccess(sources, nullableText(result, "graphEnrichmentTaskId"),
-      integer(result, "graphCandidates", 0), errors);
-  }
-
-  private static String text(tools.jackson.databind.JsonNode node, String field) {
-    var value = node.get(field); return value == null || value.isNull() ? "" : value.asString();
-  }
-
-  private static String nullableText(tools.jackson.databind.JsonNode node, String field) {
-    var value = node.get(field);
-    return value == null || value.isNull() ? null : value.asString();
-  }
-
-  private static Integer integer(tools.jackson.databind.JsonNode node, String field, Integer fallback) {
-    var value = node.get(field);
-    if (value == null || value.isNull()) {
-      return fallback;
-    }
-    return value.asInt(0);
-  }
-
-  private record Success(String sourceType, int documents, int memoriesStored, int graphDeferred,
-                         Integer documentsSkipped,
-                         Integer symbols, Integer edges, Integer summariesStored) { }
-
-  private record SourceFailure(int sourceNumber, String sourceType, String errorType, String message) { }
-
-  private record PlanSuccess(List<Success> sources, String graphTaskId, int graphCandidates,
-                             List<SourceFailure> errors) { }
 
   private enum LaneSelection {
     ALL(true, true),

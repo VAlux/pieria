@@ -573,4 +573,23 @@ public interface MemoryStore {
   default void attachGraph(String profileId, String memoryId, GraphFragment graph) {
     throw new UnsupportedOperationException("attachGraph(...) not implemented");
   }
+
+  /**
+   * Stamp {@code graph_adopted_at} without attaching a fragment — "this memory's graph is already
+   * settled; never send it through orphan adoption". Used by the code indexer, which derives its
+   * memories' graph deterministically from the parse and so must never pay for a model call over
+   * machine-generated template text. Idempotent.
+   */
+  default void markGraphAdopted(String profileId, String memoryId) {
+    throw new UnsupportedOperationException("markGraphAdopted(...) not implemented");
+  }
+
+  /**
+   * Whether {@code memoryId} has been through graph adoption ({@code graph_adopted_at IS NOT NULL}).
+   * Lets the code indexer detect derived memories stored before deterministic projection existed and
+   * repair them on the next index pass. {@code false} when the memory does not exist.
+   */
+  default boolean isGraphAdopted(String profileId, String memoryId) {
+    throw new UnsupportedOperationException("isGraphAdopted(...) not implemented");
+  }
 }

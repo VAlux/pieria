@@ -76,7 +76,9 @@ public record PieriaProperties(
                          @DefaultValue("openai") String type,
                          @DefaultValue("2024-10-21") String apiVersion) {
 
-    /** {@code true} when the provider is configured for Azure OpenAI / Microsoft Foundry. */
+    /**
+     * {@code true} when the provider is configured for Azure OpenAI / Microsoft Foundry.
+     */
     public boolean isAzure() {
       return type != null && type.strip().equalsIgnoreCase("azure");
     }
@@ -204,6 +206,22 @@ public record PieriaProperties(
    * verification. The default of {@code 1} keeps the cheap single-pass behavior for the
    * high-frequency transcript-hook ingests; callers that want saturation on a one-off bulk seed
    * (notably {@code pieria onboard}) raise it per request rather than for every ingest.
+   *
+   * <p>{@code maxGraphEntitiesPerMemory}/{@code maxGraphTriplesPerMemory} cap what graph extraction
+   * may emit per memory. Graph extraction is decode-bound — its wall time is essentially how much the
+   * model writes — and an uncapped pass averaged ~5 entities and ~7.6 triples per memory, most of the
+   * tail being low-signal edges that only diluted the graph. The caps are stated in the prompt
+   * <em>and</em> enforced when parsing the reply, so an over-eager model cannot spend the budget
+   * anyway. The entity cap bounds the <em>declared</em> entity list;
+   * {@link dev.alvo.pieria.domain.graph.GraphFragment#allEntities()} still materializes any triple
+   * endpoint beyond it, since an edge must always reference two persisted nodes.
+   *
+   * <p>{@code chunkLedgerEnabled} controls the chunk-extraction ledger: the transcript hooks re-post
+   * the whole conversation on every turn, so without it every chunk is re-extracted from message 0
+   * each time. With it on, a chunk whose content hash is already in {@code ingest_ledger} skips
+   * extraction, verification, and graph extraction entirely. Process-global on purpose (not
+   * per-profile overridable) — it is an operator kill switch for a caching layer, not a tuning
+   * knob. Turn it off to force every ingest back through the full model pipeline.
    */
   public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
                           @DefaultValue("2") int chunkOverlapMessages,
@@ -213,14 +231,19 @@ public record PieriaProperties(
                           @DefaultValue("0") int interrogativeQueriesPerMemory,
                           @DefaultValue("0") int maxExtractedCandidatesPerChunk,
                           @DefaultValue("false") boolean graphFromExtraction,
+                          @DefaultValue("3") int maxGraphEntitiesPerMemory,
+                          @DefaultValue("3") int maxGraphTriplesPerMemory,
                           @DefaultValue("32") int outboxBatchSize,
                           @DefaultValue("5") int outboxMaxAttempts,
                           @DefaultValue("true") boolean vectorizationSchedulerEnabled,
-                          @DefaultValue("5000") long vectorizationIntervalMs) {
+                          @DefaultValue("5000") long vectorizationIntervalMs,
+                          @DefaultValue("true") boolean chunkLedgerEnabled) {
 
     public Ingestion {
       interrogativeQueriesPerMemory = Math.max(0, interrogativeQueriesPerMemory);
       maxExtractedCandidatesPerChunk = Math.max(0, maxExtractedCandidatesPerChunk);
+      maxGraphEntitiesPerMemory = Math.max(1, maxGraphEntitiesPerMemory);
+      maxGraphTriplesPerMemory = Math.max(1, maxGraphTriplesPerMemory);
     }
   }
 
@@ -229,29 +252,29 @@ public record PieriaProperties(
    * degrades gracefully to FTS + keyed lookup. RRF {@code k} and the per-channel weights are
    * configurable; channel limit/timeout bound each parallel channel.
    *
-   * @param vectorEnabled      master switch for the two vector channels (off ⇒ FTS + keyed only)
-   * @param rrfK               RRF rank constant {@code k} (default 60)
-   * @param weightExactKey     fusion weight for the exact topic-key channel (highest signal)
-   * @param weightFtsMemory    fusion weight for the memory FTS channel
-   * @param weightHydeVector   fusion weight for the HyDE vector channel
-   * @param weightDirectVector fusion weight for the direct vector channel
-   * @param weightFtsMessage   fusion weight for the raw-message FTS safety-net channel (lowest)
-   * @param weightGraph        fusion weight for the graph channel (0 disables it); a primary-tier
-   *                           signal below exact-key, comparable to FTS/vector, tunable in eval
-   * @param graphDepth         graph neighborhood expansion depth in hops (second wave)
-   * @param graphFanout        max newly-discovered entities per hop during graph expansion
-   * @param graphSeedLimit     max seed entities taken from query entities and from wave-1 candidates
-   * @param channelLimit       max hits each channel returns before fusion
-   * @param channelTimeoutMs   per-channel timeout in milliseconds for the parallel fan-out
-   * @param weightSymbolFts    fusion weight for the code symbol-FTS channel (0 disables it)
-   * @param weightCodeGraph    fusion weight for the precise code-graph channel (0 disables it); a
-   *                           primary-tier signal comparable to {@code weightGraph}, tunable in eval
-   * @param codeGraphDepth     code-graph neighborhood expansion depth in hops (second wave)
-   * @param codeGraphFanout    max newly-discovered symbols per hop during code-graph expansion
-   * @param codeGraphSeedLimit max seed symbols taken from query terms and wave-1 candidates
+   * @param vectorEnabled          master switch for the two vector channels (off ⇒ FTS + keyed only)
+   * @param rrfK                   RRF rank constant {@code k} (default 60)
+   * @param weightExactKey         fusion weight for the exact topic-key channel (highest signal)
+   * @param weightFtsMemory        fusion weight for the memory FTS channel
+   * @param weightHydeVector       fusion weight for the HyDE vector channel
+   * @param weightDirectVector     fusion weight for the direct vector channel
+   * @param weightFtsMessage       fusion weight for the raw-message FTS safety-net channel (lowest)
+   * @param weightGraph            fusion weight for the graph channel (0 disables it); a primary-tier
+   *                               signal below exact-key, comparable to FTS/vector, tunable in eval
+   * @param graphDepth             graph neighborhood expansion depth in hops (second wave)
+   * @param graphFanout            max newly-discovered entities per hop during graph expansion
+   * @param graphSeedLimit         max seed entities taken from query entities and from wave-1 candidates
+   * @param channelLimit           max hits each channel returns before fusion
+   * @param channelTimeoutMs       per-channel timeout in milliseconds for the parallel fan-out
+   * @param weightSymbolFts        fusion weight for the code symbol-FTS channel (0 disables it)
+   * @param weightCodeGraph        fusion weight for the precise code-graph channel (0 disables it); a
+   *                               primary-tier signal comparable to {@code weightGraph}, tunable in eval
+   * @param codeGraphDepth         code-graph neighborhood expansion depth in hops (second wave)
+   * @param codeGraphFanout        max newly-discovered symbols per hop during code-graph expansion
+   * @param codeGraphSeedLimit     max seed symbols taken from query terms and wave-1 candidates
    * @param codeGraphMinConfidence minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
-   * @param recallMode         default inference tier for recall (see {@link RecallMode}); a request may
-   *                           override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
+   * @param recallMode             default inference tier for recall (see {@link RecallMode}); a request may
+   *                               override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,

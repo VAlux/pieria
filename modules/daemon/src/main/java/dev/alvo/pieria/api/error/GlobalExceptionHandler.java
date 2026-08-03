@@ -30,6 +30,7 @@ public class GlobalExceptionHandler {
       .findFirst()
       .map(fe -> fe.getField() + " " + fe.getDefaultMessage())
       .orElse("request validation failed");
+
     return badRequest(detail);
   }
 
@@ -57,9 +58,6 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(ModelUnavailableException.class)
   public ResponseEntity<ErrorResponse> handleModelUnavailable(ModelUnavailableException ex) {
-    // Classify the cause into a sanitized reason (status code / connection failure) and log the full
-    // cause chain server-side. The reason distinguishes "provider down" from "deployment not found"
-    // or "access denied" without leaking the API key.
     String reason = ModelFailures.describe(ex);
     LOGGER.warn("model_unavailable: {}", reason, ex);
     return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)

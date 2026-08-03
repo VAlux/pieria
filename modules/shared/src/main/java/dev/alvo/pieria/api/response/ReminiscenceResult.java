@@ -1,4 +1,4 @@
-package dev.alvo.pieria.reminiscence;
+package dev.alvo.pieria.api.response;
 
 /**
  * Terminal result of an orphan-adoption run, carried as the task result and rendered by the CLI as

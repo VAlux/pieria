@@ -68,14 +68,28 @@ public final class ProfileClient {
   }
 
   /**
-   * Ingest a raw harness transcript. The daemon parses the NDJSON server-side using the parser
-   * registered for {@code harness}, so hook callers ship the exact file bytes. A null or blank
-   * {@code sessionId} is omitted so the daemon generates one.
+   * Ingest a raw harness transcript as a final capture (see the {@code partial} overload).
    */
   public IngestResponse ingestTranscript(String name, String sessionId, String harness,
                                          byte[] ndjson, Duration timeout) {
+    return ingestTranscript(name, sessionId, harness, ndjson, false, timeout);
+  }
+
+  /**
+   * Ingest a raw harness transcript. The daemon parses the NDJSON server-side using the parser
+   * registered for {@code harness}, so hook callers ship the exact file bytes. A null or blank
+   * {@code sessionId} is omitted so the daemon generates one.
+   *
+   * <p>{@code partial} marks a routine mid-session capture (an end-of-turn hook), letting the daemon
+   * defer the still-growing trailing chunk instead of re-extracting it every turn. Final captures —
+   * session end, pre-compaction — must pass {@code false} so nothing is left unextracted. The
+   * parameter is omitted from the query string when false, so an older daemon simply ignores it and
+   * behaves as it always did.
+   */
+  public IngestResponse ingestTranscript(String name, String sessionId, String harness,
+                                         byte[] ndjson, boolean partial, Duration timeout) {
     String path = DaemonTransport.withQuery(profile(name) + "/ingest/transcript",
-      "sessionId", sessionId, "harness", harness);
+      "sessionId", sessionId, "harness", harness, "partial", partial ? "true" : null);
     return transport.parse(
       transport.postRaw(path, ndjson, "application/x-ndjson", null, timeout), IngestResponse.class);
   }

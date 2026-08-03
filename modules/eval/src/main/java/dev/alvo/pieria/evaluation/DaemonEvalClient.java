@@ -8,9 +8,11 @@ import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,8 +23,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,11 +52,17 @@ public final class DaemonEvalClient {
 
   private static final Logger log = LoggerFactory.getLogger(DaemonEvalClient.class);
 
-  /** Short requests: async submit and each status/stats poll return promptly. */
+  /**
+   * Short requests: async submit and each status/stats poll return promptly.
+   */
   private static final Duration POLL_REQUEST_TIMEOUT = Duration.ofSeconds(30);
-  /** How long to poll an ingest task before giving up (a slow fixture can take many minutes). */
+  /**
+   * How long to poll an ingest task before giving up (a slow fixture can take many minutes).
+   */
   private static final Duration DEFAULT_INGEST_TASK_TIMEOUT = Duration.ofMinutes(30);
-  /** A single synthesized recall is bounded but can be slow on CPU; keep the ceiling generous. */
+  /**
+   * A single synthesized recall is bounded but can be slow on CPU; keep the ceiling generous.
+   */
   private static final Duration DEFAULT_RECALL_TIMEOUT = Duration.ofMinutes(15);
 
   private final String baseUrl;
@@ -77,7 +85,9 @@ public final class DaemonEvalClient {
       .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
   }
 
-  /** {@code true} once {@code GET /pieria-health} answers 2xx; false on any error/timeout. */
+  /**
+   * {@code true} once {@code GET /pieria-health} answers 2xx; false on any error/timeout.
+   */
   public boolean healthy() {
     try {
       HttpResponse<String> resp = http.send(
@@ -104,13 +114,17 @@ public final class DaemonEvalClient {
     return awaitIngestTask(submit.taskId());
   }
 
-  /** Replace the profile-scoped ingestion overrides used by one isolated benchmark run. */
+  /**
+   * Replace the profile-scoped ingestion overrides used by one isolated benchmark run.
+   */
   public void configureIngestion(String profile, Map<String, Object> ingestionOverrides) {
     put("/v1/profiles/" + encode(profile) + "/config",
       Map.of("ingestion", ingestionOverrides), POLL_REQUEST_TIMEOUT);
   }
 
-  /** Run one text-corpus onboarding plan without starting the graph child task. */
+  /**
+   * Run one text-corpus onboarding plan without starting the graph child task.
+   */
   public OnboardCompletion onboardText(String profile, Path root) {
     OnboardPlanRequest request = new OnboardPlanRequest(
       List.of(new SourceSpec.Text(root.toAbsolutePath().toString(), null, true)), false);
@@ -132,7 +146,9 @@ public final class DaemonEvalClient {
       MemoryListResponse.class, POLL_REQUEST_TIMEOUT);
   }
 
-  /** POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance. */
+  /**
+   * POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance.
+   */
   public RecallResponse recall(String profile, String query, int limit) {
     RecallRequest request = new RecallRequest(query, limit, true, RecallMode.SYNTHESIZED);
     return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class, recallTimeout);
@@ -167,10 +183,12 @@ public final class DaemonEvalClient {
    * Poll {@code GET /v1/tasks/{id}} until terminal. Returns the {@code result.count} on success;
    * throws on FAILED/CANCELLED or timeout. Phase transitions are logged so a long ingest shows
    * progress. The status DTO carries a Jackson-3 {@code JsonNode} field, so we parse into a generic
-   * tree rather than the shared record.
+   * tree rather than the shared record — but the ingest-specific {@code result} sub-tree is always
+   * shaped like {@link IngestResponse}, so it converts cleanly.
    */
   private int awaitIngestTask(String taskId) {
-    return awaitTask(taskId, ingestTaskTimeout, "ingest").path("result").path("count").asInt(0);
+    JsonNode result = awaitTask(taskId, ingestTaskTimeout, "ingest").path("result");
+    return result.isMissingNode() ? 0 : mapper.convertValue(result, IngestResponse.class).count();
   }
 
   private JsonNode awaitTask(String taskId, Duration timeout, String operation) {
@@ -188,13 +206,14 @@ public final class DaemonEvalClient {
         continue;
       }
       String status = task.path("status").asText("");
-      JsonNode lane = task.path("lanes").isArray() && !task.path("lanes").isEmpty()
+      JsonNode laneNode = task.path("lanes").isArray() && !task.path("lanes").isEmpty()
         ? task.path("lanes").get(0) : null;
-      String laneProgress = lane == null ? null
-        : lane.path("name").asText() + ':' + lane.path("state").asText() + ':' + lane.path("phase").asText();
+      TaskLaneProgress lane = laneNode == null ? null : mapper.convertValue(laneNode, TaskLaneProgress.class);
+      String laneProgress = lane == null ? null : lane.name() + ':' + lane.state() + ':' + lane.phase();
       if (laneProgress != null && !laneProgress.equals(lastLaneProgress)) {
-        log.info("{} task {} — {} {} ({}/{})", operation, taskId, lane.path("name").asText(),
-          lane.path("phase").asText("starting"), lane.path("done").asInt(), lane.path("total").asInt());
+        String phase = lane.phase() == null || lane.phase().isBlank() ? "starting" : lane.phase();
+        log.info("{} task {} — {} {} ({}/{})", operation, taskId, lane.name(),
+          phase, lane.done(), lane.total());
         lastLaneProgress = laneProgress;
       }
       switch (status) {
@@ -215,7 +234,9 @@ public final class DaemonEvalClient {
     }
   }
 
-  /** Pending outbox depth for the profile, or {@code null} when unavailable (e.g. stats 404). */
+  /**
+   * Pending outbox depth for the profile, or {@code null} when unavailable (e.g. stats 404).
+   */
   private Long vectorizationBacklog(String profile) {
     JsonNode stats = getJson("/v1/profiles/" + encode(profile) + "/stats", POLL_REQUEST_TIMEOUT);
     if (stats == null) {
@@ -225,7 +246,9 @@ public final class DaemonEvalClient {
     return backlog == null || backlog.isNull() ? null : backlog.asLong();
   }
 
-  /** GET a JSON body as a tree, or {@code null} on any non-2xx / transport error. */
+  /**
+   * GET a JSON body as a tree, or {@code null} on any non-2xx / transport error.
+   */
   private JsonNode getJson(String path, Duration timeout) {
     try {
       HttpResponse<String> resp = http.send(

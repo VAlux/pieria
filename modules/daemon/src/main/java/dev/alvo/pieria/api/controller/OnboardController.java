@@ -21,7 +21,7 @@ import java.util.UUID;
  * Ingest a composite onboarding plan (markdown docs, source code, web pages) into a profile.
  * Discovery, reading, and fetching happen daemon-side on a background task, so any client — the CLI
  * or an MCP tool — need only name the source. The terminal task result carries an
- * {@link dev.alvo.pieria.onboarding.OnboardPlanResult} the client renders as the "done" lines.
+ * {@link dev.alvo.pieria.api.response.OnboardPlanResult} the client renders as the "done" lines.
  */
 @RestController
 @RequestMapping("/v1/profiles/{name}")

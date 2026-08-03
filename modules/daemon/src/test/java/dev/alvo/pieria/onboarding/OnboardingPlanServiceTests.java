@@ -2,6 +2,9 @@ package dev.alvo.pieria.onboarding;
 
 import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.OnboardError;
+import dev.alvo.pieria.api.response.OnboardPlanResult;
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.reminiscence.ReminiscenceService;
 import dev.alvo.pieria.task.TaskLaneState;

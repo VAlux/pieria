@@ -32,4 +32,18 @@ class PromptTemplatesTests {
   void templateResolvesAndIsNonBlank(String name) {
     assertThat(PromptTemplateLoader.load(name)).isNotBlank();
   }
+
+  /**
+   * The graph templates take the per-memory caps as placeholders. An unsubstituted {@code {{...}}}
+   * would reach the model as literal text, so assert both are declared and both get filled.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"extract-graph-single", "extract-graph-batch"})
+  void graphTemplatesDeclareAndSubstituteTheCapPlaceholders(String name) {
+    assertThat(PromptTemplateLoader.load(name)).contains("{{maxEntities}}", "{{maxTriples}}");
+
+    String rendered = PromptTemplateLoader.render(name, java.util.Map.of(
+      "content", "body", "memories", "1. body", "maxEntities", "3", "maxTriples", "3"));
+    assertThat(rendered).doesNotContain("{{");
+  }
 }

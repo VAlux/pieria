@@ -3,6 +3,8 @@ package dev.alvo.pieria.onboarding;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.OnboardPlanResult;
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.code.CodeParser;
@@ -64,7 +66,7 @@ class OnboardingConcurrentSqliteTests {
       PieriaProperties properties = new PieriaProperties(null, null, null,
         new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
         new PieriaProperties.Ingestion(10_000, 2, 4, VerifyMode.ALWAYS,
-          1, 0, 0, false, 32, 5, false, 5_000), null, null);
+          1, 0, 0, false, 3, 3, 32, 5, false, 5_000, true), null, null);
       IngestionService ingestion = new IngestionService(memories, new FakeModelGateway(), normalizer,
         new Chunker(normalizer), EffectiveConfigResolver.withoutOverrides(properties));
       ContentIngestor contentIngestor = new ContentIngestor(ingestion, memories);

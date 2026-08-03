@@ -9,9 +9,11 @@ import dev.alvo.pieria.domain.code.CodeFile;
 import dev.alvo.pieria.domain.code.CodeModule;
 import dev.alvo.pieria.domain.code.CodeRelation;
 import dev.alvo.pieria.domain.code.CodeSymbol;
+import dev.alvo.pieria.domain.code.CodeSymbolKind;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
+import dev.alvo.pieria.domain.graph.EntityNormalizer;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -58,6 +60,15 @@ public class CodeIndexingService {
   private static final int MAX_SYMBOL_IDS = 200;
   private static final Set<CodeRelation> CURATED_RELATIONS =
     Set.of(CodeRelation.DEPENDS_ON, CodeRelation.TESTS, CodeRelation.HANDLES_ROUTE);
+
+  /** Graph relation for the file → top-level-definition edges projected from the parse. */
+  private static final String DEFINES_RELATION = "defines";
+  /** Cap on projected {@code defines} edges per file, so a large file cannot flood the graph. */
+  private static final int MAX_DEFINES_EDGES = 8;
+  /** Symbol kinds worth a graph node of their own; members and locals are deliberately excluded. */
+  private static final Set<CodeSymbolKind> DEFINABLE_KINDS = Set.of(
+    CodeSymbolKind.CLASS, CodeSymbolKind.INTERFACE, CodeSymbolKind.ENUM,
+    CodeSymbolKind.TYPE_ALIAS, CodeSymbolKind.ENDPOINT, CodeSymbolKind.MIXIN);
 
   private final MemoryStore store;
   private final CodeIndexStore codeStore;
@@ -170,12 +181,16 @@ public class CodeIndexingService {
       : file.contentHash();
 
     if (!reindex && codeStore.fileContentHash(profileId, path).filter(contentHash::equals).isPresent()) {
-      boolean hasDerivedMemory = !store.findActiveByTopicKey(
-        profileId, MemoryType.FACT, "code:file:" + path).isEmpty();
-      if (hasDerivedMemory || !codeStore.hasRecallableFileStructure(profileId, path)) {
+      List<Memory> derived = store.findActiveByTopicKey(profileId, MemoryType.FACT, "code:file:" + path);
+      // Re-project an unchanged file when its derived memory is missing, and also when that memory
+      // predates deterministic graph projection (stored unstamped, so orphan adoption would send this
+      // machine-generated text to the model). Re-running indexOne is deterministic and idempotent.
+      boolean needsRepair = derived.isEmpty()
+        || !store.isGraphAdopted(profileId, derived.getFirst().id());
+      if (!needsRepair || !codeStore.hasRecallableFileStructure(profileId, path)) {
         return FileResult.skipped();
       }
-      log.debug("code index: repairing missing derived memory for unchanged file {}", path);
+      log.debug("code index: repairing derived memory/graph for unchanged file {}", path);
     }
 
     String language = (file.language() == null || file.language().isBlank())
@@ -239,7 +254,19 @@ public class CodeIndexingService {
   }
 
   /**
-   * Derive the per-file fact (with symbol-id provenance) and project curated relations.
+   * Derive the per-file fact (with symbol-id provenance), project curated relations plus the
+   * file's top-level definitions, and stamp the fact as graph-adopted.
+   *
+   * <p>The stamp is what keeps this text away from the model: the derived fact is machine-generated
+   * template prose ("Source file X (java) defines: class A, method b."), so its graph is fully
+   * determined by the parse. Without the stamp every indexed file becomes a graph orphan and the
+   * {@code onboard-graph} phase pays a model call to rediscover symbols Tree-sitter already parsed —
+   * historically ~18% of that phase's work, at lower precision than the parse. Stamping is
+   * unconditional, so a file that yields no edges at all is still never re-scanned.
+   *
+   * <p>Note this covers only the indexer's derived facts. The interpretive summaries
+   * {@code CodeSummarizationService} writes share {@link #CODE_SESSION} but are genuine model prose
+   * under {@code code:summary:*} keys; they stay orphans and keep getting graph enrichment.
    */
   private void deriveAndProject(String profileId, String path, String language, String contentHash,
                                 String fileId, List<CodeSymbol> symbols, List<ParsedEdge> parsedEdges,
@@ -282,6 +309,37 @@ public class CodeIndexingService {
       r.graphEntities++;
       r.graphEdges++;
     }
+
+    // Project what the fact literally says — which top-level types this file defines. Restricted to
+    // top-level type symbols (members carry a parent, so methods/fields are excluded) and capped, so
+    // a large file adds a handful of high-precision edges rather than one per symbol.
+    for (CodeSymbol symbol : topLevelDefinitions(symbols)) {
+      // Normalized on the way in, as GraphFragment requires: entity ids are content-addressed over
+      // (type, name), so "Bar" here and a model-extracted "bar" have to land on the same node.
+      String name = EntityNormalizer.normalizeName(symbol.name());
+      if (name.isEmpty()) {
+        continue;
+      }
+      Entity defined = store.upsertEntity(profileId, Entity.of(symbol.kind().wire(), name, "{}"));
+      store.upsertEdge(profileId, new Edge(null, profileId, fileEntity.id(), defined.id(),
+        DEFINES_RELATION, memoryId, null));
+      r.graphEntities++;
+      r.graphEdges++;
+    }
+
+    store.markGraphAdopted(profileId, memoryId);
+  }
+
+  /**
+   * The file's top-level type definitions (no parent symbol, a type-like kind), capped at
+   * {@link #MAX_DEFINES_EDGES}. For most languages this is one or a few symbols per file.
+   */
+  private static List<CodeSymbol> topLevelDefinitions(List<CodeSymbol> symbols) {
+    return symbols.stream()
+      .filter(s -> s.parentSymbolId() == null)
+      .filter(s -> DEFINABLE_KINDS.contains(s.kind()))
+      .limit(MAX_DEFINES_EDGES)
+      .toList();
   }
 
   private String resolveDst(String profileId, Map<String, CodeSymbol> byQname, String dstQname) {

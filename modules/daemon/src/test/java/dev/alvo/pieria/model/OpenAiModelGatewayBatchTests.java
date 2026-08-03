@@ -2,6 +2,7 @@ package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.VerifyMode;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.ingestion.model.Chunk;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * Verifies batched verify/classify: many candidates are resolved in a single model call (aligned by
@@ -204,12 +206,9 @@ class OpenAiModelGatewayBatchTests {
 
   @Test
   void extractGraphAllResolvesEveryMemoryInOneCall() {
-    CountingChatModel model = new CountingChatModel(
-      "{\"memories\":[{\"index\":1,\"entities\":[{\"name\":\"Redis\",\"type\":\"tool\"},"
-        + "{\"name\":\"Sessions\",\"type\":\"concept\"}],"
-        + "\"triples\":[{\"sourceName\":\"Redis\",\"sourceType\":\"tool\",\"relation\":\"powers\","
-        + "\"targetName\":\"Sessions\",\"targetType\":\"concept\"}]},"
-        + "{\"index\":2,\"entities\":[],\"triples\":[]}]}");
+    CountingChatModel model = new CountingChatModel("""
+      E1|tool:Redis|concept:Sessions
+      T1|Redis|powers|Sessions""");
     OpenAiModelGateway gateway = gateway(model);
 
     List<GraphFragment> results = gateway.extractGraphAll(List.of("redis powers sessions", "nothing here"));
@@ -218,8 +217,73 @@ class OpenAiModelGatewayBatchTests {
     assertThat(results).hasSize(2);
     assertThat(results.get(0).allEntities()).hasSize(2);
     assertThat(results.get(0).triples()).hasSize(1);
+    // A memory the model omitted entirely still gets its slot, empty.
     assertThat(results.get(1).allEntities()).isEmpty();
     assertThat(results.get(1).triples()).isEmpty();
+  }
+
+  @Test
+  void extractGraphAllTakesTripleEndpointTypesFromTheEntityLine() {
+    CountingChatModel model = new CountingChatModel("""
+      E1|tool:Redis|concept:Sessions
+      T1|Redis|powers|Sessions
+      T1|Redis|talks to|Undeclared""");
+    OpenAiModelGateway gateway = gateway(model);
+
+    GraphFragment fragment = gateway.extractGraphAll(List.of("a", "b")).getFirst();
+
+    assertThat(fragment.triples())
+      .extracting(GraphFragment.EdgeTriple::sourceType, GraphFragment.EdgeTriple::targetType)
+      .containsExactly(tuple("tool", "concept"), tuple("tool", "concept"));
+    // "Undeclared" was never on the E line, so it falls back to the default type rather than being lost.
+    assertThat(fragment.triples().get(1).targetName()).isEqualTo("undeclared");
+  }
+
+  @Test
+  void extractGraphAllCapsEntitiesAndTriplesPerMemory() {
+    CountingChatModel model = new CountingChatModel("""
+      E1|tool:one|tool:two|tool:three|tool:four|tool:five
+      T1|one|uses|two
+      T1|two|uses|three
+      T1|three|uses|four
+      T1|four|uses|five""");
+    // Caps of 2/2, tighter than the 3/3 default, so the parser is demonstrably doing the capping.
+    PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 2, 2, 32, 5, false, 5000, true);
+
+    GraphFragment fragment = gateway(model, tuning).extractGraphAll(List.of("a", "b")).getFirst();
+
+    assertThat(fragment.entities()).hasSize(2);
+    assertThat(fragment.triples()).hasSize(2);
+    // allEntities() still materializes every triple endpoint, so an edge always has both its nodes:
+    // "three" survives as a node because the second triple points at it.
+    assertThat(fragment.allEntities()).extracting(Entity::name).containsExactly("one", "two", "three");
+  }
+
+  @Test
+  void extractGraphAllRetriesTheBatchOnceBeforeFallingBackPerMemory() {
+    CountingChatModel model = new CountingChatModel("I'm sorry, I cannot help with extracting a graph here.");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<GraphFragment> results = gateway.extractGraphAll(List.of("a", "b", "c", "d"));
+
+    // Two batch attempts at the compact format, then one JSON call per memory — never more.
+    assertThat(model.calls).hasValue(2 + 4);
+    assertThat(results).hasSize(4);
+    assertThat(results).allSatisfy(fragment -> assertThat(fragment.isEmpty()).isTrue());
+  }
+
+  @Test
+  void extractGraphAllTreatsAShortEmptyReplyAsNothingToExtract() {
+    CountingChatModel model = new CountingChatModel("");
+    OpenAiModelGateway gateway = gateway(model);
+
+    List<GraphFragment> results = gateway.extractGraphAll(List.of("a", "b", "c"));
+
+    // "Nothing here" is a legitimate answer, not a parse failure: one call, no retry, no fallback.
+    assertThat(model.calls).hasValue(1);
+    assertThat(results).hasSize(3);
+    assertThat(results).allSatisfy(fragment -> assertThat(fragment.isEmpty()).isTrue());
   }
 
   @Test
@@ -233,7 +297,7 @@ class OpenAiModelGatewayBatchTests {
     response.append(']');
     CountingChatModel model = new CountingChatModel(response.toString());
     PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
-      10000, 0, 4, VerifyMode.ALWAYS, 1, 2, 12, false, 32, 5, false, 5000);
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 2, 12, false, 3, 3, 32, 5, false, 5000, true);
 
     List<UnifiedCandidate> candidates = gateway(model, tuning).extractUnified(chunk("user: facts"));
 
@@ -251,7 +315,7 @@ class OpenAiModelGatewayBatchTests {
         "targetName":"Sessions","targetType":"concept"}]}]
       """);
     PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
-      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, true, 32, 5, false, 5000);
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, true, 3, 3, 32, 5, false, 5000, true);
 
     UnifiedCandidate candidate = gateway(model, tuning)
       .extractUnified(chunk("user: Redis powers sessions")).getFirst();

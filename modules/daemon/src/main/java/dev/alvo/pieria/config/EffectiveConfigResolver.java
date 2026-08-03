@@ -103,10 +103,13 @@ public class EffectiveConfigResolver {
       nvl(o.interrogativeQueriesPerMemory(), g.interrogativeQueriesPerMemory()),
       nvl(o.maxExtractedCandidatesPerChunk(), g.maxExtractedCandidatesPerChunk()),
       nvl(o.graphFromExtraction(), g.graphFromExtraction()),
+      g.maxGraphEntitiesPerMemory(),
+      g.maxGraphTriplesPerMemory(),
       g.outboxBatchSize(),
       g.outboxMaxAttempts(),
       g.vectorizationSchedulerEnabled(),
-      g.vectorizationIntervalMs());
+      g.vectorizationIntervalMs(),
+      g.chunkLedgerEnabled());
   }
 
   private static PieriaProperties.Retrieval overlayRetrieval(PieriaProperties.Retrieval g,

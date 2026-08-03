@@ -52,7 +52,7 @@ class ReminiscenceControllerTests {
     store = new SqliteMemoryStore(JdbcClient.create(dataSource));
     tasks = new TaskRegistry();
     ReminiscenceService service =
-      new ReminiscenceService(store, new FakeModelGateway(), new ReminiscenceProperties(8, 6000, 500));
+      new ReminiscenceService(store, new FakeModelGateway(), new ReminiscenceProperties(8, 6000, 500, 4));
     controller = new ReminiscenceController(service, tasks, JsonMapper.builder().build());
   }
 

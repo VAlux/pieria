@@ -1,6 +1,7 @@
 package dev.alvo.pieria.reminiscence;
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.api.response.ReminiscenceResult;
 import dev.alvo.pieria.config.ReminiscenceProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -20,6 +21,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -53,7 +56,7 @@ class ReminiscenceServiceTests {
 
     store = new SqliteMemoryStore(JdbcClient.create(dataSource));
     model = new FakeModelGateway();
-    service = new ReminiscenceService(store, model, new ReminiscenceProperties(8, 6000, 500));
+    service = new ReminiscenceService(store, model, new ReminiscenceProperties(8, 6000, 500, 4));
   }
 
   @AfterEach
@@ -98,11 +101,41 @@ class ReminiscenceServiceTests {
   }
 
   @Test
+  void concurrentBatchesAdoptEveryOrphanExactlyOnceWithMonotonicProgress() {
+    String[] contents = new String[25];
+    for (int i = 0; i < contents.length; i++) {
+      contents[i] = "alpha" + i + " beta" + i + " gamma";
+    }
+    Profile p = seed("rem-parallel", contents);
+    // Small batches against a wider gate, so a page really does fan out across several workers.
+    ReminiscenceService parallel =
+      new ReminiscenceService(store, model, new ReminiscenceProperties(2, 6000, 500, 4));
+
+    List<Integer> ticks = new ArrayList<>();
+    ReminiscenceResult result = parallel.adoptOrphans("rem-parallel",
+      (phase, done, _) -> {
+        assertEquals("reminisce", phase);
+        ticks.add(done);
+      });
+
+    // A memory extracted twice would inflate the tally past the number seeded.
+    assertEquals(25, result.memoriesScanned());
+    assertEquals(25, result.memoriesAdopted());
+    assertEquals(50, result.entitiesAdded());
+    assertEquals(25, result.edgesAdded());
+    assertEquals(0L, store.countGraphOrphans(p.id()));
+
+    // Fragments are attached in submission order, so the client never sees progress go backwards.
+    assertEquals(ticks.stream().sorted().toList(), ticks, "progress must not go backwards");
+    assertEquals(25, ticks.getLast());
+  }
+
+  @Test
   void cancellationPropagatesAndKeepsAlreadyAdoptedRowsStamped() {
     Profile p = seed("rem-cancel", "alpha beta one", "delta epsilon two", "eta theta three");
     // One memory per model call so the first commits before the cancel tick fires.
     ReminiscenceService oneAtATime =
-      new ReminiscenceService(store, model, new ReminiscenceProperties(1, 6000, 500));
+      new ReminiscenceService(store, model, new ReminiscenceProperties(1, 6000, 500, 4));
 
     // The progress listener is the cancellation checkpoint: throw once at least one memory is done.
     IngestProgressListener cancelAfterFirst = (phase, done, total) -> {

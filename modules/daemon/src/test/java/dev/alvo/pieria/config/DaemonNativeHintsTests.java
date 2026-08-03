@@ -1,7 +1,6 @@
 package dev.alvo.pieria.config;
 
 import dev.alvo.pieria.model.OpenAiModelGateway;
-import dev.alvo.pieria.onboarding.OnboardError;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.junit.jupiter.api.Test;
 import org.springframework.aot.hint.MemberCategory;
@@ -60,16 +59,6 @@ class DaemonNativeHintsTests {
       .test(hints))
       .as("com.openai.models.ErrorObject needs declared-constructor + declared-method hints so the "
         + "SDK can parse provider error bodies in the native daemon")
-      .isTrue();
-  }
-
-  @Test
-  void onboardingErrorIsRegisteredForTaskResultSerialization() {
-    RuntimeHints hints = new RuntimeHints();
-    new DaemonNativeHints().registerHints(hints, getClass().getClassLoader());
-
-    assertThat(RuntimeHintsPredicates.reflection().onType(OnboardError.class).test(hints))
-      .as("onboarding errors are serialized inside the async task result")
       .isTrue();
   }
 

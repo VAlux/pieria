@@ -1,5 +1,6 @@
 package dev.alvo.pieria.reminiscence;
 
+import dev.alvo.pieria.api.response.ReminiscenceResult;
 import dev.alvo.pieria.config.ReminiscenceProperties;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.domain.error.NotFoundException;
@@ -9,12 +10,19 @@ import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.task.TaskCancelledException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.function.Supplier;
 
 /**
  * Orphan adoption — the "replay" phase of the reminiscence process. Finds active, non-{@code TASK}
@@ -24,7 +32,10 @@ import java.util.List;
  * the graph retrieval channel.
  *
  * <p>Runs as a cancellable background task (see {@code ReminiscenceController}). It is model-heavy,
- * so extraction is batched per {@link ReminiscenceProperties}.
+ * so extraction is batched <em>and</em> run concurrently per {@link ReminiscenceProperties}: the
+ * stage is output-token bound, spending nearly all of its wall time decoding replies, so overlapping
+ * calls — not larger batches — is what makes a large onboard finish in minutes rather than hours.
+ * Only the model calls fan out; every store write stays on the calling thread.
  *
  * <p><b>Model-down is fail-closed.</b> {@code extractGraphAll} is fully degradable — a provider
  * failure returns empty fragments rather than throwing. Since {@link MemoryStore#attachGraph} stamps
@@ -98,37 +109,105 @@ public class ReminiscenceService {
       return new ReminiscenceResult(0, 0, 0, 0);
     }
 
-    int scanned = 0;
-    int adopted = 0;
-    int entities = 0;
-    int edges = 0;
+    Counts counts = new Counts();
     int totalTicks = (int) Math.min(total, Integer.MAX_VALUE);
+    int parallelism = properties.parallelism();
+    log.info("{} start profile={} orphans={} batchSize={} parallelism={}",
+      phase, profileName, total, properties.batchSize(), parallelism);
 
-    List<Memory> page;
-    while (!(page = sessions == null
-      ? store.findGraphOrphans(profileId, properties.scanPageSize())
-      : store.findGraphOrphans(profileId, sessions, properties.scanPageSize())).isEmpty()) {
-      for (List<Memory> batch : partition(page)) {
-        List<String> contents = batch.stream().map(Memory::content).toList();
-        List<GraphFragment> fragments = modelGateway.extractGraphAll(contents);
-        for (int i = 0; i < batch.size(); i++) {
-          Memory memory = batch.get(i);
-          GraphFragment fragment = i < fragments.size() ? fragments.get(i) : GraphFragment.empty();
-          store.attachGraph(profileId, memory.id(), fragment);
-          scanned++;
-          if (!fragment.isEmpty()) {
-            adopted++;
-            entities += fragment.allEntities().size();
-            edges += fragment.triples().size();
-          }
-        }
-        progress.onPhase(phase, Math.min(scanned, totalTicks), totalTicks);
+    Semaphore gate = new Semaphore(parallelism);
+    try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+      List<Memory> page;
+      while (!(page = sessions == null
+        ? store.findGraphOrphans(profileId, properties.scanPageSize())
+        : store.findGraphOrphans(profileId, sessions, properties.scanPageSize())).isEmpty()) {
+        adoptPage(profileId, phase, partition(page), gate, exec, counts, totalTicks, progress);
       }
     }
 
     log.info("{} profile={} scanned={} adopted={} entities={} edges={}",
-      phase, profileName, scanned, adopted, entities, edges);
-    return new ReminiscenceResult(scanned, adopted, entities, edges);
+      phase, profileName, counts.scanned, counts.adopted, counts.entities, counts.edges);
+    return new ReminiscenceResult(counts.scanned, counts.adopted, counts.entities, counts.edges);
+  }
+
+  /**
+   * Extract one page's batches concurrently, then attach the fragments in submission order.
+   *
+   * <p>Only the model calls fan out; {@link MemoryStore#attachGraph} is applied here on the calling
+   * thread, so the daemon's single-writer invariant holds and progress still advances in a stable
+   * order. Draining in submission order (rather than completion order) keeps the tick sequence
+   * deterministic, which matters because {@code onPhase} is also the cancellation checkpoint — it
+   * throws when the task is cancelled, and every batch already attached by then stays stamped, so the
+   * next run resumes from exactly there.
+   */
+  private void adoptPage(String profileId, String phase, List<List<Memory>> batches, Semaphore gate,
+                         ExecutorService exec, Counts counts, int totalTicks,
+                         IngestProgressListener progress) {
+    List<Future<List<GraphFragment>>> futures = new ArrayList<>(batches.size());
+    for (List<Memory> batch : batches) {
+      List<String> contents = batch.stream().map(Memory::content).toList();
+      futures.add(exec.submit(() -> bounded(gate, () -> modelGateway.extractGraphAll(contents))));
+    }
+
+    try {
+      for (int b = 0; b < batches.size(); b++) {
+        List<Memory> batch = batches.get(b);
+        List<GraphFragment> fragments = await(futures.get(b));
+        for (int i = 0; i < batch.size(); i++) {
+          Memory memory = batch.get(i);
+          GraphFragment fragment = i < fragments.size() ? fragments.get(i) : GraphFragment.empty();
+          store.attachGraph(profileId, memory.id(), fragment);
+          counts.scanned++;
+          if (!fragment.isEmpty()) {
+            counts.adopted++;
+            counts.entities += fragment.allEntities().size();
+            counts.edges += fragment.triples().size();
+          }
+        }
+        progress.onPhase(phase, Math.min(counts.scanned, totalTicks), totalTicks);
+      }
+    } catch (RuntimeException e) {
+      // Cancellation or an unexpected failure: drop the batches that have not started yet so the
+      // executor's close() does not first work through a page's worth of queued model calls.
+      for (Future<List<GraphFragment>> pending : futures) {
+        pending.cancel(true);
+      }
+      throw e;
+    }
+  }
+
+  private static <T> T bounded(Semaphore gate, Supplier<T> call) throws InterruptedException {
+    gate.acquire();
+    try {
+      return call.get();
+    } finally {
+      gate.release();
+    }
+  }
+
+  private static List<GraphFragment> await(Future<List<GraphFragment>> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new TaskCancelledException();
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (e.getCause() instanceof Error error) {
+        throw error;
+      }
+      throw new IllegalStateException("graph extraction failed", e.getCause());
+    }
+  }
+
+  /** Mutable tallies threaded through the page loop. */
+  private static final class Counts {
+    int scanned;
+    int adopted;
+    int entities;
+    int edges;
   }
 
   /**

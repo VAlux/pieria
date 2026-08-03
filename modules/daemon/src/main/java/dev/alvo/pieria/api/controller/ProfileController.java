@@ -24,6 +24,8 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.ingestion.ChunkLedgerMode;
+import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.profile.ProfileService;
@@ -137,11 +139,16 @@ public class ProfileController {
    * {@code claude-code}), so harness hooks stay dependency-free and only need to POST the raw file.
    * An empty/unusable transcript yields an empty response rather than an error, so a fail-closed
    * hook never sees a non-2xx for an uneventful session. An unknown {@code harness} is a 400.
+   *
+   * <p>{@code partial} marks a routine end-of-turn capture, so the daemon may defer the trailing
+   * chunk that is still growing. It defaults to false — a final capture — so an older CLI that does
+   * not send it still gets everything extracted rather than silently losing a session tail.
    */
   @PostMapping(path = "/ingest/transcript", consumes = NDJSON)
   public IngestResponse ingestTranscript(@PathVariable String name,
                                          @RequestParam(name = "sessionId", required = false) String sessionId,
                                          @RequestParam(name = "harness", defaultValue = "claude-code") String harness,
+                                         @RequestParam(name = "partial", defaultValue = "false") boolean partial,
                                          @RequestBody String transcript) {
     String resolvedSessionId = (sessionId == null || sessionId.isBlank())
       ? "session-" + UUID.randomUUID()
@@ -152,7 +159,9 @@ public class ProfileController {
       return IngestResponse.of(List.of());
     }
 
-    List<Memory> stored = ingestionService.ingest(name, resolvedSessionId, messages);
+    ChunkLedgerMode ledgerMode = partial ? ChunkLedgerMode.DEFER_TRAILING : ChunkLedgerMode.ENABLED;
+    List<Memory> stored =
+      ingestionService.ingest(name, resolvedSessionId, messages, null, ledgerMode, IngestProgressListener.noop());
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
   }

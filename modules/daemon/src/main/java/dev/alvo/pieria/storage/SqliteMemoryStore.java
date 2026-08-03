@@ -1176,9 +1176,25 @@ public class SqliteMemoryStore implements MemoryStore {
   @Transactional
   public void attachGraph(String profileId, String memoryId, GraphFragment graph) {
     persistGraph(profileId, memoryId, graph);
+    markGraphAdopted(profileId, memoryId);
+  }
+
+  @Override
+  public void markGraphAdopted(String profileId, String memoryId) {
     jdbc.sql("UPDATE memories SET graph_adopted_at = ? WHERE id = ? AND profile_id = ?")
       .params(Instant.now().toString(), memoryId, profileId)
       .update();
+  }
+
+  @Override
+  public boolean isGraphAdopted(String profileId, String memoryId) {
+    Long adopted = jdbc.sql("""
+        SELECT COUNT(*) FROM memories \
+        WHERE id = ? AND profile_id = ? AND graph_adopted_at IS NOT NULL""")
+      .params(memoryId, profileId)
+      .query(Long.class)
+      .single();
+    return adopted != null && adopted > 0;
   }
 
   @Override

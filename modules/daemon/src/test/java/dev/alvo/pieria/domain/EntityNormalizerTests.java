@@ -44,8 +44,21 @@ class EntityNormalizerTests {
   }
 
   @Test
+  void relationVerbFormsCollapseToOneEdgeLabel() {
+    // The model returns both forms across calls, which otherwise splits one relation in two.
+    assertThat(EntityNormalizer.normalizeRelation("include"))
+      .isEqualTo(EntityNormalizer.normalizeRelation("Includes"))
+      .isEqualTo("includes");
+    assertThat(EntityNormalizer.normalizeRelation("depends_on")).isEqualTo("depends on");
+    // An unlisted relation is kept rather than dropped: normalization must not lose information.
+    assertThat(EntityNormalizer.normalizeRelation("Powers")).isEqualTo("powers");
+  }
+
+  @Test
   void normalizationIsIdempotent() {
     String once = EntityNormalizer.normalizeName("Postgres DB");
     assertThat(EntityNormalizer.normalizeName(once)).isEqualTo(once);
+    String relation = EntityNormalizer.normalizeRelation("Include");
+    assertThat(EntityNormalizer.normalizeRelation(relation)).isEqualTo(relation);
   }
 }

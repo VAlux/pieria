@@ -18,6 +18,8 @@ import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.tools.Hash;
+import dev.alvo.pieria.tools.StringKit;
 import dev.alvo.pieria.tools.Timed;
 import dev.alvo.pieria.tools.Tokens;
 import org.slf4j.Logger;
@@ -45,11 +47,31 @@ import java.util.concurrent.Semaphore;
  * verifier per {@link VerifyMode}), then store with supersession and enqueue vectorization.
  * Returns to the caller before vectorization completes (async worker).
  * Explicit single-memory writes ({@link #remember}) bypass the model entirely.
+ *
+ * <h2>Chunk-extraction ledger</h2>
+ * The harness transcript hooks re-post the <em>entire</em> conversation at the end of every turn, so
+ * a naive ingest re-extracts every chunk from message 0 each time — waste that grows with session
+ * length. {@link Chunker#chunk} fills greedily from index 0, so appending messages never moves an
+ * earlier chunk boundary: every closed chunk is byte-identical across re-ingests. Each chunk's
+ * pipeline-relevant inputs are therefore hashed and recorded in the shared {@code ingest_ledger}
+ * (scope {@value #CHUNK_LEDGER_SCOPE}) <em>after</em> its memories are durably stored, and a chunk
+ * whose hash is already ledgered skips extraction, verification, and graph extraction entirely.
+ * Same discipline as {@code ContentIngestor}'s document-level ledger: never claim work that did not
+ * finish, so an interrupted run resumes exactly where it stopped.
  */
 @Service
 public class IngestionService {
 
   private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
+
+  /** {@code ingest_ledger.scope} for conversation chunks, alongside the onboarding source types. */
+  static final String CHUNK_LEDGER_SCOPE = "chunk";
+
+  /**
+   * Salt for the chunk ledger hashes; bump on prompt/pipeline changes that should force
+   * re-extraction of already-processed chunks (same convention as {@code ContentIngestor}).
+   */
+  static final String CHUNK_PIPELINE_VERSION = "v1";
 
   private final MemoryStore store;
   private final ModelGateway modelGateway;
@@ -135,13 +157,40 @@ public class IngestionService {
    */
   public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
                              Integer extractionSamplesOverride, IngestProgressListener progress) {
+    return ingest(profileName, sessionId, messages, extractionSamplesOverride,
+      ChunkLedgerMode.ENABLED, progress);
+  }
+
+  /**
+   * As {@link #ingest(String, String, List, Integer, IngestProgressListener)}, with explicit control
+   * over the chunk-extraction ledger. A routine per-turn transcript capture passes
+   * {@link ChunkLedgerMode#DEFER_TRAILING} so the still-growing trailing chunk is left for the next
+   * boundary or the final flush.
+   */
+  public List<Memory> ingest(String profileName, String sessionId, List<Message> messages,
+                             Integer extractionSamplesOverride, ChunkLedgerMode chunkLedgerMode,
+                             IngestProgressListener progress) {
     return ingestDetailed(profileName, sessionId, messages, extractionSamplesOverride,
-      GraphMode.SYNCHRONOUS, progress).memories();
+      GraphMode.SYNCHRONOUS, chunkLedgerMode, progress).memories();
   }
 
   /** Internal detailed entry point used by bulk onboarding to defer graph enrichment. */
   public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
                                         Integer extractionSamplesOverride, GraphMode graphMode,
+                                        IngestProgressListener progress) {
+    return ingestDetailed(profileName, sessionId, messages, extractionSamplesOverride, graphMode,
+      ChunkLedgerMode.ENABLED, progress);
+  }
+
+  /**
+   * Internal detailed entry point: as above, additionally selecting how this ingest uses the
+   * chunk-extraction ledger. Bulk onboarding passes {@link ChunkLedgerMode#DISABLED} — it already
+   * dedupes per document, and its per-batch chunk indices would collide inside its one fixed
+   * session id.
+   */
+  public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
+                                        Integer extractionSamplesOverride, GraphMode graphMode,
+                                        ChunkLedgerMode chunkLedgerMode,
                                         IngestProgressListener progress) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
@@ -178,12 +227,29 @@ public class IngestionService {
       profileName, sessionId, chunks.size(), extractionSamples, tuning.verifyMode(),
       Math.max(1, tuning.maxExtractionConcurrency()), chunk.millis());
 
+    // Chunk-extraction ledger: drop the chunks an earlier ingest of this session already processed
+    // (the transcript hooks re-post the whole conversation every turn), and optionally hold back the
+    // still-growing trailing chunk. The full chunk list is still handed to verifyStore below — it
+    // walks every chunk in order to attribute source tokens without double-counting the overlap.
+    ChunkPlan plan = planChunks(profile.id(), sessionId, chunks, extractionSamples, tuning,
+      chunkLedgerMode == null ? ChunkLedgerMode.ENABLED : chunkLedgerMode);
+    if (plan.skipped() > 0 || plan.deferred() > 0) {
+      log.info("ingest chunk ledger profile={} session={} pending={} skipped={} deferred={}",
+        profileName, sessionId, plan.pending().size(), plan.skipped(), plan.deferred());
+    }
+    if (plan.pending().isEmpty()) {
+      log.info("ingest profile={} session={} chunks={} skipped={} deferred={} totalMs={} — nothing left to"
+          + " extract, no model calls made", profileName, sessionId, chunks.size(), plan.skipped(),
+        plan.deferred(), Timed.elapsedMillis(totalStart));
+      return new IngestionResult(List.of(), 0);
+    }
+
     // One accumulator for this whole ingest: every model call (extract/verify/classify/graph),
     // whether on this thread or a virtual-thread worker, reports its real provider token usage here.
     InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
 
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(chunks, extractionSamples,
+      () -> extractCandidates(plan.pending(), extractionSamples,
         Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
@@ -201,7 +267,7 @@ public class IngestionService {
     // grounding filter clears skip the model verifier entirely (per verifyMode); the suspect
     // verification calls run bounded-parallel; the store write stays single-threaded.
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
-      extraction.merged(), chunks, profile.id(), sessionId, tuning.verifyMode(),
+      extraction.merged(), chunks, plan, profile.id(), sessionId, tuning.verifyMode(),
       Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage,
       graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress));
     VerifyStoreResult result = verifyStore.value();
@@ -355,6 +421,115 @@ public class IngestionService {
     return new Extraction(extracted.size(), merged);
   }
 
+  /**
+   * The chunk-level work this ingest will actually do, after the ledger has been consulted.
+   *
+   * @param pending          chunks that still need the model pipeline, in chunk order
+   * @param hashByChunkIndex ledger hash for every chunk (pending or not), by {@code Chunk.index()}
+   * @param skipped          chunks a previous ingest already processed
+   * @param deferred         chunks held back because they can still grow (trailing chunk)
+   * @param ledgerEnabled    whether results should be written back to the ledger at all
+   */
+  private record ChunkPlan(List<Chunk> pending, Map<Integer, String> hashByChunkIndex,
+                           int skipped, int deferred, boolean ledgerEnabled) {
+  }
+
+  /**
+   * Decide which chunks need the model. With the ledger off every chunk is pending, exactly as
+   * before this optimization existed.
+   *
+   * <p>Only the trailing chunk can still grow — {@link Chunker#chunk} fills greedily from index 0,
+   * so appending messages never moves an earlier boundary. That makes closed chunks byte-identical
+   * across re-ingests (they hit the ledger) while the trailing one changes every turn and would miss
+   * it every time, which is why {@link ChunkLedgerMode#DEFER_TRAILING} holds it back.
+   */
+  private ChunkPlan planChunks(String profileId, String sessionId, List<Chunk> chunks,
+                               int extractionSamples, PieriaProperties.Ingestion tuning,
+                               ChunkLedgerMode mode) {
+    if (mode == ChunkLedgerMode.DISABLED || !tuning.chunkLedgerEnabled() || chunks.isEmpty()) {
+      return new ChunkPlan(chunks, Map.of(), 0, 0, false);
+    }
+
+    // Fail open: a backend without ledger support (or a transient read failure) costs the
+    // optimization, never the ingest — every chunk simply stays pending, as before the ledger.
+    Map<String, String> ledger;
+    try {
+      ledger = store.ingestLedger(profileId, CHUNK_LEDGER_SCOPE);
+    } catch (RuntimeException e) {
+      // Includes the UnsupportedOperationException a store without ledger support throws.
+      log.debug("chunk ledger unavailable ({}); extracting every chunk", e.toString());
+      return new ChunkPlan(chunks, Map.of(), 0, 0, false);
+    }
+
+    Map<Integer, String> hashByChunkIndex = new LinkedHashMap<>();
+    List<Chunk> pending = new ArrayList<>();
+    int lastIndex = chunks.size() - 1;
+    int skipped = 0;
+    int deferred = 0;
+
+    for (int i = 0; i < chunks.size(); i++) {
+      Chunk chunk = chunks.get(i);
+      String hash = chunkHash(chunk, extractionSamples, tuning);
+      hashByChunkIndex.put(chunk.index(), hash);
+      if (hash.equals(ledger.get(chunkLedgerKey(sessionId, chunk.index())))) {
+        skipped++;
+      } else if (i == lastIndex && mode == ChunkLedgerMode.DEFER_TRAILING) {
+        deferred++;
+      } else {
+        pending.add(chunk);
+      }
+    }
+    return new ChunkPlan(List.copyOf(pending), Map.copyOf(hashByChunkIndex), skipped, deferred, true);
+  }
+
+  /**
+   * Ledger item key for one chunk. Scoped by session so two sessions that happen to contain
+   * identical text each get their own memories — {@code ContentId.forMemory} includes the session
+   * id, so deduping across sessions here would silently drop the second session's rows.
+   */
+  static String chunkLedgerKey(String sessionId, int chunkIndex) {
+    return StringKit.nullToEmpty(sessionId) + "#" + chunkIndex;
+  }
+
+  /**
+   * The ledger hash of one chunk: everything that determines what the pipeline would produce for it.
+   * The three tuning knobs all shape the extraction prompt (candidate cap, interrogative-query
+   * count, inline graph), so changing any of them must re-extract rather than silently reuse a
+   * result produced under the old instructions. {@code verifyMode} is deliberately absent: the
+   * ledger records that a chunk's memories are stored, not the level they were verified at.
+   */
+  static String chunkHash(Chunk chunk, int extractionSamples, PieriaProperties.Ingestion tuning) {
+    return Hash.hash128(
+      CHUNK_PIPELINE_VERSION,
+      String.valueOf(extractionSamples),
+      String.valueOf(tuning.maxExtractedCandidatesPerChunk()),
+      String.valueOf(tuning.interrogativeQueriesPerMemory()),
+      String.valueOf(tuning.graphFromExtraction()),
+      chunk.transcript() == null ? "" : chunk.transcript());
+  }
+
+  /**
+   * Checkpoint one chunk as fully processed. Called only after that chunk's memories are durably
+   * stored — the ledger must never claim work that did not finish, or a crashed run would silently
+   * lose those memories.
+   */
+  private void recordChunkProcessed(ChunkPlan plan, String profileId, String sessionId, int chunkIndex) {
+    if (!plan.ledgerEnabled()) {
+      return;
+    }
+    String hash = plan.hashByChunkIndex().get(chunkIndex);
+    if (hash == null) {
+      return;
+    }
+    try {
+      store.recordIngestLedger(profileId, CHUNK_LEDGER_SCOPE,
+        Map.of(chunkLedgerKey(sessionId, chunkIndex), hash));
+    } catch (RuntimeException e) {
+      // A ledger write failure only costs a re-extraction next time; never fail the ingest for it.
+      log.warn("recording chunk ledger for chunk={} failed ({}); it will be re-extracted", chunkIndex, e.toString());
+    }
+  }
+
   /** One verified survivor ready to store: resolved content plus its classification. */
   private record Survivor(String content, Classification classification, GraphFragment extractionGraph) {
   }
@@ -378,14 +553,25 @@ public class IngestionService {
    * submission order on this single thread, which also performs the graph extraction + store for
    * each survivor — keeping the daemon's single-writer invariant and deterministic supersession
    * ordering.
+   *
+   * <p>{@code chunks} is the ingest's <em>full</em> chunk list even when the ledger made only some
+   * of them pending: the source-token attribution below walks every chunk in order so a message
+   * shared by two overlapping chunks is counted once. {@code plan} carries which of them are pending
+   * and their ledger hashes; each chunk is checkpointed as it finishes.
    */
   private VerifyStoreResult verifyStore(List<UnifiedCandidate> merged, List<Chunk> chunks,
+                                        ChunkPlan plan,
                                         String profileId, String sessionId, VerifyMode verifyMode,
                                         int maxConcurrency,
                                         InferenceUsageAccumulator usage, GraphMode graphMode,
                                         IngestProgressListener progress) {
     int total = merged.size();
     if (total == 0) {
+      // Extraction ran and produced nothing to store, so every pending chunk is finished. Ledger
+      // them here or they would be re-extracted on every future ingest of this session.
+      for (Chunk pending : plan.pending()) {
+        recordChunkProcessed(plan, profileId, sessionId, pending.index());
+      }
       return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0);
     }
@@ -587,6 +773,20 @@ public class IngestionService {
               case DEFERRED -> graphDeferred++;
             }
           }
+        }
+
+        // Checkpoint only now, after this chunk's memories are durably stored — same discipline as
+        // ContentIngestor's per-batch checkpoint. An interrupted run keeps every chunk it finished
+        // and re-extracts only the rest.
+        recordChunkProcessed(plan, profileId, sessionId, chunkIndex);
+      }
+
+      // Pending chunks that contributed no candidate of their own are finished too: extraction ran
+      // for them and mergeCandidates folded whatever they found into an earlier chunk's candidate.
+      // Without this they would never be ledgered and so re-extract on every future ingest.
+      for (Chunk pending : plan.pending()) {
+        if (!partitions.containsKey(pending.index())) {
+          recordChunkProcessed(plan, profileId, sessionId, pending.index());
         }
       }
     }

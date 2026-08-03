@@ -1,5 +1,6 @@
 package dev.alvo.pieria.onboarding;
 
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 
 /** Deferred completion stage of one onboarding source. */

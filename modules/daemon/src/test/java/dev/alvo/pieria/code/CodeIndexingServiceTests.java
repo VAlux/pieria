@@ -183,6 +183,52 @@ class CodeIndexingServiceTests {
   }
 
   @Test
+  void derivedFactIsGraphAdoptedSoItNeverReachesTheModel() {
+    service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    Memory fact = memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst();
+
+    assertThat(memoryStore.isGraphAdopted(profileId, fact.id())).isTrue();
+    // The graph-orphan sweep is what would otherwise pay a model call for this template text.
+    assertThat(memoryStore.countGraphOrphans(profileId)).isZero();
+    assertThat(memoryStore.countGraphOrphans(profileId, List.of(CodeIndexingService.CODE_SESSION))).isZero();
+  }
+
+  @Test
+  void projectsTopLevelDefinitionsButNotMembers() {
+    service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    Memory fact = memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst();
+
+    // The top-level class becomes a node reachable from the file fact...
+    String classEntityId = ContentId.forEntity(profileId, "class", "bar");
+    assertThat(memoryStore.findMemoriesByEntities(profileId, List.of(classEntityId), 10))
+      .extracting(Memory::id)
+      .contains(fact.id());
+    // ...while its member method does not: members would flood the graph without adding reach.
+    String methodEntityId = ContentId.forEntity(profileId, "method", "create");
+    assertThat(memoryStore.findMemoriesByEntities(profileId, List.of(methodEntityId), 10)).isEmpty();
+  }
+
+  @Test
+  void unchangedIndexRepairsAFactStoredBeforeDeterministicProjection() {
+    service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+    Memory fact = memoryStore.listMemories(profileId, MemoryType.FACT, null).getFirst();
+    // Reproduce a row written by an older build: edges projected, but never stamped as settled.
+    jdbc.sql("UPDATE memories SET graph_adopted_at = NULL WHERE id = ?").param(fact.id()).update();
+    jdbc.sql("DELETE FROM edges WHERE memory_id = ?").param(fact.id()).update();
+    assertThat(memoryStore.countGraphOrphans(profileId)).isEqualTo(1L);
+
+    CodeIndexSummary repaired = service.index("code", "t", List.of(bar("h1", "class Bar {}")));
+
+    assertThat(repaired.filesSkippedUnchanged()).isZero();
+    assertThat(repaired.graphEdges()).isPositive();
+    assertThat(memoryStore.countGraphOrphans(profileId)).isZero();
+
+    // And the repair settles: the next pass skips again rather than re-projecting forever.
+    assertThat(service.index("code", "t", List.of(bar("h1", "class Bar {}"))).filesSkippedUnchanged())
+      .isEqualTo(1);
+  }
+
+  @Test
   void changedFileSupersedesPriorFactWhenSummaryChanges() {
     service.index("code", "t", List.of(bar("h1", "class Bar {}")));
 

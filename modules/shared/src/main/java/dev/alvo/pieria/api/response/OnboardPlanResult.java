@@ -1,4 +1,4 @@
-package dev.alvo.pieria.onboarding;
+package dev.alvo.pieria.api.response;
 
 import java.util.List;
 

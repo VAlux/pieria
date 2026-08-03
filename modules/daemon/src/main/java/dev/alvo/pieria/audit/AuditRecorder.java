@@ -1,5 +1,6 @@
 package dev.alvo.pieria.audit;
 
+import dev.alvo.pieria.config.AuditProperties;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Hash;
@@ -15,7 +16,9 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Builds and best-effort persists immutable audit events. */
+/**
+ * Builds and best-effort persists immutable audit events.
+ */
 @Service
 public class AuditRecorder {
   private static final Logger log = LoggerFactory.getLogger(AuditRecorder.class);
@@ -26,8 +29,7 @@ public class AuditRecorder {
   private final int maxBodyBytes;
   private final String serverVersion;
 
-  public AuditRecorder(AuditStore store, MemoryStore memories, ObjectMapper json,
-                       dev.alvo.pieria.config.AuditProperties properties) {
+  public AuditRecorder(AuditStore store, MemoryStore memories, ObjectMapper json, AuditProperties properties) {
     this.store = store;
     this.memories = memories;
     this.json = json;
@@ -103,7 +105,7 @@ public class AuditRecorder {
         null, "application/json", startedAt, completedAt,
         Math.max(0, Duration.between(startedAt, completedAt).toMillis()), null, outcome,
         errorKind, errorMessage, json.writeValueAsString(java.util.Map.of(
-          "taskKind", taskKind, "submissionOperation", parent.operation())),
+        "taskKind", taskKind, "submissionOperation", parent.operation())),
         "", 0, Hash.sha256Hex(new byte[0]), false, response.body(), response.bytes(),
         response.sha256(), response.truncated()));
     } catch (Throwable auditFailure) {

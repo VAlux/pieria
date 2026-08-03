@@ -1,4 +1,4 @@
-package dev.alvo.pieria.onboarding;
+package dev.alvo.pieria.api.response;
 
 /**
  * One non-fatal failure captured while running a composite onboarding source. Source numbers are

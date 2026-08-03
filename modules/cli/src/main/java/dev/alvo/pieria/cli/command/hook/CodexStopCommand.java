@@ -22,8 +22,9 @@ public final class CodexStopCommand extends AbstractHookCommand {
       return new HookOutcome.Failed("invalid Codex hook input: " + e.getMessage());
     }
     HookContext ctx = HookContext.create(HarnessHookSpec.CODEX.id());
+    // End of a turn, not the session: the trailing chunk is still growing and can wait.
     return TranscriptIngestor.ingestFile(
-      ctx, HarnessHookSpec.CODEX, input.transcriptPath(), input.sessionId());
+      ctx, HarnessHookSpec.CODEX, input.transcriptPath(), input.sessionId(), true);
   }
 
   @Override

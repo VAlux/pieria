@@ -1,5 +1,6 @@
 package dev.alvo.pieria.cli.command.init;
 
+import dev.alvo.pieria.api.response.ReminiscenceResult;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.cli.log.ProgressReporter;
@@ -15,7 +16,10 @@ import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import dev.alvo.pieria.mapping.ProfileResolver;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -121,26 +125,21 @@ public final class ReminisceCommand implements Callable<Integer> {
     }
   }
 
-  /** Terminal "done" line from the {@code ReminiscenceResult} JSON. */
-  private void report(JsonNode result) {
-    int scanned = integer(result, "memoriesScanned");
-    int adopted = integer(result, "memoriesAdopted");
-    int entities = integer(result, "entitiesAdded");
-    int edges = integer(result, "edgesAdded");
-    if (scanned == 0) {
+  private static final ObjectMapper MAPPER = JsonMapper.builder()
+    .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, false)
+    .build();
+  private static final ReminiscenceResult EMPTY_RESULT = new ReminiscenceResult(0, 0, 0, 0);
+
+  /** Terminal "done" line from the {@link ReminiscenceResult} JSON. */
+  private void report(JsonNode resultNode) {
+    ReminiscenceResult result = resultNode == null
+      ? EMPTY_RESULT : MAPPER.treeToValue(resultNode, ReminiscenceResult.class);
+    if (result.memoriesScanned() == 0) {
       log.info("Done. No orphan memories to adopt.");
       return;
     }
     log.info("Done. Scanned {} orphan(s), adopted {} into the graph ({} entities, {} edges).",
-      scanned, adopted, entities, edges);
-  }
-
-  private static int integer(JsonNode node, String field) {
-    if (node == null) {
-      return 0;
-    }
-    var value = node.get(field);
-    return value == null || value.isNull() ? 0 : value.asInt(0);
+      result.memoriesScanned(), result.memoriesAdopted(), result.entitiesAdded(), result.edgesAdded());
   }
 
   private int daemonDown(String url) {

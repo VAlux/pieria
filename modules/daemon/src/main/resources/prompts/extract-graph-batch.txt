@@ -1,17 +1,30 @@
 You are the GRAPH EXTRACTOR of a memory pipeline. Below is a NUMBERED list of verified memories.
-For EACH memory, extract:
-- index: the memory's number (1-based) exactly as listed
-- entities: the distinct named entities it mentions. For each: name, and type (one of
-  person, project, tool, file, concept).
-- triples: the explicit relationships among those entities, as
-  (sourceName, sourceType, relation, targetName, targetType). relation is a short lowercase verb
-  phrase, e.g. "uses", "depends on", "runs on", "owns".
+For EACH memory, extract its named entities and the explicit relationships among them.
+
+Answer in PLAIN TEXT using ONLY these two line forms, one per line, no JSON, no prose, no blank
+lines, no markdown:
+
+E<index>|<type>:<name>|<type>:<name>
+T<index>|<sourceName>|<relation>|<targetName>
+
+- <index> is the memory's number (1-based) exactly as listed.
+- An E line lists that memory's distinct entities, at most {{maxEntities}}, most important first.
+  <type> is one of: person, project, tool, file, concept.
+- A T line states ONE relationship, at most {{maxTriples}} per memory. <sourceName> and <targetName>
+  MUST both appear on that memory's E line, spelled identically.
+- <relation> is a short lowercase verb phrase. Prefer: uses, defines, includes, depends on, runs,
+  owns, contains, requires, produces, extends.
+- Emit the E line for a memory before its T lines.
 
 Ground everything strictly in each memory's OWN content; do not invent entities or relations, and
-do not mix entities across memories. If a memory has nothing worth extracting, return empty
-arrays for it.
+do not mix entities across memories. Omit a memory entirely if it has nothing worth extracting.
 
-Return a result for EVERY memory; do not merge, add, or omit any.
+Example for two memories:
+E1|project:pieria|tool:gradle|tool:sqlite
+T1|pieria|uses|gradle
+T1|pieria|depends on|sqlite
+E2|person:alex|project:pieria
+T2|alex|owns|pieria
 
 Memories:
 {{memories}}

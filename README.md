@@ -367,8 +367,15 @@ pieria reminisce --dry-run   # count the orphans a run would adopt; no model cal
 ```
 
 Adoption runs as a background daemon task and is model-heavy, batched to keep each
-`extractGraph` call inside the model's context window. Run it after a bulk `remember` spree,
-or occasionally as maintenance.
+`extractGraph` call inside the model's context window and run `pieria.reminiscence.parallelism`
+batches at a time. Run it after a bulk `remember` spree, or occasionally as maintenance.
+
+Memories derived by the source-code indexer never take this path. Their content is machine-generated
+("Source file X (java) defines: class A, method b."), so their graph — the file node, its curated
+dependencies, and the top-level types it defines — is projected deterministically from the
+Tree-sitter parse at index time and marked as settled. That is both faster and more precise than
+asking a model to rediscover symbols the parser already resolved. The interpretive summaries under
+`code:summary:*` are genuine model prose and are enriched normally.
 
 ### Update
 
@@ -599,11 +606,13 @@ Reasoning is controlled per stage: off for the structured stages, on for synthes
 runtime `pieria.properties` traces each model call with stage, model, prompt size, and
 latency — the fastest way to watch a slow onboarding ingest make progress.
 
-`pieria.model.max-concurrent-structured-calls` (default `4`) is a fair daemon-wide admission
+`pieria.model.max-concurrent-structured-calls` (default `8`) is a fair daemon-wide admission
 limit for extraction-tier HTTP attempts (`extract`, `verify`, `classify`, graph extraction, and
-query analysis). Per-ingest `max-extraction-concurrency` still controls local fan-out; the global
-limit caps aggregate work across simultaneous tasks. Embedding and synthesis use separate tiers
-and are not included.
+query analysis). Per-ingest `max-extraction-concurrency` and `pieria.reminiscence.parallelism`
+control local fan-out; the global limit caps aggregate work across simultaneous tasks, so raising a
+local knob past it has no effect. Hosted providers are round-trip bound and take `16`-`32`
+comfortably; a single-GPU local Ollama gains little past a handful, so lower it back to `4` there.
+Embedding and synthesis use separate tiers and are not included.
 
 > **Changing `embedding-dimension` invalidates every stored vector.** Decide it once, before
 > you accumulate memories, or you'll have to re-embed the whole store.

@@ -20,8 +20,9 @@ public final class OpenCodeIngestCommand extends AbstractHookCommand {
     } catch (IOException e) {
       return new HookOutcome.Failed("could not read transcript from stdin: " + e.getMessage());
     }
+    // Compaction hook: context is about to be discarded, so extract everything outstanding.
     return TranscriptIngestor.ingestBytes(
-      HookContext.create(HarnessHookSpec.OPENCODE.id()), HarnessHookSpec.OPENCODE, transcript);
+      HookContext.create(HarnessHookSpec.OPENCODE.id()), HarnessHookSpec.OPENCODE, transcript, false);
   }
 
   @Override

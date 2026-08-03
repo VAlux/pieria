@@ -12,6 +12,12 @@ public final class CcStopCommand extends AbstractIngestHookCommand {
     return HarnessHookSpec.CLAUDE_CODE;
   }
 
+  /** End of a turn, not the session: the trailing chunk is still growing and can wait. */
+  @Override
+  protected boolean partial() {
+    return true;
+  }
+
   @Override
   protected String label() {
     return "pieria/claude-code-stop";

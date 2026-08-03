@@ -1,6 +1,7 @@
 package dev.alvo.pieria.onboarding;
 
 import dev.alvo.pieria.api.request.SourceSpec;
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.code.CodeIndexingService.CodeIndexSummary;
 import dev.alvo.pieria.code.CodeIndexingService.SourceFile;

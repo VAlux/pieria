@@ -1,4 +1,4 @@
-package dev.alvo.pieria.onboarding;
+package dev.alvo.pieria.api.response;
 
 /**
  * Outcome of ingesting one onboarding source, uniform across source kinds so the client can render

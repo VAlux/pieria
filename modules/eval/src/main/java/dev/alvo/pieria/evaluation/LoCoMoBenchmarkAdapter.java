@@ -2,6 +2,8 @@ package dev.alvo.pieria.evaluation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.alvo.pieria.evaluation.EvaluationFixture.RecallExpectation;
+import dev.alvo.pieria.evaluation.EvaluationFixture.TranscriptMessage;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,231 +55,236 @@ import java.util.TreeMap;
  */
 public final class LoCoMoBenchmarkAdapter {
 
-	private static final String PROFILE = "locomo-eval";
+  private static final String PROFILE = "locomo-eval";
 
-	private final ObjectMapper objectMapper;
+  private final ObjectMapper objectMapper;
 
-	public LoCoMoBenchmarkAdapter(ObjectMapper objectMapper) {
-		this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-	}
+  public LoCoMoBenchmarkAdapter(ObjectMapper objectMapper) {
+    this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+  }
 
-	public LoCoMoBenchmarkAdapter() {
-		this(new ObjectMapper());
-	}
+  public LoCoMoBenchmarkAdapter() {
+    this(new ObjectMapper());
+  }
 
-	/** Loads and parses a local {@code locomo10.json} file. */
-	public List<EvaluationFixture> load(Path datasetFile) throws IOException {
-		try (InputStream in = Files.newInputStream(datasetFile)) {
-			return parse(in);
-		}
-	}
+  /**
+   * Loads and parses a local {@code locomo10.json} file.
+   */
+  public List<EvaluationFixture> load(Path datasetFile) throws IOException {
+    try (InputStream in = Files.newInputStream(datasetFile)) {
+      return parse(in);
+    }
+  }
 
-	public List<EvaluationFixture> parse(InputStream in) throws IOException {
-		return parse(objectMapper.readTree(in));
-	}
+  public List<EvaluationFixture> parse(InputStream in) throws IOException {
+    return parse(objectMapper.readTree(in));
+  }
 
-	/** Parses an already-read JSON tree (array of samples). */
-	public List<EvaluationFixture> parse(JsonNode root) {
-		List<EvaluationFixture> fixtures = new ArrayList<>();
-		if (root == null) {
-			return fixtures;
-		}
-		Iterable<JsonNode> samples = root.isArray() ? root : List.of(root);
-		int index = 0;
-		for (JsonNode sample : samples) {
-			index++;
-			EvaluationFixture fixture = parseSample(sample, index);
-			if (fixture != null) {
-				fixtures.add(fixture);
-			}
-		}
-		return fixtures;
-	}
+  /**
+   * Parses an already-read JSON tree (array of samples).
+   */
+  public List<EvaluationFixture> parse(JsonNode root) {
+    List<EvaluationFixture> fixtures = new ArrayList<>();
+    if (root == null) {
+      return fixtures;
+    }
+    Iterable<JsonNode> samples = root.isArray() ? root : List.of(root);
+    int index = 0;
+    for (JsonNode sample : samples) {
+      index++;
+      EvaluationFixture fixture = parseSample(sample, index);
+      if (fixture != null) {
+        fixtures.add(fixture);
+      }
+    }
+    return fixtures;
+  }
 
-	private EvaluationFixture parseSample(JsonNode sample, int index) {
-		if (sample == null || !sample.isObject()) {
-			return null;
-		}
-		String sampleId = text(sample, "sample_id", "id");
-		String name = sampleId.isBlank() ? "locomo-" + index : sampleId;
-		String sessionId = "locomo-" + name;
+  private EvaluationFixture parseSample(JsonNode sample, int index) {
+    if (sample == null || !sample.isObject()) {
+      return null;
+    }
+    String sampleId = text(sample, "sample_id", "id");
+    String name = sampleId.isBlank() ? "locomo-" + index : sampleId;
+    String sessionId = "locomo-" + name;
 
-		// dia_id -> turn text, populated during conversation parsing so QA evidence ids resolve to text.
-		Map<String, String> evidenceText = new LinkedHashMap<>();
-		List<EvaluationFixture.TranscriptMessage> transcript = parseConversation(sample.get("conversation"), evidenceText);
-		List<EvaluationFixture.RecallExpectation> recalls = parseQa(sample.get("qa"), evidenceText);
+    // dia_id -> turn text, populated during conversation parsing so QA evidence ids resolve to text.
+    Map<String, String> evidenceText = new LinkedHashMap<>();
+    List<TranscriptMessage> transcript = parseConversation(sample.get("conversation"), evidenceText);
+    List<RecallExpectation> recalls = parseQa(sample.get("qa"), evidenceText);
 
-		if (transcript.isEmpty() || recalls.isEmpty()) {
-			return null;
-		}
-		return new EvaluationFixture(name, PROFILE, sessionId, transcript, List.of(), recalls);
-	}
+    if (transcript.isEmpty() || recalls.isEmpty()) {
+      return null;
+    }
+    return new EvaluationFixture(name, PROFILE, sessionId, transcript, List.of(), recalls);
+  }
 
-	private List<EvaluationFixture.TranscriptMessage> parseConversation(JsonNode conversation,
-	                                                                    Map<String, String> evidenceText) {
-		List<EvaluationFixture.TranscriptMessage> messages = new ArrayList<>();
-		if (conversation == null || !conversation.isObject()) {
-			return messages;
-		}
+  private List<TranscriptMessage> parseConversation(JsonNode conversation,
+                                                    Map<String, String> evidenceText) {
+    List<TranscriptMessage> messages = new ArrayList<>();
+    if (conversation == null || !conversation.isObject()) {
+      return messages;
+    }
 
-		// Speaker labels (optional) — used only to keep first/second speaker stable across sessions.
-		String speakerA = text(conversation, "speaker_a");
+    // Speaker labels (optional) — used only to keep first/second speaker stable across sessions.
+    String speakerA = text(conversation, "speaker_a");
 
-		// Collect numbered sessions in ascending order so the dialogue stays chronological.
-		Map<Integer, JsonNode> sessions = new TreeMap<>();
-		Iterator<Map.Entry<String, JsonNode>> it = conversation.fields();
-		while (it.hasNext()) {
-			Map.Entry<String, JsonNode> entry = it.next();
-			Integer n = sessionNumber(entry.getKey());
-			if (n != null && entry.getValue() != null && entry.getValue().isArray()) {
-				sessions.put(n, entry.getValue());
-			}
-		}
+    // Collect numbered sessions in ascending order so the dialogue stays chronological.
+    Map<Integer, JsonNode> sessions = new TreeMap<>();
+    Iterator<Map.Entry<String, JsonNode>> it = conversation.fields();
+    while (it.hasNext()) {
+      Map.Entry<String, JsonNode> entry = it.next();
+      Integer n = sessionNumber(entry.getKey());
+      if (n != null && entry.getValue() != null && entry.getValue().isArray()) {
+        sessions.put(n, entry.getValue());
+      }
+    }
 
-		for (JsonNode session : sessions.values()) {
-			for (JsonNode turn : session) {
-				String body = turnBody(turn);
-				EvaluationFixture.TranscriptMessage message = parseTurn(turn, speakerA, body);
-				if (message != null) {
-					messages.add(message);
-					String diaId = text(turn, "dia_id", "id");
-					if (!diaId.isBlank()) {
-						// Evidence is compared against retrieved memory text, so record the turn body
-						// (without the speaker prefix) as the resolvable text for this dialog id.
-						evidenceText.put(diaId, body);
-					}
-				}
-			}
-		}
-		return messages;
-	}
+    for (JsonNode session : sessions.values()) {
+      for (JsonNode turn : session) {
+        String body = turnBody(turn);
+        TranscriptMessage message = parseTurn(turn, speakerA, body);
+        if (message != null) {
+          messages.add(message);
+          String diaId = text(turn, "dia_id", "id");
+          if (!diaId.isBlank()) {
+            // Evidence is compared against retrieved memory text, so record the turn body
+            // (without the speaker prefix) as the resolvable text for this dialog id.
+            evidenceText.put(diaId, body);
+          }
+        }
+      }
+    }
+    return messages;
+  }
 
-	private static String turnBody(JsonNode turn) {
-		if (turn == null || !turn.isObject()) {
-			return "";
-		}
-		String body = text(turn, "text", "clean_text", "value", "content");
-		if (body.isBlank()) {
-			body = text(turn, "blip_caption", "caption");
-		}
-		return body;
-	}
+  private static String turnBody(JsonNode turn) {
+    if (turn == null || !turn.isObject()) {
+      return "";
+    }
+    String body = text(turn, "text", "clean_text", "value", "content");
+    if (body.isBlank()) {
+      body = text(turn, "blip_caption", "caption");
+    }
+    return body;
+  }
 
-	private EvaluationFixture.TranscriptMessage parseTurn(JsonNode turn, String speakerA, String body) {
-		if (turn == null || !turn.isObject() || body.isBlank()) {
-			return null;
-		}
-		String speaker = text(turn, "speaker", "role", "from");
-		// Two-human dialogue → first speaker = user, everyone else = assistant; keep the name inline.
-		String role = speaker.isBlank() || speaker.equalsIgnoreCase(speakerA) ? "user" : "assistant";
-		String content = speaker.isBlank() ? body : speaker + ": " + body;
-		return new EvaluationFixture.TranscriptMessage(role, content);
-	}
+  private TranscriptMessage parseTurn(JsonNode turn, String speakerA, String body) {
+    if (turn == null || !turn.isObject() || body.isBlank()) {
+      return null;
+    }
+    String speaker = text(turn, "speaker", "role", "from");
+    // Two-human dialogue → first speaker = user, everyone else = assistant; keep the name inline.
+    String role = speaker.isBlank() || speaker.equalsIgnoreCase(speakerA) ? "user" : "assistant";
+    String content = speaker.isBlank() ? body : speaker + ": " + body;
+    return new TranscriptMessage(role, content);
+  }
 
-	private List<EvaluationFixture.RecallExpectation> parseQa(JsonNode qa, Map<String, String> evidenceText) {
-		List<EvaluationFixture.RecallExpectation> recalls = new ArrayList<>();
-		if (qa == null || !qa.isArray()) {
-			return recalls;
-		}
-		for (JsonNode item : qa) {
-			if (item == null || !item.isObject()) {
-				continue;
-			}
-			String question = text(item, "question", "query");
-			String answer = stringValue(item.get("answer"));
-			if (answer.isBlank()) {
-				answer = stringValue(item.get("adversarial_answer"));
-			}
-			if (question.isBlank() || answer.isBlank()) {
-				continue;
-			}
-			List<String> evidence = resolveEvidence(stringList(item.get("evidence")), evidenceText);
-			recalls.add(new EvaluationFixture.RecallExpectation(question, evidence, answer));
-		}
-		return recalls;
-	}
+  private List<RecallExpectation> parseQa(JsonNode qa, Map<String, String> evidenceText) {
+    List<RecallExpectation> recalls = new ArrayList<>();
+    if (qa == null || !qa.isArray()) {
+      return recalls;
+    }
 
-	/**
-	 * Maps dialog ids (e.g. {@code "D1:2"}) to the referenced turn text. Ids with no matching
-	 * {@code dia_id} are kept verbatim so the denominator stays honest — they simply never match a
-	 * retrieved memory.
-	 */
-	private static List<String> resolveEvidence(List<String> evidenceIds, Map<String, String> evidenceText) {
-		List<String> resolved = new ArrayList<>();
-		for (String id : evidenceIds) {
-			String turnText = evidenceText.get(id);
-			String value = turnText != null && !turnText.isBlank() ? turnText : id;
-			if (!resolved.contains(value)) {
-				resolved.add(value);
-			}
-		}
-		return resolved;
-	}
+    for (JsonNode item : qa) {
+      if (item == null || !item.isObject()) {
+        continue;
+      }
+      String question = text(item, "question", "query");
+      String answer = stringValue(item.get("answer"));
+      if (answer.isBlank()) {
+        answer = stringValue(item.get("adversarial_answer"));
+      }
+      if (question.isBlank() || answer.isBlank()) {
+        continue;
+      }
+      List<String> evidence = resolveEvidence(stringList(item.get("evidence")), evidenceText);
+      recalls.add(new RecallExpectation(question, evidence, answer));
+    }
+    return recalls;
+  }
 
-	private static Integer sessionNumber(String key) {
-		if (key == null || !key.startsWith("session_") || key.contains("date") || key.contains("summary")) {
-			return null;
-		}
-		String suffix = key.substring("session_".length());
-		try {
-			return Integer.parseInt(suffix);
-		} catch (NumberFormatException e) {
-			return null;
-		}
-	}
+  /**
+   * Maps dialog ids (e.g. {@code "D1:2"}) to the referenced turn text. Ids with no matching
+   * {@code dia_id} are kept verbatim so the denominator stays honest — they simply never match a
+   * retrieved memory.
+   */
+  private static List<String> resolveEvidence(List<String> evidenceIds, Map<String, String> evidenceText) {
+    List<String> resolved = new ArrayList<>();
+    for (String id : evidenceIds) {
+      String turnText = evidenceText.get(id);
+      String value = turnText != null && !turnText.isBlank() ? turnText : id;
+      if (!resolved.contains(value)) {
+        resolved.add(value);
+      }
+    }
+    return resolved;
+  }
 
-	private static String text(JsonNode node, String... fields) {
-		if (node == null) {
-			return "";
-		}
-		for (String field : fields) {
-			JsonNode value = node.get(field);
-			if (value != null && value.isTextual() && !value.asText().isBlank()) {
-				return value.asText().strip();
-			}
-		}
-		return "";
-	}
+  private static Integer sessionNumber(String key) {
+    if (key == null || !key.startsWith("session_") || key.contains("date") || key.contains("summary")) {
+      return null;
+    }
+    String suffix = key.substring("session_".length());
+    try {
+      return Integer.parseInt(suffix);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
 
-	private static String stringValue(JsonNode node) {
-		if (node == null || node.isNull()) {
-			return "";
-		}
-		if (node.isTextual()) {
-			return node.asText().strip();
-		}
-		if (node.isArray()) {
-			List<String> parts = new ArrayList<>();
-			for (JsonNode element : node) {
-				String value = stringValue(element);
-				if (!value.isBlank()) {
-					parts.add(value);
-				}
-			}
-			return String.join("; ", parts);
-		}
-		return node.asText().strip();
-	}
+  private static String text(JsonNode node, String... fields) {
+    if (node == null) {
+      return "";
+    }
+    for (String field : fields) {
+      JsonNode value = node.get(field);
+      if (value != null && value.isTextual() && !value.asText().isBlank()) {
+        return value.asText().strip();
+      }
+    }
+    return "";
+  }
 
-	private static List<String> stringList(JsonNode node) {
-		List<String> values = new ArrayList<>();
-		if (node == null || node.isNull()) {
-			return values;
-		}
-		if (node.isArray()) {
-			for (JsonNode element : node) {
-				String value = stringValue(element);
-				if (!value.isBlank() && !values.contains(value)) {
-					values.add(value);
-				}
-			}
-		} else {
-			String value = stringValue(node);
-			if (!value.isBlank()) {
-				values.add(value);
-			}
-		}
-		values.sort(Comparator.naturalOrder());
-		return values;
-	}
+  private static String stringValue(JsonNode node) {
+    if (node == null || node.isNull()) {
+      return "";
+    }
+    if (node.isTextual()) {
+      return node.asText().strip();
+    }
+    if (node.isArray()) {
+      List<String> parts = new ArrayList<>();
+      for (JsonNode element : node) {
+        String value = stringValue(element);
+        if (!value.isBlank()) {
+          parts.add(value);
+        }
+      }
+      return String.join("; ", parts);
+    }
+    return node.asText().strip();
+  }
+
+  private static List<String> stringList(JsonNode node) {
+    List<String> values = new ArrayList<>();
+    if (node == null || node.isNull()) {
+      return values;
+    }
+    if (node.isArray()) {
+      for (JsonNode element : node) {
+        String value = stringValue(element);
+        if (!value.isBlank() && !values.contains(value)) {
+          values.add(value);
+        }
+      }
+    } else {
+      String value = stringValue(node);
+      if (!value.isBlank()) {
+        values.add(value);
+      }
+    }
+    values.sort(Comparator.naturalOrder());
+    return values;
+  }
 }

@@ -1,6 +1,8 @@
 package dev.alvo.pieria.onboarding;
 
+import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.ingestion.ChunkLedgerMode;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.GraphMode;
 import dev.alvo.pieria.ingestion.IngestionResult;
@@ -141,8 +143,11 @@ public class ContentIngestor {
         }
       }
       if (!messages.isEmpty()) {
+        // ChunkLedgerMode.DISABLED: onboarding already skips unchanged documents through the ledger
+        // below, and every batch re-chunks from index 0 under the one fixed SESSION_ID, so
+        // chunk-level ledger keys would collide across batches.
         IngestionResult result = ingestionService.ingestDetailed(profile, SESSION_ID, messages,
-          extractionSamples, GraphMode.DEFERRED, progress);
+          extractionSamples, GraphMode.DEFERRED, ChunkLedgerMode.DISABLED, progress);
         stored += result.memories().size();
         graphDeferred += result.graphDeferred();
       }

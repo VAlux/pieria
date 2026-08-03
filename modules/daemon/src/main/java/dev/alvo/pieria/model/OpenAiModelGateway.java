@@ -58,6 +58,16 @@ public class OpenAiModelGateway implements ModelGateway {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(OpenAiModelGateway.class);
 
+  /** Per-memory graph caps used when no ingestion config is bound (tests, minimal setups). */
+  private static final int DEFAULT_MAX_GRAPH_ITEMS = 3;
+  /**
+   * Longest batch-graph reply still read as an honest "nothing to extract" when it contains no
+   * parseable line. Anything longer is malformed and gets retried instead.
+   */
+  private static final int EMPTY_GRAPH_REPLY_MAX_CHARS = 24;
+  /** Batch-graph attempts at getting a parseable reply before dropping to per-memory calls. */
+  private static final int BATCH_GRAPH_FORMAT_ATTEMPTS = 2;
+
   private final ChatClient extractionChatClient;
   private final ChatClient synthesisChatClient;
   private final EmbeddingModel embeddingModel;
@@ -129,6 +139,32 @@ public class OpenAiModelGateway implements ModelGateway {
 
     logTokenUsage(stage, response.getResponse());
     return response.getEntity();
+  }
+
+  /**
+   * As {@link #callExtractionEntity} but returning the raw assistant text, for stages whose reply is
+   * a compact line protocol rather than structured JSON (see {@link #extractGraphAll}). Same retry,
+   * admission gate, and usage logging; an empty/absent result yields {@code ""}.
+   */
+  private String callExtractionText(String prompt, String stage) {
+    LOGGER.debug("model call start stage={} model={} promptChars={}",
+      stage, properties.model().extractionModel(), prompt.length());
+    long start = System.nanoTime();
+    ChatResponse chatResponse = retry.execute(stage, () -> structuredCalls.execute(() ->
+      extractionChatClient.prompt()
+        .user(prompt)
+        .options(reasoningOptions(stage, properties.model().extractionModel()))
+        .call()
+        .chatResponse()));
+    LOGGER.debug("model call done stage={} model={} ms={}",
+      stage, properties.model().extractionModel(), (System.nanoTime() - start) / 1_000_000L);
+
+    logTokenUsage(stage, chatResponse);
+    if (chatResponse == null || chatResponse.getResult() == null) {
+      return "";
+    }
+    String text = chatResponse.getResult().getOutput().getText();
+    return text == null ? "" : text;
   }
 
   /**
@@ -599,6 +635,16 @@ public class OpenAiModelGateway implements ModelGateway {
     return properties.ingestion() != null && properties.ingestion().graphFromExtraction();
   }
 
+  private int maxGraphEntitiesPerMemory() {
+    return properties.ingestion() == null ? DEFAULT_MAX_GRAPH_ITEMS
+      : properties.ingestion().maxGraphEntitiesPerMemory();
+  }
+
+  private int maxGraphTriplesPerMemory() {
+    return properties.ingestion() == null ? DEFAULT_MAX_GRAPH_ITEMS
+      : properties.ingestion().maxGraphTriplesPerMemory();
+  }
+
   private String graphInstruction() {
     return graphFromExtraction()
       ? "- graphEntities / graphTriples: optional grounded graph fragments for this exact statement; "
@@ -618,7 +664,10 @@ public class OpenAiModelGateway implements ModelGateway {
     if (content == null || content.isBlank()) {
       return GraphFragment.empty();
     }
-    String prompt = PromptTemplateLoader.render("extract-graph-single", Map.of("content", content));
+    String prompt = PromptTemplateLoader.render("extract-graph-single", Map.of(
+      "content", content,
+      "maxEntities", String.valueOf(maxGraphEntitiesPerMemory()),
+      "maxTriples", String.valueOf(maxGraphTriplesPerMemory())));
 
     GraphDto dto;
     try {
@@ -631,60 +680,58 @@ public class OpenAiModelGateway implements ModelGateway {
     if (dto == null) {
       return GraphFragment.empty();
     }
-    return toGraphFragment(dto.entities(), dto.triples());
+    return cappedFragment(dto.entities(), dto.triples());
   }
 
+  /**
+   * Batch graph extraction over the compact line protocol (see {@code extract-graph-batch.txt}).
+   *
+   * <p>This stage is decode-bound: its wall time is essentially how many characters the model writes,
+   * so the reply is plain {@code E}/{@code T} lines rather than nested JSON. Dropping the repeated
+   * {@code "sourceName"}/{@code "sourceType"}/… keys removes roughly ten tokens of pure syntax from
+   * every triple, and resolving each triple's endpoint types from the memory's own {@code E} line
+   * (instead of restating them per triple) also forces triples to reference declared entities.
+   */
   @Override
   public List<GraphFragment> extractGraphAll(List<String> contents) {
     if (contents == null || contents.isEmpty()) {
       return List.of();
     }
     if (contents.size() == 1) {
+      // Single item: the structured-output JSON path, which is also the per-item fallback below.
       return List.of(extractGraph(contents.getFirst()));
     }
     StringBuilder numbered = new StringBuilder();
     for (int i = 0; i < contents.size(); i++) {
       numbered.append(i + 1).append(". ").append(contents.get(i)).append('\n');
     }
-    String prompt = PromptTemplateLoader.render("extract-graph-batch", Map.of("memories", numbered.toString()));
+    String prompt = PromptTemplateLoader.render("extract-graph-batch", Map.of(
+      "memories", numbered.toString(),
+      "maxEntities", String.valueOf(maxGraphEntitiesPerMemory()),
+      "maxTriples", String.valueOf(maxGraphTriplesPerMemory())));
 
-    BatchGraphDto dto;
-    try {
-      dto = callExtractionEntity(prompt, "extractGraph", BatchGraphDto.class);
-    } catch (RuntimeException e) {
-      // Degradable: fall back to per-memory extraction (each itself degradable).
-      LOGGER.warn("graph extraction batch call failed; falling back to per-memory: {}", e.toString());
-      return extractGraphPerItem(contents);
-    }
-
-    List<GraphFragment> mapped = mapBatchGraphs(dto, contents);
-    return mapped != null ? mapped : extractGraphPerItem(contents);
-  }
-
-  /**
-   * Map a batched graph response onto {@code contents} by 1-based index. Returns {@code null} when the
-   * response is structurally unusable (caller falls back to per-memory extraction); a content with no
-   * matching item gets an empty fragment.
-   */
-  private List<GraphFragment> mapBatchGraphs(BatchGraphDto dto, List<String> contents) {
-    if (dto == null || dto.memories() == null || dto.memories().isEmpty()) {
-      return null;
-    }
-    Map<Integer, GraphItemDto> byIndex = new HashMap<>();
-    for (GraphItemDto item : dto.memories()) {
-      if (item != null && item.index() != null) {
-        byIndex.putIfAbsent(item.index(), item);
+    // One reformat attempt before giving up on the batch. A compact line protocol is not schema-
+    // enforced, so its characteristic failure is the model answering in the wrong shape entirely
+    // (prose, JSON, an apology) rather than one bad memory — and generation is stochastic enough
+    // that asking again usually lands. Paying one extra call here avoids the n-call per-item
+    // stampede in the case that actually dominates.
+    for (int attempt = 1; attempt <= BATCH_GRAPH_FORMAT_ATTEMPTS; attempt++) {
+      String reply;
+      try {
+        reply = callExtractionText(prompt, "extractGraph");
+      } catch (RuntimeException e) {
+        // Degradable: never escalate. Extraction failures cost the memory its graph, nothing more.
+        LOGGER.warn("graph extraction batch call failed; falling back to per-memory: {}", e.toString());
+        return extractGraphPerItem(contents);
       }
+      List<GraphFragment> mapped = parseCompactGraphs(reply, contents.size());
+      if (mapped != null) {
+        return mapped;
+      }
+      LOGGER.warn("graph extraction batch reply was unusable ({} chars, attempt {}/{})",
+        reply.length(), attempt, BATCH_GRAPH_FORMAT_ATTEMPTS);
     }
-    if (byIndex.isEmpty()) {
-      return null;
-    }
-    List<GraphFragment> results = new ArrayList<>(contents.size());
-    for (int i = 0; i < contents.size(); i++) {
-      GraphItemDto item = byIndex.get(i + 1);
-      results.add(item == null ? GraphFragment.empty() : toGraphFragment(item.entities(), item.triples()));
-    }
-    return results;
+    return extractGraphPerItem(contents);
   }
 
   private List<GraphFragment> extractGraphPerItem(List<String> contents) {
@@ -697,6 +744,137 @@ public class OpenAiModelGateway implements ModelGateway {
       }
     }
     return results;
+  }
+
+  /**
+   * Parse a compact batch reply into fragments aligned 1:1 with the {@code count} inputs.
+   *
+   * <p>Returns {@code null} when the reply is structurally unusable, which makes the caller retry.
+   * A <em>short</em> reply with no recognizable line is instead read as an honest "nothing to
+   * extract here" and mapped to empty fragments: the prompt tells the model to omit barren memories,
+   * and treating that as a parse failure would put a genuinely empty batch through a retry and then
+   * a per-memory sweep for no reason. Anything longer without a usable line really is malformed
+   * (prose, JSON, an apology) and is worth another attempt.
+   */
+  private List<GraphFragment> parseCompactGraphs(String reply, int count) {
+    if (reply == null) {
+      return null;
+    }
+    Map<Integer, List<EntityDto>> entitiesByIndex = new HashMap<>();
+    Map<Integer, List<String[]>> triplesByIndex = new HashMap<>();
+    boolean recognized = false;
+
+    for (String rawLine : reply.split("\\R")) {
+      String line = rawLine.strip();
+      if (line.length() < 2) {
+        continue;
+      }
+      char kind = Character.toUpperCase(line.charAt(0));
+      if (kind != 'E' && kind != 'T') {
+        continue;
+      }
+      String[] parts = line.substring(1).split("\\|", -1);
+      Integer index = parseIndex(parts[0]);
+      if (index == null || index < 1 || index > count) {
+        continue;
+      }
+      if (kind == 'E') {
+        List<EntityDto> entities = entitiesByIndex.computeIfAbsent(index, _ -> new ArrayList<>());
+        for (int i = 1; i < parts.length; i++) {
+          EntityDto entity = parseEntityToken(parts[i]);
+          if (entity != null) {
+            entities.add(entity);
+            recognized = true;
+          }
+        }
+      } else if (parts.length >= 4) {
+        String source = parts[1].strip();
+        String relation = parts[2].strip();
+        String target = parts[3].strip();
+        if (!source.isEmpty() && !relation.isEmpty() && !target.isEmpty()) {
+          triplesByIndex.computeIfAbsent(index, _ -> new ArrayList<>())
+            .add(new String[] {source, relation, target});
+          recognized = true;
+        }
+      }
+    }
+
+    if (!recognized) {
+      return reply.strip().length() <= EMPTY_GRAPH_REPLY_MAX_CHARS ? emptyFragments(count) : null;
+    }
+
+    List<GraphFragment> results = new ArrayList<>(count);
+    for (int i = 1; i <= count; i++) {
+      List<EntityDto> entities = entitiesByIndex.getOrDefault(i, List.of());
+      results.add(cappedFragment(entities, resolveTriples(triplesByIndex.getOrDefault(i, List.of()), entities)));
+    }
+    return results;
+  }
+
+  /**
+   * Give each {@code (source, relation, target)} its endpoint types from the same memory's declared
+   * entities, matched on the normalized name so lookup agrees with how {@link #toGraphFragment}
+   * dedupes. An endpoint the model never declared falls through with a null type, which normalizes
+   * to {@code concept}.
+   */
+  private static List<TripleDto> resolveTriples(List<String[]> triples, List<EntityDto> entities) {
+    if (triples.isEmpty()) {
+      return List.of();
+    }
+    Map<String, String> typeByName = new HashMap<>();
+    for (EntityDto entity : entities) {
+      typeByName.putIfAbsent(EntityNormalizer.normalizeName(entity.name()), entity.type());
+    }
+    List<TripleDto> resolved = new ArrayList<>(triples.size());
+    for (String[] triple : triples) {
+      resolved.add(new TripleDto(
+        triple[0], typeByName.get(EntityNormalizer.normalizeName(triple[0])),
+        triple[1],
+        triple[2], typeByName.get(EntityNormalizer.normalizeName(triple[2]))));
+    }
+    return resolved;
+  }
+
+  /** Parse one {@code type:name} entity token; {@code null} when there is no usable name. */
+  private static EntityDto parseEntityToken(String token) {
+    String trimmed = token == null ? "" : token.strip();
+    if (trimmed.isEmpty()) {
+      return null;
+    }
+    int colon = trimmed.indexOf(':');
+    String type = colon < 0 ? null : trimmed.substring(0, colon).strip();
+    String name = colon < 0 ? trimmed : trimmed.substring(colon + 1).strip();
+    return name.isEmpty() ? null : new EntityDto(name, type);
+  }
+
+  private static Integer parseIndex(String raw) {
+    String trimmed = raw == null ? "" : raw.strip();
+    if (trimmed.isEmpty()) {
+      return null;
+    }
+    try {
+      return Integer.valueOf(trimmed);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  private static List<GraphFragment> emptyFragments(int count) {
+    List<GraphFragment> results = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      results.add(GraphFragment.empty());
+    }
+    return results;
+  }
+
+  /**
+   * Build a fragment with the per-memory entity/triple caps applied. Enforcing them here as well as
+   * in the prompt means a model that ignores the instruction still cannot inflate the graph.
+   */
+  private GraphFragment cappedFragment(List<EntityDto> entities, List<TripleDto> triples) {
+    return toGraphFragment(
+      limit(entities, maxGraphEntitiesPerMemory()),
+      limit(triples, maxGraphTriplesPerMemory()));
   }
 
   /**
@@ -1111,19 +1289,6 @@ public class OpenAiModelGateway implements ModelGateway {
    * Structured-output target for {@link #extractGraph}. Shape v1.
    */
   private record GraphDto(List<EntityDto> entities, List<TripleDto> triples) {
-  }
-
-  /**
-   * Structured-output target for one item of {@link #extractGraphAll}; {@code index} is the 1-based
-   * memory number echoed by the model. Shape v1.
-   */
-  private record GraphItemDto(Integer index, List<EntityDto> entities, List<TripleDto> triples) {
-  }
-
-  /**
-   * Wrapper so Spring AI binds a top-level object for the batched graph pass. Shape v1.
-   */
-  private record BatchGraphDto(List<GraphItemDto> memories) {
   }
 
   /**
