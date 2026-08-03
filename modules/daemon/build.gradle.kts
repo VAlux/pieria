@@ -232,10 +232,66 @@ val buildTreeSitterLibraries by tasks.registering {
 				repository, directory.absolutePath))
 		}
 
-		fun compile(output: File, includes: List<File>, sources: List<File>) {
+		// MSVC-compiled grammar DLLs already export their `tree_sitter_<lang>` entry point via
+		// `__declspec(dllexport)` baked into the generated parser.c, so the plain /LD build works for
+		// them. The pinned tree-sitter core, however, only guards its exports for GCC/Clang (a bare
+		// #pragma GCC visibility push in api.h, and alloc.h explicitly blanks TS_PUBLIC on _WIN32) —
+		// cl.exe /LD alone would produce a libtree-sitter.dll that loads but exports nothing. For that
+		// one library, compile to object files and auto-generate a .def (replicating what CMake's
+		// WINDOWS_EXPORT_ALL_SYMBOLS does) instead of trying to patch the freshly re-cloned upstream
+		// headers on every build.
+		fun compileWindowsWithAutoExports(output: File, includes: List<File>, sources: List<File>) {
+			val compiler = providers.environmentVariable("CC").orElse("cl.exe").get()
+			val objDir = File(output.parentFile, "${output.nameWithoutExtension}-obj").apply { mkdirs() }
+			val objFiles = sources.map { source ->
+				val obj = File(objDir, "${source.nameWithoutExtension}.obj")
+				runCommand(listOf(compiler, "/nologo", "/c", "/O2") +
+					includes.map { "/I${it.absolutePath}" } +
+					listOf(source.absolutePath, "/Fo:${obj.absolutePath}"), platformDir)
+				obj
+			}
+
+			val dumpbin = providers.environmentVariable("DUMPBIN").orElse("dumpbin.exe").get()
+			val symbolLine = Regex("""^\S+\s+\S+\s+\S+\s+notype\s+\(\).*External\s*\|\s*(\S+)""")
+			val symbols = objFiles.flatMap { obj ->
+				val process = ProcessBuilder(dumpbin, "/nologo", "/symbols", obj.absolutePath)
+					.directory(platformDir)
+					.redirectErrorStream(true)
+					.also { it.environment()["LC_ALL"] = "C" }
+					.start()
+				val output = process.inputStream.bufferedReader().readText()
+				if (process.waitFor() != 0) {
+					throw GradleException("dumpbin failed for ${obj.name}:\n$output")
+				}
+				output.lineSequence().mapNotNull { line -> symbolLine.find(line)?.groupValues?.get(1) }.toList()
+			}.filter { it.startsWith("ts_") || it.startsWith("tree_sitter_") }.distinct().sorted()
+
+			if (symbols.isEmpty()) {
+				throw GradleException("dumpbin found no exportable ts_*/tree_sitter_* symbols in " +
+					"${output.name}'s object files; the symbol-table parsing likely needs adjusting " +
+					"for this MSVC toolset version.")
+			}
+
+			val defFile = File(objDir, "${output.nameWithoutExtension}.def")
+			defFile.writeText(buildString {
+				appendLine("LIBRARY ${output.nameWithoutExtension}")
+				appendLine("EXPORTS")
+				symbols.forEach { appendLine("    $it") }
+			})
+
+			runCommand(listOf("link.exe", "/nologo", "/DLL", "/DEF:${defFile.absolutePath}",
+				"/OUT:${output.absolutePath}") + objFiles.map { it.absolutePath }, platformDir)
+		}
+
+		fun compile(output: File, includes: List<File>, sources: List<File>,
+			autoExportSymbolsOnWindows: Boolean = false) {
 			val missingSources = sources.filterNot { it.isFile }
 			if (missingSources.isNotEmpty()) {
 				throw GradleException("Tree-sitter grammar sources not found: ${missingSources.joinToString()}")
+			}
+			if (osToken == "windows" && autoExportSymbolsOnWindows) {
+				compileWindowsWithAutoExports(output, includes, sources)
+				return
 			}
 			val compiler = providers.environmentVariable("CC").orElse(
 				if (osToken == "windows") "cl.exe" else "cc").get()
@@ -300,7 +356,8 @@ val buildTreeSitterLibraries by tasks.registering {
 		}
 
 		compile(platformDir.resolve("libtree-sitter.$suffix"),
-			listOf(core.resolve("lib/include"), core.resolve("lib/src")), listOf(core.resolve("lib/src/lib.c")))
+			listOf(core.resolve("lib/include"), core.resolve("lib/src")), listOf(core.resolve("lib/src/lib.c")),
+			autoExportSymbolsOnWindows = true)
 		compile(platformDir.resolve("tree-sitter-java.$suffix"), listOf(javaGrammar.resolve("src")),
 			listOf(javaGrammar.resolve("src/parser.c")))
 		compile(platformDir.resolve("tree-sitter-javascript.$suffix"), listOf(javascript.resolve("src")),

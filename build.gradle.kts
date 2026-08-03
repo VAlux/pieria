@@ -7,7 +7,7 @@ plugins {
 
 allprojects {
 	group = "dev.alvo"
-	version = "0.2.0.0"
+	version = "0.2.0.2"
 
 	repositories {
 		mavenCentral()

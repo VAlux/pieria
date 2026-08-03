@@ -43,14 +43,14 @@ jobs:
             platform: macos-aarch64
             vec_lib: vec0.dylib
             archive: tar
-#          - os: ubuntu-latest
-#            platform: linux-x86_64
-#            vec_lib: vec0.so
-#            archive: tar
-#          - os: windows-latest
-#            platform: windows-x86_64
-#            vec_lib: vec0.dll
-#            archive: zip
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            vec_lib: vec0.so
+            archive: tar
+          - os: windows-latest
+            platform: windows-x86_64
+            vec_lib: vec0.dll
+            archive: zip
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +87,11 @@ jobs:
       - name: Build and test Tree-sitter language packs
         run: |
           ./gradlew :daemon:buildTreeSitterLibraries --no-daemon --stacktrace
-          PIERIA_TEST_NATIVE_DIR="$PWD/modules/daemon/build/generated/treesitter-native/${{ matrix.platform }}" \
+          # Git Bash's $PWD is POSIX-style (/d/a/...) on the Windows runner; Java's Path.of()
+          # would misresolve that, so use the native drive-letter form there instead.
+          NATIVE_ROOT="$PWD"
+          if [ "$RUNNER_OS" = "Windows" ]; then NATIVE_ROOT="$(pwd -W)"; fi
+          PIERIA_TEST_NATIVE_DIR="$NATIVE_ROOT/modules/daemon/build/generated/treesitter-native/${{ matrix.platform }}" \
             ./gradlew test --no-daemon --stacktrace
 
       - name: Build native distribution
