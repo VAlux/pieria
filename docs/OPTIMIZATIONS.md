@@ -354,14 +354,27 @@ projection in every mode — the agent cannot act on them. Fix `recordUsage` in 
 the impact numbers describe what is actually served.
 
 **15. Make the session primer smaller and better targeted**
-Saves: a share of ~600 tokens/request | Risk: low | Status: proposed
+Saves: a share of ~600 tokens/request | Risk: low | Status: partly implemented
 
-`primerLimit` is 10 (`HarnessHookSpec.java:32`) and `PRIMER_QUERY` (`:28`) is a fixed generic
-string shared by the Claude Code and Codex specs. It is not selecting well: a primer injection
-observed on this repo consisted largely of planning and spec meta-facts, and one of the injected
-memories was itself a note that the fixed generic query surfaces exactly that kind of low-relevance
-material. Fewer, better-targeted memories is both cheaper and better. Options: lower the limit,
-derive the query from the repo, or replace free-form injection with a maintained standing summary.
+`primerLimit` is 10 and `PRIMER_QUERY` is a fixed string shared by every harness spec
+(`HarnessHookSpec.java`). It was not selecting well, and the cause turned out to be specific rather
+than general: the old wording ("key facts, active tasks, and recent decisions") was a near-perfect
+lexical match for memories describing *the memory system*, because Pieria's own standing
+instructions are written in exactly that vocabulary. On the `aieep` profile the primer returned ten
+such memories and nothing about the project at all — one of them being the note that the generic
+query surfaces this kind of material.
+
+Retargeting the query to codebase vocabulary (architecture, module responsibilities, build/test
+commands, conventions, pitfalls) fixes the selection: measured on the real injection path, `aieep`
+went from 10 self-referential memories to 10 distinct project-relevant ones, and `pieria` from a
+mix to module layout, build requirements, and current phase work. `PrimerQueryTests` pins the
+vocabulary rule so the query cannot drift back.
+
+Still open: **the limit**. Now that near-duplicate collapse (item below / `RetrievalService`) means
+ten slots yield ten *distinct* memories rather than six restatements, the primer carries more
+tokens than it used to, not fewer. Lowering `primerLimit` is a separate call to make against
+measured usefulness. The durable fix remains a maintained standing summary rather than an ad-hoc
+recall — see the Phase 15 follow-up feature.
 
 **16. Tighten the MCP tool schemas**
 Saves: up to a few hundred tokens/request | Risk: low | Status: proposed

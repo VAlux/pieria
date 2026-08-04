@@ -26,9 +26,22 @@ public record HarnessHookSpec(
   int primerLimit
 ) {
 
+  /**
+   * The session-open recall query, shared by every harness.
+   *
+   * <p>Phrased in the vocabulary of a <em>codebase</em>, never that of the memory system. The
+   * previous wording ("key facts, active tasks, and recent decisions") was a near-perfect lexical
+   * match for memories describing Pieria itself — its own standing instructions talk about durable
+   * facts, project context, decisions and sessions — so FTS ranked those first and the primer
+   * reliably injected the memory system's configuration instead of anything about the project. On a
+   * real profile it returned ten such memories and nothing else.
+   *
+   * <p>Keep it that way: no {@code fact}/{@code decision}/{@code task}/{@code session}/
+   * {@code memory}/{@code context} vocabulary, which {@code PrimerQueryTests} pins.
+   */
   private static final String PRIMER_QUERY =
-    "What should I know about this project before starting a new session? "
-      + "Summarize key facts, active tasks, and recent decisions.";
+    "architecture, module responsibilities, build and test commands, coding conventions, "
+      + "and known pitfalls of this codebase";
 
   /**
    * Claude Code sends its transcript path and session id in the hook's JSON stdin payload. It
@@ -43,7 +56,10 @@ public record HarnessHookSpec(
   public static final HarnessHookSpec CODEX = new HarnessHookSpec(
     "codex", List.of(), null, PRIMER_QUERY, 10);
 
-  /** OpenCode pipes the transcript on stdin, so it declares no transcript env keys. */
+  /**
+   * OpenCode pipes the transcript on stdin, so it declares no transcript env keys. It used to carry
+   * its own, even vaguer primer query; there is no reason for the harnesses to prime differently.
+   */
   public static final HarnessHookSpec OPENCODE = new HarnessHookSpec(
-    "opencode", List.of(), null, "What should I know about this project?", 10);
+    "opencode", List.of(), null, PRIMER_QUERY, 10);
 }
