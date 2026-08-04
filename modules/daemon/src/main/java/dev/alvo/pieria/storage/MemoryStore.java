@@ -149,6 +149,10 @@ public interface MemoryStore {
    *   <li>For keyed types ({@code fact}/{@code instruction}) with a {@code topic_key}, find the
    *       active memory sharing {@code (profileId, type, topic_key)}; if present, mark it
    *       superseded and point the new row's {@code supersedes} at it, and delete its embedding.</li>
+   *   <li>Failing that, find an active {@code fact}/{@code instruction} whose content is a near
+   *       duplicate of the incoming one and supersede that instead — the extractor invents a fresh
+   *       {@code topic_key} per run, so the same fact restated next session would otherwise
+   *       accumulate rather than supersede.</li>
    *   <li>Insert the new memory (insert-or-ignore on content-addressed id).</li>
    *   <li>Enqueue a vectorization outbox row unless the type is {@code task} (tasks are not embedded).</li>
    * </ol>
@@ -189,6 +193,19 @@ public interface MemoryStore {
    */
   default List<Memory> findActiveByTopicKey(String profileId, MemoryType type, String topicKey) {
     throw new UnsupportedOperationException("findActiveByTopicKey(...) not implemented");
+  }
+
+  /**
+   * Blocking step for near-duplicate detection: active memories of {@code type} in
+   * {@code profileId} whose content shares vocabulary with {@code content}, best FTS match first
+   * and capped at {@code limit}. These are <em>candidates</em> — the caller scores them and decides
+   * what counts as a duplicate. Comparing against every memory in the profile would not scale, and
+   * a near-identical restatement always shares most of its content words, so the FTS ranking is a
+   * sound filter.
+   */
+  default List<Memory> findNearDuplicateCandidates(
+    String profileId, MemoryType type, String content, int limit) {
+    throw new UnsupportedOperationException("findNearDuplicateCandidates(...) not implemented");
   }
 
   /**

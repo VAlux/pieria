@@ -55,7 +55,7 @@ class IngestionServiceTests {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
       new PieriaProperties.Ingestion(10000, 2, 4, verifyMode,
-        1, 0, 0, false, 3, 3, 32, 5, false, 5000, true),
+        1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70),
       null,
       null);
   }
@@ -435,7 +435,7 @@ class IngestionServiceTests {
     return new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
       new PieriaProperties.Ingestion(500, 2, 4, VerifyMode.NEVER,
-        1, 0, 0, false, 3, 3, 32, 5, false, 5000, chunkLedgerEnabled),
+        1, 0, 0, false, 3, 3, 32, 5, false, 5000, chunkLedgerEnabled, 0.70),
       null,
       null);
   }

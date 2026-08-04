@@ -249,7 +249,7 @@ class OpenAiModelGatewayBatchTests {
       T1|four|uses|five""");
     // Caps of 2/2, tighter than the 3/3 default, so the parser is demonstrably doing the capping.
     PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
-      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 2, 2, 32, 5, false, 5000, true);
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 2, 2, 32, 5, false, 5000, true, 0.70);
 
     GraphFragment fragment = gateway(model, tuning).extractGraphAll(List.of("a", "b")).getFirst();
 
@@ -297,7 +297,7 @@ class OpenAiModelGatewayBatchTests {
     response.append(']');
     CountingChatModel model = new CountingChatModel(response.toString());
     PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
-      10000, 0, 4, VerifyMode.ALWAYS, 1, 2, 12, false, 3, 3, 32, 5, false, 5000, true);
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 2, 12, false, 3, 3, 32, 5, false, 5000, true, 0.70);
 
     List<UnifiedCandidate> candidates = gateway(model, tuning).extractUnified(chunk("user: facts"));
 
@@ -315,7 +315,7 @@ class OpenAiModelGatewayBatchTests {
         "targetName":"Sessions","targetType":"concept"}]}]
       """);
     PieriaProperties.Ingestion tuning = new PieriaProperties.Ingestion(
-      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, true, 3, 3, 32, 5, false, 5000, true);
+      10000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, true, 3, 3, 32, 5, false, 5000, true, 0.70);
 
     UnifiedCandidate candidate = gateway(model, tuning)
       .extractUnified(chunk("user: Redis powers sessions")).getFirst();

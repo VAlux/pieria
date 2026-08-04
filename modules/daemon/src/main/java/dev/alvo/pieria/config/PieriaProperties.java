@@ -20,6 +20,12 @@ public record PieriaProperties(
   Retrieval retrieval,
   Stats stats) {
 
+  /**
+   * Default for {@link Ingestion#nearDuplicateThreshold()}. Exposed so a {@code MemoryStore} backend
+   * can mirror it without the value being written down twice.
+   */
+  public static final String NEAR_DUPLICATE_THRESHOLD_DEFAULT = "0.70";
+
   public record Daemon(@DefaultValue("127.0.0.1") String host,
                        @DefaultValue("8077") int port) {
   }
@@ -222,6 +228,16 @@ public record PieriaProperties(
    * extraction, verification, and graph extraction entirely. Process-global on purpose (not
    * per-profile overridable) — it is an operator kill switch for a caching layer, not a tuning
    * knob. Turn it off to force every ingest back through the full model pipeline.
+   *
+   * <p>{@code nearDuplicateThreshold} is the shingle-Jaccard score at or above which an incoming
+   * {@code fact}/{@code instruction} is treated as a restatement of an existing one and supersedes
+   * it, independently of {@code topic_key}. Topic-key supersession alone is not enough: the
+   * extractor invents a key per run, so the same fact re-extracted next session arrives under a
+   * drifted key ({@code pieria.mcp}, {@code pieria.mcp.role}, {@code pieria.usage}, …) and
+   * accumulates instead of superseding. {@code 0} disables the check and restores exact-key-only
+   * behavior. The default was chosen against real profiles: at {@code 0.70} every merge in a
+   * hand-audited sample was a genuine restatement, while {@code 0.65} began merging structurally
+   * identical statements about different subjects.
    */
   public record Ingestion(@DefaultValue("10000") int chunkSizeChars,
                           @DefaultValue("2") int chunkOverlapMessages,
@@ -237,13 +253,15 @@ public record PieriaProperties(
                           @DefaultValue("5") int outboxMaxAttempts,
                           @DefaultValue("true") boolean vectorizationSchedulerEnabled,
                           @DefaultValue("5000") long vectorizationIntervalMs,
-                          @DefaultValue("true") boolean chunkLedgerEnabled) {
+                          @DefaultValue("true") boolean chunkLedgerEnabled,
+                          @DefaultValue(NEAR_DUPLICATE_THRESHOLD_DEFAULT) double nearDuplicateThreshold) {
 
     public Ingestion {
       interrogativeQueriesPerMemory = Math.max(0, interrogativeQueriesPerMemory);
       maxExtractedCandidatesPerChunk = Math.max(0, maxExtractedCandidatesPerChunk);
       maxGraphEntitiesPerMemory = Math.max(1, maxGraphEntitiesPerMemory);
       maxGraphTriplesPerMemory = Math.max(1, maxGraphTriplesPerMemory);
+      nearDuplicateThreshold = Math.clamp(nearDuplicateThreshold, 0.0, 1.0);
     }
   }
 

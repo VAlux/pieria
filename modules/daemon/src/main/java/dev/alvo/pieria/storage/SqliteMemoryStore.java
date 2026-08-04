@@ -3,9 +3,9 @@ package dev.alvo.pieria.storage;
 import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.ContentId;
+import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
-import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
@@ -14,14 +14,15 @@ import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
-import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -49,6 +50,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -62,9 +64,25 @@ public class SqliteMemoryStore implements MemoryStore {
 
   private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);
 
+  /**
+   * Topic-key namespace owned by the code indexer; exempt from near-duplicate supersession.
+   */
+  private static final String CODE_TOPIC_NAMESPACE = "code:";
+
+  private static final double DEFAULT_NEAR_DUPLICATE_THRESHOLD =
+    Double.parseDouble(PieriaProperties.NEAR_DUPLICATE_THRESHOLD_DEFAULT);
+
+  /**
+   * How many FTS candidates to score for near-duplicate supersession. A restatement shares nearly
+   * all its content words, so it ranks at the very top; measured against real profiles, the true
+   * duplicate was inside the top 10 every time it existed.
+   */
+  private static final int NEAR_DUPLICATE_CANDIDATES = 10;
+
   private final JdbcClient jdbc;
   private final VecCapability vecCapability;
   private final boolean vectorEnabled;
+  private final double nearDuplicateThreshold;
 
   /**
    * Production constructor: wires the sqlite-vec capability flag and the retrieval feature switch.
@@ -74,15 +92,18 @@ public class SqliteMemoryStore implements MemoryStore {
     this.jdbc = jdbc;
     this.vecCapability = vecCapability;
     this.vectorEnabled = properties.retrieval().vectorEnabled();
+    this.nearDuplicateThreshold = properties.ingestion().nearDuplicateThreshold();
   }
 
   /**
-   * Constructor for tests: no sqlite-vec capability (vector search reports unavailable).
+   * Constructor for tests: no sqlite-vec capability (vector search reports unavailable). Keeps the
+   * production near-duplicate threshold so supersession behaves as it does in a running daemon.
    */
   public SqliteMemoryStore(JdbcClient jdbc) {
     this.jdbc = jdbc;
     this.vecCapability = null;
     this.vectorEnabled = false;
+    this.nearDuplicateThreshold = DEFAULT_NEAR_DUPLICATE_THRESHOLD;
   }
 
   /**
@@ -208,9 +229,9 @@ public class SqliteMemoryStore implements MemoryStore {
     jdbc.sql("DELETE FROM profile_usage WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM profile_inference_usage WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("""
-        DELETE FROM profile_audit_events
-        WHERE profile_id = ? OR profile_name = (SELECT name FROM profiles WHERE id = ?)
-        """).params(profileId, profileId).update();
+      DELETE FROM profile_audit_events
+      WHERE profile_id = ? OR profile_name = (SELECT name FROM profiles WHERE id = ?)
+      """).params(profileId, profileId).update();
     jdbc.sql("DELETE FROM profiles WHERE id = ?").param(profileId).update();
   }
 
@@ -560,37 +581,30 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public StoreOutcome store(String profileId, Memory memory, GraphFragment graph, long sourceTokens) {
-    String supersededId = null;
-
     String id = resolveMemoryId(profileId, memory);
 
-    boolean keyed = (memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION)
-      && memory.topicKey() != null;
-    if (keyed) {
-      // EVENT and TASK are append-only; only FACT/INSTRUCTION supersede on a shared topic key.
-      Optional<String> activeId = jdbc.sql(
-          """
-            SELECT id FROM memories \
-            WHERE profile_id = ? AND type = ? AND topic_key = ? AND superseded = 0 \
-            ORDER BY created_at DESC LIMIT 1""")
-        .params(profileId, memory.type().wire(), memory.topicKey())
-        .query(String.class)
-        .optional();
-      // Skip when the active row IS the incoming memory (identical content-addressed id): a
-      // re-ingest must stay idempotent, not supersede the row it would re-insert.
-      if (activeId.isPresent() && !activeId.get().equals(id)) {
-        supersededId = activeId.get();
-        jdbc.sql("UPDATE memories SET superseded = 1, embedding = NULL WHERE id = ?")
-          .param(supersededId)
-          .update();
-        // Drop any pending vectorization work for the now-superseded row.
-        jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
-          .param(supersededId)
-          .update();
-        // Remove the superseded row's vector in the same transaction so it never
-        // surfaces in vector results.
-        deleteEmbedding(supersededId);
-      }
+    // EVENT and TASK are append-only; only FACT/INSTRUCTION supersede a predecessor.
+    boolean supersedable =
+      memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION;
+
+    String supersededId = null;
+    if (supersedable && memory.topicKey() != null) {
+      supersededId = activeIdByTopicKey(profileId, memory, id);
+    }
+    if (supersededId == null && supersedable) {
+      supersededId = activeIdByNearDuplicateContent(profileId, memory, id);
+    }
+    if (supersededId != null) {
+      jdbc.sql("UPDATE memories SET superseded = 1, embedding = NULL WHERE id = ?")
+        .param(supersededId)
+        .update();
+      // Drop any pending vectorization work for the now-superseded row.
+      jdbc.sql("DELETE FROM vectorization_outbox WHERE memory_id = ?")
+        .param(supersededId)
+        .update();
+      // Remove the superseded row's vector in the same transaction so it never
+      // surfaces in vector results.
+      deleteEmbedding(supersededId);
     }
 
     Memory toInsert = new Memory(
@@ -628,6 +642,85 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   private record MemoryInsert(Memory stored, boolean inserted) {
+  }
+
+  /**
+   * The active memory this one supersedes by exact topic key, or null. Returns null when the active
+   * row IS the incoming memory (identical content-addressed id): a re-ingest must stay idempotent,
+   * not supersede the row it would re-insert.
+   */
+  private String activeIdByTopicKey(String profileId, Memory memory, String id) {
+    return jdbc.sql(
+        """
+          SELECT id FROM memories \
+          WHERE profile_id = ? AND type = ? AND topic_key = ? AND superseded = 0 \
+          ORDER BY created_at DESC LIMIT 1""")
+      .params(profileId, memory.type().wire(), memory.topicKey())
+      .query(String.class)
+      .optional()
+      .filter(activeId -> !activeId.equals(id))
+      .orElse(null);
+  }
+
+  /**
+   * The active memory this one restates in different words, or null — the fallback for when the
+   * extractor gave the same fact a drifted topic key.
+   *
+   * <p>Code-derived memories are exempt. Their topic key is the file path, which is exact and
+   * stable, so they never drift; and their content is templated, which makes two summaries of
+   * <em>different</em> files score as near-identical. They are the one population where this check
+   * produces false positives, and the one that does not need it.
+   */
+  private String activeIdByNearDuplicateContent(String profileId, Memory memory, String id) {
+    if (nearDuplicateThreshold <= 0.0 || isCodeDerived(memory.topicKey())) {
+      return null;
+    }
+    Set<String> incoming = TextSimilarity.shingles(memory.content());
+    if (incoming.isEmpty()) {
+      return null;
+    }
+    String best = null;
+    double bestScore = nearDuplicateThreshold;
+    for (Memory candidate : findNearDuplicateCandidates(
+      profileId, memory.type(), memory.content(), NEAR_DUPLICATE_CANDIDATES)) {
+      if (candidate.id().equals(id) || isCodeDerived(candidate.topicKey())) {
+        continue;
+      }
+      double score = TextSimilarity.jaccard(incoming, TextSimilarity.shingles(candidate.content()));
+      if (score >= bestScore) {
+        bestScore = score;
+        best = candidate.id();
+      }
+    }
+    if (best != null) {
+      log.debug("near-duplicate supersession profile={} newId={} supersedes={} similarity={}",
+        profileId, id, best, bestScore);
+    }
+    return best;
+  }
+
+  private static boolean isCodeDerived(String topicKey) {
+    return topicKey != null && topicKey.startsWith(CODE_TOPIC_NAMESPACE);
+  }
+
+  @Override
+  public List<Memory> findNearDuplicateCandidates(
+    String profileId, MemoryType type, String content, int limit) {
+    String match = toFtsMatch(content);
+    if (match == null) {
+      return List.of();
+    }
+    return jdbc.sql(
+        """
+          SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, \
+          m.payload, m.embed_text, m.created_at \
+          FROM memories_fts f \
+          JOIN memories m ON m.rowid = f.rowid \
+          WHERE memories_fts MATCH ? AND m.profile_id = ? AND m.type = ? AND m.superseded = 0 \
+          ORDER BY f.rank LIMIT ?""")
+      .params(match, profileId, type.wire(), limit)
+      .query((rs, _) -> mapMemory(rs))
+      .list();
   }
 
   @Override
@@ -1046,8 +1139,10 @@ public class SqliteMemoryStore implements MemoryStore {
 
   private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
 
-  /** Edge columns qualified with the {@code e} alias — {@code edges} and {@code memories} share
-   *  {@code id}, {@code profile_id} and {@code created_at}, so any query joining both must qualify. */
+  /**
+   * Edge columns qualified with the {@code e} alias — {@code edges} and {@code memories} share
+   * {@code id}, {@code profile_id} and {@code created_at}, so any query joining both must qualify.
+   */
   private static final String EDGE_COLUMNS =
     "e.id, e.profile_id, e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, e.created_at";
 
@@ -1461,7 +1556,9 @@ public class SqliteMemoryStore implements MemoryStore {
   // `ON (source = id OR target = id)` predicate instead defeats both indexes and degrades to a full
   // memories scan per entity — on a 45k-edge profile that is the difference between 60ms and 180s.
 
-  /** The ids of every entity an active edge touches, as a subquery. Binds profileId twice. */
+  /**
+   * The ids of every entity an active edge touches, as a subquery. Binds profileId twice.
+   */
   private static final String CONNECTED_ENTITY_IDS = """
     SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
       WHERE e.profile_id = ? AND m.superseded = 0 \
@@ -1695,16 +1792,21 @@ public class SqliteMemoryStore implements MemoryStore {
       .list();
   }
 
-  /** Degree source rows: every active-edge endpoint, once per incidence. Binds profileId twice. */
+  /**
+   * Degree source rows: every active-edge endpoint, once per incidence. Binds profileId twice.
+   */
   private static String degreeRows() {
-    return "SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id "
-      + "  WHERE e.profile_id = ? AND m.superseded = 0 "
-      + "UNION ALL "
-      + "SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id "
-      + "  WHERE e.profile_id = ? AND m.superseded = 0";
+    return """
+      SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
+        WHERE e.profile_id = ? AND m.superseded = 0 \
+      UNION ALL \
+      SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
+        WHERE e.profile_id = ? AND m.superseded = 0""";
   }
 
-  /** Null-safe, blank-free, order-preserving de-duplication for id / type parameter lists. */
+  /**
+   * Null-safe, blank-free, order-preserving de-duplication for id / type parameter lists.
+   */
   private static List<String> cleaned(List<String> values) {
     if (values == null || values.isEmpty()) {
       return List.of();
@@ -1712,7 +1814,9 @@ public class SqliteMemoryStore implements MemoryStore {
     return values.stream().filter(v -> v != null && !v.isBlank()).distinct().toList();
   }
 
-  /** Escape LIKE wildcards so a user's {@code %} or {@code _} matches literally. */
+  /**
+   * Escape LIKE wildcards so a user's {@code %} or {@code _} matches literally.
+   */
   private static String escapeLike(String value) {
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }

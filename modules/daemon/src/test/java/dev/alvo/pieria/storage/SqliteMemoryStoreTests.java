@@ -568,6 +568,90 @@ class SqliteMemoryStoreTests {
     assertEquals("User lives in Munich", active.get(0).content());
   }
 
+  // The drift this exists for, taken from real profile data: the same fact re-extracted next
+  // session under a different invented topic key, which exact-key supersession cannot see.
+  @Test
+  void storeSupersedesANearDuplicateWhoseTopicKeyDrifted() {
+    Profile p = store.getOrCreateProfile("dup-drift");
+    StoreOutcome first = store.store(p.id(), Memory.of(MemoryType.FACT,
+      "The Pieria daemon MCP is the primary long-term knowledge base for durable facts, "
+        + "preferences, project context, recurring workflows, decisions, environment details, and "
+        + "other information likely to help in future sessions.",
+      "s1", "pieria.mcp", null));
+    store.completeVectorization(first.stored().id(), new float[] {1f, 2f, 3f});
+
+    StoreOutcome second = store.store(p.id(), Memory.of(MemoryType.FACT,
+      "The Pieria daemon MCP is treated as the primary long-term knowledge base for durable facts, "
+        + "preferences, project context, recurring workflows, decisions, environment details, and "
+        + "other information likely to help in future sessions.",
+      "s2", "pieria.mcp.role", null));
+
+    assertEquals(first.stored().id(), second.supersededId());
+    assertEquals(first.stored().id(), second.stored().supersedes());
+    assertTrue(isSuperseded(first.stored().id()));
+    assertNull(embeddingOf(first.stored().id()));
+    assertEquals(1, store.listMemories(p.id(), MemoryType.FACT, null).size());
+  }
+
+  @Test
+  void storeKeepsDistinctFactsThatMerelyShareVocabulary() {
+    Profile p = store.getOrCreateProfile("dup-distinct");
+    store.store(p.id(), Memory.of(MemoryType.FACT,
+      "The daemon binds a REST API on 127.0.0.1 in local mode.", "s1", "daemon.binding", null));
+    StoreOutcome second = store.store(p.id(), Memory.of(MemoryType.FACT,
+      "The gateway forwards MCP tool calls to the daemon over HTTP.", "s1", "gateway.role", null));
+
+    assertNull(second.supersededId());
+    assertEquals(2, store.listMemories(p.id(), MemoryType.FACT, null).size());
+  }
+
+  // Different files, near-identical templated summaries: the one population where content
+  // similarity is not identity, and the one whose topic key never drifts.
+  @Test
+  void storeNeverMergesCodeDerivedMemoriesOfDifferentFiles() {
+    Profile p = store.getOrCreateProfile("dup-code");
+    store.store(p.id(), Memory.of(MemoryType.FACT,
+      "Source file onboarding/TextDiscovery.java (java) defines: class Doc, class Discovery, "
+        + "method scan, method parse, method emit.",
+      "code", "code:file:onboarding/TextDiscovery.java", null));
+    StoreOutcome second = store.store(p.id(), Memory.of(MemoryType.FACT,
+      "Source file onboarding/PdfDiscovery.java (java) defines: class Doc, class Discovery, "
+        + "method scan, method parse, method emit.",
+      "code", "code:file:onboarding/PdfDiscovery.java", null));
+
+    assertNull(second.supersededId());
+    assertEquals(2, store.listMemories(p.id(), MemoryType.FACT, null).size());
+  }
+
+  @Test
+  void nearDuplicateSupersessionIsScopedToOneProfileAndType() {
+    String content = "The daemon owns the embedded SQLite database and is its only writer process.";
+    Profile a = store.getOrCreateProfile("dup-scope-a");
+    Profile b = store.getOrCreateProfile("dup-scope-b");
+    store.store(a.id(), Memory.of(MemoryType.FACT, content, "s1", "db.owner", null));
+
+    StoreOutcome otherProfile = store.store(b.id(), Memory.of(MemoryType.FACT, content, "s1", "db.owner2", null));
+    StoreOutcome otherType =
+      store.store(a.id(), Memory.of(MemoryType.INSTRUCTION, content, "s1", "db.owner3", null));
+
+    assertNull(otherProfile.supersededId());
+    assertNull(otherType.supersededId());
+  }
+
+  // Re-ingesting the same content in the same session must stay idempotent, not supersede itself.
+  @Test
+  void reIngestingIdenticalContentDoesNotSupersedeItself() {
+    Profile p = store.getOrCreateProfile("dup-idempotent");
+    String content = "Vectorization runs asynchronously through a transactional outbox worker.";
+    StoreOutcome first = store.store(p.id(), Memory.of(MemoryType.FACT, content, "s1", "vec.async", null));
+    StoreOutcome again = store.store(p.id(), Memory.of(MemoryType.FACT, content, "s1", "vec.async", null));
+
+    assertEquals(first.stored().id(), again.stored().id());
+    assertNull(again.supersededId());
+    assertFalse(isSuperseded(first.stored().id()));
+    assertEquals(1, store.listMemories(p.id(), MemoryType.FACT, null).size());
+  }
+
   @Test
   void eventsAndTasksAreAppendOnly() {
     Profile p = store.getOrCreateProfile("jane");

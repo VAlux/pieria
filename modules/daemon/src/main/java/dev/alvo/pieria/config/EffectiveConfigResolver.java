@@ -81,7 +81,8 @@ public class EffectiveConfigResolver {
 
   /**
    * Field-by-field overlay: a null override inherits the global value. The process-global
-   * ingestion fields (outbox batching/retries, vectorization scheduler) are never overridden.
+   * ingestion fields (outbox batching/retries, vectorization scheduler, near-duplicate threshold —
+   * the store reads that one once at construction) are never overridden.
    */
   private static ResolvedConfig overlay(ResolvedConfig global, DaemonOverrides overrides) {
     return new ResolvedConfig(
@@ -109,7 +110,8 @@ public class EffectiveConfigResolver {
       g.outboxMaxAttempts(),
       g.vectorizationSchedulerEnabled(),
       g.vectorizationIntervalMs(),
-      g.chunkLedgerEnabled());
+      g.chunkLedgerEnabled(),
+      g.nearDuplicateThreshold());
   }
 
   private static PieriaProperties.Retrieval overlayRetrieval(PieriaProperties.Retrieval g,
