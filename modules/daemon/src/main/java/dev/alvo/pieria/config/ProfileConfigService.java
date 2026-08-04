@@ -102,6 +102,7 @@ public class ProfileConfigService {
         retrieval.codeGraphFanout(),
         retrieval.codeGraphSeedLimit(),
         retrieval.codeGraphMinConfidence(),
-        retrieval.recallMode()));
+        retrieval.recallMode(),
+        retrieval.nearDuplicateThreshold()));
   }
 }

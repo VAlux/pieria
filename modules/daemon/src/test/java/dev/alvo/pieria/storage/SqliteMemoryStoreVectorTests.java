@@ -129,7 +129,7 @@ class SqliteMemoryStoreVectorTests {
         new PieriaProperties.Model("small", "large", "embed", dimension, 4, null, null),
         new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
           1, 0, 0, false, 3, 3, 32, 5, true, 5000, true, 0.70),
-        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED),
+        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60),
       null);
     } catch (Throwable t) {
       throw new IllegalStateException("PieriaProperties shape changed; update this test", t);

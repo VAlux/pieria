@@ -50,7 +50,7 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED);
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60);
   }
 
   private static PieriaProperties props() {
@@ -67,7 +67,7 @@ class RetrievalServiceTests {
   /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
   private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
-      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED);
+      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);
@@ -366,6 +366,78 @@ class RetrievalServiceTests {
       .isEqualTo("JGPT#main (JGPT.java) calls Model#gpt (Model.java) [resolved]");
     assertThat(model.synthesizedGraphEvidence).isEqualTo(result.graphEvidence());
     assertThat(result.answer()).contains("1 code edge(s)");
+  }
+
+  // The observed failure: one fact stored six times under drifted topic keys filled the whole
+  // ten-slot primer. Texts are the real ones from the profile that produced it.
+  @Test
+  void collapsesNearDuplicateResultsSoTheLimitYieldsDistinctMemories() {
+    String base = "The Pieria daemon MCP is the primary long-term knowledge base for durable facts, "
+      + "preferences, project context, recurring workflows, decisions, environment details, and ";
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      mem("d1", base + "other information likely to help in future sessions.", MemoryType.FACT, "pieria.mcp", T0),
+      mem("d2", base + "other information to help in future sessions.", MemoryType.FACT, "pieria.usage", T0),
+      mem("d3", "The Pieria daemon MCP is treated as the primary long-term knowledge base for durable "
+        + "facts, preferences, project context, recurring workflows, decisions, environment details, "
+        + "and other information likely to help in future sessions.", MemoryType.FACT, "pieria.role", T0),
+      mem("real", "The embedding dimension is fixed at 1024 and cannot change without re-embedding.",
+        MemoryType.FACT, "embedding.dimension", T0));
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "pieria", 2, false);
+
+    // Without the collapse the two slots would both be restatements and "real" would never surface.
+    assertThat(result.candidates()).hasSize(2);
+    assertThat(result.candidates().get(0).memory().id()).isEqualTo("d1");
+    assertThat(result.candidates().get(1).memory().id()).isEqualTo("real");
+  }
+
+  @Test
+  void collapseKeepsTheHighestRankedOfADuplicateGroup() {
+    Memory weak = mem("weak", "The daemon binds a REST API on 127.0.0.1 in local mode.",
+      MemoryType.FACT, "bind.a", T0);
+    Memory strong = mem("strong", "The daemon binds a REST API on 127.0.0.1 in local mode and never "
+      + "exposes a public interface.", MemoryType.FACT, "bind.b", T0);
+    FakeStore store = new FakeStore();
+    store.exactKey = List.of(strong);           // weight 3.0 — outranks the FTS-only hit
+    store.ftsMemory = List.of(weak, strong);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "daemon", 10, false);
+
+    assertThat(result.candidates()).singleElement()
+      .extracting(c -> c.memory().id()).isEqualTo("strong");
+  }
+
+  @Test
+  void collapseLeavesDistinctMemoriesAlone() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      mem("m1", "The daemon is the only writer to the embedded SQLite store.", MemoryType.FACT, "a", T0),
+      mem("m2", "Flyway runs the schema migrations at daemon startup.", MemoryType.FACT, "b", T0),
+      mem("m3", "Tasks are excluded from the vector index to keep it lean.", MemoryType.FACT, "c", T0));
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "daemon", 10, false);
+
+    assertThat(result.candidates()).hasSize(3);
+  }
+
+  // Code-index summaries are templated, so two describing different files look near-identical.
+  // Collapsing them would hide a genuine result.
+  @Test
+  void collapseExemptsCodeIndexerMemories() {
+    String shape = "(java) defines: class Doc, class Discovery, method scan, method parse, method emit.";
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+        "Source file onboarding/TextDiscovery.java " + shape, "code:file:onboarding/TextDiscovery.java",
+        null, false, "{}", null, T0),
+      new Memory("c2", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+        "Source file onboarding/PdfDiscovery.java " + shape, "code:file:onboarding/PdfDiscovery.java",
+        null, false, "{}", null, T0));
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "discovery", 10, false);
+
+    assertThat(result.candidates()).hasSize(2);
   }
 
   @Test

@@ -27,6 +27,7 @@ import dev.alvo.pieria.retrieval.channel.SymbolFtsChannel;
 import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Timed;
 import dev.alvo.pieria.tools.Tokens;
 import org.slf4j.Logger;
@@ -40,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -92,7 +94,8 @@ public class RetrievalService {
                           List<RetrievalChannel> channels,
                           List<RetrievalChannel> secondWaveChannels,
                           int channelLimit,
-                          long channelTimeoutMs) {
+                          long channelTimeoutMs,
+                          double nearDuplicateThreshold) {
   }
 
   private Pipeline buildPipeline(Retrieval cfg) {
@@ -122,7 +125,7 @@ public class RetrievalService {
     }
 
     return new Pipeline(fusion, List.copyOf(wave1), List.copyOf(wave2),
-      cfg.channelLimit(), cfg.channelTimeoutMs());
+      cfg.channelLimit(), cfg.channelTimeoutMs(), cfg.nearDuplicateThreshold());
   }
 
   private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
@@ -364,7 +367,50 @@ public class RetrievalService {
 
   private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit) {
     List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
-    return fused.size() > limit ? List.copyOf(fused.subList(0, limit)) : fused;
+    List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold());
+    return distinct.size() > limit ? List.copyOf(distinct.subList(0, limit)) : distinct;
+  }
+
+  /**
+   * Drop results that restate one already kept, preserving fused rank order.
+   *
+   * <p>Fusion groups by memory id, which is exactly what it should do — but the same statement
+   * stored several times under drifted topic keys is several ids, so a single fact could fill the
+   * whole result list. Collapsing here, <em>before</em> the limit is applied, means the freed slots
+   * go to distinct memories rather than being lost.
+   *
+   * <p>Each candidate is compared only against the representatives already kept, so a chain of
+   * pairwise-similar-but-collectively-different memories cannot collapse transitively: dropping a
+   * candidate requires it to be similar to something that survived, not merely to something that
+   * did not.
+   *
+   * <p>Code-indexer memories are exempt: their summaries are templated, so two of them describing
+   * different source files score as near-identical, and collapsing them would hide a real result.
+   */
+  private static List<RecallCandidate> collapseNearDuplicates(
+    List<RecallCandidate> ranked, double threshold) {
+    if (threshold <= 0.0 || ranked.size() < 2) {
+      return ranked;
+    }
+    List<RecallCandidate> kept = new ArrayList<>(ranked.size());
+    List<Set<String>> keptShingles = new ArrayList<>(ranked.size());
+    for (RecallCandidate candidate : ranked) {
+      // An empty shingle set never matches, which is how the code-derived exemption is expressed.
+      Set<String> shingles = isCodeDerived(candidate.memory())
+        ? Set.of()
+        : TextSimilarity.shingles(candidate.memory().content());
+      boolean duplicate = keptShingles.stream()
+        .anyMatch(existing -> TextSimilarity.jaccard(shingles, existing) >= threshold);
+      if (!duplicate) {
+        kept.add(candidate);
+        keptShingles.add(shingles);
+      }
+    }
+    if (kept.size() < ranked.size()) {
+      LOGGER.debug("recall collapsed {} near-duplicate result(s) of {}",
+        ranked.size() - kept.size(), ranked.size());
+    }
+    return kept;
   }
 
   /**

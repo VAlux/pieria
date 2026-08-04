@@ -293,6 +293,14 @@ public record PieriaProperties(
    * @param codeGraphMinConfidence minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
    * @param recallMode             default inference tier for recall (see {@link RecallMode}); a request may
    *                               override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
+   * @param nearDuplicateThreshold shingle-Jaccard at or above which a lower-ranked result is dropped as
+   *                               a restatement of one already in the list, applied after fusion and
+   *                               before the limit so collapsed slots go to distinct memories.
+   *                               {@code 0} disables it. Deliberately lower than
+   *                               {@link Ingestion#nearDuplicateThreshold()}: dropping a redundant line
+   *                               from a ranked list is reversible where superseding a stored row is
+   *                               not, and this is also the only thing that helps profiles whose
+   *                               duplicates were written before ingest-time suppression existed.
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,
@@ -313,6 +321,11 @@ public record PieriaProperties(
                           @DefaultValue("20") int codeGraphFanout,
                           @DefaultValue("8") int codeGraphSeedLimit,
                           @DefaultValue("heuristic") String codeGraphMinConfidence,
-                          @DefaultValue("SYNTHESIZED") RecallMode recallMode) {
+                          @DefaultValue("SYNTHESIZED") RecallMode recallMode,
+                          @DefaultValue("0.60") double nearDuplicateThreshold) {
+
+    public Retrieval {
+      nearDuplicateThreshold = Math.clamp(nearDuplicateThreshold, 0.0, 1.0);
+    }
   }
 }
