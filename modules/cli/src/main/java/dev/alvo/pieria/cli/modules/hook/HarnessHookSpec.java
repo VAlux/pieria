@@ -12,7 +12,8 @@ import java.util.List;
  * here — nothing read them but the scripts themselves.
  *
  * @param id                harness id, doubling as the daemon's transcript-parser key
- * @param transcriptEnvKeys env vars to probe in order for the transcript path
+ * @param transcriptEnvKeys env vars to probe in order for the transcript path, as a fallback behind
+ *                          the hook's JSON stdin payload; empty when the harness exports none
  * @param sessionIdEnvKey   env var carrying the harness session id, or null if it exposes none
  * @param primerQuery       the session-open recall query
  * @param primerLimit       how many memories the session-open primer injects
@@ -29,8 +30,14 @@ public record HarnessHookSpec(
     "What should I know about this project before starting a new session? "
       + "Summarize key facts, active tasks, and recent decisions.";
 
+  /**
+   * Claude Code sends its transcript path and session id in the hook's JSON stdin payload. It
+   * exports no {@code CLAUDE_TRANSCRIPT_PATH}, so there is no transcript env key to probe;
+   * {@code CLAUDE_CODE_SESSION_ID} is the session id it does export, and is the fallback for a
+   * payload that omits it.
+   */
   public static final HarnessHookSpec CLAUDE_CODE = new HarnessHookSpec(
-    "claude-code", List.of("CLAUDE_TRANSCRIPT_PATH"), "CLAUDE_SESSION_ID", PRIMER_QUERY, 10);
+    "claude-code", List.of(), "CLAUDE_CODE_SESSION_ID", PRIMER_QUERY, 10);
 
   /** Codex sends its transcript path and session id in the command hook's JSON stdin payload. */
   public static final HarnessHookSpec CODEX = new HarnessHookSpec(

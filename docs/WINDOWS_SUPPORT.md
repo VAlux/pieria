@@ -62,9 +62,10 @@ This is being resolved on the `cli-hooks` branch by absorbing the logic into the
 
 **The constraint that work established, which any future hook wiring must preserve:** the command
 string stored in harness config may contain **only literals** — an absolute binary path plus fixed
-subcommand names. A parameterised form like `pieria hook ingest --transcript "$CLAUDE_TRANSCRIPT_PATH"`
+subcommand names. A parameterised form like `pieria hook ingest --transcript "$TRANSCRIPT_PATH"`
 cannot work, because `$VAR` expansion requires a shell and `cmd.exe` uses `%VAR%`. The CLI therefore
-reads the harness's environment variables itself.
+reads the harness's own hook input itself: the JSON payload on stdin (`transcript_path`,
+`session_id`), falling back to the harness's environment variables where it exposes them.
 
 ### 4. `pieria update` is a stub, and its swap strategy is Unix-only
 

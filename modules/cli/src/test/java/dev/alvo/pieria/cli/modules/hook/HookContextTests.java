@@ -53,15 +53,29 @@ class HookContextTests {
   }
 
   @Test
-  void transcriptIsEmptyWhenNoCandidateExists(@TempDir Path tmp) {
-    HookContext ctx = context(Map.of("CLAUDE_TRANSCRIPT_PATH", tmp.resolve("nope.jsonl").toString()), tmp);
-    assertThat(ctx.firstExistingTranscript(HarnessHookSpec.CLAUDE_CODE)).isEmpty();
+  void transcriptIsEmptyWhenNoCandidateExists(@TempDir Path tmp) throws IOException {
+    Path real = Files.writeString(tmp.resolve("rollout.jsonl"), "{}\n");
+    HarnessHookSpec spec = new HarnessHookSpec("test", List.of("ONLY_TRANSCRIPT"), null, "query", 1);
+
+    assertThat(new HookContext(Map.of("ONLY_TRANSCRIPT", real.toString())::get, tmp, "test")
+      .firstExistingTranscript(spec)).contains(real);
+    assertThat(new HookContext(
+      Map.of("ONLY_TRANSCRIPT", tmp.resolve("nope.jsonl").toString())::get, tmp, "test")
+      .firstExistingTranscript(spec)).isEmpty();
+  }
+
+  // Claude Code and Codex both hand the transcript over on stdin, so neither declares an env key.
+  @Test
+  void harnessesThatSendTheTranscriptOnStdinDeclareNoTranscriptEnvKey(@TempDir Path tmp) {
+    assertThat(HarnessHookSpec.CLAUDE_CODE.transcriptEnvKeys()).isEmpty();
+    assertThat(HarnessHookSpec.CODEX.transcriptEnvKeys()).isEmpty();
+    assertThat(context(Map.of(), tmp).firstExistingTranscript(HarnessHookSpec.CLAUDE_CODE)).isEmpty();
   }
 
   @Test
   void sessionIdReadsTheHarnessEnvKeyAndIsNullWhenAbsent(@TempDir Path tmp) {
-    assertThat(context(Map.of("CLAUDE_SESSION_ID", "abc"), tmp).sessionId(HarnessHookSpec.CLAUDE_CODE))
-      .isEqualTo("abc");
+    assertThat(context(Map.of("CLAUDE_CODE_SESSION_ID", "abc"), tmp)
+      .sessionId(HarnessHookSpec.CLAUDE_CODE)).isEqualTo("abc");
     assertThat(context(Map.of(), tmp).sessionId(HarnessHookSpec.CLAUDE_CODE)).isNull();
   }
 

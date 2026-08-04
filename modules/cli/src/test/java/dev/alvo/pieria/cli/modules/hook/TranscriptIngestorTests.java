@@ -26,9 +26,9 @@ class TranscriptIngestorTests {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/ingest/transcript", 200, "{\"memories\":[]}");
       Path transcript = Files.writeString(tmp.resolve("t.jsonl"), "{\"role\":\"user\"}\n");
-      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_SESSION_ID", "s1"));
+      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_CODE_SESSION_ID", "s1"));
 
-      HookOutcome outcome = TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, false);
+      HookOutcome outcome = TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, ctx.sessionId(HarnessHookSpec.CLAUDE_CODE), false);
 
       assertThat(outcome).isInstanceOf(HookOutcome.Ok.class);
       StubDaemon.Recorded request = daemon.lastRequestTo("/ingest/transcript");
@@ -43,9 +43,9 @@ class TranscriptIngestorTests {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/ingest/transcript", 200, "{\"memories\":[]}");
       Path transcript = Files.writeString(tmp.resolve("t.jsonl"), "{\"role\":\"user\"}\n");
-      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_SESSION_ID", "s1"));
+      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_CODE_SESSION_ID", "s1"));
 
-      TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, false);
+      TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, ctx.sessionId(HarnessHookSpec.CLAUDE_CODE), false);
 
       assertThat(daemon.lastRequestTo("/ingest/transcript").rawQuery()).doesNotContain("partial");
     }
@@ -57,10 +57,10 @@ class TranscriptIngestorTests {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/ingest/transcript/async", 202, "{\"taskId\":\"task-1\"}");
       Path transcript = Files.writeString(tmp.resolve("t.jsonl"), "{\"role\":\"user\"}\n");
-      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_SESSION_ID", "s1"));
+      HookContext ctx = context(daemon.baseUrl(), tmp, Map.of("CLAUDE_CODE_SESSION_ID", "s1"));
 
       HookOutcome outcome =
-        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, true);
+        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, transcript, ctx.sessionId(HarnessHookSpec.CLAUDE_CODE), true);
 
       assertThat(outcome).isInstanceOf(HookOutcome.Ok.class);
       StubDaemon.Recorded request = daemon.lastRequestTo("/ingest/transcript/async");
@@ -91,7 +91,7 @@ class TranscriptIngestorTests {
       HookContext ctx = context(daemon.baseUrl(), tmp, Map.of());
 
       HookOutcome outcome =
-        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, tmp.resolve("nope.jsonl"), false);
+        TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, tmp.resolve("nope.jsonl"), null, false);
 
       assertThat(outcome).isInstanceOf(HookOutcome.Skipped.class);
       assertThat(daemon.lastRequestTo("/ingest/transcript")).isNull();
@@ -104,7 +104,7 @@ class TranscriptIngestorTests {
       Path empty = Files.writeString(tmp.resolve("empty.jsonl"), "");
       HookContext ctx = context(daemon.baseUrl(), tmp, Map.of());
 
-      HookOutcome outcome = TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, empty, false);
+      HookOutcome outcome = TranscriptIngestor.ingestFile(ctx, HarnessHookSpec.CLAUDE_CODE, empty, null, false);
 
       assertThat(outcome).isInstanceOf(HookOutcome.Skipped.class);
       assertThat(daemon.lastRequestTo("/ingest/transcript")).isNull();

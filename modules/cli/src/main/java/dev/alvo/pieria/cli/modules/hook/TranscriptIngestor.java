@@ -23,13 +23,11 @@ public final class TranscriptIngestor {
   private TranscriptIngestor() {
   }
 
-  /** Ingest a transcript file, skipping when it is missing or empty. */
-  public static HookOutcome ingestFile(HookContext ctx, HarnessHookSpec spec, Path transcript,
-                                       boolean partial) {
-    return ingestFile(ctx, spec, transcript, ctx.sessionId(spec), partial);
-  }
-
-  /** Ingest a transcript file with an explicit session id supplied by the harness payload. */
+  /**
+   * Ingest a transcript file, skipping when it is missing or empty. The session id comes from the
+   * harness's hook payload, falling back to its session-id environment variable; a null id lets the
+   * daemon mint one.
+   */
   public static HookOutcome ingestFile(
     HookContext ctx, HarnessHookSpec spec, Path transcript, String sessionId, boolean partial
   ) {
