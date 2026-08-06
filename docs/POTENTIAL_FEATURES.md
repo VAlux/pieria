@@ -74,10 +74,10 @@ What: You already store session_id provenance and line indices; surface them as 
 Fit: Synthesis prompt + RecallResponse change. Low effort, high trust payoff. Code-index candidates should carry structured provenance so citations do not depend on the model inventing file references. Partially landed: code-graph edge evidence (src/dst FQN + path + relation + confidence) already flows structurally through synthesis and `RecallResponse.codeEvidence`; extending the same carrier to memory/session citations is the remaining work.
 
 12. Rolling user/project profile compaction
-Phase: 15 follow-up (Standing-Summary Session Primer) | Status: pending
+Phase: 15 follow-up (Standing-Summary Session Primer) | Status: **superseded (2026-08-05)**
 Who has it: Supermemory (user profiles), Zep (context templates).
 What: Maintain a continuously-compacted "profile" memory per project — a synthesized standing summary that's cheap to inject at session start. Extend it with code-derived standing context: architecture map, module responsibilities, public entry points, test/build commands, generated-code boundaries, and known risky files.
-Fit: Pairs with consolidation (#5); feeds your SessionStart hook injection path. Source-code summaries should be content-addressed by commit/tree/file hashes so unchanged code does not regenerate duplicate memories. Partially landed via Phase 14: hash-keyed architecture/module/file summary memories exist (`code:summary:*`); remaining work is the rolling *injectable* profile (the summaries use CODE_SESSION and are excluded from the fast/injection path today).
+Superseded: the session-start injection path this fed no longer injects content — it emits a pointer at the store (`MemoryPointer`) and content moved to pull-based `recall`. The standing context enumerated above is precisely what `AGENTS.md`/`CLAUDE.md` already carry into every session, so a synthesized version would duplicate them more accurately rather than replace them; and any session-start push must guess the subject before the user has spoken, where `recall` knows the task. See OPTIMIZATIONS #15 for the measurements that led here. The Phase 14 half stands: hash-keyed `code:summary:*` architecture/module/file memories still exist and are reachable through `recall` — only the rolling *injectable* profile is dropped.
 
 13. Procedural / skill memory as versioned artifacts
 Phase: unassigned | Status: pending

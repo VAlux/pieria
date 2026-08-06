@@ -163,10 +163,12 @@ Saves: every repeat embedding, forever | Risk: none | Status: proposed
 Key `SHA-256(text + embedding model + dimension) → vector` in SQLite. Embeddings are deterministic,
 so this is pure dedup with no semantic effect.
 
-It pays off twice. On ingest, re-stored or superseded-then-recreated memory text stops re-embedding.
-On recall, the session-open primer runs a **fixed constant query** — `HarnessHookSpec.PRIMER_QUERY`,
-shared by the Claude Code and Codex specs — on every single session start. That embedding needs to
-be computed exactly once, ever.
+On ingest, re-stored or superseded-then-recreated memory text stops re-embedding.
+
+(This item used to claim a second payoff: the session-open primer ran a fixed constant query on
+every session start, so its embedding only ever needed computing once. That primer was removed in
+favour of a pointer — see #15 — so the ingest-side dedup is now the whole case for this item. It
+still stands on that alone.)
 
 ---
 
@@ -353,28 +355,33 @@ memories (there is no answer). Drop `payload`, `superseded`, and `sessionId` fro
 projection in every mode — the agent cannot act on them. Fix `recordUsage` in the same change so
 the impact numbers describe what is actually served.
 
-**15. Make the session primer smaller and better targeted**
-Saves: a share of ~600 tokens/request | Risk: low | Status: partly implemented
+**15. Replace the session primer with a pointer**
+Saves: ~500 tokens/session, every session, every harness | Risk: low | Status: **done (2026-08-05)**
 
-`primerLimit` is 10 and `PRIMER_QUERY` is a fixed string shared by every harness spec
-(`HarnessHookSpec.java`). It was not selecting well, and the cause turned out to be specific rather
-than general: the old wording ("key facts, active tasks, and recent decisions") was a near-perfect
-lexical match for memories describing *the memory system*, because Pieria's own standing
-instructions are written in exactly that vocabulary. On the `aieep` profile the primer returned ten
-such memories and nothing about the project at all — one of them being the note that the generic
-query surfaces this kind of material.
+The primer ran a fixed recall (`PRIMER_QUERY`, `primerLimit` 10) at every session start. Two rounds
+of tuning taught us the query was not the problem.
 
-Retargeting the query to codebase vocabulary (architecture, module responsibilities, build/test
-commands, conventions, pitfalls) fixes the selection: measured on the real injection path, `aieep`
-went from 10 self-referential memories to 10 distinct project-relevant ones, and `pieria` from a
-mix to module layout, build requirements, and current phase work. `PrimerQueryTests` pins the
-vocabulary rule so the query cannot drift back.
+*Round one* — the original wording ("key facts, active tasks, and recent decisions") was a
+near-perfect lexical match for memories describing *the memory system*, because Pieria's own
+standing instructions are written in exactly that vocabulary. On `aieep` it returned ten such
+memories and nothing about the project at all.
 
-Still open: **the limit**. Now that near-duplicate collapse (item below / `RetrievalService`) means
-ten slots yield ten *distinct* memories rather than six restatements, the primer carries more
-tokens than it used to, not fewer. Lowering `primerLimit` is a separate call to make against
-measured usefulness. The durable fix remains a maintained standing summary rather than an ad-hoc
-recall — see the Phase 15 follow-up feature.
+*Round two* — retargeting to codebase vocabulary (architecture, module responsibilities, build/test
+commands, conventions, pitfalls) measurably fixed *selection*: `aieep` went from 10 self-referential
+memories to 10 distinct project-relevant ones. But on `pieria` it still returned 4/10 restatements
+of the module layout and 3/10 memories about the primer machinery itself — because on a memory
+system, "architecture of this codebase" and "the memory system" are the same subject. A banned-words
+list cannot separate them.
+
+*The resolution* — the categories the query asked for (architecture, module responsibilities, build
+commands, conventions) are exactly what `AGENTS.md` already carries into every session. The primer
+was duplicating an instruction file, and any better-sourced replacement would duplicate it more
+accurately rather than less. Session start also fires at the moment of *minimum* information: it
+must guess the subject before the user has spoken, while `recall` fires once the task is known.
+
+Session start now emits a ~45-token pointer (`MemoryPointer`) — count, freshness, and what memory
+holds that the repo's files do not — and the content path moved to pull-based `recall`. This closes
+the "still open: the limit" question and supersedes the Phase 15 standing-summary follow-up.
 
 **16. Tighten the MCP tool schemas**
 Saves: up to a few hundred tokens/request | Risk: low | Status: proposed

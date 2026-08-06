@@ -42,7 +42,7 @@ class HookContextTests {
   void transcriptResolvesFirstEnvKeyThatPointsAtAnExistingFile(@TempDir Path tmp) throws IOException {
     Path real = Files.writeString(tmp.resolve("rollout.jsonl"), "{}\n");
     HarnessHookSpec spec = new HarnessHookSpec(
-      "test", List.of("FIRST_TRANSCRIPT", "SECOND_TRANSCRIPT"), null, "query", 1);
+      "test", List.of("FIRST_TRANSCRIPT", "SECOND_TRANSCRIPT"), null);
     HookContext ctx = new HookContext(
       Map.of(
         "FIRST_TRANSCRIPT", tmp.resolve("missing.jsonl").toString(),
@@ -55,7 +55,7 @@ class HookContextTests {
   @Test
   void transcriptIsEmptyWhenNoCandidateExists(@TempDir Path tmp) throws IOException {
     Path real = Files.writeString(tmp.resolve("rollout.jsonl"), "{}\n");
-    HarnessHookSpec spec = new HarnessHookSpec("test", List.of("ONLY_TRANSCRIPT"), null, "query", 1);
+    HarnessHookSpec spec = new HarnessHookSpec("test", List.of("ONLY_TRANSCRIPT"), null);
 
     assertThat(new HookContext(Map.of("ONLY_TRANSCRIPT", real.toString())::get, tmp, "test")
       .firstExistingTranscript(spec)).contains(real);

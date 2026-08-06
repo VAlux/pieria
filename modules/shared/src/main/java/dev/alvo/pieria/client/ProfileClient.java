@@ -50,7 +50,16 @@ public final class ProfileClient {
   }
 
   public ProfileStatsResponse stats(String name) {
-    return transport.parse(transport.get(profile(name) + "/stats", Duration.ofSeconds(15)), ProfileStatsResponse.class);
+    return stats(name, Duration.ofSeconds(15));
+  }
+
+  /**
+   * Stats with an explicit timeout, for callers that cannot afford the default. Session-start hooks
+   * block the harness until they return, so they pass a much shorter budget than an interactive
+   * command would.
+   */
+  public ProfileStatsResponse stats(String name, Duration timeout) {
+    return transport.parse(transport.get(profile(name) + "/stats", timeout), ProfileStatsResponse.class);
   }
 
   public MemoryListResponse memories(String name, String type, String session) {

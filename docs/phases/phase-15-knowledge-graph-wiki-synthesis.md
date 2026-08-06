@@ -157,12 +157,25 @@ context. Follows the batch-synthesis pattern established by Phase 14's `CodeSumm
   intentionally out of scope here; this phase ships the synthesized document + API only.
 - Postgres parity for `wiki_pages` is deferred to and coordinated with Phase 6 server mode.
 
-## Follow-Up Feature — Standing-Summary Session Primer
+## Follow-Up Feature — Standing-Summary Session Primer — **SUPERSEDED (2026-08-05)**
 
-Realized immediately after this phase, once a synthesized project-overview page exists. Fulfills
-POTENTIAL_FEATURES #12 (rolling user/project profile compaction) on the session-start injection path.
+> **Superseded: session start no longer injects content at all.** The primer recall was removed and
+> replaced with a ~45-token pointer at the store (`MemoryPointer`); see POTENTIAL_FEATURES #12 and
+> OPTIMIZATIONS #15. The diagnosis below was right that the *query* was a poor proxy for "prime a new
+> session" — but a better-sourced standing summary does not fix the two deeper problems:
+>
+> 1. **The content duplicates the repository's own instruction files.** Architecture map, module
+>    responsibilities, and test/build commands — the standing context this feature would synthesize —
+>    are what `AGENTS.md`/`CLAUDE.md` already carry into every session. A maintained summary would
+>    duplicate them more accurately, not less.
+> 2. **Session start is the moment of minimum information.** Any push-at-session-start mechanism must
+>    guess the session's subject before the user has spoken. The `recall` tool fires once the task is
+>    known, and so is strictly better positioned — regardless of how good the pushed content is.
+>
+> Discoverability was the one thing push did better, and the pointer keeps it. The wiki and
+> project-overview work in this phase stands on its own; only this follow-up is dropped.
 
-**Problem it fixes.** Session-start injection today fires a *fixed generic recall query*
+**Problem it fixed.** Session-start injection fired a *fixed generic recall query*
 (`harness/claude-code/session-start.sh` → the shared `recall.sh`, `EVIDENCE` tier). With no task in
 hand at session start, semantic similarity to a generic "summarize the project" string surfaces
 whichever memories read most like that string — in practice the planning/spec meta-facts — rather

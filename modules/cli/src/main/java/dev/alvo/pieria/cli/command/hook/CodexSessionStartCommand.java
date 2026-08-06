@@ -5,9 +5,11 @@ import dev.alvo.pieria.cli.modules.hook.HarnessHookSpec;
 import dev.alvo.pieria.cli.modules.hook.HookOutcome;
 import picocli.CommandLine.Command;
 
-/** Codex session-open primer. */
+/**
+ * Codex session-open pointer.
+ */
 @Command(name = "session-start", description = "Codex SessionStart hook.")
-public final class CodexSessionStartCommand extends AbstractPrimerHookCommand {
+public final class CodexSessionStartCommand extends AbstractPointerHookCommand {
 
   @Override
   protected HookOutcome execute() {
