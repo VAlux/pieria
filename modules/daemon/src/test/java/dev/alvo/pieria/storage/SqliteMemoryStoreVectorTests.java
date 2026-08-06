@@ -23,7 +23,9 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -129,7 +131,7 @@ class SqliteMemoryStoreVectorTests {
         new PieriaProperties.Model("small", "large", "embed", dimension, 4, null, null),
         new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
           1, 0, 0, false, 3, 3, 32, 5, true, 5000, true, 0.70),
-        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60),
+        new PieriaProperties.Retrieval(vectorEnabled, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78),
       null);
     } catch (Throwable t) {
       throw new IllegalStateException("PieriaProperties shape changed; update this test", t);
@@ -222,6 +224,50 @@ class SqliteMemoryStoreVectorTests {
     int n = store.backfillVectors();
     assertEquals(1, n);
     assertEquals(1, store.vectorSearch(p.id(), vec(1f, 0f, 0f, 0f), 10).size());
+  }
+
+  // Backs the retrieval-side semantic duplicate collapse, which needs the raw vectors rather than a
+  // KNN. Reads the BLOB column directly, so unlike vectorSearch it does not need the vec extension.
+  @Test
+  void embeddingsForReturnsStoredVectorsRoundTripped() {
+    Profile p = store.getOrCreateProfile("vec-embeddings");
+    StoreOutcome a = store.store(p.id(), Memory.of(MemoryType.FACT, "vectorized", "s1", "k.a", null));
+    StoreOutcome b = store.store(p.id(), Memory.of(MemoryType.FACT, "also vectorized", "s1", "k.b", null));
+    StoreOutcome pending = store.store(p.id(), Memory.of(MemoryType.FACT, "not yet", "s1", "k.c", null));
+    store.completeVectorization(a.stored().id(), vec(1f, 0f, 0f, 0f));
+    store.completeVectorization(b.stored().id(), vec(0f, 1f, 0f, 0f));
+
+    Map<String, float[]> found = store.embeddingsFor(p.id(),
+      List.of(a.stored().id(), b.stored().id(), pending.stored().id(), "no-such-id"));
+
+    assertEquals(2, found.size());
+    assertArrayEquals(vec(1f, 0f, 0f, 0f), found.get(a.stored().id()));
+    assertArrayEquals(vec(0f, 1f, 0f, 0f), found.get(b.stored().id()));
+    // A memory awaiting vectorization is absent, not null-mapped — callers must read that as
+    // "cannot compare", never as "not similar".
+    assertFalse(found.containsKey(pending.stored().id()));
+  }
+
+  @Test
+  void embeddingsForIsScopedToTheProfile() {
+    Profile mine = store.getOrCreateProfile("vec-scope-mine");
+    Profile other = store.getOrCreateProfile("vec-scope-other");
+    StoreOutcome theirs = store.store(other.id(), Memory.of(MemoryType.FACT, "theirs", "s1", "k", null));
+    store.completeVectorization(theirs.stored().id(), vec(1f, 0f, 0f, 0f));
+
+    assertTrue(store.embeddingsFor(mine.id(), List.of(theirs.stored().id())).isEmpty());
+  }
+
+  @Test
+  void embeddingsForHandlesEmptyAndDuplicateInput() {
+    Profile p = store.getOrCreateProfile("vec-empty");
+    StoreOutcome a = store.store(p.id(), Memory.of(MemoryType.FACT, "dup input", "s1", "k.a", null));
+    store.completeVectorization(a.stored().id(), vec(1f, 0f, 0f, 0f));
+
+    assertTrue(store.embeddingsFor(p.id(), List.of()).isEmpty());
+    // Repeats must not multiply the IN-list placeholders past the bound parameters.
+    assertEquals(1, store.embeddingsFor(p.id(),
+      List.of(a.stored().id(), a.stored().id(), a.stored().id())).size());
   }
 
   private static byte[] encodeForTest(float[] embedding) {

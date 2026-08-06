@@ -415,7 +415,7 @@ class ProfileApiTests {
     PieriaProperties pieriaProperties() {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70),
-        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60),
+        new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78),
         new PieriaProperties.Stats(0.0, 200000, java.util.Map.of(
           "extraction", new PieriaProperties.Stats.TierPrice(0.30, 0.60),
           "synthesis", new PieriaProperties.Stats.TierPrice(3.0, 15.0),

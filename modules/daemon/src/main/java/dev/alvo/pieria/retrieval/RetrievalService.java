@@ -30,6 +30,7 @@ import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Timed;
 import dev.alvo.pieria.tools.Tokens;
+import dev.alvo.pieria.tools.Vectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -95,7 +96,8 @@ public class RetrievalService {
                           List<RetrievalChannel> secondWaveChannels,
                           int channelLimit,
                           long channelTimeoutMs,
-                          double nearDuplicateThreshold) {
+                          double nearDuplicateThreshold,
+                          double semanticDuplicateThreshold) {
   }
 
   private Pipeline buildPipeline(Retrieval cfg) {
@@ -125,7 +127,8 @@ public class RetrievalService {
     }
 
     return new Pipeline(fusion, List.copyOf(wave1), List.copyOf(wave2),
-      cfg.channelLimit(), cfg.channelTimeoutMs(), cfg.nearDuplicateThreshold());
+      cfg.channelLimit(), cfg.channelTimeoutMs(), cfg.nearDuplicateThreshold(),
+      cfg.semanticDuplicateThreshold());
   }
 
   private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
@@ -237,7 +240,7 @@ public class RetrievalService {
       List<RetrievalCandidate> forFusion = excludeCodeDerived
         ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
         : hits.value();
-      return fuse(pipeline, forFusion, limit);
+      return fuse(pipeline, forFusion, limit, profile.id());
     });
     LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
       profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
@@ -365,9 +368,11 @@ public class RetrievalService {
     return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
   }
 
-  private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit) {
+  private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit,
+                                     String profileId) {
     List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
-    List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold());
+    List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold(),
+      pipeline.semanticDuplicateThreshold(), profileId);
     return distinct.size() > limit ? List.copyOf(distinct.subList(0, limit)) : distinct;
   }
 
@@ -384,26 +389,45 @@ public class RetrievalService {
    * candidate requires it to be similar to something that survived, not merely to something that
    * did not.
    *
-   * <p>Code-indexer memories are exempt: their summaries are templated, so two of them describing
-   * different source files score as near-identical, and collapsing them would hide a real result.
+   * <p>Two measures run in the same pass and either one firing is enough. Shingle-Jaccard catches a
+   * <em>restatement</em> — the same sentence rewritten — but its trigrams encode word order, so it is
+   * structurally blind to a <em>paraphrase</em>: one fact carried by different words. Measured on
+   * this repository, three memories restating the module layout score 0.03-0.08 on trigrams and
+   * 0.76-0.83 on embedding cosine. The semantic half is what sees those, and it costs one store read
+   * — the vectors are already persisted, so no model call is involved.
+   *
+   * <p>Code-indexer memories are exempt from both: their summaries are templated, so two of them
+   * describing different source files score as near-identical — 0.85-0.90 by cosine, higher than any
+   * genuine duplicate — and collapsing them would hide a real result.
    */
-  private static List<RecallCandidate> collapseNearDuplicates(
-    List<RecallCandidate> ranked, double threshold) {
-    if (threshold <= 0.0 || ranked.size() < 2) {
+  private List<RecallCandidate> collapseNearDuplicates(
+    List<RecallCandidate> ranked, double threshold, double semanticThreshold, String profileId) {
+    if ((threshold <= 0.0 && semanticThreshold <= 0.0) || ranked.size() < 2) {
       return ranked;
     }
+    Map<String, float[]> embeddings = semanticThreshold <= 0.0
+      ? Map.of()
+      : embeddingsForCollapse(profileId, ranked);
+
     List<RecallCandidate> kept = new ArrayList<>(ranked.size());
     List<Set<String>> keptShingles = new ArrayList<>(ranked.size());
+    List<float[]> keptVectors = new ArrayList<>(ranked.size());
     for (RecallCandidate candidate : ranked) {
-      // An empty shingle set never matches, which is how the code-derived exemption is expressed.
-      Set<String> shingles = isCodeDerived(candidate.memory())
-        ? Set.of()
-        : TextSimilarity.shingles(candidate.memory().content());
-      boolean duplicate = keptShingles.stream()
-        .anyMatch(existing -> TextSimilarity.jaccard(shingles, existing) >= threshold);
+      boolean exempt = isCodeDerived(candidate.memory());
+      // An empty shingle set and a null vector never match, which is how the exemption is expressed.
+      Set<String> shingles = exempt ? Set.of() : TextSimilarity.shingles(candidate.memory().content());
+      float[] vector = exempt ? null : embeddings.get(candidate.memory().id());
+
+      boolean duplicate = false;
+      for (int i = 0; i < kept.size() && !duplicate; i++) {
+        duplicate = (threshold > 0.0 && TextSimilarity.jaccard(shingles, keptShingles.get(i)) >= threshold)
+          || (semanticThreshold > 0.0 && vector != null && keptVectors.get(i) != null
+              && Vectors.cosine(vector, keptVectors.get(i)) >= semanticThreshold);
+      }
       if (!duplicate) {
         kept.add(candidate);
         keptShingles.add(shingles);
+        keptVectors.add(vector);
       }
     }
     if (kept.size() < ranked.size()) {
@@ -411,6 +435,26 @@ public class RetrievalService {
         ranked.size() - kept.size(), ranked.size());
     }
     return kept;
+  }
+
+  /**
+   * Embeddings for the collapse pass, in one store read. A backend that does not implement the
+   * lookup returns an empty map, which degrades to the lexical check rather than failing the recall.
+   */
+  private Map<String, float[]> embeddingsForCollapse(String profileId, List<RecallCandidate> ranked) {
+    List<String> ids = ranked.stream()
+      .filter(candidate -> !isCodeDerived(candidate.memory()))
+      .map(candidate -> candidate.memory().id())
+      .toList();
+    if (ids.isEmpty()) {
+      return Map.of();
+    }
+    try {
+      return store.embeddingsFor(profileId, ids);
+    } catch (RuntimeException e) {
+      LOGGER.debug("recall semantic collapse unavailable, falling back to lexical: {}", e.getMessage());
+      return Map.of();
+    }
   }
 
   /**

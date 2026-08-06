@@ -1107,6 +1107,39 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
+  public Map<String, float[]> embeddingsFor(String profileId, Collection<String> memoryIds) {
+    if (memoryIds == null || memoryIds.isEmpty()) {
+      return Map.of();
+    }
+    // Distinct ids keep the IN-list (and the placeholder count) tight when a caller passes repeats.
+    List<String> ids = memoryIds.stream().filter(Objects::nonNull).distinct().toList();
+    if (ids.isEmpty()) {
+      return Map.of();
+    }
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    List<Object> params = new ArrayList<>(ids.size() + 1);
+    params.add(profileId);
+    params.addAll(ids);
+
+    record Row(String id, byte[] embedding) {
+    }
+    List<Row> rows = jdbc.sql(
+        "SELECT id, embedding FROM memories WHERE profile_id = ? AND embedding IS NOT NULL "
+          + "AND id IN (" + placeholders + ")")
+      .params(params)
+      .query((rs, _) -> new Row(rs.getString("id"), rs.getBytes("embedding")))
+      .list();
+
+    Map<String, float[]> out = new HashMap<>(rows.size());
+    for (Row row : rows) {
+      if (row.embedding() != null && row.embedding().length > 0) {
+        out.put(row.id(), decodeEmbedding(row.embedding()));
+      }
+    }
+    return out;
+  }
+
+  @Override
   @Transactional
   public int backfillVectors() {
     if (!isVectorSearchAvailable()) {

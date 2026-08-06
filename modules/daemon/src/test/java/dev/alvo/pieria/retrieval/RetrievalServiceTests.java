@@ -25,11 +25,15 @@ import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.CodeIndexStore.EdgeEvidence;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.storage.NoOpCodeIndexStore;
+import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Tokens;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,7 +54,7 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60);
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78);
   }
 
   private static PieriaProperties props() {
@@ -67,7 +71,7 @@ class RetrievalServiceTests {
   /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
   private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
-      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60);
+      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);
@@ -421,6 +425,88 @@ class RetrievalServiceTests {
     assertThat(result.candidates()).hasSize(3);
   }
 
+  // The case lexical collapse structurally cannot see: one fact carried by different words. These
+  // three are the real module-layout memories from this repository's own profile, which score
+  // 0.03-0.08 on shingle-Jaccard — far under any usable lexical threshold — but 0.76-0.83 by cosine.
+  @Test
+  void collapsesParaphrasesThatShareNoWordTrigrams() {
+    Memory a = mem("a", "The repository is organized into Gradle modules under `modules/`: `shared` "
+      + "for HTTP DTOs, `daemon` for REST controllers and storage.", MemoryType.FACT, "repository.structure", T0);
+    Memory b = mem("b", "The project repository is split into Gradle modules located under the "
+      + "modules/ directory, with modules named shared, daemon, gateway, cli, and eval.",
+      MemoryType.FACT, "project.layout.gradle.modules", T0);
+    Memory distinct = mem("distinct", "Flyway runs the schema migrations at daemon startup.",
+      MemoryType.FACT, "migrations", T0);
+
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(a, b, distinct);
+    store.embeddings = Map.of(
+      "a", new float[] {1.0f, 0.0f, 0.0f},
+      "b", new float[] {0.95f, 0.31f, 0.0f},     // cosine(a,b) ≈ 0.95 — a paraphrase
+      "distinct", new float[] {0.0f, 0.0f, 1.0f}); // orthogonal to both
+
+    // Guard the premise: these two are invisible to the lexical measure this test is about.
+    assertThat(TextSimilarity.similarity(a.content(), b.content())).isLessThan(0.20);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "modules", 10, false);
+
+    assertThat(result.candidates()).extracting(c -> c.memory().id())
+      .containsExactly("a", "distinct");
+  }
+
+  @Test
+  void semanticCollapseLeavesMerelyRelatedMemoriesAlone() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      mem("m1", "The daemon is the only writer to the embedded SQLite store.", MemoryType.FACT, "a", T0),
+      mem("m2", "Flyway runs the schema migrations at daemon startup.", MemoryType.FACT, "b", T0));
+    // Related but distinct — 0.70 is below the 0.78 default and must not collapse.
+    store.embeddings = Map.of(
+      "m1", new float[] {1.0f, 0.0f},
+      "m2", new float[] {0.70f, 0.714f});
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "daemon", 10, false);
+
+    assertThat(result.candidates()).hasSize(2);
+  }
+
+  @Test
+  void collapseFallsBackToLexicalWhenEmbeddingsAreUnavailable() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      mem("d1", "The daemon binds a REST API on 127.0.0.1 in local mode.", MemoryType.FACT, "x", T0),
+      mem("d2", "The daemon binds a REST API on 127.0.0.1 in local mode.", MemoryType.FACT, "y", T0));
+    store.embeddingsError = new IllegalStateException("vector column unavailable");
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "daemon", 10, false);
+
+    // The recall still succeeds, and the lexically identical pair still collapses.
+    assertThat(result.candidates()).singleElement()
+      .extracting(c -> c.memory().id()).isEqualTo("d1");
+  }
+
+  // Code-index summaries are templated, so two describing different files look near-identical.
+  // Collapsing them would hide a genuine result — by cosine they score higher (0.85-0.90 measured)
+  // than any genuine duplicate, so the exemption has to cover the semantic half too.
+  @Test
+  void collapseExemptsCodeIndexerMemoriesFromSemanticCollapseToo() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+        "Source file onboarding/TextDiscovery.java (java) defines: class Doc, method scan.",
+        "code:file:onboarding/TextDiscovery.java", null, false, "{}", null, T0),
+      new Memory("c2", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+        "Source file onboarding/PdfDiscovery.java (java) defines: class Doc, method parse.",
+        "code:file:onboarding/PdfDiscovery.java", null, false, "{}", null, T0));
+    store.embeddings = Map.of(
+      "c1", new float[] {1.0f, 0.0f},
+      "c2", new float[] {0.999f, 0.045f});   // ≈ 0.999 — would collapse if not exempt
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "discovery", 10, false);
+
+    assertThat(result.candidates()).hasSize(2);
+  }
+
   // Code-index summaries are templated, so two describing different files look near-identical.
   // Collapsing them would hide a genuine result.
   @Test
@@ -560,10 +646,27 @@ class RetrievalServiceTests {
     int recordUsageCalls;
     long recordedSourceTokens = -1;
     long recordedAnswerTokens = -1;
+    Map<String, float[]> embeddings = Map.of();
+    RuntimeException embeddingsError;
 
     @Override
     public Optional<Profile> findProfile(String name) {
       return Optional.ofNullable(profile);
+    }
+
+    @Override
+    public Map<String, float[]> embeddingsFor(String profileId, Collection<String> memoryIds) {
+      if (embeddingsError != null) {
+        throw embeddingsError;
+      }
+      Map<String, float[]> out = new LinkedHashMap<>();
+      for (String id : memoryIds) {
+        float[] vector = embeddings.get(id);
+        if (vector != null) {
+          out.put(id, vector);
+        }
+      }
+      return out;
     }
 
     @Override

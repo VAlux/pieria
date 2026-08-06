@@ -55,7 +55,8 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
     Integer codeGraphSeedLimit,
     String codeGraphMinConfidence,
     RecallMode recallMode,
-    Double nearDuplicateThreshold) {
+    Double nearDuplicateThreshold,
+    Double semanticDuplicateThreshold) {
   }
 
   /** True when no override is set at all (PUTting this is equivalent to DELETE). */

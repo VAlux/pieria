@@ -140,7 +140,8 @@ public class EffectiveConfigResolver {
       nvl(o.codeGraphSeedLimit(), g.codeGraphSeedLimit()),
       nvl(o.codeGraphMinConfidence(), g.codeGraphMinConfidence()),
       nvl(o.recallMode(), g.recallMode()),
-      nvl(o.nearDuplicateThreshold(), g.nearDuplicateThreshold()));
+      nvl(o.nearDuplicateThreshold(), g.nearDuplicateThreshold()),
+      nvl(o.semanticDuplicateThreshold(), g.semanticDuplicateThreshold()));
   }
 
   private static <T> T nvl(T override, T global) {

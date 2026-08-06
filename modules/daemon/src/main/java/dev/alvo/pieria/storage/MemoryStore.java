@@ -327,6 +327,19 @@ public interface MemoryStore {
   }
 
   /**
+   * The stored embeddings for {@code memoryIds} within {@code profileId}, keyed by memory id.
+   *
+   * <p>Reads the {@code embedding} BLOB column directly rather than the {@code memories_vec} index,
+   * so it works whether or not vector search is available. Ids with no embedding — never vectorized,
+   * still queued in the outbox, or {@code task} type, which is excluded from the index by design —
+   * are simply absent from the result rather than mapped to null. Callers must therefore treat a
+   * missing id as "cannot compare", not as "not similar".
+   */
+  default Map<String, float[]> embeddingsFor(String profileId, Collection<String> memoryIds) {
+    return Map.of();
+  }
+
+  /**
    * Backfill {@code memories_vec} from the {@code embedding} BLOB column for active, vector-eligible
    * memories ({@code superseded = 0} and {@code type != 'task'}) that are missing from the index.
    * Returns the count backfilled. No-op (returns 0) when vector search is unavailable.

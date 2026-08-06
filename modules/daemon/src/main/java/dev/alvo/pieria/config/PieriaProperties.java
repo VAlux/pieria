@@ -301,6 +301,16 @@ public record PieriaProperties(
    *                               from a ranked list is reversible where superseding a stored row is
    *                               not, and this is also the only thing that helps profiles whose
    *                               duplicates were written before ingest-time suppression existed.
+   * @param semanticDuplicateThreshold cosine similarity between stored embeddings at or above which a
+   *                               lower-ranked result is dropped, applied alongside
+   *                               {@code nearDuplicateThreshold} in the same pass — either measure
+   *                               firing is enough to collapse. Catches what shingles structurally
+   *                               cannot: one fact written twice in different words scores near zero
+   *                               on word trigrams (measured at 0.03-0.08 for three real
+   *                               restatements of this repository's module layout) while sitting at
+   *                               0.76-0.83 in embedding space. {@code 0} disables it. Candidates
+   *                               with no stored embedding (never vectorized, still queued, or
+   *                               {@code task} type) fall back to the lexical check alone.
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,
@@ -322,10 +332,12 @@ public record PieriaProperties(
                           @DefaultValue("8") int codeGraphSeedLimit,
                           @DefaultValue("heuristic") String codeGraphMinConfidence,
                           @DefaultValue("SYNTHESIZED") RecallMode recallMode,
-                          @DefaultValue("0.60") double nearDuplicateThreshold) {
+                          @DefaultValue("0.60") double nearDuplicateThreshold,
+                          @DefaultValue("0.78") double semanticDuplicateThreshold) {
 
     public Retrieval {
       nearDuplicateThreshold = Math.clamp(nearDuplicateThreshold, 0.0, 1.0);
+      semanticDuplicateThreshold = Math.clamp(semanticDuplicateThreshold, 0.0, 1.0);
     }
   }
 }
