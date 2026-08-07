@@ -20,8 +20,8 @@ class HookCommandLineTests {
 
   @Test
   void quotesAUnixPathContainingSpaces() {
-    assertThat(HookCommandLine.of("/Users/ada lovelace/.local/share/pieria/bin/pieria", "hook", "recall"))
-      .isEqualTo("\"/Users/ada lovelace/.local/share/pieria/bin/pieria\" hook recall");
+    assertThat(HookCommandLine.of("/Users/ada lovelace/.local/share/pieria/bin/pieria", "hook", "remember"))
+      .isEqualTo("\"/Users/ada lovelace/.local/share/pieria/bin/pieria\" hook remember");
   }
 
   @Test

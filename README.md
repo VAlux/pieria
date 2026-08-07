@@ -272,9 +272,13 @@ pieria harness uninstall claude-code           # undo
 ```
 
 Installing wires three things: the MCP gateway server, the lifecycle hooks (session-start
-recall injection, PreCompact/Stop ingest), and `/pieria-recall` + `/pieria-remember` slash
-commands. The hooks fail closed — if the daemon or the model provider is unreachable they
-silently no-op rather than blocking your session.
+memory pointer, PreCompact/Stop ingest), and the `/pieria-remember` slash command. The hooks
+fail closed — if the daemon or the model provider is unreachable they silently no-op rather
+than blocking your session.
+
+Recall has no slash command on purpose: the session-start pointer tells the model to call the
+MCP `recall` tool, which lets it pick an inference tier per query. From a terminal, use
+`pieria profile recall`.
 
 The default convention is **profile-per-repo**: the profile name is derived from the git
 remote or project directory, so pointing every harness at the same profile gives shared

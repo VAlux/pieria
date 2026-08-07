@@ -31,12 +31,11 @@ public final class CodexInstaller implements HarnessInstaller {
   /**
    * User-triggered slash commands, installed under {@code .codex/prompts/}. Codex prompts are
    * message templates (no shell execution), so these are model-mediated: they instruct the model to
-   * call the MCP {@code remember}/{@code recall} tools. No {@code <PIERIA_BIN>} placeholder to
+   * call the MCP {@code remember} tool. No {@code <PIERIA_BIN>} placeholder to
    * substitute.
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
     put("pieria-remember.md", "harness/codex/commands/pieria-remember.md");
-    put("pieria-recall.md", "harness/codex/commands/pieria-recall.md");
   }};
 
   private final TomlConfigMerger toml = new TomlConfigMerger();

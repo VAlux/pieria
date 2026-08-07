@@ -53,7 +53,6 @@ class OpenCodeInstallerTests {
     // Slash commands written with the binary substituted.
     Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
     assertThat(Files.exists(remember)).isTrue();
-    assertThat(Files.exists(installer.commandsDir(ctx).resolve("pieria-recall.md"))).isTrue();
     String body = Files.readString(remember);
     assertThat(body).contains("hook remember").doesNotContain("<PIERIA_BIN>");
 

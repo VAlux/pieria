@@ -62,7 +62,7 @@ class OpenCodeHookCommandTests {
 
     // With no daemon reachable nothing is appended, so the output is exactly the input. The
     // append path needs a stub daemon the command cannot be pointed at (it reads the real
-    // PIERIA_DAEMON_URL), and is covered by ContextRecallerTests instead.
+    // PIERIA_DAEMON_URL), and is covered by MemoryPointerTests instead.
     assertThat(out).isEqualTo("PROMPT ONE\nPROMPT TWO");
   }
 

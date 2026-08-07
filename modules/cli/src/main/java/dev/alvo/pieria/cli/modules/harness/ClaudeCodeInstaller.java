@@ -14,7 +14,7 @@ import java.util.Map;
 /**
  * Wires Claude Code: an MCP server in {@code .mcp.json}, the {@code SessionStart}/
  * {@code PreCompact}/{@code Stop}/{@code SessionEnd} hooks in {@code settings.json}, and the
- * {@code /pieria-remember} and {@code /pieria-recall} slash commands in {@code .claude/commands/}.
+ * {@code /pieria-remember} slash command in {@code .claude/commands/}.
  * Project scope writes to the repo; {@code --user} writes under {@code ~/.claude/}.
  *
  * <p>VERIFY against current Claude Code docs (as of 2026-05): hook event names, the {@code .mcp.json}
@@ -40,7 +40,6 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
     put("pieria-remember.md", "harness/claude-code/commands/pieria-remember.md");
-    put("pieria-recall.md", "harness/claude-code/commands/pieria-recall.md");
   }};
 
   private final JsonConfigMerger json = new JsonConfigMerger();

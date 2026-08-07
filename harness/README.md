@@ -12,16 +12,20 @@ Both are installed by `pieria harness install [--user] [<harness>]`.
 
 | Command | When the harness runs it | Effect |
 |---|---|---|
-| `pieria hook claude-code session-start` | session opens | prints a recalled context block on stdout |
+| `pieria hook claude-code session-start` | session opens | prints the memory pointer on stdout |
 | `pieria hook claude-code pre-compact` | before context compaction | ingests the transcript |
 | `pieria hook claude-code stop` | end of a turn | ingests the transcript |
 | `pieria hook claude-code session-end` | session ends, including `/clear` | ingests the transcript |
-| `pieria hook codex session-start` | session opens | prints a recalled context block |
+| `pieria hook codex session-start` | session opens | prints the memory pointer |
 | `pieria hook codex stop` | end of a turn | ingests the transcript |
 | `pieria hook opencode ingest` | compaction | ingests the transcript from **stdin** |
 | `pieria hook opencode recall-transform` | system-prompt transform | echoes stdin, then appends recalled context |
-| `pieria hook recall <query>` | `/pieria-recall` | prints a recalled context block |
 | `pieria hook remember <text>` | `/pieria-remember` | pins one memory |
+
+There is deliberately no `hook recall`. Explicit recall is the model's MCP `recall` tool, which
+picks its own inference tier per query; the session-open pointer tells it to. A slash command could
+only pin the query to the cheapest tier at a fixed limit. To recall from a terminal, use
+`pieria profile recall`.
 
 The group is hidden from `pieria --help`; nothing here is meant to be typed by a human.
 
@@ -29,7 +33,7 @@ The group is hidden from `pieria --help`; nothing here is meant to be typed by a
 
 - **Fail-closed.** Every hook exits 0 no matter what — daemon down, model unavailable, malformed
   transcript. A hook must never break or stall a session.
-- **stdout is payload.** Only the recall block and the remember confirmation go to stdout, because
+- **stdout is payload.** Only the memory pointer and the remember confirmation go to stdout, because
   a harness injects a hook's stdout into the model's context. Diagnostics go to stderr.
 - **Input follows the harness contract.** Claude Code supplies transcript metadata through its
   environment, Codex writes a JSON hook payload containing `transcript_path` and `session_id` to
@@ -42,7 +46,7 @@ The group is hidden from `pieria --help`; nothing here is meant to be typed by a
 
 1. Add a `HarnessHookSpec` constant in `modules/cli/.../modules/hook/HarnessHookSpec.java`.
 2. Add command classes under `modules/cli/.../command/hook/`, extending
-   `AbstractIngestHookCommand` or `AbstractPrimerHookCommand`.
+   `AbstractIngestHookCommand` or `AbstractPointerHookCommand`.
 3. Add an installer under `modules/cli/.../modules/harness/` and register it in `HarnessRegistry`.
 4. Add slash-command templates under `harness/<id>/commands/` if the harness supports them.
 

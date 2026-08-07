@@ -37,19 +37,15 @@ class HookVerbCommandTests {
   }
 
   @Test
-  void recallAndRememberAreRegisteredOnTheHookGroup() {
+  void rememberIsRegisteredOnTheHookGroup() {
     CommandLine hook = new CommandLine(new PieriaCli()).getSubcommands().get("hook");
-    assertThat(hook.getSubcommands().keySet()).contains("recall", "remember");
+    assertThat(hook.getSubcommands().keySet()).contains("remember");
   }
 
   @Test
-  void recallExitsZeroWithNoDaemon() {
-    assertThat(run("hook", "recall", "what changed")).isZero();
-  }
-
-  @Test
-  void recallExitsZeroWithAnExplicitLimitAndHarness() {
-    assertThat(run("hook", "recall", "what changed", "--limit", "3", "--harness", "codex")).isZero();
+  void recallIsNoLongerAHookVerb() {
+    CommandLine hook = new CommandLine(new PieriaCli()).getSubcommands().get("hook");
+    assertThat(hook.getSubcommands().keySet()).doesNotContain("recall");
   }
 
   @Test
@@ -67,12 +63,5 @@ class HookVerbCommandTests {
     String out = runCapturingStdout("hook", "remember", "a fact");
 
     assertThat(out).contains("NOT stored");
-  }
-
-  @Test
-  void recallKeepsFailureOffStdoutSoNothingPollutesTheInjectedContext() {
-    String out = runCapturingStdout("hook", "recall", "why");
-
-    assertThat(out).isEmpty();
   }
 }

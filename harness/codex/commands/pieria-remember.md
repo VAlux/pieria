@@ -3,7 +3,10 @@
 If the memory to store below is non-empty, store it in Pieria by calling the `remember`
 MCP tool (`mcp__pieria__remember`). Infer a sensible `type` — `fact` (default),
 `instruction`, `event`, or `task` — and pass the text as `content`. If the user prefixed
-the text with `fact:` / `instruction:` / `event:` / `task:`, use that as the type.
+the text with `fact:` / `instruction:` / `event:` / `task:`, use that as the type. If they
+prefixed it with `key:<topic-key>`, pass that as `topicKey`; otherwise set `topicKey`
+yourself when the fact's value may change later, so a future pin supersedes this one
+instead of accumulating a duplicate.
 
 If it is empty, no explicit content was given: instead, review the recent conversation,
 pick the 1-3 most relevant memories worth persisting (facts, instructions, decisions,

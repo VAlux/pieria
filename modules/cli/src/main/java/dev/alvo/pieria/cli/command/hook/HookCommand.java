@@ -19,7 +19,6 @@ import picocli.CommandLine.Command;
     ClaudeCodeHookCommand.class,
     CodexHookCommand.class,
     OpenCodeHookCommand.class,
-    HookRecallCommand.class,
     HookRememberCommand.class
   }
 )

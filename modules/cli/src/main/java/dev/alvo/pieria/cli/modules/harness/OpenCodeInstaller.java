@@ -37,7 +37,6 @@ public final class OpenCodeInstaller implements HarnessInstaller {
    */
   private static final Map<String, String> COMMANDS = new LinkedHashMap<>() {{
     put("pieria-remember.md", "harness/opencode/commands/pieria-remember.md");
-    put("pieria-recall.md", "harness/opencode/commands/pieria-recall.md");
   }};
 
   private final JsonConfigMerger json = new JsonConfigMerger();

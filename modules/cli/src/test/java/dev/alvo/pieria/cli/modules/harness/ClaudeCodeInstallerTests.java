@@ -82,9 +82,9 @@ class ClaudeCodeInstallerTests {
 
     installer.install(ctx);
 
-    Path recall = installer.commandsDir(ctx).resolve("pieria-recall.md");
-    String body = Files.readString(recall);
-    assertThat(body).contains("\"C:\\Program Files\\Pieria\\bin\\pieria.exe\" hook recall");
+    Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
+    String body = Files.readString(remember);
+    assertThat(body).contains("\"C:\\Program Files\\Pieria\\bin\\pieria.exe\" hook remember");
   }
 
   @Test
@@ -149,9 +149,7 @@ class ClaudeCodeInstallerTests {
     installer.install(ctx);
 
     Path remember = installer.commandsDir(ctx).resolve("pieria-remember.md");
-    Path recall = installer.commandsDir(ctx).resolve("pieria-recall.md");
     assertThat(Files.exists(remember)).isTrue();
-    assertThat(Files.exists(recall)).isTrue();
 
     String body = Files.readString(remember);
     assertThat(body)
@@ -162,7 +160,6 @@ class ClaudeCodeInstallerTests {
     // Uninstall removes the command files.
     installer.uninstall(ctx);
     assertThat(Files.exists(remember)).isFalse();
-    assertThat(Files.exists(recall)).isFalse();
   }
 
   @Test
