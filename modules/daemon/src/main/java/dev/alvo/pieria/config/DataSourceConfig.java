@@ -122,16 +122,24 @@ public class DataSourceConfig {
     String walPragma = "PRAGMA journal_mode=WAL";
     try (Connection conn = DriverManager.getConnection(url); Statement st = conn.createStatement()) {
       st.execute(walPragma);
-      String loadSql = firstLoadableSql(st, bundledExtension);
+      List<String> attempts = new ArrayList<>();
+      String loadSql = firstLoadableSql(st, bundledExtension, attempts);
       if (loadSql != null && probeVec(st)) {
         dataSource.setConnectionInitSql(loadSql);
         cap.markLoaded();
         log.info("sqlite-vec extension loaded ({}); embedded vector search enabled.", loadSql);
         return;
       }
+      // Report every rejected candidate. Silently swallowing the dlopen error made a native-image
+      // regression (the binary came up FTS-only on one platform) undiagnosable without a rebuild,
+      // and the reason — quarantine, a noexec extraction directory, a missing entry point — is only
+      // ever visible in SQLite's own message.
       log.warn("sqlite-vec extension not available; vector search disabled "
-        + "(FTS + keyed lookup still work). Bundle vec0 beside the binary or set "
-        + "pieria.vec.extension-path / PIERIA_VEC_EXTENSION to enable it.");
+          + "(FTS + keyed lookup still work). Resolved bundle: {}. Attempts: {}. "
+          + "Bundle vec0 beside the binary or set pieria.vec.extension-path / PIERIA_VEC_EXTENSION "
+          + "to enable it.",
+        bundledExtension == null ? "none (no embedded extension for this platform)" : bundledExtension,
+        loadSql == null ? String.join("; ", attempts) : loadSql + " loaded but vec_version() failed");
     } catch (Exception e) {
       log.warn("sqlite-vec extension could not be loaded ({}); vector search disabled.", e.toString());
     }
@@ -142,9 +150,10 @@ public class DataSourceConfig {
   /**
    * Return the first {@code SELECT load_extension(...)} statement that succeeds, or {@code null}.
    * The bundled absolute path is preferred; bare entry-point names and the explicit init symbol are
-   * fallbacks for developer machines with the library on the OS extension search path.
+   * fallbacks for developer machines with the library on the OS extension search path. Each rejected
+   * candidate is appended to {@code attempts} with SQLite's own reason, for the caller to log.
    */
-  private static String firstLoadableSql(Statement st, Path bundledExtension) {
+  private static String firstLoadableSql(Statement st, Path bundledExtension, List<String> attempts) {
     List<String> argLists = new ArrayList<>();
     if (bundledExtension != null) {
       argLists.add("'" + bundledExtension + "'");
@@ -155,20 +164,14 @@ public class DataSourceConfig {
     argLists.add("'vec0', 'sqlite3_vec_init'");
     for (String args : argLists) {
       String sql = "SELECT load_extension(" + args + ")";
-      if (tryExecute(st, sql)) {
+      try {
+        st.execute(sql);
         return sql;
+      } catch (Exception e) {
+        attempts.add(args + " -> " + e.getMessage());
       }
     }
     return null;
-  }
-
-  private static boolean tryExecute(Statement st, String sql) {
-    try {
-      st.execute(sql);
-      return true;
-    } catch (Exception ignored) {
-      return false;
-    }
   }
 
   /** Confirm the vec module is actually usable by reading its version function. */

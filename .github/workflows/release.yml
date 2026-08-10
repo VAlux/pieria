@@ -11,10 +11,16 @@ name: release
 # Push a tag (v*) to cut a release; workflow_dispatch builds artifacts without
 # publishing unless a tag is supplied.
 #
-# Job graph (per platform, all three platforms in parallel):
+# Job graph (all three platforms in parallel within each stage):
 #
-#   test ─────────────┐
-#   native-image ×3 ──┴─> package ─> release
+#   test ─> native-image ×3 ─> package ─> release
+#
+# Tests gate the native builds rather than running alongside them. The macOS daemon image takes
+# 1-3 hours, so starting it against code that fails its own suite spends the single most expensive
+# thing in this workflow on an artifact that can never ship — and on a tag push a test failure means
+# re-tagging anyway. The cost is the ~10 minutes tests add to the front of a multi-hour critical
+# path. It also drops peak concurrent macOS jobs from 4 to 3, leaving headroom under the Free plan's
+# limit of 5.
 #
 # The three native images are compiled on three separate runners rather than in one
 # `nativeDist` invocation. Every free Apple Silicon runner (macos-14/15/26/latest) is a
@@ -71,6 +77,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # :daemon:embedVecExtensions stages this onto the test classpath, which is how the vector tests
+      # find vec0. They are mandatory (SqliteMemoryStoreVectorTests fails rather than skips when the
+      # extension is missing), so without this step every platform's suite is red.
+      - name: Fetch sqlite-vec extension
+        run: bash .github/scripts/fetch-sqlite-vec.sh "${{ matrix.platform }}"
+
       # Use the same Gradle task as deployLocal so release artifacts cannot drift from local installs.
       # Run the real grammar fixtures against those freshly built libraries with no skipped packs.
       - name: Build and test Tree-sitter language packs
@@ -98,6 +110,10 @@ jobs:
 
   native-image:
     name: ${{ matrix.image.bin }} ${{ matrix.target.platform }}
+    # `needs` is job-wide, not per-matrix-leg, so any platform's test failure stops all nine compile
+    # jobs. That is the intent for a release workflow: no platform's binary should be built from a
+    # tree that fails tests anywhere.
+    needs: test
     runs-on: ${{ matrix.target.os }}
     defaults:
       run:
@@ -112,13 +128,10 @@ jobs:
           # this artifact's architecture to x86_64.
           - os: macos-14
             platform: macos-aarch64
-            vec_lib: vec0.dylib
           - os: ubuntu-latest
             platform: linux-x86_64
-            vec_lib: vec0.so
           - os: windows-latest
             platform: windows-x86_64
-            vec_lib: vec0.dll
         image:
           - module: daemon
             task: ":daemon:nativeCompile"
@@ -154,12 +167,7 @@ jobs:
       # be disabled — a release must ship it). See packaging/native/README.md.
       - name: Fetch sqlite-vec extension
         if: matrix.image.module == 'daemon'
-        run: |
-          dir="packaging/native/${{ matrix.target.platform }}"
-          url="https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-loadable-${{ matrix.target.platform }}.tar.gz"
-          mkdir -p "$dir"
-          curl -fsSL "$url" | tar -xz -C "$dir" "${{ matrix.target.vec_lib }}"
-          ls -l "$dir"
+        run: bash .github/scripts/fetch-sqlite-vec.sh "${{ matrix.target.platform }}"
 
       # PIERIA_CONSTRAINED_NATIVE_BUILD switches on the memory-tuned buildArgs in
       # modules/daemon/build.gradle.kts for the memory-starved macOS leg only. GRADLE_OPTS caps
@@ -190,9 +198,6 @@ jobs:
 
   package:
     name: package ${{ matrix.platform }}
-    # Deliberately not gated on `test`: `needs` is job-wide, not per-matrix-leg, so gating here would
-    # mean one platform's test failure withholds every platform's archive. Publishing is what must be
-    # test-gated, and the `release` job below does that.
     needs: native-image
     runs-on: ${{ matrix.os }}
     defaults:
@@ -277,8 +282,8 @@ jobs:
 
   release:
     name: publish release
-    # Every test leg and every platform archive must be green before anything is published.
-    needs: [test, package]
+    # Tests are gated transitively (test -> native-image -> package).
+    needs: package
     runs-on: ubuntu-latest
     # Publish only for a tag push or a dispatch that supplied a tag.
     if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''

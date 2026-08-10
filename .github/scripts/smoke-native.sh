@@ -32,27 +32,49 @@ appdata="$work/appdata"
 mkdir -p "$appdata"
 
 pid=""
-cleanup() {
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    # Git Bash's kill cannot always signal a native Win32 process; taskkill always can.
-    if [ "${RUNNER_OS:-}" = "Windows" ]; then
-      taskkill //PID "$pid" //T //F >/dev/null 2>&1 || true
-    else
-      kill "$pid" 2>/dev/null || true
-    fi
-    wait "$pid" 2>/dev/null || true
+
+# Git Bash's `$!` is an MSYS pid, which is NOT the Windows pid taskkill addresses; /proc/<pid>/winpid
+# maps between them. Passing the unmapped id to taskkill silently killed nothing, so the daemon
+# survived cleanup and the reap below never returned — that hung the windows package job for hours
+# *after* its own output had already said "smoke: OK".
+win_pid() {
+  if [ -r "/proc/$1/winpid" ]; then
+    cat "/proc/$1/winpid"
+  else
+    echo "$1"
   fi
+}
+
+cleanup() {
+  [ -n "$pid" ] || return 0
+  if [ "${RUNNER_OS:-}" = "Windows" ]; then
+    # Git Bash's kill cannot always signal a native Win32 process; taskkill always can.
+    taskkill //PID "$(win_pid "$pid")" //T //F >/dev/null 2>&1 || true
+  else
+    kill "$pid" 2>/dev/null || true
+  fi
+  # Bounded reap instead of `wait`: teardown must never outlive the check it is tearing down. A
+  # daemon that refuses to die is the runner's orphan-cleanup problem, not a reason to hold the job
+  # open to its 6-hour limit.
+  for _ in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  echo "smoke: warning — daemon (pid $pid) still running after cleanup; leaving it to the runner" >&2
+  return 0
 }
 trap cleanup EXIT
 
 echo "smoke: starting $exe on 127.0.0.1:$port ($platform)"
 # check-models=false keeps startup off the network: no runner has Ollama, and the model probe is
 # irrelevant to what this step verifies.
+# stdin from /dev/null and both output streams to a file: a background process holding the step's
+# own pipes open is the other classic way an Actions step outlives its script.
 "$exe" \
   --pieria.daemon.port="$port" \
   --pieria.app-data.root="$appdata" \
   --pieria.first-run.check-models=false \
-  >"$log" 2>&1 &
+  </dev/null >"$log" 2>&1 &
 pid=$!
 
 status_url="http://127.0.0.1:${port}/pieria-status"
