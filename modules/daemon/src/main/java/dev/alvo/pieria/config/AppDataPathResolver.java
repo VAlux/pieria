@@ -34,7 +34,7 @@ public class AppDataPathResolver {
     Path dataRoot = configured(appData.root(), defaultDataRoot());
     Path databaseDir = configured(appData.databaseDir(), dataRoot);
     Path configDir = configured(appData.configDir(), defaultConfigDir(dataRoot));
-    Path logsDir = configured(appData.logsDir(), defaultLogsDir(dataRoot));
+    Path logsDir = configured(appData.logsDir(), defaultLogsDir());
     Path runtimeDir = configured(appData.runtimeDir(), defaultRuntimeDir(dataRoot));
     Path databaseFile = configuredDatabasePath(databaseDir);
     Path resolvedDatabaseFile = ":memory:".equals(databaseFile.toString())
@@ -67,8 +67,8 @@ public class AppDataPathResolver {
     return AppDirs.defaultConfigDir(dataRoot);
   }
 
-  private static Path defaultLogsDir(Path dataRoot) {
-    return AppDirs.defaultLogsDir(dataRoot);
+  private static Path defaultLogsDir() {
+    return AppDirs.defaultLogsDir();
   }
 
   private static Path defaultRuntimeDir(Path dataRoot) {

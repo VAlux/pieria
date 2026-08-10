@@ -30,7 +30,7 @@ public final class RuntimePaths {
     Path runtime = (runtimeDirOverride != null && !runtimeDirOverride.isBlank())
       ? Path.of(runtimeDirOverride).toAbsolutePath()
       : AppDirs.defaultRuntimeDir(dataRoot).toAbsolutePath();
-    return new RuntimePaths(runtime, AppDirs.defaultLogsDir(dataRoot).toAbsolutePath());
+    return new RuntimePaths(runtime, AppDirs.defaultLogsDir().toAbsolutePath());
   }
 
   public Path runtimeDir() {

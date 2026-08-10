@@ -1,7 +1,8 @@
 package dev.alvo.pieria.ingestion.transcript;
 
-import java.util.Set;
 import tools.jackson.databind.JsonNode;
+
+import java.util.Set;
 
 /**
  * Small null-safe helpers shared by the JSONL-based {@link TranscriptParser} implementations for
@@ -12,13 +13,17 @@ final class TranscriptJson {
   private TranscriptJson() {
   }
 
-  /** The string value of {@code field}, or {@code null} if absent/null. */
+  /**
+   * The string value of {@code field}, or {@code null} if absent/null.
+   */
   static String text(JsonNode node, String field) {
     JsonNode value = node.get(field);
     return (value == null || value.isNull()) ? null : value.asString();
   }
 
-  /** True only if {@code field} is present and a boolean {@code true}. */
+  /**
+   * True only if {@code field} is present and a boolean {@code true}.
+   */
   static boolean isTrue(JsonNode node, String field) {
     JsonNode value = node.get(field);
     return value != null && value.isBoolean() && value.booleanValue();

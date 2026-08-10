@@ -1,9 +1,11 @@
 package dev.alvo.pieria.ingestion.transcript;
 
+import org.springframework.stereotype.Component;
+
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.springframework.stereotype.Component;
 
 /**
  * Indexes the available {@link TranscriptParser} implementations by their {@link
@@ -17,16 +19,18 @@ public class TranscriptParserRegistry {
 
   private final Map<String, TranscriptParser> byHarness;
 
-  public TranscriptParserRegistry(java.util.List<TranscriptParser> parsers) {
+  public TranscriptParserRegistry(List<TranscriptParser> parsers) {
     Map<String, TranscriptParser> index = new LinkedHashMap<>();
     for (TranscriptParser parser : parsers) {
       TranscriptParser previous = index.put(parser.harness(), parser);
+
       if (previous != null) {
         throw new IllegalStateException(
           "Two TranscriptParser beans claim harness '" + parser.harness() + "': "
             + previous.getClass().getName() + " and " + parser.getClass().getName());
       }
     }
+
     this.byHarness = Map.copyOf(index);
   }
 
@@ -37,14 +41,17 @@ public class TranscriptParserRegistry {
    */
   public TranscriptParser forHarness(String harness) {
     TranscriptParser parser = byHarness.get(harness);
+
     if (parser == null) {
-      throw new IllegalArgumentException(
-        "Unsupported harness '" + harness + "'. Supported harnesses: " + byHarness.keySet());
+      throw new IllegalArgumentException("Unsupported harness '" + harness + "'. Supported harnesses: " + byHarness.keySet());
     }
+
     return parser;
   }
 
-  /** Harness ids with a registered parser. */
+  /**
+   * Harness ids with a registered parser.
+   */
   public Set<String> supportedHarnesses() {
     return byHarness.keySet();
   }

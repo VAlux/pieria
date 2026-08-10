@@ -180,8 +180,13 @@ public class RetrievalService {
    * <p>Recall against a profile that does not exist yet is not an error: it logs a warning and
    * returns an {@linkplain RecallResult#empty() empty result} (no answer, no candidates).
    */
-  public RecallResult recall(String profileName, String query, int limit, boolean debug,
-                             RecallMode requestMode, boolean excludeCodeDerived) {
+  public RecallResult recall(String profileName,
+                             String query,
+                             int limit,
+                             boolean debug,
+                             RecallMode requestMode,
+                             boolean excludeCodeDerived) {
+
     long totalStart = System.nanoTime();
 
     var maybeProfile = store.findProfile(profileName);
@@ -202,6 +207,7 @@ public class RetrievalService {
     Pipeline pipeline = buildPipeline(cfg);
     LOGGER.info("recall start profile={} limit={} debug={} mode={} excludeCodeDerived={} queryChars={}",
       profileName, limit, debug, mode, excludeCodeDerived, query == null ? 0 : query.length());
+
     LOGGER.debug("recall pipeline profile={} wave1Channels={} wave2Channels={} channelLimit={} channelTimeoutMs={}",
       profileName, channelTypes(pipeline.channels()), channelTypes(pipeline.secondWaveChannels()),
       pipeline.channelLimit(), pipeline.channelTimeoutMs());

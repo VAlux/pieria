@@ -44,6 +44,7 @@ public final class GroundingFilter {
       || transcript == null || transcript.isBlank()) {
       return false;
     }
+
     String content = candidateContent.toLowerCase(Locale.ROOT);
     String source = transcript.toLowerCase(Locale.ROOT);
 

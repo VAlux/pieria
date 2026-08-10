@@ -18,48 +18,52 @@ public final class AppDirs {
   public static Path defaultDataRoot() {
     OsFamily os = OsFamily.detect();
     String home = System.getProperty("user.home", ".");
-    if (os == OsFamily.MAC) {
-      return Path.of(home, "Library", "Application Support", "Pieria");
-    }
-    if (os == OsFamily.WINDOWS) {
-      String appData = System.getenv("APPDATA");
-      return Path.of(appData == null || appData.isBlank() ? Path.of(home, "AppData", "Roaming").toString() : appData,
-        "Pieria");
-    }
-    String xdgData = System.getenv("XDG_DATA_HOME");
-    return Path.of(xdgData == null || xdgData.isBlank() ? Path.of(home, ".local", "share").toString() : xdgData,
-      "pieria");
+
+    return switch (os) {
+      case MAC -> Path.of(home, "Library", "Application Support", "Pieria");
+      case WINDOWS -> {
+        String appData = System.getenv("APPDATA");
+        yield Path.of(appData == null || appData.isBlank() ? Path.of(home, "AppData", "Roaming").toString() : appData,
+          "Pieria");
+      }
+      case null, default -> {
+        String xdgData = System.getenv("XDG_DATA_HOME");
+        yield Path.of(xdgData == null || xdgData.isBlank() ? Path.of(home, ".local", "share").toString() : xdgData,
+          "pieria");
+      }
+    };
   }
 
   public static Path defaultConfigDir(Path dataRoot) {
-    OsFamily os = OsFamily.detect();
-    String home = System.getProperty("user.home", ".");
-    if (os == OsFamily.WINDOWS) {
-      return dataRoot.resolve("config");
-    }
-    if (os == OsFamily.MAC) {
-      return dataRoot.resolve("config");
-    }
-    String xdgConfig = System.getenv("XDG_CONFIG_HOME");
-    return Path.of(xdgConfig == null || xdgConfig.isBlank() ? Path.of(home, ".config").toString() : xdgConfig,
-      "pieria");
+    return switch (OsFamily.detect()) {
+      case WINDOWS, MAC -> dataRoot.resolve("config");
+      case null, default -> {
+        String home = System.getProperty("user.home", ".");
+        String xdgConfig = System.getenv("XDG_CONFIG_HOME");
+        yield Path.of(xdgConfig == null || xdgConfig.isBlank() ? Path.of(home, ".config").toString() : xdgConfig,
+          "pieria");
+      }
+    };
   }
 
-  public static Path defaultLogsDir(Path dataRoot) {
+  public static Path defaultLogsDir() {
     OsFamily os = OsFamily.detect();
     String home = System.getProperty("user.home", ".");
-    if (os == OsFamily.MAC) {
-      return Path.of(home, "Library", "Logs", "Pieria");
-    }
-    if (os == OsFamily.WINDOWS) {
-      String localAppData = System.getenv("LOCALAPPDATA");
-      return Path.of(localAppData == null || localAppData.isBlank()
-        ? Path.of(home, "AppData", "Local").toString()
-        : localAppData, "Pieria", "logs");
-    }
-    String xdgState = System.getenv("XDG_STATE_HOME");
-    return Path.of(xdgState == null || xdgState.isBlank() ? Path.of(home, ".local", "state").toString() : xdgState,
-      "pieria", "logs");
+
+    return switch (os) {
+      case MAC -> Path.of(home, "Library", "Logs", "Pieria");
+      case WINDOWS -> {
+        String localAppData = System.getenv("LOCALAPPDATA");
+        yield Path.of(localAppData == null || localAppData.isBlank()
+          ? Path.of(home, "AppData", "Local").toString()
+          : localAppData, "Pieria", "logs");
+      }
+      case null, default -> {
+        String xdgState = System.getenv("XDG_STATE_HOME");
+        yield Path.of(xdgState == null || xdgState.isBlank() ? Path.of(home, ".local", "state").toString() : xdgState,
+          "pieria", "logs");
+      }
+    };
   }
 
   public static Path defaultRuntimeDir(Path dataRoot) {
@@ -70,6 +74,7 @@ public final class AppDirs {
         return Path.of(xdgRuntime, "pieria");
       }
     }
+
     return dataRoot.resolve("run");
   }
 }

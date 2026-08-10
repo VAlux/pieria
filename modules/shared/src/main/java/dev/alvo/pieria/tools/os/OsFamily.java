@@ -21,12 +21,15 @@ public enum OsFamily {
 
   static OsFamily fromOsName(String osName) {
     String os = osName.toLowerCase(Locale.ROOT);
+
     if (os.contains("mac")) {
       return MAC;
     }
+
     if (os.contains("win")) {
       return WINDOWS;
     }
+
     return LINUX;
   }
 }

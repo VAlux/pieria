@@ -216,6 +216,7 @@ public class ProfileController {
       ingest.complete();
       return objectMapper.valueToTree(Map.of("count", stored.size()));
     });
+
     return new TaskSubmitResponse(taskId.toString());
   }
 
@@ -241,8 +242,7 @@ public class ProfileController {
   }
 
   @PostMapping("/recall")
-  public RecallResponse recall(@PathVariable String name,
-                               @Valid @RequestBody RecallRequest request) {
+  public RecallResponse recall(@PathVariable String name, @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
     boolean debug = Boolean.TRUE.equals(request.debug());
     RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode());
