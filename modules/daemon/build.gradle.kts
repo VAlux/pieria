@@ -41,6 +41,22 @@ dependencies {
 		// XMP is unmarshalled straight to beans and never touches the activation DataHandler path.
 		// Drop the activation impl; jakarta.activation-api (below) stays for JAXB's link-time refs.
 		exclude(group = "org.eclipse.angus", module = "angus-activation")
+		// --- Native-image size trim (see .github/workflows/release.yml) ---
+		// The macOS release runner gives native-image only ~5.7GB, and the daemon image reached
+		// 49,850 types / 256,123 reachable methods — enough that "Compiling methods" spent 87% of
+		// its time in GC and then died with OutOfMemoryError. These two subtrees are the largest
+		// dead weight the PDF parser drags in, and TikaPdfExtractor uses neither:
+		//
+		// pdfbox-tools is PDFBox's command-line/PDFDebugger bundle; its only hook into the parse
+		// path is ImageIOUtil on the page-rendering branch, which TikaPdfExtractor disables outright
+		// (IMAGE_STRATEGY.NONE + NO_OCR). Excluding it also keeps Swing/AWT out of the image.
+		exclude(group = "org.apache.pdfbox", module = "pdfbox-tools")
+		// BouncyCastle is ~5k crypto classes used only to decrypt password-protected PDFs and to
+		// verify embedded signatures. Onboarding reads local, unencrypted documents; an encrypted
+		// PDF now fails its own extract() with a Tika error and is skipped, rather than costing
+		// every build the whole provider.
+		exclude(group = "org.bouncycastle", module = "bcjmail-jdk18on")
+		exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 	}
 	constraints {
 		// Tika 3.3.1 pins PDFBox 3.0.7, whose PDDocument.<clinit> eagerly reaches AWT. PDFBox
@@ -50,7 +66,6 @@ dependencies {
 		implementation("org.apache.pdfbox:fontbox:3.0.8")
 		implementation("org.apache.pdfbox:pdfbox:3.0.8")
 		implementation("org.apache.pdfbox:pdfbox-io:3.0.8")
-		implementation("org.apache.pdfbox:pdfbox-tools:3.0.8")
 		implementation("org.apache.pdfbox:xmpbox:3.0.8")
 	}
 	// JAXB links against the activation API; keep it even though the angus impl is excluded above.
@@ -104,7 +119,16 @@ graalvmNative {
 					// Fewer concurrent analysis threads means a smaller peak working set.
 					"--parallelism=2",
 					// Don't abort a build that is progressing slowly rather than deadlocked.
-					"-H:DeadlockWatchdogInterval=0"
+					"-H:DeadlockWatchdogInterval=0",
+					// "Compiling methods" is where this leg died: 6719s at 87% GC, then OOM. -Os keeps
+					// the optimizing compiler but drops the size-expensive inlining, shrinking the peak
+					// working set of that stage. Preferred over -Ob (quick build), which relieves more
+					// memory but would ship macOS users a materially slower binary than the other
+					// platforms get. Escalate to -Ob only if -Os still cannot finish.
+					"-Os",
+					// The builder is a batch job on 3 cores; Parallel GC gives better throughput here
+					// than G1, whose concurrent threads compete with --parallelism for the same cores.
+					"-J-XX:+UseParallelGC"
 				)
 			}
 			buildArgs.addAll(
@@ -506,29 +530,47 @@ fun reSignAdhocMacOs(binDir: File, log: org.gradle.api.logging.Logger) {
 		}
 }
 
+// The release workflow compiles the three native images on three separate runners so each one gets a
+// whole machine (the macOS runner is a 3-core/7.5GB box that cannot hold two builders). The packaging
+// job then downloads the binaries into one directory and points this task at it with
+// -PprebuiltNativeBins=<dir, relative to the repo root>, so the release archive is laid out by the
+// same task `deployLocal` uses locally and the two cannot drift.
+val prebuiltNativeBins = providers.gradleProperty("prebuiltNativeBins")
+
 val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
 	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."
-	dependsOn(
-		buildTreeSitterLibraries,
-		tasks.named("nativeCompile"),
-		project(":gateway").tasks.named("nativeCompile"),
-		project(":cli").tasks.named("nativeCompile")
-	)
 
 	into(layout.buildDirectory.dir("distributions/pieria-native"))
-	// The sqlite-vec extension is embedded in the binary; nothing extra rides alongside it.
-	from(tasks.named("nativeCompile")) {
-		into("bin")
-		include("pieria-daemon", "pieria-daemon.exe")
-	}
-	from(project(":gateway").tasks.named("nativeCompile")) {
-		into("bin")
-		include("pieria-gateway", "pieria-gateway.exe")
-	}
-	from(project(":cli").tasks.named("nativeCompile")) {
-		into("bin")
-		include("pieria", "pieria.exe")
+	if (prebuiltNativeBins.isPresent) {
+		from(rootProject.layout.projectDirectory.dir(prebuiltNativeBins.get())) {
+			into("bin")
+			include(
+				"pieria", "pieria.exe",
+				"pieria-daemon", "pieria-daemon.exe",
+				"pieria-gateway", "pieria-gateway.exe"
+			)
+		}
+	} else {
+		dependsOn(
+			buildTreeSitterLibraries,
+			tasks.named("nativeCompile"),
+			project(":gateway").tasks.named("nativeCompile"),
+			project(":cli").tasks.named("nativeCompile")
+		)
+		// The sqlite-vec extension is embedded in the binary; nothing extra rides alongside it.
+		from(tasks.named("nativeCompile")) {
+			into("bin")
+			include("pieria-daemon", "pieria-daemon.exe")
+		}
+		from(project(":gateway").tasks.named("nativeCompile")) {
+			into("bin")
+			include("pieria-gateway", "pieria-gateway.exe")
+		}
+		from(project(":cli").tasks.named("nativeCompile")) {
+			into("bin")
+			include("pieria", "pieria.exe")
+		}
 	}
 	from(rootProject.layout.projectDirectory.dir("packaging/harness")) {
 		into("harness")

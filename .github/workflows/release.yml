@@ -1,15 +1,28 @@
 name: release
 
-# Builds the native daemon + gateway for each supported platform and publishes
+# Builds the native daemon + gateway + cli for each supported platform and publishes
 # them as GitHub Release assets in the archive layout the installers expect:
-#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway)
+#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway, bin/pieria)
 #   pieria-linux-x86_64.tar.gz
-#   pieria-windows-x86_64.zip     (bin\pieria-daemon.exe, bin\pieria-gateway.exe)
+#   pieria-windows-x86_64.zip     (bin\pieria-daemon.exe, ...)
 #   checksums.txt                 (sha256, verified by packaging/install.{sh,ps1})
 #
 # Native images cannot cross-compile, so each platform builds on its own runner.
 # Push a tag (v*) to cut a release; workflow_dispatch builds artifacts without
 # publishing unless a tag is supplied.
+#
+# Job graph (per platform, all three platforms in parallel):
+#
+#   test ─────────────┐
+#   native-image ×3 ──┴─> package ─> release
+#
+# The three native images are compiled on three separate runners rather than in one
+# `nativeDist` invocation. Every free Apple Silicon runner (macos-14/15/26/latest) is a
+# 3-core/7.5GB box, and the daemon image alone wants ~5.7GB — see the memory-tuned buildArgs
+# in modules/daemon/build.gradle.kts. Splitting means the daemon builder never shares a
+# machine with a second native-image process or with the test suite's JVMs, and keeps each
+# job far from the 6-hour per-job limit. The `package` job reassembles the binaries through
+# the same :daemon:nativeDist task used locally, so the archive layout cannot drift.
 
 on:
   push:
@@ -29,8 +42,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: build ${{ matrix.platform }}
+  test:
+    name: test ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -39,31 +52,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple Silicon. This runner gives native-image only ~5.7GB of a 3-core/7.5GB machine,
-          # which is tight for this image — see the memory-tuned buildArgs in
-          # modules/daemon/build.gradle.kts. A larger Apple Silicon runner (macos-15-xlarge) would
-          # be the robust fix but is a billed runner; Intel *-large runners would silently change
-          # this artifact's architecture to x86_64.
           - os: macos-14
             platform: macos-aarch64
-            vec_lib: vec0.dylib
-            archive: tar
           - os: ubuntu-latest
             platform: linux-x86_64
-            vec_lib: vec0.so
-            archive: tar
           - os: windows-latest
             platform: windows-x86_64
-            vec_lib: vec0.dll
-            archive: zip
     steps:
       - uses: actions/checkout@v4
-
-      # native-image needs the MSVC toolchain on Windows; export it to the job env
-      # so later (bash) steps inherit cl.exe.
-      - name: Set up MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Set up GraalVM (JDK 25)
         uses: graalvm/setup-graalvm@v1
@@ -71,21 +67,9 @@ jobs:
           java-version: "25"
           distribution: "graalvm"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: "true"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      # Fetch the platform sqlite-vec loadable extension so it gets embedded into
-      # the native image (build still succeeds without it, but vector search would
-      # be disabled — a release must ship it). See packaging/native/README.md.
-      - name: Fetch sqlite-vec extension
-        run: |
-          dir="packaging/native/${{ matrix.platform }}"
-          url="https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-loadable-${{ matrix.platform }}.tar.gz"
-          mkdir -p "$dir"
-          curl -fsSL "$url" | tar -xz -C "$dir" "${{ matrix.vec_lib }}"
-          ls -l "$dir"
 
       # Use the same Gradle task as deployLocal so release artifacts cannot drift from local installs.
       # Run the real grammar fixtures against those freshly built libraries with no skipped packs.
@@ -112,18 +96,159 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # macOS runs on a 3-core/7.5GB runner where native-image is memory-starved; this switches on
-      # the memory-tuned buildArgs in modules/daemon/build.gradle.kts for that leg only.
-      - name: Build native distribution
+  native-image:
+    name: ${{ matrix.image.bin }} ${{ matrix.target.platform }}
+    runs-on: ${{ matrix.target.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          # Apple Silicon. Every free arm64 macOS label is 3 cores / 7.5GB, and native-image gets
+          # only ~5.7GB of that. A larger Apple Silicon runner (macos-15-xlarge) would be the robust
+          # fix but is billed; the Intel *-large runners are free with 14GB but would silently change
+          # this artifact's architecture to x86_64.
+          - os: macos-14
+            platform: macos-aarch64
+            vec_lib: vec0.dylib
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            vec_lib: vec0.so
+          - os: windows-latest
+            platform: windows-x86_64
+            vec_lib: vec0.dll
+        image:
+          - module: daemon
+            task: ":daemon:nativeCompile"
+            bin: pieria-daemon
+          - module: gateway
+            task: ":gateway:nativeCompile"
+            bin: pieria-gateway
+          - module: cli
+            task: ":cli:nativeCompile"
+            bin: pieria
+    steps:
+      - uses: actions/checkout@v4
+
+      # native-image needs the MSVC toolchain on Windows; export it to the job env
+      # so later (bash) steps inherit cl.exe.
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up GraalVM (JDK 25)
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: "graalvm"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          native-image-job-reports: "true"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Fetch the platform sqlite-vec loadable extension so it gets embedded into
+      # the daemon image (build still succeeds without it, but vector search would
+      # be disabled — a release must ship it). See packaging/native/README.md.
+      - name: Fetch sqlite-vec extension
+        if: matrix.image.module == 'daemon'
+        run: |
+          dir="packaging/native/${{ matrix.target.platform }}"
+          url="https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-loadable-${{ matrix.target.platform }}.tar.gz"
+          mkdir -p "$dir"
+          curl -fsSL "$url" | tar -xz -C "$dir" "${{ matrix.target.vec_lib }}"
+          ls -l "$dir"
+
+      # PIERIA_CONSTRAINED_NATIVE_BUILD switches on the memory-tuned buildArgs in
+      # modules/daemon/build.gradle.kts for the memory-starved macOS leg only. GRADLE_OPTS caps
+      # Gradle's own JVM so the ~1GB it would otherwise hold stays available to the native-image
+      # builder forked alongside it — on a 7.5GB box that is ~18% more heap for the builder.
+      - name: Compile ${{ matrix.image.bin }}
         env:
           PIERIA_CONSTRAINED_NATIVE_BUILD: ${{ runner.os == 'macOS' }}
-        run: ./gradlew :daemon:nativeDist --no-daemon --stacktrace
+          GRADLE_OPTS: -Xmx512m
+        run: ./gradlew ${{ matrix.image.task }} --no-daemon --stacktrace
+
+      # actions/upload-artifact does not preserve the executable bit, so the packaging job restores
+      # it. Stage under a stable name first: the binary picks up .exe on Windows.
+      - name: Stage binary
+        run: |
+          src="modules/${{ matrix.image.module }}/build/native/nativeCompile/${{ matrix.image.bin }}"
+          if [ "$RUNNER_OS" = "Windows" ]; then src="${src}.exe"; fi
+          mkdir -p staged
+          cp "$src" staged/
+          ls -l staged
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: nativebin-${{ matrix.target.platform }}-${{ matrix.image.bin }}
+          path: staged/*
+          if-no-files-found: error
+
+  package:
+    name: package ${{ matrix.platform }}
+    # Deliberately not gated on `test`: `needs` is job-wide, not per-matrix-leg, so gating here would
+    # mean one platform's test failure withholds every platform's archive. Publishing is what must be
+    # test-gated, and the `release` job below does that.
+    needs: native-image
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-aarch64
+            archive: tar
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            archive: tar
+          - os: windows-latest
+            platform: windows-x86_64
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      # nativeDist compiles nothing in prebuilt mode, but the graalvmNative plugin is applied during
+      # configuration — keep the same JDK as the compile jobs rather than risk a toolchain mismatch.
+      - name: Set up GraalVM (JDK 25)
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: "graalvm"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download this platform's binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nativebin-${{ matrix.platform }}-*
+          merge-multiple: true
+          path: build/native-bins
+
+      # The upload/download round trip drops the executable bit; restore it before nativeDist stages
+      # the files, or the smoke test cannot exec the daemon.
+      - name: Restore executable bit
+        run: |
+          chmod +x build/native-bins/* || true
+          ls -l build/native-bins
+
+      # Same task as :daemon:deployLocal, so the archive layout (and the macOS ad-hoc re-signing that
+      # keeps AMFI from SIGKILLing a freshly replaced binary) is defined in exactly one place.
+      - name: Assemble native distribution
+        run: ./gradlew :daemon:nativeDist -PprebuiltNativeBins=build/native-bins --no-daemon --stacktrace
 
       # The JVM suite exercises the classpath resource; nothing until now has ever *run* the native
       # image. This is where GraalVM's FFM support, xerial's own native extraction, and vec0 loading
       # from an extracted path are proven on each platform rather than assumed.
       - name: Smoke-test the native daemon
-        shell: bash
         env:
           PIERIA_SMOKE_PORT: "8078"
         run: bash .github/scripts/smoke-native.sh "${{ matrix.platform }}"
@@ -152,7 +277,8 @@ jobs:
 
   release:
     name: publish release
-    needs: build
+    # Every test leg and every platform archive must be green before anything is published.
+    needs: [test, package]
     runs-on: ubuntu-latest
     # Publish only for a tag push or a dispatch that supplied a tag.
     if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
