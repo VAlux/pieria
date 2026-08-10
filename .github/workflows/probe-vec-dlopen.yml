@@ -50,12 +50,11 @@ jobs:
           echo "== dependencies =="
           ldd "$runtime_dir/vec0.so" || echo "(ldd refused it)"
 
+          # Keep the python one-line: a multi-line -c script inside this block scalar breaks the
+          # workflow parser. A failed CDLL prints the dlopen message via its traceback, which is
+          # the whole point, so let it fail loudly and swallow only the exit status.
           probe() {
-            python3 -c 'import ctypes,sys
-try:
-    ctypes.CDLL(sys.argv[1]); print("  LOADED CLEANLY")
-except OSError as e:
-    print("  FAILED:", e)' "$1"
+            python3 -c 'import ctypes,sys; ctypes.CDLL(sys.argv[1]); print("  LOADED CLEANLY")' "$1" 2>&1 || true
           }
 
           echo "== dlopen from runtime dir (what the daemon does) =="
