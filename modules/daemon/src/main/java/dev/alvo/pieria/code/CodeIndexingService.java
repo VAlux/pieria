@@ -180,7 +180,7 @@ public class CodeIndexingService {
       ? Hash.hash128(file.content() == null ? "" : file.content())
       : file.contentHash();
 
-    if (!reindex && codeStore.fileContentHash(profileId, path).filter(contentHash::equals).isPresent()) {
+    if (!reindex && codeStore.fileContentHash(profileId, path).map(contentHash::equals).orElse(false)) {
       List<Memory> derived = store.findActiveByTopicKey(profileId, MemoryType.FACT, "code:file:" + path);
       // Re-project an unchanged file when its derived memory is missing, and also when that memory
       // predates deterministic graph projection (stored unstamped, so orphan adoption would send this
@@ -355,14 +355,10 @@ public class CodeIndexingService {
   }
 
   private String upsertModule(String profileId, String path, Set<String> markerDirs) {
-    Optional<String> dir = ModulePaths.moduleDir(path, markerDirs);
-    if (dir.isEmpty()) {
-      return null;
-    }
-    String modulePath = dir.get();
-    CodeModule module = codeStore.upsertCodeModule(profileId,
-      CodeModule.of(ModulePaths.lastSegment(modulePath), modulePath));
-    return module.id();
+    return ModulePaths.moduleDir(path, markerDirs)
+      .map(modulePath -> codeStore.upsertCodeModule(profileId,
+        CodeModule.of(ModulePaths.lastSegment(modulePath), modulePath)).id())
+      .orElse(null);
   }
 
   private ParseResult parse(String language, String path, String content) {

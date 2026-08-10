@@ -164,11 +164,11 @@ final class CodeExtractor implements Extractor {
 
   private static Optional<ParsedSymbol> nearest(
     Node node, Map<String, ParsedSymbol> symbolsByNode) {
-    Optional<Node> current = node.getParent();
-    while (current.isPresent()) {
-      ParsedSymbol symbol = symbolsByNode.get(key(current.get()));
+    Node current = node.getParent().orElse(null);
+    while (current != null) {
+      ParsedSymbol symbol = symbolsByNode.get(key(current));
       if (symbol != null) return Optional.of(symbol);
-      current = current.get().getParent();
+      current = current.getParent().orElse(null);
     }
     return Optional.empty();
   }

@@ -17,7 +17,6 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Builds the embedded SQLite {@link DataSource} from the resolved app-data database path, creating
@@ -92,7 +91,7 @@ public class DataSourceConfig {
 
     // Decide the per-connection init SQL before the pool starts (Hikari seals its config on the
     // first getConnection). SQLite is single-writer; WAL lets readers proceed during a write.
-    configureConnectionInit(dataSource, url, vecCapability, vecResolver.resolve());
+    configureConnectionInit(dataSource, url, vecCapability, vecResolver.resolve().orElse(null));
     return dataSource;
   }
 
@@ -119,7 +118,7 @@ public class DataSourceConfig {
   private static void configureConnectionInit(HikariDataSource dataSource,
                                               String url,
                                               VecCapability cap,
-                                              Optional<Path> bundledExtension) {
+                                              Path bundledExtension) {
     String walPragma = "PRAGMA journal_mode=WAL";
     try (Connection conn = DriverManager.getConnection(url); Statement st = conn.createStatement()) {
       st.execute(walPragma);
@@ -145,9 +144,11 @@ public class DataSourceConfig {
    * The bundled absolute path is preferred; bare entry-point names and the explicit init symbol are
    * fallbacks for developer machines with the library on the OS extension search path.
    */
-  private static String firstLoadableSql(Statement st, Optional<Path> bundledExtension) {
+  private static String firstLoadableSql(Statement st, Path bundledExtension) {
     List<String> argLists = new ArrayList<>();
-    bundledExtension.ifPresent(p -> argLists.add("'" + p + "'"));
+    if (bundledExtension != null) {
+      argLists.add("'" + bundledExtension + "'");
+    }
     argLists.add("'vec0'");
     argLists.add("'vec'");
     argLists.add("'sqlite_vec'");

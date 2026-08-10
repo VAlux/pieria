@@ -86,12 +86,12 @@ public class AuditRecorder {
       if (errorMessage != null) terminal.put("errorMessage", errorMessage);
       String body = json.writeValueAsString(terminal);
       CapturedPayload response = capture(body);
-      Optional<Profile> profile = memories.findProfile(parent.profileName());
+      Profile profile = memories.findProfile(parent.profileName()).orElse(null);
       // A hard profile delete must remain a complete wipe even when an older task finishes later.
-      if (profile.isEmpty()) {
+      if (profile == null) {
         return;
       }
-      String profileId = profile.get().id();
+      String profileId = profile.id();
       String outcome = switch (status) {
         case "SUCCEEDED" -> "success";
         case "CANCELLED" -> "cancelled";

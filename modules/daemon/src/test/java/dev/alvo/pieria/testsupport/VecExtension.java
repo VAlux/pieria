@@ -34,7 +34,8 @@ public final class VecExtension {
   private static final String ALLOW_MISSING_ENV = "PIERIA_ALLOW_MISSING_VEC_EXTENSION";
   private static final String ALLOW_MISSING_PROPERTY = "pieria.test.allow-missing-vec-extension";
 
-  private static Optional<Path> extracted;
+  private static boolean extractionAttempted;
+  private static Path extracted;
 
   private VecExtension() {
   }
@@ -58,10 +59,13 @@ public final class VecExtension {
     if (explicit.isPresent()) {
       return explicit;
     }
-    if (extracted == null) {
-      extracted = extractFromClasspath().or(VecExtension::fromPackagingDirectory);
+
+    if (!extractionAttempted) {
+      extracted = extractFromClasspath().or(VecExtension::fromPackagingDirectory).orElse(null);
+      extractionAttempted = true;
     }
-    return extracted;
+
+    return Optional.ofNullable(extracted);
   }
 
   /** The embedded resource, extracted once per JVM to a temp file that outlives the calling test. */

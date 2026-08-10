@@ -54,9 +54,7 @@ public class ProfileStatsService {
     Profile profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
 
     ProfileStats stats = store.profileStats(profile.id());
-    Long backlog = store.vectorizationOutboxDepth().isPresent()
-      ? store.vectorizationOutboxDepth().getAsLong()
-      : null;
+    Long backlog = store.vectorizationOutboxDepth().stream().boxed().findFirst().orElse(null);
 
     return new ProfileStatsView(
       profile.name(),

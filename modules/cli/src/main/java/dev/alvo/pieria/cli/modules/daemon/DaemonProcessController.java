@@ -316,8 +316,8 @@ public final class DaemonProcessController {
   }
 
   private StartOutcome spawn(StartOptions opts) {
-    Optional<Path> binary = locateDaemon(opts.daemonBinary());
-    if (binary.isEmpty()) {
+    Path daemon = locateDaemon(opts.daemonBinary()).orElse(null);
+    if (daemon == null) {
       return new NoMechanism(
         "No Pieria service is installed and no daemon executable was found.\n"
           + "Install the daemon (it lands at ~/.local/bin/pieria-daemon), set $PIERIA_DAEMON_BIN, "
@@ -325,7 +325,6 @@ public final class DaemonProcessController {
     }
 
     RuntimePaths paths = RuntimePaths.resolve(opts.runtimeDir());
-    Path daemon = binary.get();
     List<String> command = buildSpawnCommand(daemon, opts);
 
     if (opts.dryRun()) {
@@ -363,8 +362,8 @@ public final class DaemonProcessController {
       return new Failed("could not read PID file " + pidFile + ": " + e.getMessage());
     }
 
-    Optional<ProcessHandle> handle = ProcessHandle.of(pid);
-    if (handle.isEmpty() || !handle.get().isAlive()) {
+    ProcessHandle process = ProcessHandle.of(pid).orElse(null);
+    if (process == null || !process.isAlive()) {
       deleteQuietly(pidFile);
       return new NotRunning();
     }
@@ -374,7 +373,6 @@ public final class DaemonProcessController {
       return new StoppedPid(pid);
     }
 
-    ProcessHandle process = handle.get();
     process.destroy();
     if (!waitForExit(process)) {
       process.destroyForcibly();

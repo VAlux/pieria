@@ -52,15 +52,12 @@ public class VecExtensionResolver {
   /** Resolve the extension path from config/env/install layout, then the embedded resource. */
   public Optional<Path> resolve() {
     String osName = OsFamily.osName();
-    Optional<Path> fileBased = resolve(
+    return resolve(
       properties.extensionPath(),
       System.getenv("PIERIA_VEC_EXTENSION"),
       NativeResourceExtractor.installCandidateDirectories(VecExtensionResolver.class),
-      osName);
-    if (fileBased.isPresent()) {
-      return fileBased;
-    }
-    return extractEmbedded(osName, OsFamily.osArch());
+      osName)
+      .or(() -> extractEmbedded(osName, OsFamily.osArch()));
   }
 
   /**
@@ -71,19 +68,14 @@ public class VecExtensionResolver {
                                 String envPath,
                                 List<Path> candidateDirs,
                                 String osName) {
-    Optional<Path> explicit = NativeResourceExtractor.existingFile(configuredPath)
-      .or(() -> NativeResourceExtractor.existingFile(envPath));
-    if (explicit.isPresent()) {
-      return explicit;
-    }
     String fileName = platformExtensionFileName(osName);
-    for (Path dir : candidateDirs) {
-      Path candidate = dir.resolve(fileName);
-      if (Files.isRegularFile(candidate)) {
-        return Optional.of(candidate.toAbsolutePath().normalize());
-      }
-    }
-    return Optional.empty();
+    return NativeResourceExtractor.existingFile(configuredPath)
+      .or(() -> NativeResourceExtractor.existingFile(envPath))
+      .or(() -> candidateDirs.stream()
+        .map(dir -> dir.resolve(fileName))
+        .filter(Files::isRegularFile)
+        .findFirst()
+        .map(candidate -> candidate.toAbsolutePath().normalize()));
   }
 
   /**

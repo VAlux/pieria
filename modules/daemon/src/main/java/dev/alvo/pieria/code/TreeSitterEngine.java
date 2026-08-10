@@ -73,28 +73,31 @@ public class TreeSitterEngine implements AutoCloseable {
       log.info("Tree-sitter disabled (pieria.treesitter.enabled=false); code symbol parsing is off.");
       return;
     }
-    Optional<Path> core = resolver.resolveCore();
-    if (core.isEmpty()) {
+    Path core = resolver.resolveCore().orElse(null);
+    if (core == null) {
       log.warn("Tree-sitter core libtree-sitter not found; code symbol parsing is off "
         + "(index degrades to file/module facts).");
       return;
     }
-    System.setProperty(PieriaTreeSitterLibraryLookup.CORE_PATH_PROPERTY, core.get().toString());
+    System.setProperty(PieriaTreeSitterLibraryLookup.CORE_PATH_PROPERTY, core.toString());
 
     languageArena = Arena.ofShared();
+    // Optional as a map value here memoizes a negative lookup too: computeIfAbsent recomputes on
+    // every call for a function that returns null, so a plain Path cache would re-extract the
+    // grammar for every language sharing a not-found native library.
     Map<String, Optional<Path>> paths = new HashMap<>();
     Map<Path, SymbolLookup> lookups = new HashMap<>();
 
     for (LanguagePack pack : LanguagePackRegistry.packs()) {
-      Optional<Path> grammarPath = paths.computeIfAbsent(pack.nativeLibrary(), resolver::resolveGrammar);
-      if (grammarPath.isEmpty()) {
+      Path grammarPath = paths.computeIfAbsent(pack.nativeLibrary(), resolver::resolveGrammar).orElse(null);
+      if (grammarPath == null) {
         log.warn("Tree-sitter {} grammar not found; {} parsing is off.", pack.nativeLibrary(), pack.id());
         continue;
       }
 
       Query query = null;
       try {
-        SymbolLookup lookup = lookups.computeIfAbsent(grammarPath.get(),
+        SymbolLookup lookup = lookups.computeIfAbsent(grammarPath,
           path -> SymbolLookup.libraryLookup(path, languageArena));
         Language language = Language.load(lookup, pack.grammarSymbol());
         query = new Query(language, loadResource(pack.queryResource()));
@@ -155,9 +158,9 @@ public class TreeSitterEngine implements AutoCloseable {
     Parser parser = parserPool.take();
     try {
       parser.setLanguage(loaded.language());
-      Optional<Tree> parsed = parser.parse(source == null ? "" : source, InputEncoding.UTF_8);
-      if (parsed.isEmpty()) return Optional.empty();
-      try (Tree tree = parsed.get()) {
+      Tree tree = parser.parse(source == null ? "" : source, InputEncoding.UTF_8).orElse(null);
+      if (tree == null) return Optional.empty();
+      try (tree) {
         String text = source == null ? "" : source;
         return Optional.ofNullable(handler.handle(tree.getRootNode(), loaded.query(), text));
       }

@@ -5,7 +5,6 @@ import dev.alvo.pieria.tools.os.OsFamily;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 
 /**
  * Locates the Pieria install root ({@code PIERIA_HOME}) and the {@code pieria-gateway}/{@code pieria}
@@ -21,12 +20,12 @@ import java.util.Optional;
 public final class PathResolver {
 
   private final java.util.function.Function<String, String> env;
-  private final Optional<Path> selfExecutable;
+  private final Path selfExecutable;
   private final Path userHome;
   private final boolean windows;
 
   public PathResolver(java.util.function.Function<String, String> env,
-                      Optional<Path> selfExecutable,
+                      Path selfExecutable,
                       Path userHome,
                       boolean windows) {
     this.env = env;
@@ -39,7 +38,7 @@ public final class PathResolver {
    * Production factory: real env, current process command, system user home and OS.
    */
   public static PathResolver create() {
-    Optional<Path> self = ProcessHandle.current().info().command().map(Path::of);
+    Path self = ProcessHandle.current().info().command().map(Path::of).orElse(null);
     boolean win = OsFamily.detect() == OsFamily.WINDOWS;
     return new PathResolver(System::getenv, self, Path.of(System.getProperty("user.home")), win);
   }
@@ -53,9 +52,8 @@ public final class PathResolver {
       return Path.of(fromEnv.strip());
     }
     // <home>/bin/<exe>  ->  <home>
-    if (selfExecutable.isPresent()) {
-      Path exe = selfExecutable.get();
-      Path binDir = exe.getParent();
+    if (selfExecutable != null) {
+      Path binDir = selfExecutable.getParent();
       if (binDir != null && binDir.getFileName() != null
         && "bin".equals(binDir.getFileName().toString()) && binDir.getParent() != null) {
         return binDir.getParent();
@@ -84,8 +82,8 @@ public final class PathResolver {
    * executable and falling back to {@code <PIERIA_HOME>/bin/<exeName>}.
    */
   private String resolveExecutable(String exeName) {
-    if (selfExecutable.isPresent()) {
-      Path binDir = selfExecutable.get().getParent();
+    if (selfExecutable != null) {
+      Path binDir = selfExecutable.getParent();
       if (binDir != null) {
         Path sibling = binDir.resolve(exeName);
         if (Files.isRegularFile(sibling)) {

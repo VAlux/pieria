@@ -60,21 +60,17 @@ public class TreeSitterLibraryResolver {
   }
 
   private Optional<Path> resolve(String baseName, String configuredPath, String envPath) {
-    Optional<Path> explicit = NativeResourceExtractor.existingFile(configuredPath)
-      .or(() -> NativeResourceExtractor.existingFile(envPath));
-    if (explicit.isPresent()) {
-      return explicit;
-    }
     String osName = OsFamily.osName();
     String fileName = baseName + "." + NativeResourceExtractor.librarySuffix(osName);
     List<Path> candidateDirs = NativeResourceExtractor.installCandidateDirectories(TreeSitterLibraryResolver.class);
-    for (Path dir : candidateDirs) {
-      Path candidate = dir.resolve(fileName);
-      if (Files.isRegularFile(candidate)) {
-        return Optional.of(candidate.toAbsolutePath().normalize());
-      }
-    }
-    return extractEmbedded(baseName, osName, OsFamily.osArch());
+    return NativeResourceExtractor.existingFile(configuredPath)
+      .or(() -> NativeResourceExtractor.existingFile(envPath))
+      .or(() -> candidateDirs.stream()
+        .map(dir -> dir.resolve(fileName))
+        .filter(Files::isRegularFile)
+        .findFirst()
+        .map(candidate -> candidate.toAbsolutePath().normalize()))
+      .or(() -> extractEmbedded(baseName, osName, OsFamily.osArch()));
   }
 
   private Optional<Path> extractEmbedded(String baseName, String osName, String osArch) {

@@ -189,15 +189,14 @@ public class RetrievalService {
 
     long totalStart = System.nanoTime();
 
-    var maybeProfile = store.findProfile(profileName);
-    if (maybeProfile.isEmpty()) {
+    var profile = store.findProfile(profileName).orElse(null);
+    if (profile == null) {
       // A profile is created lazily on first ingest; recalling one that does not exist yet (e.g. a
       // harness auto-recall before anything has been stored) is not an error — there is simply
       // nothing to recall. Warn and return an empty result rather than throwing.
       LOGGER.warn("recall on unknown profile name={} — no memories to recall, returning empty result", profileName);
       return RecallResult.empty();
     }
-    var profile = maybeProfile.get();
     LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
 
     // Per-profile effective config: global properties overlaid with any pushed overrides. The

@@ -126,11 +126,11 @@ final class ScssCodeExtractor implements LanguagePack.Extractor {
 
   private static Optional<CodeParser.ParsedSymbol> nearest(
     Node node, Map<String, CodeParser.ParsedSymbol> symbolsByNode) {
-    Optional<Node> current = node.getParent();
-    while (current.isPresent()) {
-      CodeParser.ParsedSymbol symbol = symbolsByNode.get(key(current.get()));
+    Node current = node.getParent().orElse(null);
+    while (current != null) {
+      CodeParser.ParsedSymbol symbol = symbolsByNode.get(key(current));
       if (symbol != null) return Optional.of(symbol);
-      current = current.get().getParent();
+      current = current.getParent().orElse(null);
     }
     return Optional.empty();
   }

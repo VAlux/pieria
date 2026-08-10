@@ -44,9 +44,9 @@ public interface MemoryStore {
    * {@link dev.alvo.pieria.domain.error.ConflictException} rather than returning the existing one.
    */
   default Profile createProfile(String name) {
-    if (findProfile(name).isPresent()) {
+    findProfile(name).ifPresent(existing -> {
       throw dev.alvo.pieria.domain.error.ConflictException.profileExists(name);
-    }
+    });
     return getOrCreateProfile(name);
   }
 

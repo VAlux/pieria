@@ -148,25 +148,23 @@ final class JavaCodeExtractor implements LanguagePack.Extractor {
 
   private static List<String> enclosingTypeNames(Node node) {
     Deque<String> names = new ArrayDeque<>();
-    Optional<Node> current = node.getParent();
-    while (current.isPresent()) {
-      Node parent = current.get();
-      if (isTypeDecl(parent.getType())) {
-        parent.getChildByFieldName("name").map(Node::getText).ifPresent(names::addFirst);
+    Node current = node.getParent().orElse(null);
+    while (current != null) {
+      if (isTypeDecl(current.getType())) {
+        current.getChildByFieldName("name").map(Node::getText).ifPresent(names::addFirst);
       }
-      current = parent.getParent();
+      current = current.getParent().orElse(null);
     }
     return new ArrayList<>(names);
   }
 
   private static Node nearestEnclosing(Node node, java.util.function.Predicate<String> types) {
-    Optional<Node> current = node.getParent();
-    while (current.isPresent()) {
-      Node parent = current.get();
-      if (types.test(parent.getType())) {
-        return parent;
+    Node current = node.getParent().orElse(null);
+    while (current != null) {
+      if (types.test(current.getType())) {
+        return current;
       }
-      current = parent.getParent();
+      current = current.getParent().orElse(null);
     }
     return null;
   }

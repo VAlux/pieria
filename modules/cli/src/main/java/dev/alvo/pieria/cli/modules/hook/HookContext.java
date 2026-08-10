@@ -75,13 +75,9 @@ public final class HookContext {
 
   /** The first of the harness's transcript variables that points at an existing file. */
   public Optional<Path> firstExistingTranscript(HarnessHookSpec spec) {
-    for (String key : spec.transcriptEnvKeys()) {
-      Optional<Path> candidate = env(key).map(Path::of).filter(Files::isRegularFile);
-      if (candidate.isPresent()) {
-        return candidate;
-      }
-    }
-    return Optional.empty();
+    return spec.transcriptEnvKeys().stream()
+      .flatMap(key -> env(key).map(Path::of).filter(Files::isRegularFile).stream())
+      .findFirst();
   }
 
   /** The harness session id, or null so the daemon generates one. */

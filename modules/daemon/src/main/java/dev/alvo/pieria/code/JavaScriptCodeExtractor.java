@@ -145,11 +145,11 @@ final class JavaScriptCodeExtractor implements LanguagePack.Extractor {
 
   private static Optional<CodeParser.ParsedSymbol> nearestDefinition(
     Node node, Map<String, CodeParser.ParsedSymbol> symbolsByNode) {
-    Optional<Node> current = node.getParent();
-    while (current.isPresent()) {
-      CodeParser.ParsedSymbol symbol = symbolsByNode.get(nodeKey(current.get()));
+    Node current = node.getParent().orElse(null);
+    while (current != null) {
+      CodeParser.ParsedSymbol symbol = symbolsByNode.get(nodeKey(current));
       if (symbol != null) return Optional.of(symbol);
-      current = current.get().getParent();
+      current = current.getParent().orElse(null);
     }
     return Optional.empty();
   }
@@ -163,7 +163,7 @@ final class JavaScriptCodeExtractor implements LanguagePack.Extractor {
         default -> false;
       }).count();
     }
-    return definition.getChildByFieldName("parameter").isPresent() ? 1 : 0;
+    return definition.getChildByFieldName("parameter").map(n -> 1).orElse(0);
   }
 
   private static Node findDescendant(Node node, String... types) {
@@ -183,10 +183,10 @@ final class JavaScriptCodeExtractor implements LanguagePack.Extractor {
     String text = definition.getText() == null ? "" : definition.getText().stripLeading();
     if (text.startsWith("private ") || text.startsWith("#")) return "private";
     if (text.startsWith("protected ")) return "protected";
-    Optional<Node> current = Optional.of(definition);
-    while (current.isPresent()) {
-      if (current.get().getType().equals("export_statement")) return "public";
-      current = current.get().getParent();
+    Node current = definition;
+    while (current != null) {
+      if (current.getType().equals("export_statement")) return "public";
+      current = current.getParent().orElse(null);
     }
     return "module";
   }
