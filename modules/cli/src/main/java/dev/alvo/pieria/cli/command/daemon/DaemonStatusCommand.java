@@ -67,6 +67,9 @@ public final class DaemonStatusCommand implements Callable<Integer> {
     }
     line("Setup", status.status());
     line("Backend", status.backend());
+    // Called out explicitly because the daemon falls back to FTS-only without failing when the
+    // sqlite-vec extension does not load; "disabled" here is the visible symptom.
+    line("Vector search", status.vectorSearch() ? "enabled" : "disabled");
     line("Provider", status.modelProvider());
     line("Extraction model", status.extractionModel());
     line("Synthesis model", status.synthesisModel());

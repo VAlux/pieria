@@ -45,6 +45,9 @@ class StatusControllerTests {
       .andExpect(jsonPath("$.status", is("ready")))
       .andExpect(jsonPath("$.databasePath", endsWith("pieria.db")))
       .andExpect(jsonPath("$.backend", is("sqlite")))
+      // Mirrors the store rather than being hardcoded: the CI smoke test treats vectorSearch:true as
+      // proof the native image loaded sqlite-vec, so a stub that reports false must serialize false.
+      .andExpect(jsonPath("$.vectorSearch", is(false)))
       .andExpect(jsonPath("$.modelProvider", is("test-provider")))
       .andExpect(jsonPath("$.extractionModel", is("small")))
       .andExpect(jsonPath("$.synthesisModel", is("large")))

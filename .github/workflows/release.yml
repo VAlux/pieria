@@ -99,12 +99,34 @@ jobs:
           PIERIA_TEST_NATIVE_DIR="$NATIVE_ROOT/modules/daemon/build/generated/treesitter-native/${{ matrix.platform }}" \
             ./gradlew test --no-daemon --stacktrace
 
+      # Skips are invisible in Gradle's default output, so publish the reports: a leg that "passed"
+      # by skipping its native-dependent tests should be diagnosable after the fact.
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ matrix.platform }}
+          path: |
+            modules/*/build/reports/tests/test
+            modules/*/build/test-results/test
+          if-no-files-found: warn
+          retention-days: 14
+
       # macOS runs on a 3-core/7.5GB runner where native-image is memory-starved; this switches on
       # the memory-tuned buildArgs in modules/daemon/build.gradle.kts for that leg only.
       - name: Build native distribution
         env:
           PIERIA_CONSTRAINED_NATIVE_BUILD: ${{ runner.os == 'macOS' }}
         run: ./gradlew :daemon:nativeDist --no-daemon --stacktrace
+
+      # The JVM suite exercises the classpath resource; nothing until now has ever *run* the native
+      # image. This is where GraalVM's FFM support, xerial's own native extraction, and vec0 loading
+      # from an extracted path are proven on each platform rather than assumed.
+      - name: Smoke-test the native daemon
+        shell: bash
+        env:
+          PIERIA_SMOKE_PORT: "8078"
+        run: bash .github/scripts/smoke-native.sh "${{ matrix.platform }}"
 
       - name: Package archive
         if: matrix.archive == 'tar'

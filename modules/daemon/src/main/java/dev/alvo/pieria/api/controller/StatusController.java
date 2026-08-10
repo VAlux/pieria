@@ -30,6 +30,7 @@ public class StatusController {
       status.status(),
       status.databaseFile(),
       status.backend(),
+      status.vectorSearch(),
       status.provider(),
       status.extractionModel(),
       status.synthesisModel(),

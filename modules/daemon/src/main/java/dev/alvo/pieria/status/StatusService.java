@@ -11,7 +11,8 @@ import java.util.OptionalLong;
 
 /**
  * Aggregates daemon readiness for {@code /pieria-status}: setup state (via {@link BootstrapService}),
- * the configured backend/model identifiers, and the vectorization outbox backlog. The outbox probe
+ * the configured backend/model identifiers, whether vector search actually came up, and the
+ * vectorization outbox backlog. The outbox probe
  * is fail-open — a backend that does not support it (or a transient store error) yields no backlog
  * figure rather than a 500, so status stays informational.
  */
@@ -37,6 +38,7 @@ public class StatusService {
     String status,
     String databaseFile,
     String backend,
+    boolean vectorSearch,
     String provider,
     String extractionModel,
     String synthesisModel,
@@ -54,6 +56,7 @@ public class StatusService {
       state.directoriesReady() && state.databaseParentReady() ? "ready" : "initializing",
       state.paths().databaseFile().toString(),
       storage.backend(),
+      store.isVectorSearchAvailable(),
       pieria.provider().name(),
       model.extractionModel(),
       model.synthesisModel(),

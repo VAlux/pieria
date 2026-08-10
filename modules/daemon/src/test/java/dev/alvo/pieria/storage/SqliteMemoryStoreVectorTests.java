@@ -10,6 +10,7 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore.StoreOutcome;
+import dev.alvo.pieria.testsupport.VecExtension;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -29,12 +31,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * sqlite-vec index behavior. Every assertion that depends on the native
- * extension is guarded by {@code assumeTrue(store.isVectorSearchAvailable())} so the suite passes
- * on machines without the native lib (the assumption simply skips the body there).
+ * sqlite-vec index behavior. Every assertion that depends on the native extension calls
+ * {@link VecExtension#requireLoaded(boolean)}, which <em>fails</em> when the extension is missing
+ * rather than skipping — see that class for why a skip was the wrong default.
  */
 class SqliteMemoryStoreVectorTests {
 
@@ -83,16 +84,25 @@ class SqliteMemoryStoreVectorTests {
     }
   }
 
+  /**
+   * Mirrors {@code DataSourceConfig.firstLoadableSql}: the bundled extension is tried first by
+   * absolute path, with the bare entry-point names kept only as a fallback for machines that have
+   * the library on the OS extension search path. Loading by bare name alone never resolves from
+   * Gradle's working directory, which is what silently disabled this whole suite.
+   */
   private boolean tryLoadVec(VecCapability cap) {
+    List<String> argLists = new ArrayList<>();
+    VecExtension.locate().ifPresent(path -> argLists.add("'" + path + "'"));
+    argLists.addAll(List.of("'vec0'", "'vec'", "'sqlite_vec'", "'vec0', 'sqlite3_vec_init'"));
     try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
       boolean ok = false;
-      for (String name : new String[] {"vec0", "vec", "sqlite_vec"}) {
+      for (String args : argLists) {
         try {
-          st.execute("SELECT load_extension('" + name + "')");
+          st.execute("SELECT load_extension(" + args + ")");
           ok = true;
           break;
         } catch (Exception ignored) {
-          // try next entry-point name
+          // try next candidate
         }
       }
       if (ok) {
@@ -104,7 +114,7 @@ class SqliteMemoryStoreVectorTests {
         }
       }
     } catch (Exception ignored) {
-      // extension unavailable on this platform; tests will be skipped via assumeTrue
+      // Extension unavailable; VecExtension.requireLoaded turns that into a failure.
     }
     return false;
   }
@@ -144,17 +154,16 @@ class SqliteMemoryStoreVectorTests {
 
   @Test
   void capabilityReflectsExtensionAndFlag() {
-    // When available, the flag must be on (we constructed with vector-enabled = true).
-    if (store.isVectorSearchAvailable()) {
-      assertTrue(store.isVectorSearchAvailable());
-    } else {
-      assertFalse(store.isVectorSearchAvailable());
-    }
+    // The extension is required, and this store was constructed with vector-enabled = true, so the
+    // capability must be on. Previously this branched on the very flag it meant to check, which made
+    // it pass either way.
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
+    assertTrue(store.isVectorSearchAvailable());
   }
 
   @Test
   void upsertThenVectorSearchReturnsNearest() {
-    assumeTrue(store.isVectorSearchAvailable());
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-a");
 
     StoreOutcome near = store.store(p.id(), Memory.of(MemoryType.FACT, "near memory", "s1", "k.near", null));
@@ -169,7 +178,7 @@ class SqliteMemoryStoreVectorTests {
 
   @Test
   void supersessionRemovesVectorFromResults() {
-    assumeTrue(store.isVectorSearchAvailable());
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-supersede");
 
     StoreOutcome first = store.store(p.id(), Memory.of(MemoryType.FACT, "lives in Berlin", "s1", "location", null));
@@ -187,7 +196,7 @@ class SqliteMemoryStoreVectorTests {
 
   @Test
   void forgetRemovesVectorFromResults() {
-    assumeTrue(store.isVectorSearchAvailable());
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-forget");
     StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "ephemeral", "s1", null, null));
     store.completeVectorization(s.stored().id(), vec(1f, 0f, 0f, 0f));
@@ -199,7 +208,7 @@ class SqliteMemoryStoreVectorTests {
 
   @Test
   void tasksNeverAppearInVectorResults() {
-    assumeTrue(store.isVectorSearchAvailable());
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-task");
     // Tasks are not enqueued for vectorization, but force a vec row defensively to prove the query
     // filters them out even if one ever leaked in.
@@ -211,7 +220,7 @@ class SqliteMemoryStoreVectorTests {
 
   @Test
   void backfillPopulatesVecFromExistingBlobs() {
-    assumeTrue(store.isVectorSearchAvailable());
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-backfill");
     StoreOutcome s = store.store(p.id(), Memory.of(MemoryType.FACT, "backfill me", "s1", null, null));
     // Write only the BLOB (simulate a Phase-2 row) by going around the vec upsert.

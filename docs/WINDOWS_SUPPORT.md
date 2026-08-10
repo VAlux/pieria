@@ -1,8 +1,11 @@
 # Windows Support
 
-**Status as of 2026-07-30:** Pieria ships for macOS only. Nothing here is an architectural
-rewrite — the OS abstractions are already in place and already have real Windows branches. What is
-missing is a set of unfinished ends, listed below in the order they should be tackled.
+**Status as of 2026-08-10:** blockers 1–3 are **done** — CI builds and tests Windows and Linux
+artifacts, the Tree-sitter MSVC export problem is solved, and the POSIX harness hooks have been
+absorbed into the CLI. Blocker 7 is now instrumented: the sqlite-vec extension is mandatory in tests,
+the native binary is smoke-tested, and test reports are published. Blockers 4–6 and 8 remain. Nothing
+left here is an architectural rewrite; the OS abstractions are already in place and already have real
+Windows branches.
 
 ## What already works
 
@@ -16,49 +19,57 @@ Do not redo any of this:
 | `NativeResourceExtractor` | `platformKey()` yields `windows-x86_64`; `librarySuffix()` yields `dll`. |
 | `packaging/install.ps1` | Essentially complete — download, checksum, expand, PATH, logon task. |
 | `packaging/native/windows-x86_64/vec0.dll` | The sqlite-vec extension is present and current. |
-| Tree-sitter Gradle task | Has an `cl.exe /LD` branch (untested — see blocker 2). |
-| Release workflow | Has the MSVC setup step and zip packaging step (matrix entry disabled — see blocker 1). |
+| Tree-sitter Gradle task | MSVC branch builds and exports correctly; grammar fixtures pass on the Windows runner. |
+| Release workflow | `windows-x86_64` and `linux-x86_64` matrix legs are enabled and green. |
+| `pieria hook` CLI group | Replaces the former POSIX shell hooks; no `sh`/`curl`/`python3` dependency. |
+| `.gitattributes` | Pins `*.sh`/`*.txt` to LF and `*.bat` to CRLF. |
 
 ## Blockers, in dependency order
 
-### 1. CI never builds Windows artifacts
+### 1. CI never builds Windows artifacts — **DONE**
 
-`.github/workflows/release.yml` has the `windows-latest` **and** `ubuntu-latest` matrix entries
-commented out. Only `macos-14` builds. Consequently `pieria-windows-x86_64.zip` is never published,
-and `packaging/install.ps1` fails at its very first step trying to download it.
+`.github/workflows/release.yml` now enables all three matrix legs: `macos-14`, `ubuntu-latest`
+(`linux-x86_64`, tar), and `windows-latest` (`windows-x86_64`, zip). The `ilammy/msvc-dev-cmd@v1`
+MSVC setup step, the `Compress-Archive` zip step, and the checksum flow are all wired.
 
-The zip packaging step, the `ilammy/msvc-dev-cmd@v1` MSVC setup step, and the checksum flow are all
-already written and waiting. This is uncomment-and-make-green — but "make green" is where blocker 2
-lives, so budget for that.
+Verified green: run `30824530630` (2026-08-03) shows `build windows-x86_64` **success** and
+`build linux-x86_64` **success**. The macOS leg was the failure there — a memory-starved
+3-core runner, addressed separately by `PIERIA_CONSTRAINED_NATIVE_BUILD` and the larger-runner work.
 
-### 2. Tree-sitter native libraries have never been built on Windows
+### 2. Tree-sitter native libraries have never been built on Windows — **DONE**
 
-`modules/daemon/build.gradle.kts` has an MSVC branch (`cl.exe /nologo /LD /O2 ... /Fe:`) that has
-never been executed.
+Solved via option 2 (`.def` module-definition file), implemented as
+`compileWindowsWithAutoExports` in `modules/daemon/build.gradle.kts`. The diagnosis held: the
+pinned Tree-sitter core guards its exports for GCC/Clang only (`#pragma GCC visibility push` in
+`api.h`; `alloc.h` blanks `TS_PUBLIC` on `_WIN32`), so a plain `cl.exe /LD` produced a DLL that
+loaded but exported nothing.
 
-**The likely failure: MSVC does not export symbols from a DLL by default.** Tree-sitter's core
-`lib/src/lib.c` carries no `__declspec(dllexport)` annotations, so the resulting
-`libtree-sitter.dll` will load but expose no symbols, and the FFM `SymbolLookup` in
-`TreeSitterEngine` will find nothing. Fixes, in order of preference:
+The build now compiles the core to `.obj` files, runs `dumpbin /symbols` over them, filters
+`ts_*`/`tree_sitter_*` externals, and generates a `.def` — replicating CMake's
+`WINDOWS_EXPORT_ALL_SYMBOLS` — rather than patching freshly cloned upstream headers. It fails loudly
+if the symbol scrape comes back empty. Grammar DLLs need none of this, as predicted: generated
+`parser.c` carries its own `__declspec(dllexport)`, so they take the plain `/LD` path.
 
-1. Compile with `-DTREE_SITTER_API=__declspec(dllexport)` if the pinned version honours such a macro.
-2. Generate a `.def` module-definition file and pass `/DEF:`.
-3. Build the core as a static library and link it into each grammar DLL.
+Two incidental Windows-only snags were fixed along the way: the link is routed through `cl.exe`
+with `/link /DEF:` because Git Bash's coreutils `link` shadows MSVC's `link.exe` under the
+workflow's `shell: bash`, and `LC_ALL=C` pins `dumpbin`'s output format for the symbol regex.
 
-Language grammars are lower risk — recent grammar sources annotate `TS_PUBLIC` — but verify rather
-than assume.
+CI proves it end to end — the workflow runs `:daemon:buildTreeSitterLibraries` and then the full
+test suite with `PIERIA_TEST_NATIVE_DIR` pointed at the freshly built libraries, no packs skipped.
 
-Secondary: `packaging/native/windows-x86_64/` contains only `vec0.dll`, no prebuilt Tree-sitter
-libraries. Any Windows JVM test run that skips `buildTreeSitterLibraries` silently degrades code
-parsing to disabled — `embedTreeSitterLibraries` only logs a warning.
+Residual (minor): `packaging/native/windows-x86_64/` still contains only `vec0.dll`, no checked-in
+prebuilt Tree-sitter libraries — unlike `macos-aarch64`. CI builds them, so release artifacts are
+fine, but a local Windows JVM test run that skips `buildTreeSitterLibraries` still degrades code
+parsing to disabled with only a warning from `embedTreeSitterLibraries`.
 
-### 3. Harness hooks were POSIX shell — **being fixed now**
+### 3. Harness hooks were POSIX shell — **DONE**
 
 The eleven `harness/**/*.sh` scripts depended on `sh`, `curl`, and `python3`, and the installers
 wired them in as the literal string `sh <path>/script.sh`. Stock Windows has none of that.
 
-This is being resolved on the `cli-hooks` branch by absorbing the logic into the CLI as a hidden
-`pieria hook` command group. See `docs/superpowers/specs/2026-07-30-cli-hooks-design.md`.
+Resolved: no `.sh` files remain under `harness/`. The logic lives in the CLI as a hidden
+`pieria hook` command group (`modules/cli/.../command/hook/` — per-harness commands for Claude Code,
+Codex, and OpenCode). See `docs/superpowers/specs/2026-07-30-cli-hooks-design.md`.
 
 **The constraint that work established, which any future hook wiring must preserve:** the command
 string stored in harness config may contain **only literals** — an absolute binary path plus fixed
@@ -116,20 +127,43 @@ genuine design addition, not a fill-in-the-blank.
   escapes JSON correctly; TOML basic strings also require `\\` and deserve a pinning test.
 - **Paths containing spaces.** `C:\Users\First Last\...` is the common case, not the exception. It
   must survive the PowerShell argument quoting, the JDBC URL, and any generated command string. The
-  `cli-hooks` work adds `HookCommandLine` for the command-string half of this.
-- **`.gitattributes` does not pin `*.sh` to LF.** A Windows checkout with `autocrlf=true` gives every
-  shell script CRLF endings, breaking them even under Git Bash or WSL. Being fixed as part of the
-  `cli-hooks` branch; `packaging/**/*.sh` remains after that work, so the pin still matters.
+  `cli-hooks` work added `HookCommandLine` for the command-string half of this.
+- ~~**`.gitattributes` does not pin `*.sh` to LF.**~~ **Done** — `.gitattributes` now pins `*.sh`
+  and `*.txt` to LF, `*.bat` to CRLF, and `gradlew` to LF. This still matters for
+  `packaging/**/*.sh`, which outlived the hook rewrite.
 
-### 7. Runtime verification nobody has done yet
+### 7. Runtime verification nobody has done yet — **now instrumented**
 
-All of these *should* work. None is confirmed:
+A green CI leg used to prove far less than it looked. Every native dependency soft-fails by design:
+`DataSourceConfig` logs a warning and disables vector search when `load_extension` fails, and the
+vector tests were guarded by `assumeTrue(store.isVectorSearchAvailable())`. Gradle prints no skip
+counts, and no test report was published — so "passed" and "never ran" were indistinguishable. That
+was not hypothetical: the suite only ever tried to load the extension by *bare name*, which never
+resolves from Gradle's working directory, so the vector assertions had been silently skipping on
+**every** platform, macOS included.
 
-- GraalVM `nativeCompile` on Windows with the FFM flags (`--enable-native-access=ALL-UNNAMED`, shared
-  `Arena` support).
-- xerial sqlite-jdbc's own native-library extraction on Windows.
-- `load_extension` against a Windows path for `vec0.dll`.
-- SQLite file-locking semantics under the single-writer daemon model.
+Three changes close the gap:
+
+- **The extension is mandatory.** `VecExtension.requireLoaded` (daemon test-support) fails instead of
+  skipping, and resolves the extension the way the daemon does — from the embedded
+  `native/<os>-<arch>/vec0.*` classpath resource. `PIERIA_ALLOW_MISSING_VEC_EXTENSION=1` downgrades
+  it to a skip for offline work on a fresh clone, where `packaging/native/**` is git-ignored and
+  therefore empty. CI must never set it.
+- **The native binary is smoke-tested.** `.github/scripts/smoke-native.sh` runs the built
+  `pieria-daemon`, waits for `/pieria-status`, and asserts `vectorSearch: true` — a new field on the
+  status endpoint, since nothing previously exposed whether vector search had actually come up.
+- **Test reports are uploaded** per matrix leg, so skips are visible after the fact.
+
+Status of the original list: the first three are covered by the smoke step the next time the workflow
+runs — GraalVM `nativeCompile` with the FFM flags is already proven by `nativeDist` producing the
+green leg's zip, and the smoke step adds xerial's native extraction plus `load_extension` against an
+extracted `vec0.dll` path. SQLite file-locking under the single-writer daemon model remains
+unverified; the smoke test starts one daemon and does not exercise contention.
+
+Note the same soft-fail shape still applies to Tree-sitter: `TreeSitterLanguagePackTests` guards on
+`engine.supports(<language>)` and `embedTreeSitterLibraries` only warns. Locally 15 of its 16 tests
+skip. CI builds the grammars first, so its numbers should be better — but until the uploaded reports
+are read, that is an assumption, not a fact.
 
 ### 8. Documentation
 
@@ -138,20 +172,22 @@ instead of using `pieria update`. Both need updating once the above lands.
 
 ## Suggested order
 
-1. **Blockers 1 → 2.** Getting a Windows CI job to produce working binaries is the gate everything
-   else depends on, and blocker 2 is where the genuine unknown lives. Do not estimate the rest until
-   the Tree-sitter DLL question is settled.
-2. **Blockers 5 and 3.** These determine whether an installed Pieria is *usable* rather than merely
-   present. Blocker 3 is already in flight.
-3. **Blocker 4.** `pieria update` can land last — re-running `install.ps1` is a working fallback in
+~~1. **Blockers 1 → 2.**~~ Done — CI produces working Windows and Linux binaries, and the
+Tree-sitter DLL question is settled.
+
+1. **Blocker 5.** Now the top item: it determines whether an installed Pieria is *usable* rather
+   than merely present. (Its sibling, blocker 3, is done.)
+2. **Blocker 4.** `pieria update` can land last — re-running `install.ps1` is a working fallback in
    the meantime.
-4. **Blockers 6–8** alongside whichever of the above they touch.
+3. **Blockers 6 and 8** alongside whichever of the above they touch. Blocker 7 is now instrumented
+   rather than open — read the first uploaded test report and smoke-step output to confirm.
 
 ## A note on Linux
 
-The `ubuntu-latest` matrix entry is commented out too, and `LinuxPlatform` is the same stub as
-`WindowsPlatform` (`supported()` returns `false`, both swap methods throw). Most of the work above —
-CI, `pieria update`, the `Platform` implementations — covers Linux at the same time. Linux needs no
+The `ubuntu-latest` matrix entry is enabled and green, but `LinuxPlatform` is still the same stub as
+`WindowsPlatform` (`supported()` returns `false`, both swap methods throw). The remaining work above
+— `pieria update` and the `Platform` implementations — covers Linux at the same time. Linux needed no
 equivalent of the Tree-sitter MSVC problem and already has `systemd --user` support in
-`DaemonProcessController`, so it is strictly the cheaper of the two targets and worth doing first if
-the goal is simply "more than one platform."
+`DaemonProcessController`, so it remains the cheaper of the two targets: with CI already publishing
+`pieria-linux-x86_64.tar.gz`, only blocker 4's `Platform` fill-in stands between it and a working
+`pieria update`.
