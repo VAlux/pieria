@@ -65,6 +65,55 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Recover the dlopen error SQLite threw away.
+#
+# sqlite3_load_extension() dlopens the path as given, and on failure retries with the platform
+# suffix appended ("vec0.so" -> "vec0.so.so"). It then reports plain dlerror() output from the LAST
+# attempt, so its message always names a path nobody expected to exist and says nothing about why
+# the real file was rejected. Reproduce the load ourselves to get the true reason, and run the same
+# file from a known-good directory as a control: that separates "this binary is unusable here" from
+# "the directory we extracted into is hostile" (tmpfs mounted noexec, wiped, size-capped, ...).
+#
+# Runs in the `package` job, which only downloads prebuilt binaries — so this costs no rebuild.
+diagnose_vec() {
+  if [ "${RUNNER_OS:-}" = "Windows" ]; then
+    return 0
+  fi
+  suffix="so"
+  [ "${RUNNER_OS:-}" = "macOS" ] && suffix="dylib"
+
+  # The daemon reports where it extracted the extension; read it back rather than re-deriving it.
+  runtime_dir="$(sed -n 's/.*"runtimeDir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$work/status.json")"
+  if [ -z "$runtime_dir" ]; then
+    echo "----- vec0 diagnostics -----"
+    echo "could not read runtimeDir out of the status payload; nothing to probe"
+    return 0
+  fi
+  lib="${runtime_dir}/vec0.${suffix}"
+
+  echo "----- vec0 diagnostics -----"
+  echo "extracted to: $lib"
+  ls -l "$lib" 2>&1 || echo "  (file is NOT present)"
+  echo "mount backing that directory:"
+  findmnt -no TARGET,FSTYPE,OPTIONS --target "$runtime_dir" 2>&1 || echo "  (findmnt unavailable)"
+  echo "shared-library dependencies:"
+  ldd "$lib" 2>&1 || echo "  (ldd unavailable or refused the file)"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 unavailable; skipping the dlopen probe"
+    return 0
+  fi
+  echo "dlopen from the extraction directory:"
+  python3 -c 'import ctypes,sys; ctypes.CDLL(sys.argv[1]); print("  loaded cleanly")' "$lib" 2>&1 || true
+  echo "dlopen of the same bytes from a regular directory (control):"
+  if cp "$lib" "$work/vec0.${suffix}" 2>/dev/null; then
+    python3 -c 'import ctypes,sys; ctypes.CDLL(sys.argv[1]); print("  loaded cleanly")' \
+      "$work/vec0.${suffix}" 2>&1 || true
+  else
+    echo "  (could not copy the file)"
+  fi
+}
+
 echo "smoke: starting $exe on 127.0.0.1:$port ($platform)"
 # check-models=false keeps startup off the network: no runner has Ollama, and the model probe is
 # irrelevant to what this step verifies.
@@ -107,6 +156,7 @@ if ! grep -Eq '"vectorSearch"[[:space:]]*:[[:space:]]*true' "$work/status.json";
   echo "smoke: sqlite-vec did not load in the native image on $platform." >&2
   echo "----- daemon log -----" >&2
   grep -iE "vec|extension" "$log" >&2 || cat "$log" >&2
+  diagnose_vec >&2
   exit 1
 fi
 

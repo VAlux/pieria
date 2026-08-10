@@ -133,13 +133,14 @@ public class DataSourceConfig {
       // Report every rejected candidate. Silently swallowing the dlopen error made a native-image
       // regression (the binary came up FTS-only on one platform) undiagnosable without a rebuild,
       // and the reason — quarantine, a noexec extraction directory, a missing entry point — is only
-      // ever visible in SQLite's own message.
+      // ever visible in the loader's own message.
       log.warn("sqlite-vec extension not available; vector search disabled "
-          + "(FTS + keyed lookup still work). Resolved bundle: {}. Attempts: {}. "
+          + "(FTS + keyed lookup still work). Resolved bundle: {}. Attempts: {}.{} "
           + "Bundle vec0 beside the binary or set pieria.vec.extension-path / PIERIA_VEC_EXTENSION "
           + "to enable it.",
         bundledExtension == null ? "none (no embedded extension for this platform)" : bundledExtension,
-        loadSql == null ? String.join("; ", attempts) : loadSql + " loaded but vec_version() failed");
+        loadSql == null ? String.join("; ", attempts) : loadSql + " loaded but vec_version() failed",
+        loadSql == null ? " True loader error for the bundle: " + dlopenReason(bundledExtension) + "." : "");
     } catch (Exception e) {
       log.warn("sqlite-vec extension could not be loaded ({}); vector search disabled.", e.toString());
     }
@@ -172,6 +173,29 @@ public class DataSourceConfig {
       }
     }
     return null;
+  }
+
+  /**
+   * Recover the loader error SQLite discards.
+   *
+   * <p>{@code sqlite3_load_extension} dlopens the path as given and, on failure, retries with the
+   * platform suffix appended — {@code vec0.so} becomes {@code vec0.so.so}. The message it finally
+   * reports is {@code dlerror()} from that <em>last</em> attempt, so it names a path nobody expected
+   * to exist ("vec0.so.so: cannot open shared object file") and says nothing about why the real file
+   * was rejected. Opening the same file through the JVM reproduces the first attempt and surfaces
+   * its actual reason. Diagnostic only — never allowed to disturb startup.
+   */
+  private static String dlopenReason(Path extension) {
+    if (extension == null) {
+      return "no bundle to open";
+    }
+    try {
+      System.load(extension.toString());
+      return "the JVM opened it successfully, so the file is intact and the directory permits "
+        + "loading; SQLite rejected it for another reason";
+    } catch (UnsatisfiedLinkError | RuntimeException e) {
+      return String.valueOf(e.getMessage());
+    }
   }
 
   /** Confirm the vec module is actually usable by reading its version function. */

@@ -1,0 +1,64 @@
+name: probe vec0 dlopen
+
+# TEMPORARY DIAGNOSTIC — delete once the linux packaging failure is understood.
+#
+# The linux `package` job fails with vector search disabled, but SQLite's loader discards the real
+# dlopen error (it retries "<path>.so" and reports only that last attempt), so the release logs
+# cannot say why. Reproducing it through the release workflow costs a full native-image cycle —
+# hours, mostly waiting on the macOS daemon image — for one line of information.
+#
+# This runs the same experiment against the same runner image in about a minute, with no build at
+# all: extract vec0.so into the directory the daemon extracts into (XDG_RUNTIME_DIR, which is where
+# the linux daemon lands and where macOS — the platform that works — does not), dlopen it, and
+# dlopen the identical bytes from a normal directory as a control. If the runtime dir fails and the
+# control succeeds, the extraction directory is the fault and the fix is to stop extracting there.
+
+on:
+  workflow_dispatch:
+
+env:
+  SQLITE_VEC_VERSION: "0.1.9"
+
+jobs:
+  probe:
+    name: probe linux-x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch sqlite-vec extension
+        run: bash .github/scripts/fetch-sqlite-vec.sh linux-x86_64
+
+      - name: Probe dlopen from the runtime dir vs a regular dir
+        run: |
+          echo "== environment =="
+          echo "uid=$(id -u)  XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-<unset>}"
+
+          runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pieria"
+          echo "daemon would extract into: $runtime_dir"
+
+          echo "== mount options =="
+          findmnt -no TARGET,FSTYPE,OPTIONS --target "$(dirname "$runtime_dir")" || echo "(findmnt failed)"
+          findmnt -no TARGET,FSTYPE,OPTIONS --target /tmp || true
+
+          echo "== staging =="
+          mkdir -p "$runtime_dir" && echo "created $runtime_dir"
+          cp packaging/native/linux-x86_64/vec0.so "$runtime_dir/vec0.so"
+          cp packaging/native/linux-x86_64/vec0.so /tmp/vec0.so
+          ls -l "$runtime_dir/vec0.so" /tmp/vec0.so
+
+          echo "== dependencies =="
+          ldd "$runtime_dir/vec0.so" || echo "(ldd refused it)"
+
+          probe() {
+            python3 -c 'import ctypes,sys
+try:
+    ctypes.CDLL(sys.argv[1]); print("  LOADED CLEANLY")
+except OSError as e:
+    print("  FAILED:", e)' "$1"
+          }
+
+          echo "== dlopen from runtime dir (what the daemon does) =="
+          probe "$runtime_dir/vec0.so"
+          echo "== dlopen from /tmp (control) =="
+          probe /tmp/vec0.so
