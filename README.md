@@ -244,6 +244,10 @@ bash install.sh --version vX.Y.Z # pin a specific release tag
 bash install.sh --help           # full option list
 ```
 
+Releases are published for `macos-aarch64`, `linux-x86_64`, and `windows-x86_64`. On any
+other platform the installer stops before downloading and points you at a source build;
+pass `--allow-unsupported` (with `PIERIA_BASE_URL` set to your own archive host) to override.
+
 **Windows:** use the PowerShell installer instead:
 
 ```powershell

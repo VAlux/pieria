@@ -27,6 +27,10 @@ param(
 	[string]$BaseUrl = $env:PIERIA_BASE_URL,   # override download host (mirror / local testing)
 	[string]$TaskName = "PieriaDaemon",
 	[switch]$NoService,
+	# "0"/"false" read as $true in a plain boolean cast, so match install.sh and
+	# treat only affirmative values as opting in.
+	[switch]$AllowUnsupported = $(if ($env:PIERIA_ALLOW_UNSUPPORTED -and
+		$env:PIERIA_ALLOW_UNSUPPORTED -notin @("0", "n", "no", "false")) { $true } else { $false }),
 	[switch]$DryRun
 )
 
@@ -36,6 +40,11 @@ $ErrorActionPreference = "Stop"
 function Write-Step([string]$Message) { Write-Host "==> $Message" }
 function Write-Warn([string]$Message) { Write-Warning $Message }
 
+# Windows platforms the release workflow actually builds
+# (.github/workflows/release.yml). Anything else has no asset to download, so the
+# install is stopped up front rather than left to surface as a 404.
+$SupportedPlatforms = @("windows-x86_64")
+
 # --- platform detection ------------------------------------------------------
 # Maps the process architecture to the os-arch slug used by release assets and
 # packaging\native\. Windows ships x86_64; warn (but try) on anything else.
@@ -43,15 +52,29 @@ function Get-Platform {
 	$arch = $env:PROCESSOR_ARCHITECTURE
 	switch ($arch) {
 		"AMD64" { return "windows-x86_64" }
-		"ARM64" {
-			Write-Warn "Windows ARM64 is not a release target; attempting 'windows-aarch64' anyway."
-			return "windows-aarch64"
-		}
+		"ARM64" { return "windows-aarch64" }
 		default {
 			Write-Warn "Unrecognized architecture '$arch'; attempting 'windows-x86_64'."
 			return "windows-x86_64"
 		}
 	}
+}
+
+# Preflight: stop before any download when the detected platform has no release
+# build. -AllowUnsupported keeps the best-effort behaviour for anyone serving a
+# self-built archive through -BaseUrl.
+function Assert-SupportedPlatform([string]$Platform) {
+	if ($SupportedPlatforms -contains $Platform) { return }
+	if ($AllowUnsupported) {
+		Write-Warn "no release build is published for '$Platform'; continuing because -AllowUnsupported was given."
+		return
+	}
+	throw @"
+no release build for '$Platform'.
+Published Windows platform: $($SupportedPlatforms -join ', ').
+Build from source with '.\gradlew.bat :daemon:nativeDist', or re-run with
+-AllowUnsupported (use -BaseUrl to serve your own archive).
+"@
 }
 
 # Resolve the release base URL. A pinned tag uses .../download/<tag>/; "latest"
@@ -68,6 +91,7 @@ function Invoke-Download([string]$Url, [string]$Dest) {
 }
 
 $platform     = Get-Platform
+Assert-SupportedPlatform $platform
 $releaseBase  = Get-ReleaseBase
 $binDir       = Join-Path $InstallDir "bin"
 $cliExe       = Join-Path $binDir "pieria.exe"
@@ -86,7 +110,16 @@ $work = Join-Path ([System.IO.Path]::GetTempPath()) ("pieria-install-" + [System
 if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $work | Out-Null }
 try {
 	$zipPath = Join-Path $work $zipName
-	Invoke-Download $zipUrl $zipPath
+	# A failure here is nearly always a missing asset rather than a broken network,
+	# so name the asset and the release instead of surfacing a bare web exception.
+	try { Invoke-Download $zipUrl $zipPath }
+	catch {
+		throw @"
+could not download $zipName from $zipUrl.
+Check that release '$Version' publishes that asset: https://github.com/$Repo/releases
+($($_.Exception.Message))
+"@
+	}
 
 	# Optional integrity check: verify only if a checksums file is published.
 	$checksumsPath = Join-Path $work "checksums.txt"

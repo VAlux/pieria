@@ -21,6 +21,17 @@ BIN_DIR="${PIERIA_BIN_DIR:-$HOME/.local/bin}"
 BASE_URL="${PIERIA_BASE_URL:-}"   # override download host (releases mirror / local testing)
 INSTALL_SERVICE=1
 DRY_RUN=0
+# Normalized to 0/1 up front: the arithmetic test below re-evaluates its operand
+# as a variable name, so a word like "true" would abort the script under `set -u`.
+case "${PIERIA_ALLOW_UNSUPPORTED:-0}" in
+	1|y|yes|true|TRUE|True) ALLOW_UNSUPPORTED=1 ;;
+	*) ALLOW_UNSUPPORTED=0 ;;
+esac
+
+# Platforms the release workflow actually builds (.github/workflows/release.yml).
+# Anything else has no asset to download, so the install is stopped up front
+# rather than left to surface as a 404 that reads like a network problem.
+SUPPORTED_PLATFORMS="macos-aarch64 linux-x86_64 windows-x86_64"
 
 usage() {
 	cat <<'USAGE'
@@ -33,11 +44,14 @@ Options:
   --home PATH       Install root for binaries (default: ~/.local/share/pieria)
   --bin-dir PATH    Directory linked onto PATH (default: ~/.local/bin)
   --no-service      Install binaries only; skip OS service registration
+  --allow-unsupported
+                    Attempt the install on a platform with no published release
+                    build (pair with PIERIA_BASE_URL to serve your own archive)
   --dry-run         Print the steps and resolved URLs without changing anything
   -h, --help        Show this help
 
 Environment overrides: PIERIA_REPO, PIERIA_VERSION, PIERIA_HOME, PIERIA_BIN_DIR,
-PIERIA_BASE_URL.
+PIERIA_BASE_URL, PIERIA_ALLOW_UNSUPPORTED.
 USAGE
 }
 
@@ -51,6 +65,7 @@ while (($#)); do
 		--home) PIERIA_HOME="$2"; shift 2 ;;
 		--bin-dir) BIN_DIR="$2"; shift 2 ;;
 		--no-service) INSTALL_SERVICE=0; shift ;;
+		--allow-unsupported) ALLOW_UNSUPPORTED=1; shift ;;
 		--dry-run) DRY_RUN=1; shift ;;
 		-h|--help) usage; exit 0 ;;
 		*) echo "Unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -71,10 +86,25 @@ detect_platform() {
 		x86_64|amd64)  arch="x86_64" ;;
 		*) die "unsupported architecture '$(uname -m)'." ;;
 	esac
-	if [[ "$os" == "macos" && "$arch" != "aarch64" ]]; then
-		warn "Intel macOS is not a release target; attempting '$os-$arch' anyway."
-	fi
 	printf '%s-%s' "$os" "$arch"
+}
+
+# Preflight: stop before any download when the detected platform has no release
+# build. --allow-unsupported keeps the old best-effort behaviour for anyone
+# serving a self-built archive through PIERIA_BASE_URL.
+require_supported_platform() {
+	local platform="$1"
+	case " $SUPPORTED_PLATFORMS " in
+		*" $platform "*) return 0 ;;
+	esac
+	if ((ALLOW_UNSUPPORTED)); then
+		warn "no release build is published for '$platform'; continuing because --allow-unsupported was given."
+		return 0
+	fi
+	die "no release build for '$platform'.
+Published platforms: ${SUPPORTED_PLATFORMS// /, }.
+Build from source with './gradlew :daemon:nativeDist', or re-run with
+--allow-unsupported (set PIERIA_BASE_URL to serve your own archive)."
 }
 
 # --- download helpers --------------------------------------------------------
@@ -125,6 +155,7 @@ raw_base() {
 }
 
 PLATFORM="$(detect_platform)"
+require_supported_platform "$PLATFORM"
 RELEASE_BASE="$(release_base)"
 TARBALL="pieria-${PLATFORM}.tar.gz"
 TARBALL_URL="${RELEASE_BASE}/${TARBALL}"
@@ -139,7 +170,10 @@ log "link into:  $BIN_DIR"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/pieria-install.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-fetch "$TARBALL_URL" "$WORK/$TARBALL"
+# A failure here is nearly always a missing asset rather than a broken network,
+# so name the asset and the release instead of leaving curl's exit code to speak.
+fetch "$TARBALL_URL" "$WORK/$TARBALL" || die "could not download $TARBALL from $TARBALL_URL.
+Check that release '$VERSION' publishes that asset: https://github.com/$REPO/releases"
 
 # Optional integrity check: verify only if a checksums file is published.
 if fetch "$CHECKSUMS_URL" "$WORK/checksums.txt" 2>/dev/null && [[ -s "$WORK/checksums.txt" ]]; then

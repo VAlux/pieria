@@ -30,6 +30,15 @@ esac
 PLATFORM="$OS-$ARCH"
 TARBALL="pieria-$PLATFORM.tar.gz"
 
+# The installer refuses platforms with no published release build. This tester
+# serves its own stand-in archive, so on such a host it opts back in explicitly.
+# Single word or empty, so it can be passed unquoted below.
+EXTRA_FLAG=""
+case " macos-aarch64 linux-x86_64 " in
+	*" $PLATFORM "*) ;;
+	*) EXTRA_FLAG="--allow-unsupported" ;;
+esac
+
 # --- scratch workspace -------------------------------------------------------
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/pieria-test-install.XXXXXX")"
 REL="$WORK/release"
@@ -85,13 +94,13 @@ echo "==> serving $REL at $BASE (pid $SERVER_PID)"
 
 # --- dry-run pass (no writes) ------------------------------------------------
 echo "==> dry-run"
-DRY_OUT="$(PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$HOME_DIR" --bin-dir "$BIN_DIR" --no-service --dry-run)"
+DRY_OUT="$(PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$HOME_DIR" --bin-dir "$BIN_DIR" --no-service $EXTRA_FLAG --dry-run)"
 check "dry-run resolves the platform tarball" grep -q "$TARBALL" <<<"$DRY_OUT"
 check "dry-run wrote nothing to home" bash -c "[[ ! -e '$HOME_DIR/bin/pieria-daemon' ]]"
 
 # --- real install (no service) -----------------------------------------------
 echo "==> install"
-INSTALL_OUT="$(PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$HOME_DIR" --bin-dir "$BIN_DIR" --no-service)"
+INSTALL_OUT="$(PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$HOME_DIR" --bin-dir "$BIN_DIR" --no-service $EXTRA_FLAG)"
 check "checksum verified line printed"   grep -q "checksum verified" <<<"$INSTALL_OUT"
 check "cli binary installed"             test -x "$HOME_DIR/bin/pieria"
 check "daemon binary installed"          test -x "$HOME_DIR/bin/pieria-daemon"
@@ -105,16 +114,52 @@ check "installed binary runs"            bash -c "'$BIN_DIR/pieria' --version | 
 
 # --- idempotency -------------------------------------------------------------
 echo "==> re-install (idempotency)"
-check "second install succeeds" bash -c "PIERIA_BASE_URL='$BASE' bash '$INSTALLER' --home '$HOME_DIR' --bin-dir '$BIN_DIR' --no-service >/dev/null"
+check "second install succeeds" bash -c "PIERIA_BASE_URL='$BASE' bash '$INSTALLER' --home '$HOME_DIR' --bin-dir '$BIN_DIR' --no-service $EXTRA_FLAG >/dev/null"
 
 # --- tamper detection --------------------------------------------------------
 echo "==> checksum mismatch is rejected"
 printf 'corrupt' >> "$REL/$TARBALL"
-if PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$WORK/home2" --bin-dir "$WORK/bin2" --no-service >/dev/null 2>&1; then
+if PIERIA_BASE_URL="$BASE" bash "$INSTALLER" --home "$WORK/home2" --bin-dir "$WORK/bin2" --no-service $EXTRA_FLAG >/dev/null 2>&1; then
 	check "corrupted tarball rejected" false
 else
 	check "corrupted tarball rejected" true
 fi
+
+# --- unsupported-platform preflight ------------------------------------------
+# Shim `uname` onto PATH so the installer detects a platform the release workflow
+# never builds. macos-x86_64 is chosen because it is a real os/arch pair (so it
+# reaches the preflight rather than the arch check) with no published asset.
+echo "==> unsupported platform is refused before downloading"
+mkdir -p "$WORK/fakebin"
+cat > "$WORK/fakebin/uname" <<'SHIM'
+#!/bin/sh
+case "$1" in
+	-m) echo x86_64 ;;
+	*)  echo Darwin ;;
+esac
+SHIM
+chmod +x "$WORK/fakebin/uname"
+
+# No PIERIA_BASE_URL: the preflight must fire before any network access.
+GATE_OUT="$(PATH="$WORK/fakebin:$PATH" bash "$INSTALLER" \
+	--home "$WORK/home3" --bin-dir "$WORK/bin3" --no-service 2>&1)" && GATE_RC=0 || GATE_RC=$?
+check "unsupported platform exits nonzero"    test "$GATE_RC" -ne 0
+check "unsupported platform names the target" grep -q "no release build for 'macos-x86_64'" <<<"$GATE_OUT"
+check "unsupported platform lists what ships" grep -q "macos-aarch64, linux-x86_64, windows-x86_64" <<<"$GATE_OUT"
+check "unsupported platform downloaded nothing" bash -c "[[ ! -e '$WORK/home3' ]]"
+
+echo "==> --allow-unsupported proceeds and reports a missing asset clearly"
+FORCED_OUT="$(PATH="$WORK/fakebin:$PATH" PIERIA_BASE_URL="$BASE" bash "$INSTALLER" \
+	--home "$WORK/home4" --bin-dir "$WORK/bin4" --no-service --allow-unsupported 2>&1)" || true
+check "--allow-unsupported warns and continues" grep -q "continuing because --allow-unsupported" <<<"$FORCED_OUT"
+check "missing asset names the archive"         grep -q "could not download pieria-macos-x86_64.tar.gz" <<<"$FORCED_OUT"
+
+# The flag's value is used in an arithmetic test, which re-evaluates a word like
+# "true" as a variable name and would abort under `set -u` if left unnormalized.
+ENV_OUT="$(PATH="$WORK/fakebin:$PATH" PIERIA_ALLOW_UNSUPPORTED=true PIERIA_BASE_URL="$BASE" \
+	bash "$INSTALLER" --home "$WORK/home5" --bin-dir "$WORK/bin5" --no-service 2>&1)" || true
+check "PIERIA_ALLOW_UNSUPPORTED=true opts in"   grep -q "continuing because --allow-unsupported" <<<"$ENV_OUT"
+check "PIERIA_ALLOW_UNSUPPORTED=0 does not"     bash -c "! PATH='$WORK/fakebin:$PATH' PIERIA_ALLOW_UNSUPPORTED=0 bash '$INSTALLER' --home '$WORK/home6' --no-service >/dev/null 2>&1"
 
 # --- result ------------------------------------------------------------------
 echo
