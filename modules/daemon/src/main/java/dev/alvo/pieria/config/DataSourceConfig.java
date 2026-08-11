@@ -122,6 +122,7 @@ public class DataSourceConfig {
     String walPragma = "PRAGMA journal_mode=WAL";
     try (Connection conn = DriverManager.getConnection(url); Statement st = conn.createStatement()) {
       st.execute(walPragma);
+      String preloadError = preload(bundledExtension);
       List<String> attempts = new ArrayList<>();
       String loadSql = firstLoadableSql(st, bundledExtension, attempts);
       if (loadSql != null && probeVec(st)) {
@@ -135,12 +136,12 @@ public class DataSourceConfig {
       // and the reason — quarantine, a noexec extraction directory, a missing entry point — is only
       // ever visible in the loader's own message.
       log.warn("sqlite-vec extension not available; vector search disabled "
-          + "(FTS + keyed lookup still work). Resolved bundle: {}. Attempts: {}.{} "
+          + "(FTS + keyed lookup still work). Resolved bundle: {}. Preload: {}. Attempts: {}. "
           + "Bundle vec0 beside the binary or set pieria.vec.extension-path / PIERIA_VEC_EXTENSION "
           + "to enable it.",
         bundledExtension == null ? "none (no embedded extension for this platform)" : bundledExtension,
-        loadSql == null ? String.join("; ", attempts) : loadSql + " loaded but vec_version() failed",
-        loadSql == null ? " True loader error for the bundle: " + dlopenReason(bundledExtension) + "." : "");
+        preloadError == null ? "ok" : preloadError,
+        loadSql == null ? String.join("; ", attempts) : loadSql + " loaded but vec_version() failed");
     } catch (Exception e) {
       log.warn("sqlite-vec extension could not be loaded ({}); vector search disabled.", e.toString());
     }
@@ -176,23 +177,37 @@ public class DataSourceConfig {
   }
 
   /**
-   * Recover the loader error SQLite discards.
+   * Load the extension into this process before SQLite tries to. This is what makes vector search
+   * work in the native image.
    *
-   * <p>{@code sqlite3_load_extension} dlopens the path as given and, on failure, retries with the
-   * platform suffix appended — {@code vec0.so} becomes {@code vec0.so.so}. The message it finally
-   * reports is {@code dlerror()} from that <em>last</em> attempt, so it names a path nobody expected
-   * to exist ("vec0.so.so: cannot open shared object file") and says nothing about why the real file
-   * was rejected. Opening the same file through the JVM reproduces the first attempt and surfaces
-   * its actual reason. Diagnostic only — never allowed to disturb startup.
+   * <p>{@code sqlite3_load_extension} dlopens with {@code RTLD_NOW}, so every symbol the extension
+   * references must resolve immediately against the process's global scope. A GraalVM native image
+   * does not expose libm there the way the JVM does, so {@code vec0}'s reference to {@code sqrtf}
+   * goes unresolved and the load fails — while the identical file loads fine under the JVM, which is
+   * why the test suite never caught it. {@code System.load} binds lazily and succeeds; SQLite's
+   * subsequent dlopen of the same path then gets the already-loaded handle.
+   *
+   * <p>SQLite hides this: it retries the path with the platform suffix appended and reports
+   * {@code dlerror()} from that last attempt, so the failure surfaces as "vec0.so.so: cannot open
+   * shared object file" — a path nobody expected to exist — instead of the missing symbol.
+   *
+   * <p>Verified in a GraalVM 25 Linux image: without the preload, {@code load_extension} fails with
+   * "undefined symbol: sqrtf"; with it, KNN queries return correct distances (so lazy binding
+   * resolves {@code sqrtf} for real, rather than deferring a crash to the first distance
+   * computation).
+   *
+   * <p>Best-effort: a failure here is not fatal, since {@code load_extension} is still attempted and
+   * succeeds unaided on the JVM and on macOS.
+   *
+   * @return {@code null} when the library loaded or there was nothing to load, else the reason.
    */
-  private static String dlopenReason(Path extension) {
+  private static String preload(Path extension) {
     if (extension == null) {
-      return "no bundle to open";
+      return null;
     }
     try {
       System.load(extension.toString());
-      return "the JVM opened it successfully, so the file is intact and the directory permits "
-        + "loading; SQLite rejected it for another reason";
+      return null;
     } catch (UnsatisfiedLinkError | RuntimeException e) {
       return String.valueOf(e.getMessage());
     }
