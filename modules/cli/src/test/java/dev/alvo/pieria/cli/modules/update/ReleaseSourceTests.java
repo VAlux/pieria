@@ -105,4 +105,32 @@ class ReleaseSourceTests {
       .isInstanceOf(UpdateException.class)
       .hasMessageContaining("could not download");
   }
+
+  /** Windows publishes a zip; the asset name and URL must follow the platform, not a hardcoded suffix. */
+  @Test
+  void usesThePlatformsArchiveExtension() {
+    Platform windows = new WindowsPlatform("x86_64");
+    assertThat(new ReleaseSource(windows, "latest", env(Map.of()), fetcher(null)).describe())
+      .contains("pieria-windows-x86_64.zip");
+  }
+
+  @Test
+  void refusesToDownloadForAnUnpublishedPlatform() {
+    Platform unpublished = new LinuxPlatform("aarch64");
+    assertThatThrownBy(() ->
+      new ReleaseSource(unpublished, "latest", env(Map.of()), fetcher(null)).resolve())
+      .isInstanceOf(UpdateException.class)
+      .hasMessageContaining("no release build for 'linux-aarch64'")
+      .hasMessageContaining("--from-build");
+  }
+
+  /** A self-built archive served through PIERIA_BASE_URL is the documented escape hatch. */
+  @Test
+  void baseUrlOverrideBypassesTheUnpublishedPlatformCheck() {
+    Platform unpublished = new LinuxPlatform("aarch64", command -> new CommandRunner.Result(0, ""));
+    assertThatThrownBy(() -> new ReleaseSource(unpublished, "latest",
+      env(Map.of("PIERIA_BASE_URL", "https://mirror.example/dl")), (url, dest) -> 404).resolve())
+      .isInstanceOf(UpdateException.class)
+      .hasMessageContaining("could not download");
+  }
 }

@@ -1,11 +1,15 @@
 package dev.alvo.pieria.cli.modules.update;
 
+import dev.alvo.pieria.tools.io.ZipArchive;
+
+import java.io.IOException;
 import java.nio.file.Path;
 
 /**
- * Windows placeholder. {@link #exeName(String)} appends {@code .exe}; the swap operations throw
- * until implemented. {@code pieria update} refuses to run via {@link #supported()} and points the
- * user at {@code install.ps1}.
+ * Windows implementation. Two things differ from the Unix platforms: the release asset is a zip
+ * rather than a tarball, and the OS holds an exclusive lock on a running executable's image — see
+ * {@link #locksRunningBinaries()} and {@link BinarySwapper} for how the swap works around that.
+ * Nothing to harden: there is no Gatekeeper and no quarantine attribute.
  */
 public final class WindowsPlatform implements Platform {
 
@@ -21,22 +25,31 @@ public final class WindowsPlatform implements Platform {
   }
 
   @Override
-  public boolean supported() {
-    return false;
-  }
-
-  @Override
   public String exeName(String base) {
     return base + ".exe";
   }
 
   @Override
+  public String archiveExtension() {
+    return "zip";
+  }
+
+  @Override
+  public boolean locksRunningBinaries() {
+    return true;
+  }
+
+  @Override
   public void harden(Path binary) {
-    throw new UnsupportedOperationException("pieria update does not support Windows yet");
+    // No-op: Windows has no equivalent of macOS quarantine/codesigning.
   }
 
   @Override
   public void extractDistributionArchive(Path archive, Path destDir) {
-    throw new UnsupportedOperationException("pieria update does not support Windows yet");
+    try {
+      ZipArchive.extract(archive, destDir);
+    } catch (IOException e) {
+      throw new UpdateException("failed to extract " + archive.getFileName() + ": " + e.getMessage(), e);
+    }
   }
 }

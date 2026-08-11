@@ -7,8 +7,8 @@ import java.util.List;
 /**
  * macOS implementation. Hardening clears the quarantine xattr and ad-hoc codesigns the binary so a
  * freshly-written (downloaded or copied) executable is not blocked by Gatekeeper — the manual
- * redeploy's biggest footgun. Extraction shells out to {@code tar} (present on macOS); kept behind
- * the {@link Platform} seam so a pure-Java reader can replace it later without touching callers.
+ * redeploy's biggest footgun. Extraction goes through {@link TarArchive}, shared with
+ * {@link LinuxPlatform}.
  */
 public final class MacOsPlatform implements Platform {
 
@@ -44,10 +44,6 @@ public final class MacOsPlatform implements Platform {
 
   @Override
   public void extractDistributionArchive(Path archive, Path destDir) {
-    CommandRunner.Result result = runner.run(List.of("tar", "-xzf", archive.toString(), "-C", destDir.toString()));
-    if (!result.ok()) {
-      throw new UpdateException("failed to extract " + archive.getFileName() + ": "
-        + (result.output() == null ? "exit " + result.exitCode() : result.output().strip()));
-    }
+    TarArchive.extract(runner, archive, destDir);
   }
 }

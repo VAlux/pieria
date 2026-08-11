@@ -84,11 +84,6 @@ public final class UpdateCommand implements Callable<Integer> {
   @Override
   public Integer call() {
     Platform platform = PlatformSupport.detect();
-    if (!platform.supported()) {
-      log.error("`pieria update` does not support {} yet. Re-run the installer to update:", platform.slug());
-      log.error("  curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash");
-      return 2;
-    }
 
     BinarySource source;
     try {

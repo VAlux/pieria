@@ -40,6 +40,47 @@ class TomlConfigMergerTests {
       .isEqualTo("/opt/pieria/bin/pieria-gateway");
   }
 
+  /**
+   * A Windows gateway path carries backslashes and spaces, and TOML basic strings treat {@code \} as
+   * an escape. Jackson sidesteps that by emitting a <em>literal</em> string ({@code '...'}), which
+   * has no escape processing at all — so the path is written verbatim and reads back unchanged. Pin
+   * the round-trip: the failure mode is a harness that can no longer launch the gateway.
+   */
+  @Test
+  void writesWindowsPathsAsLiteralStringsThatRoundTrip(@TempDir Path dir) throws IOException {
+    String gateway = "C:\\Users\\First Last\\AppData\\Local\\Pieria\\bin\\pieria-gateway.exe";
+    Path file = dir.resolve("config.toml");
+
+    ObjectNode root = merger.newObject();
+    ObjectNode pieria = merger.newObject();
+    pieria.put("command", gateway);
+    merger.childObject(root, "mcp_servers").set("pieria", pieria);
+    merger.save(file, root, false, nullLog());
+
+    assertThat(Files.readString(file)).contains("'" + gateway + "'");
+    assertThat(merger.load(file).path("mcp_servers").path("pieria").path("command").asString())
+      .isEqualTo(gateway);
+  }
+
+  /**
+   * An apostrophe in a user name ({@code C:\Users\O'Brien\...}) cannot live in a TOML literal
+   * string, so the writer has to switch quoting styles. Pin the round-trip rather than the encoding.
+   */
+  @Test
+  void roundTripsPathsContainingAnApostrophe(@TempDir Path dir) throws IOException {
+    String gateway = "C:\\Users\\O'Brien\\AppData\\Local\\Pieria\\bin\\pieria-gateway.exe";
+    Path file = dir.resolve("config.toml");
+
+    ObjectNode root = merger.newObject();
+    ObjectNode pieria = merger.newObject();
+    pieria.put("command", gateway);
+    merger.childObject(root, "mcp_servers").set("pieria", pieria);
+    merger.save(file, root, false, nullLog());
+
+    assertThat(merger.load(file).path("mcp_servers").path("pieria").path("command").asString())
+      .isEqualTo(gateway);
+  }
+
   @Test
   void dryRunDoesNotWrite(@TempDir Path dir) throws IOException {
     Path file = dir.resolve("config.toml");

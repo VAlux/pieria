@@ -77,4 +77,50 @@ class BinarySwapperTests {
     }
   }
 
+  /**
+   * On Windows the original must be <em>moved</em> aside, not copied: the OS refuses to overwrite a
+   * running image but does allow renaming it. The observable difference is that the target's
+   * original inode/name is vacated before the new file lands.
+   */
+  @Test
+  void movesTheOriginalAsideWhenTheOsLocksRunningBinaries(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    Path installBin = tmp.resolve("install").resolve("bin");
+    for (String name : BinarySource.BINARIES) {
+      writeFile(installBin.resolve(name), name + "-old");
+    }
+
+    new BinarySwapper(new TestPlatform().lockingRunningBinaries())
+      .swap(dist, new InstallLayout(installBin));
+
+    for (String name : BinarySource.BINARIES) {
+      assertThat(Files.readString(installBin.resolve(name))).isEqualTo(name + "-new");
+    }
+    // The backups are deletable here (nothing is really running), so the swap still cleans up.
+    try (var entries = Files.list(installBin)) {
+      assertThat(entries.map(p -> p.getFileName().toString()))
+        .noneMatch(n -> n.endsWith(".new") || n.endsWith(".bak"));
+    }
+  }
+
+  /** A leftover from a previous update must be swept rather than left to accumulate. */
+  @Test
+  void sweepsStaleBackupAndStagingFilesBeforeSwapping(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    Path installBin = tmp.resolve("install").resolve("bin");
+    for (String name : BinarySource.BINARIES) {
+      writeFile(installBin.resolve(name), name + "-old");
+    }
+    writeFile(installBin.resolve("pieria.exe.bak"), "leftover");
+    writeFile(installBin.resolve("pieria-daemon.exe.bak.1700000000000"), "leftover");
+    writeFile(installBin.resolve("pieria-gateway.exe.new"), "leftover");
+
+    new BinarySwapper(new TestPlatform().lockingRunningBinaries())
+      .swap(dist, new InstallLayout(installBin));
+
+    try (var entries = Files.list(installBin)) {
+      assertThat(entries.map(p -> p.getFileName().toString()))
+        .containsExactlyInAnyOrderElementsOf(BinarySource.BINARIES);
+    }
+  }
 }

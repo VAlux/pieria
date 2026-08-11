@@ -1,7 +1,9 @@
 package dev.alvo.pieria.cli.modules.daemon;
 
 import dev.alvo.pieria.cli.log.Logger;
+import dev.alvo.pieria.tools.os.InstallHome;
 import dev.alvo.pieria.tools.os.OsFamily;
+import dev.alvo.pieria.tools.os.PowerShellQuoting;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,8 +16,8 @@ import java.util.stream.Stream;
 
 /**
  * Starts and stops the daemon process. Hybrid: prefers an installed OS service manager (launchd on
- * macOS, systemd --user on Linux) and falls back to spawning a detached daemon process tracked by a
- * PID file when no service is registered.
+ * macOS, systemd --user on Linux, a logon Scheduled Task on Windows) and falls back to spawning a
+ * detached daemon process tracked by a PID file when no service is registered.
  *
  * <p>This class only returns outcomes; the commands own user-facing output.
  */
@@ -23,6 +25,13 @@ public final class DaemonProcessController {
 
   private static final String LAUNCHD_LABEL = "dev.alvo.pieria.daemon";
   private static final String SYSTEMD_UNIT = "pieria-daemon";
+
+  /**
+   * Windows logon Scheduled Task registered by {@code packaging/install.ps1}. Must stay in sync with
+   * that script's {@code $TaskName} default, or the CLI silently falls through to the spawn path and
+   * leaves the installer's daemon running.
+   */
+  private static final String SCHEDULED_TASK = "PieriaDaemon";
 
   private final Logger log = new Logger();
 
@@ -71,20 +80,34 @@ public final class DaemonProcessController {
       }
     }
 
-    String exeName = OsFamily.detect() == OsFamily.WINDOWS ? "pieria-daemon.exe" : "pieria-daemon";
+    boolean windows = OsFamily.detect() == OsFamily.WINDOWS;
+    String exeName = windows ? "pieria-daemon.exe" : "pieria-daemon";
     Optional<Path> onPath = findOnPath(exeName);
     if (onPath.isPresent()) {
       return onPath;
     }
 
-    String home = System.getProperty("user.home", ".");
-    List<Path> wellKnown = List.of(Path.of(home, ".local", "bin", exeName));
-    for (Path p : wellKnown) {
-      if (Files.isRegularFile(p)) {
-        return Optional.of(p.toAbsolutePath());
+    for (Path p : wellKnownBinDirs(windows)) {
+      Path candidate = p.resolve(exeName);
+      if (Files.isRegularFile(candidate)) {
+        return Optional.of(candidate.toAbsolutePath());
       }
     }
     return Optional.empty();
+  }
+
+  /**
+   * Where an installer puts the binaries, for the case where PATH has not been picked up yet — on
+   * Windows that is the norm, since {@code install.ps1} edits the user PATH and only new shells see
+   * it. {@code ~/.local/bin} is the Unix installer's symlink dir; {@link InstallHome} covers the
+   * real install root on both.
+   */
+  private static List<Path> wellKnownBinDirs(boolean windows) {
+    Path home = Path.of(System.getProperty("user.home", "."));
+    Path installRoot = InstallHome.defaultHome(System::getenv, home, windows).resolve("bin");
+    return windows
+      ? List.of(installRoot)
+      : List.of(home.resolve(".local").resolve("bin"), installRoot);
   }
 
   private static Optional<Path> findOnPath(String exeName) {
@@ -132,7 +155,9 @@ public final class DaemonProcessController {
   }
 
   /**
-   * Numeric uid for launchd's {@code gui/<uid>} domain target.
+   * Numeric uid for launchd's {@code gui/<uid>} domain target. Shells out to {@code id -u}, which
+   * only exists on Unix — safe because the {@link Service} switch makes this reachable from the
+   * launchd cases alone.
    */
   private static String uid() {
     OsCommandExecutionResult r = run(List.of("id", "-u"));
@@ -146,10 +171,6 @@ public final class DaemonProcessController {
     } catch (IOException ignored) {
       // best-effort cleanup
     }
-  }
-
-  private static boolean isLinux() {
-    return OsFamily.detect() == OsFamily.LINUX;
   }
 
   public StartOutcome start(StartOptions opts) {
@@ -172,17 +193,21 @@ public final class DaemonProcessController {
 
   private Service detectService() {
     String home = System.getProperty("user.home", ".");
-    if (OsFamily.detect() == OsFamily.MAC
-      && Files.exists(Path.of(home, "Library", "LaunchAgents", LAUNCHD_LABEL + ".plist"))) {
-      return Service.LAUNCHD;
-    }
-    if (isLinux()
-      && Files.exists(Path.of(home, ".config", "systemd", "user", SYSTEMD_UNIT + ".service"))) {
-      return Service.SYSTEMD;
-    }
-    // Windows service management is not auto-detected here; users control it via the PowerShell
-    // service script. Spawn fallback still works for ad-hoc runs.
-    return null;
+    return switch (OsFamily.detect()) {
+      case MAC -> Files.exists(Path.of(home, "Library", "LaunchAgents", LAUNCHD_LABEL + ".plist"))
+        ? Service.LAUNCHD : null;
+      case LINUX -> Files.exists(Path.of(home, ".config", "systemd", "user", SYSTEMD_UNIT + ".service"))
+        ? Service.SYSTEMD : null;
+      case WINDOWS -> scheduledTaskRegistered() ? Service.SCHEDULED_TASK : null;
+    };
+  }
+
+  /**
+   * True when {@code install.ps1}'s logon task exists. Queried rather than inferred from a file: a
+   * Scheduled Task leaves nothing on disk at a predictable path.
+   */
+  private static boolean scheduledTaskRegistered() {
+    return run(List.of("schtasks", "/Query", "/TN", SCHEDULED_TASK)).exitCode() == 0;
   }
 
   private StartOutcome startViaService(Service service, boolean dryRun) {
@@ -191,6 +216,10 @@ public final class DaemonProcessController {
       case SYSTEMD -> runServiceCommands(
         "systemd --user", dryRun,
         List.of(List.of("systemctl", "--user", "start", SYSTEMD_UNIT)),
+        StartedViaService::new, Failed::new);
+      case SCHEDULED_TASK -> runServiceCommands(
+        "scheduled task " + SCHEDULED_TASK, dryRun,
+        List.of(List.of("schtasks", "/Run", "/TN", SCHEDULED_TASK)),
         StartedViaService::new, Failed::new);
     };
   }
@@ -201,6 +230,11 @@ public final class DaemonProcessController {
       case SYSTEMD -> runServiceCommands(
         "systemd --user", dryRun,
         List.of(List.of("systemctl", "--user", "stop", SYSTEMD_UNIT)),
+        StoppedViaService::new, Failed::new);
+      // /End terminates the running instance; the task stays registered and fires again at logon.
+      case SCHEDULED_TASK -> runServiceCommands(
+        "scheduled task " + SCHEDULED_TASK, dryRun,
+        List.of(List.of("schtasks", "/End", "/TN", SCHEDULED_TASK)),
         StoppedViaService::new, Failed::new);
     };
   }
@@ -318,10 +352,14 @@ public final class DaemonProcessController {
   private StartOutcome spawn(StartOptions opts) {
     Path daemon = locateDaemon(opts.daemonBinary()).orElse(null);
     if (daemon == null) {
+      boolean windows = OsFamily.detect() == OsFamily.WINDOWS;
       return new NoMechanism(
         "No Pieria service is installed and no daemon executable was found.\n"
-          + "Install the daemon (it lands at ~/.local/bin/pieria-daemon), set $PIERIA_DAEMON_BIN, "
-          + "or pass --daemon <path>.");
+          + (windows
+          ? "Install the daemon (it lands at %LOCALAPPDATA%\\Pieria\\bin\\pieria-daemon.exe), "
+          + "set %PIERIA_DAEMON_BIN%, or pass --daemon <path>."
+          : "Install the daemon (it lands at ~/.local/bin/pieria-daemon), set $PIERIA_DAEMON_BIN, "
+            + "or pass --daemon <path>."));
     }
 
     RuntimePaths paths = RuntimePaths.resolve(opts.runtimeDir());
@@ -334,18 +372,65 @@ public final class DaemonProcessController {
       return new Spawned(-1);
     }
 
+    Path out = paths.logsDir().resolve("pieria-daemon.out.log");
+    Path err = paths.logsDir().resolve("pieria-daemon.err.log");
     try {
       Files.createDirectories(paths.runtimeDir());
       Files.createDirectories(paths.logsDir());
-      ProcessBuilder pb = new ProcessBuilder(command)
-        .redirectOutput(paths.logsDir().resolve("pieria-daemon.out.log").toFile())
-        .redirectError(paths.logsDir().resolve("pieria-daemon.err.log").toFile());
-      Process process = pb.start();
-      Files.writeString(paths.pidFile(), Long.toString(process.pid()));
-      return new Spawned(process.pid());
+      long pid = OsFamily.detect() == OsFamily.WINDOWS
+        ? spawnDetachedOnWindows(daemon, command, out, err)
+        : spawnPosix(command, out, err);
+      Files.writeString(paths.pidFile(), Long.toString(pid));
+      return new Spawned(pid);
     } catch (IOException e) {
       return new Failed("could not spawn daemon: " + e.getMessage());
     }
+  }
+
+  private static long spawnPosix(List<String> command, Path out, Path err) throws IOException {
+    return new ProcessBuilder(command)
+      .redirectOutput(out.toFile())
+      .redirectError(err.toFile())
+      .start()
+      .pid();
+  }
+
+  /**
+   * Spawn a daemon that outlives the console it was started from. A plain {@code ProcessBuilder}
+   * child inherits the console on Windows and is killed with it (the OS delivers
+   * {@code CTRL_CLOSE_EVENT} to everything attached), and Java exposes no {@code DETACHED_PROCESS}
+   * creation flag. PowerShell's {@code Start-Process} does detach, and {@code -PassThru} hands back
+   * the new process so its pid can go in the PID file and {@code stopSpawned} keeps working.
+   */
+  private static long spawnDetachedOnWindows(Path daemon, List<String> command, Path out, Path err)
+    throws IOException {
+    String script = "(Start-Process -FilePath " + PowerShellQuoting.singleQuote(daemon.toString())
+      // command[0] is the executable itself, already passed as -FilePath.
+      + " -ArgumentList " + PowerShellQuoting.array(command.subList(1, command.size()))
+      + " -WindowStyle Hidden"
+      + " -RedirectStandardOutput " + PowerShellQuoting.singleQuote(out.toString())
+      + " -RedirectStandardError " + PowerShellQuoting.singleQuote(err.toString())
+      + " -PassThru).Id";
+
+    OsCommandExecutionResult result =
+      run(List.of("powershell", "-NoProfile", "-NonInteractive", "-Command", script));
+    if (result.exitCode() != 0) {
+      throw new IOException("Start-Process failed: " + result.errorSummary(List.of("powershell", script)));
+    }
+    return parsePid(result.output());
+  }
+
+  /**
+   * Read the pid {@code -PassThru} printed. PowerShell may prefix warnings or a banner, so take the
+   * last all-digit line rather than assuming the output is bare.
+   */
+  private static long parsePid(String output) throws IOException {
+    String pid = (output == null ? "" : output).lines()
+      .map(String::strip)
+      .filter(line -> line.matches("\\d+"))
+      .reduce((first, second) -> second)
+      .orElseThrow(() -> new IOException("Start-Process returned no pid"));
+    return Long.parseLong(pid);
   }
 
   private StopOutcome stopSpawned(StopOptions opts) {
@@ -381,7 +466,7 @@ public final class DaemonProcessController {
     return new StoppedPid(pid);
   }
 
-  private enum Service {LAUNCHD, SYSTEMD}
+  private enum Service {LAUNCHD, SYSTEMD, SCHEDULED_TASK}
 
   // --- Spawn fallback --------------------------------------------------------------------------
 

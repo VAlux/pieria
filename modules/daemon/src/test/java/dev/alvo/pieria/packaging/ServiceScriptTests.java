@@ -79,23 +79,23 @@ class ServiceScriptTests {
 		assertThat(execStart).doesNotContain("pieria-gateway");
 	}
 
+	/**
+	 * Windows has no service script: {@code install.ps1} registers a logon Scheduled Task, and the
+	 * CLI drives it directly through {@code schtasks} (see {@code DaemonProcessController}). The task
+	 * name is the contract between the two, so pin it here — a rename on either side would otherwise
+	 * silently strand the installer's daemon.
+	 */
 	@Test
-	void windowsServiceScriptDocumentsDryRunAndDaemonOnlyInstall() throws IOException {
-		Path script = repoRoot().resolve("packaging/service/windows/pieria-service.ps1");
-		String content = Files.readString(script, StandardCharsets.UTF_8);
+	void installerRegistersTheScheduledTaskTheCliDrives() throws IOException {
+		String installer = Files.readString(
+			repoRoot().resolve("packaging/install.ps1"), StandardCharsets.UTF_8);
+		String controller = Files.readString(
+			repoRoot().resolve("modules/cli/src/main/java/dev/alvo/pieria/cli/modules/daemon/DaemonProcessController.java"),
+			StandardCharsets.UTF_8);
 
-		assertThat(content).contains("[ValidateSet(\"Install\", \"Start\", \"Stop\", \"Status\", \"Uninstall\")]");
-		assertThat(content).contains("New-Service -Name $ServiceName");
-		assertThat(content).contains("gateway executable for harness MCP configs: $Gateway");
-		assertThat(content).contains("if ($DryRun)");
-		assertThat(content).doesNotContain("New-Service -Name $Gateway");
-		// The $Gateway param must be declared so the dry-run guidance resolves it.
-		assertThat(content).contains("[string]$Gateway = ");
-		// Guard against a typed-but-unnamed parameter (e.g. "[string] = ...") that
-		// parses as text but breaks the real param block on Windows.
-		assertThat(content.lines())
-			.as("every PowerShell parameter must have a name after its [type]")
-			.noneMatch(line -> line.strip().matches("^\\[[A-Za-z]+\\]\\s*=.*"));
+		assertThat(installer).contains("[string]$TaskName = \"PieriaDaemon\"");
+		assertThat(installer).contains("Register-ScheduledTask -TaskName $TaskName");
+		assertThat(controller).contains("SCHEDULED_TASK = \"PieriaDaemon\"");
 	}
 
 	private static String runScript(String relativePath, List<String> arguments) throws IOException, InterruptedException {

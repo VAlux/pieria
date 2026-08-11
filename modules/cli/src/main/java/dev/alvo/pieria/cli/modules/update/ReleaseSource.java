@@ -51,12 +51,35 @@ public final class ReleaseSource implements BinarySource {
 
   @Override
   public String describe() {
-    return "release " + version + " (" + releaseBase() + "/pieria-" + platform.slug() + ".tar.gz)";
+    return "release " + version + " (" + releaseBase() + "/" + assetName() + ")";
+  }
+
+  /** Published release asset for the host platform, e.g. {@code pieria-windows-x86_64.zip}. */
+  private String assetName() {
+    return "pieria-" + platform.slug() + "." + platform.archiveExtension();
+  }
+
+  /**
+   * Stop before downloading when no release is published for the host platform, so the user gets the
+   * source-build guidance instead of a bare 404. Mirrors {@code assert_supported_platform} in
+   * {@code packaging/install.sh}. A {@code PIERIA_BASE_URL} override opts out — that is how someone
+   * serves a self-built archive for an unpublished architecture.
+   */
+  private void assertPublished() {
+    String override = env.apply("PIERIA_BASE_URL");
+    if (platform.hasPublishedRelease() || (override != null && !override.isBlank())) {
+      return;
+    }
+    throw new UpdateException("no release build for '" + platform.slug() + "'."
+      + "\nPublished platforms: " + String.join(", ", PlatformSupport.PUBLISHED_PLATFORMS) + "."
+      + "\nBuild from source and install that instead:"
+      + "\n  ./gradlew :daemon:nativeDist && pieria update --from-build");
   }
 
   @Override
   public StagedDist resolve() {
-    String asset = "pieria-" + platform.slug() + ".tar.gz";
+    assertPublished();
+    String asset = assetName();
     String base = releaseBase();
     Path work;
     try {
@@ -65,14 +88,14 @@ public final class ReleaseSource implements BinarySource {
       throw new UpdateException("could not create temp dir: " + e.getMessage(), e);
     }
 
-    Path tarball = work.resolve(asset);
-    int status = fetcher.fetch(base + "/" + asset, tarball);
+    Path archive = work.resolve(asset);
+    int status = fetcher.fetch(base + "/" + asset, archive);
     if (status < 200 || status >= 300) {
       throw new UpdateException("could not download " + asset + " from " + base
         + " (HTTP " + status + "). Check the version tag and your network.");
     }
 
-    verifyChecksum(base, asset, tarball, work);
+    verifyChecksum(base, asset, archive, work);
 
     Path extracted = work.resolve("extracted");
     try {
@@ -80,7 +103,7 @@ public final class ReleaseSource implements BinarySource {
     } catch (IOException e) {
       throw new UpdateException("could not stage extraction dir: " + e.getMessage(), e);
     }
-    platform.extractDistributionArchive(tarball, extracted);
+    platform.extractDistributionArchive(archive, extracted);
     return new StagedDist(extracted);
   }
 
@@ -88,7 +111,7 @@ public final class ReleaseSource implements BinarySource {
    * Optional integrity check: verify only when {@code checksums.txt} is published and has an entry
    * for our asset, matching {@code install.sh}'s tolerant behavior.
    */
-  private void verifyChecksum(String base, String asset, Path tarball, Path work) {
+  private void verifyChecksum(String base, String asset, Path archive, Path work) {
     Path checksums = work.resolve("checksums.txt");
     int status = fetcher.fetch(base + "/checksums.txt", checksums);
     if (status < 200 || status >= 300 || !Files.isRegularFile(checksums)) {
@@ -100,7 +123,7 @@ public final class ReleaseSource implements BinarySource {
       log.error("warning: no checksum entry for {}; skipping verification.", asset);
       return;
     }
-    String actual = sha256(tarball);
+    String actual = sha256(archive);
     if (!actual.equalsIgnoreCase(expected)) {
       throw new UpdateException("checksum mismatch for " + asset
         + " (expected " + expected + ", got " + actual + ").");

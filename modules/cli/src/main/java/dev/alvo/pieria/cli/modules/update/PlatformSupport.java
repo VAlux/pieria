@@ -1,12 +1,21 @@
 package dev.alvo.pieria.cli.modules.update;
 
 import dev.alvo.pieria.tools.os.OsFamily;
+import java.util.List;
 import java.util.Locale;
 
 /**
  * Detects the host {@link Platform}. The single place that needs editing to add a new OS.
  */
 public final class PlatformSupport {
+
+  /**
+   * Slugs the release workflow actually builds. Mirrors {@code SUPPORTED_PLATFORMS} in
+   * {@code packaging/install.sh} and {@code $SupportedPlatforms} in {@code packaging/install.ps1};
+   * keep all three in sync with {@code .github/workflows/release.yml}'s build matrix.
+   */
+  static final List<String> PUBLISHED_PLATFORMS =
+    List.of("macos-aarch64", "linux-x86_64", "windows-x86_64");
 
   private PlatformSupport() {
   }

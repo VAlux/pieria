@@ -8,9 +8,9 @@
     registers the daemon to run at logon via a per-user Scheduled Task.
 
     A logon Scheduled Task is used rather than a Windows SCM service because a bare
-    console executable is not service-aware; a real SCM service needs a wrapper
-    (WinSW/NSSM). Use packaging\service\windows\pieria-service.ps1 -AllowStagedInstall
-    once such a wrapper is in place if you prefer an SCM service.
+    console executable is not service-aware, and a real SCM service would need a
+    third-party wrapper (WinSW/NSSM). The task is what 'pieria daemon start/stop/restart'
+    drives, so the two stay in step.
 
     Re-running is safe: download, PATH update, and task registration are idempotent.
 
@@ -171,7 +171,7 @@ if ($DryRun) {
 	}
 }
 
-# --- daemon launch arguments (kept in sync with pieria-service.ps1) ---------
+# --- daemon launch arguments -------------------------------------------------
 $dataDir    = Join-Path $InstallDir "data"
 $configDir  = Join-Path $env:APPDATA "Pieria"
 $logDir     = Join-Path $InstallDir "logs"
@@ -228,7 +228,8 @@ Wire a harness (registers the MCP gateway + lifecycle hooks). From your project:
 
 Inspect or undo with 'pieria harness list' and 'pieria harness uninstall <name>'.
 Run 'pieria harness install <name> --dry-run' first to preview the changes.
-For a true SCM service instead of the logon task, see
-packaging\service\windows\pieria-service.ps1.
+
+Manage the daemon with 'pieria daemon start|stop|restart|status' — these drive the
+'$TaskName' task registered above. Update in place with 'pieria update'.
 ========================
 "@ | Write-Host

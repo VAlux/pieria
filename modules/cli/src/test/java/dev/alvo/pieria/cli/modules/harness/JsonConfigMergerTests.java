@@ -51,6 +51,25 @@ class JsonConfigMergerTests {
     assertThat(merger.childArray(root, "list").size()).isEqualTo(1);
   }
 
+  /**
+   * The gateway command written into {@code .mcp.json} on Windows is a backslashed path, usually
+   * with a space in it. JSON requires {@code \\}; pin the round-trip, since a mangled path means a
+   * harness that silently cannot launch the gateway.
+   */
+  @Test
+  void escapesWindowsPathsThroughAFullWriteReadCycle(@TempDir Path dir) throws IOException {
+    String gateway = "C:\\Users\\First Last\\AppData\\Local\\Pieria\\bin\\pieria-gateway.exe";
+    Path file = dir.resolve(".mcp.json");
+
+    ObjectNode root = merger.newObject();
+    merger.childObject(merger.childObject(root, "mcpServers"), "pieria").put("command", gateway);
+    merger.save(file, root, false, nullLog());
+
+    assertThat(Files.readString(file)).contains("\\\\Users\\\\First Last\\\\");
+    assertThat(merger.load(file).path("mcpServers").path("pieria").path("command").asString())
+      .isEqualTo(gateway);
+  }
+
   @Test
   void dryRunDoesNotWrite(@TempDir Path dir) throws IOException {
     Path file = dir.resolve("d.json");

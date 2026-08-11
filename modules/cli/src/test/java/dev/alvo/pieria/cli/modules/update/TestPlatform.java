@@ -13,6 +13,7 @@ final class TestPlatform implements Platform {
   final List<Path> hardened = new ArrayList<>();
   final List<Path> extracted = new ArrayList<>();
   private final String slug;
+  private boolean locksRunningBinaries;
 
   TestPlatform() {
     this("test-arch");
@@ -22,9 +23,29 @@ final class TestPlatform implements Platform {
     this.slug = slug;
   }
 
+  /** Behave like Windows: the OS refuses to overwrite a running executable. */
+  TestPlatform lockingRunningBinaries() {
+    this.locksRunningBinaries = true;
+    return this;
+  }
+
   @Override
   public String slug() {
     return slug;
+  }
+
+  /**
+   * The fake slug is deliberately not in {@code PUBLISHED_PLATFORMS}; report it as published anyway
+   * so tests exercise the download path rather than the preflight. The preflight has its own test.
+   */
+  @Override
+  public boolean hasPublishedRelease() {
+    return true;
+  }
+
+  @Override
+  public boolean locksRunningBinaries() {
+    return locksRunningBinaries;
   }
 
   @Override

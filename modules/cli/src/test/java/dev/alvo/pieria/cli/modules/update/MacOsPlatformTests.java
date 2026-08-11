@@ -25,7 +25,14 @@ class MacOsPlatformTests {
     MacOsPlatform platform = new MacOsPlatform("aarch64");
     assertThat(platform.slug()).isEqualTo("macos-aarch64");
     assertThat(platform.exeName("pieria")).isEqualTo("pieria");
-    assertThat(platform.supported()).isTrue();
+    assertThat(platform.archiveExtension()).isEqualTo("tar.gz");
+    assertThat(platform.hasPublishedRelease()).isTrue();
+    assertThat(platform.locksRunningBinaries()).isFalse();
+  }
+
+  @Test
+  void unpublishedArchIsNotOfferedAsARelease() {
+    assertThat(new MacOsPlatform("x86_64").hasPublishedRelease()).isFalse();
   }
 
   @Test

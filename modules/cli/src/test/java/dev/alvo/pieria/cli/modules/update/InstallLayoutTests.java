@@ -44,4 +44,15 @@ class InstallLayoutTests {
 
     assertThat(layout.binDir()).isEqualTo(realBin.toRealPath());
   }
+
+  /** `C:\Users\First Last\...` is the common Windows case, not the exception. */
+  @Test
+  void resolvesInstallRootsContainingSpaces(@TempDir Path tmp) {
+    Path spaced = tmp.resolve("First Last").resolve("Local App Data").resolve("Pieria");
+
+    assertThat(InstallLayout.resolve(env(Map.of("PIERIA_HOME", spaced.toString())), tmp, platform, null)
+      .binDir()).isEqualTo(spaced.resolve("bin"));
+    assertThat(InstallLayout.resolve(env(Map.of()), tmp, platform, spaced).binDir())
+      .isEqualTo(spaced.resolve("bin"));
+  }
 }

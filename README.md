@@ -223,20 +223,30 @@ The repository is split into Gradle modules under `modules/`:
 
 ## Installation
 
-### Quick install (macOS / Linux)
+### Quick install
 
 The installer downloads the native `pieria`, `pieria-daemon`, and `pieria-gateway` binaries
-for your platform, links them onto your `PATH`, and registers the daemon as a per-user OS
-service (launchd on macOS, systemd on Linux). Re-running is safe — every step is idempotent.
+for your platform, puts them on your `PATH`, and registers the daemon to run per-user
+(launchd on macOS, systemd on Linux, a logon Scheduled Task on Windows). Re-running is safe
+— every step is idempotent.
+
+**macOS / Linux:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.sh | bash
 ```
 
-> Inspect any script before piping it to a shell. You can also download `install.sh` and run
-> `bash install.sh --dry-run` to preview every step and resolved URL without changing anything.
+**Windows** (PowerShell):
 
-Useful flags:
+```powershell
+irm https://raw.githubusercontent.com/VAlux/pieria/main/packaging/install.ps1 | iex
+```
+
+> Inspect any script before piping it to a shell. Both installers take a dry-run flag —
+> `bash install.sh --dry-run` or `.\install.ps1 -DryRun` — which prints every step and
+> resolved URL without changing anything.
+
+Useful flags (the PowerShell equivalents are `-NoService`, `-Version`, `-DryRun`):
 
 ```bash
 bash install.sh --no-service     # install binaries only, skip OS service registration
@@ -246,13 +256,8 @@ bash install.sh --help           # full option list
 
 Releases are published for `macos-aarch64`, `linux-x86_64`, and `windows-x86_64`. On any
 other platform the installer stops before downloading and points you at a source build;
-pass `--allow-unsupported` (with `PIERIA_BASE_URL` set to your own archive host) to override.
-
-**Windows:** use the PowerShell installer instead:
-
-```powershell
-packaging/install.ps1
-```
+pass `--allow-unsupported`/`-AllowUnsupported` (with `PIERIA_BASE_URL` set to your own
+archive host) to override.
 
 Once installed, the daemon listens on `http://127.0.0.1:8077`. On first start it
 initializes the embedded database, runs migrations, and prints guidance for pulling the
@@ -398,11 +403,14 @@ pieria update --dry-run       # show exactly what would happen, change nothing
 
 It acquires the new distribution first (so a failed download never leaves you serviceless), stops
 the daemon, atomically swaps the binaries, restarts the daemon, and waits for it to come healthy.
-On macOS it clears the quarantine attribute and ad-hoc-signs the binaries so they aren't blocked by
-Gatekeeper. A daemon restart is transparent to a running Claude Code session (the gateway reconnects
-over HTTP) — the lifecycle hooks live inside the `pieria` binary itself, so swapping it updates them
-automatically; you only need to relaunch the harness if the **gateway binary** changed. (Currently
-macOS-only; on other platforms re-run the installer.)
+A daemon restart is transparent to a running Claude Code session (the gateway reconnects over HTTP)
+— the lifecycle hooks live inside the `pieria` binary itself, so swapping it updates them
+automatically; you only need to relaunch the harness if the **gateway binary** changed.
+
+Two per-platform details it handles for you: on macOS it clears the quarantine attribute and
+ad-hoc-signs the binaries so Gatekeeper doesn't block them; on Windows, where the OS locks a running
+executable, it renames the old binaries aside instead of overwriting them and sweeps the leftovers
+on the next run.
 
 ### Build from source
 
