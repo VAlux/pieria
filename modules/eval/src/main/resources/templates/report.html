@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="'Pieria ' + ${report.benchmark()} + ' benchmark'">Pieria benchmark</title>
+	<style>
+		:root {
+			--bg: #fbfbfa; --panel: #ffffff; --border: #e3e1dc; --text: #1f1e1c;
+			--muted: #6d6a63; --accent: #a4562b; --good: #2f7a4a; --bad: #a33a3a;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #17161a; --panel: #201f24; --border: #34323a; --text: #ecebe8;
+				--muted: #9a968e; --accent: #d68a5c; --good: #6bbd8a; --bad: #d97a7a;
+			}
+		}
+		* { box-sizing: border-box; }
+		body {
+			margin: 0; padding: 2rem 1.25rem 4rem; background: var(--bg); color: var(--text);
+			font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+		}
+		main { max-width: 68rem; margin: 0 auto; }
+		h1 { font-size: 1.55rem; margin: 0 0 .35rem; }
+		h2 { font-size: 1.05rem; margin: 2.25rem 0 .75rem; letter-spacing: .01em; }
+		h3 { font-size: .95rem; margin: 0; }
+		.muted { color: var(--muted); }
+		.meta { margin: 0 0 1.5rem; font-size: .875rem; color: var(--muted); }
+		.meta code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; }
+
+		.cards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); }
+		.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .85rem .95rem; }
+		.card .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+		.card .value { font-size: 1.5rem; font-weight: 600; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+		.card.primary .value { color: var(--accent); }
+
+		.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+		table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+		th, td { text-align: left; padding: .55rem .85rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+		th { font-weight: 600; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
+		tbody tr:last-child td { border-bottom: 0; }
+		td.num { text-align: right; font-variant-numeric: tabular-nums; }
+		table.kv td:first-child { color: var(--muted); width: 14rem; }
+		table.kv td { white-space: normal; word-break: break-word; }
+
+		.two-col { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+
+		details.conversation { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: .75rem; }
+		details.conversation > summary { padding: .85rem .95rem; cursor: pointer; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: baseline; }
+		details.conversation > summary::marker { color: var(--muted); }
+		details.conversation > summary .stat { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+		details.query { border-top: 1px solid var(--border); }
+		details.query > summary { padding: .6rem .95rem; cursor: pointer; display: flex; gap: .6rem; align-items: baseline; }
+		details.query > summary .question { flex: 1; min-width: 0; }
+		.badge { font-size: .7rem; border-radius: 999px; padding: .1rem .5rem; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+		.badge.pass { color: var(--good); border-color: var(--good); }
+		.badge.fail { color: var(--bad); border-color: var(--bad); }
+		.query-body { padding: .2rem .95rem 1rem 2rem; font-size: .875rem; }
+		.query-body dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: .8rem; }
+		.query-body dd { margin: .2rem 0 0; }
+		ol.evidence { margin: .25rem 0 0; padding-left: 1.4rem; }
+		ol.evidence li { margin: .2rem 0; }
+		.empty { color: var(--muted); font-style: italic; }
+	</style>
+</head>
+<body>
+<main>
+	<h1 th:text="'Pieria — ' + ${report.benchmark()} + ' benchmark'">Pieria — locomo benchmark</h1>
+	<p class="meta">
+		generated <span th:text="${report.generatedAt()}">…</span> ·
+		<span th:text="${summary.conversations()}">0</span> conversations ·
+		<span th:text="${summary.questions()}">0</span> questions ·
+		<span th:text="${summary.memoriesStored()}">0</span> memories stored ·
+		<span th:text="${report.config().runs()}">1</span> run(s)
+	</p>
+
+	<section class="cards">
+		<div class="card primary">
+			<div class="label">Faithfulness</div>
+			<div class="value" th:text="${fmt.pct(summary.answerFaithfulness())}">0%</div>
+		</div>
+		<div class="card">
+			<div class="label">Hit rate</div>
+			<div class="value" th:text="${fmt.pct(summary.retrievalHitRate())}">0%</div>
+		</div>
+		<div class="card">
+			<div class="label">MRR</div>
+			<div class="value" th:text="${fmt.num(summary.meanReciprocalRank())}">0.000</div>
+		</div>
+		<div class="card">
+			<div class="label">Ingestion</div>
+			<div class="value" th:text="${fmt.duration(summary.latency().ingestionMs())}">0s</div>
+		</div>
+		<div class="card">
+			<div class="label">Recall</div>
+			<div class="value" th:text="${fmt.duration(summary.latency().recallMs())}">0s</div>
+		</div>
+	</section>
+
+	<h2>By question category</h2>
+	<div class="panel">
+		<table>
+			<thead>
+			<tr>
+				<th>Category</th>
+				<th class="num">Questions</th>
+				<th class="num">Faithfulness</th>
+				<th class="num">Hit rate</th>
+				<th class="num">MRR</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr th:each="entry : ${summary.byCategory()}">
+				<td th:text="${fmt.category(entry.key)}">1 — multi-hop</td>
+				<td class="num" th:text="${entry.value.questions()}">0</td>
+				<td class="num" th:text="${fmt.pct(entry.value.answerFaithfulness())}">0%</td>
+				<td class="num" th:text="${fmt.pct(entry.value.retrievalHitRate())}">0%</td>
+				<td class="num" th:text="${fmt.num(entry.value.meanReciprocalRank())}">0.000</td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+
+	<h2>Run configuration</h2>
+	<div class="two-col">
+		<div class="panel">
+			<table class="kv">
+				<tbody>
+				<tr><td>dataset</td><td th:text="${report.config().dataset()}">…</td></tr>
+				<tr>
+					<td>daemon config</td>
+					<td th:text="${report.config().configFile()} ?: 'bundled defaults'">…</td>
+				</tr>
+				<tr><td>subset</td><td th:text="${report.config().describeSubset()}">…</td></tr>
+				<tr><td>output</td><td th:text="${report.config().outputDirectory()}">…</td></tr>
+				</tbody>
+			</table>
+		</div>
+		<div class="panel">
+			<table class="kv">
+				<tbody>
+				<tr th:each="model : ${report.models()}">
+					<td th:text="${model.key}">provider</td>
+					<td th:text="${model.value}">…</td>
+				</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<h2>Conversations</h2>
+	<p class="muted" th:if="${report.config().runs() > 1}" style="font-size:.85rem;margin-top:-.35rem">
+		Summary metrics pool every run; the per-conversation detail below is the last run's.
+	</p>
+
+	<details class="conversation" th:each="conversation : ${report.conversations()}">
+		<summary>
+			<h3 th:text="${conversation.name()}">conv-26</h3>
+			<span class="stat" th:text="${conversation.queries().size()} + ' questions'">0 questions</span>
+			<span class="stat" th:text="${conversation.turns()} + ' turns → ' + ${conversation.memoriesStored()} + ' memories'">…</span>
+			<span class="stat" th:text="'faithfulness ' + ${fmt.pct(conversation.answerFaithfulness())}">…</span>
+			<span class="stat" th:text="'hit rate ' + ${fmt.pct(conversation.retrievalHitRate())}">…</span>
+			<span class="stat" th:text="'mrr ' + ${fmt.num(conversation.meanReciprocalRank())}">…</span>
+			<span class="stat" th:text="'ingest ' + ${fmt.duration(conversation.latency().ingestionMs())}">…</span>
+		</summary>
+
+		<details class="query" th:each="query : ${conversation.queries()}">
+			<summary>
+				<span class="badge" th:classappend="${query.answerFaithful()} ? 'pass' : 'fail'"
+				      th:text="${query.answerFaithful()} ? 'faithful' : 'unfaithful'">unfaithful</span>
+				<span class="question" th:text="${query.question()}">…</span>
+				<span class="badge" th:text="${fmt.category(query.category())}">…</span>
+			</summary>
+			<dl class="query-body">
+				<dt>Expected answer</dt>
+				<dd th:text="${fmt.text(query.expectedAnswer())}">…</dd>
+
+				<dt>Daemon answer</dt>
+				<dd th:text="${fmt.text(query.actualAnswer())}">…</dd>
+
+				<dt th:text="'Retrieval — hit rate ' + ${fmt.pct(query.hitRate())} + ', reciprocal rank ' + ${fmt.num(query.reciprocalRank())} + ', ' + ${query.latencyMs()} + 'ms'">…</dt>
+				<dd>
+					<span class="empty" th:if="${query.expectedEvidence().isEmpty()}">no gold evidence</span>
+					<ol class="evidence" th:unless="${query.expectedEvidence().isEmpty()}">
+						<li th:each="evidence : ${query.expectedEvidence()}" th:text="${evidence}">…</li>
+					</ol>
+				</dd>
+
+				<dt th:text="'Retrieved memories (' + ${query.retrievedMemories().size()} + ', in rank order)'">…</dt>
+				<dd>
+					<span class="empty" th:if="${query.retrievedMemories().isEmpty()}">nothing retrieved</span>
+					<ol class="evidence" th:unless="${query.retrievedMemories().isEmpty()}">
+						<li th:each="memory : ${query.retrievedMemories()}" th:text="${memory}">…</li>
+					</ol>
+				</dd>
+			</dl>
+		</details>
+	</details>
+</main>
+</body>
+</html>

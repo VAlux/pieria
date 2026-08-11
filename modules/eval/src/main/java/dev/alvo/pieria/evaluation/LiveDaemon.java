@@ -9,43 +9,38 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Stream;
 
 /**
  * Boots the <em>real</em> Pieria daemon in-process — the full {@link PieriaApplication} web stack
  * (REST controllers, the embedded {@code SqliteMemoryStore} with sqlite-vec + FTS5, the async
  * vectorization outbox worker, RRF fusion, the live model gateway) — on a random loopback port,
- * pointed at a throwaway temp database.
+ * pointed at a throwaway {@link EvalHome}.
  *
- * <p>This is what makes the benchmark "real": the harness no longer instantiates the ingestion and
- * retrieval services in-process against a stub store. It drives this daemon over HTTP exactly as a
- * harness or the console would, so LoCoMo numbers reflect the deployed pipeline and config rather
- * than a lexical-only approximation.
+ * <p>This is what makes the benchmark "real": the harness does not instantiate the ingestion and
+ * retrieval services against a stub store. It drives this daemon over HTTP exactly as a harness or
+ * the console would, so LoCoMo numbers reflect the deployed pipeline and config rather than a
+ * lexical-only approximation.
  *
- * <p>The context is a dedicated, isolated instance: a fresh temp {@code PIERIA_HOME} + SQLite file
- * per {@link #start()}, discarded on {@link #close()}. It still needs a reachable model provider
- * (Ollama by default) for extraction/synthesis/embeddings — it is never booted in CI. The
- * command-line-style property overrides win over the daemon's bundled {@code application.properties}
- * (in particular {@code server.port=0} overrides the pinned {@code 8077}), and the vectorization
- * scheduler is intentionally left at its production default (enabled) so vectors are actually
- * written and the vector channels are warm by the time the harness recalls.
+ * <p>It still needs a reachable model provider (Ollama by default) for extraction/synthesis/embeddings
+ * — it is never booted in CI. The vectorization scheduler is intentionally left at its production
+ * default (enabled) so vectors are actually written and the vector channels are warm by the time the
+ * harness recalls.
  */
 public final class LiveDaemon implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(LiveDaemon.class);
 
   private final ConfigurableApplicationContext context;
-  private final Path home;
+  private final EvalHome home;
   private final String baseUrl;
 
-  private LiveDaemon(ConfigurableApplicationContext context, Path home, String baseUrl) {
+  private LiveDaemon(ConfigurableApplicationContext context, EvalHome home, String baseUrl) {
     this.context = Objects.requireNonNull(context, "context");
     this.home = Objects.requireNonNull(home, "home");
     this.baseUrl = Objects.requireNonNull(baseUrl, "baseUrl");
@@ -53,48 +48,45 @@ public final class LiveDaemon implements AutoCloseable {
 
   /** Boots the daemon on a random loopback port against a fresh temp database. */
   public static LiveDaemon start() {
-    Path home;
-    try {
-      home = Files.createTempDirectory("pieria-eval-");
-    } catch (IOException e) {
-      throw new IllegalStateException("could not create temp PIERIA_HOME for the eval daemon", e);
-    }
+    return start(null);
+  }
+
+  /**
+   * Boots the daemon with {@code configFile} (nullable) layered over the bundled defaults, so the
+   * benchmark measures the pipeline the operator actually deploys rather than the shipped defaults.
+   */
+  public static LiveDaemon start(Path configFile) {
+    EvalHome home = EvalHome.create();
 
     SpringApplication application = new SpringApplication(PieriaApplication.class);
     application.setWebApplicationType(WebApplicationType.SERVLET);
 
+    List<String> args = new ArrayList<>(List.of(
+      // server.port=8077 is pinned in application.properties; 0 gets us a free random port.
+      "--server.port=0",
+      "--server.address=127.0.0.1",
+      "--pieria.daemon.host=127.0.0.1",
+      // Tear the server down immediately on close instead of a 30s graceful drain — the harness
+      // owns the daemon's whole lifecycle, so there is no external client to wait for.
+      "--server.shutdown=immediate"));
+    args.addAll(home.springArgs(configFile));
+
     ConfigurableApplicationContext context;
     try {
-      // Command-line args have the highest precedence, so they override application.properties —
-      // notably server.port=8077, which we must replace with 0 to get a free random port.
-      context = application.run(
-        "--server.port=0",
-        "--server.address=127.0.0.1",
-        "--pieria.daemon.host=127.0.0.1",
-        // Tear the server down immediately on close instead of a 30s graceful drain — the harness
-        // owns the daemon's whole lifecycle, so there is no external client to wait for.
-        "--server.shutdown=immediate",
-        "--pieria.db.path=" + home.resolve("pieria.db"),
-        "--pieria.app-data.root=" + home,
-        "--pieria.app-data.database-dir=" + home.resolve("db"),
-        "--pieria.app-data.config-dir=" + home.resolve("config"),
-        "--pieria.app-data.logs-dir=" + home.resolve("logs"),
-        "--pieria.app-data.runtime-dir=" + home.resolve("run"),
-        // Assume the operator already has the configured models; never pull during a benchmark.
-        "--pieria.first-run.check-models=false");
+      context = application.run(args.toArray(String[]::new));
     } catch (RuntimeException e) {
-      deleteRecursively(home);
+      home.close();
       throw e;
     }
 
     try {
       int port = ((WebServerApplicationContext) context).getWebServer().getPort();
       String baseUrl = "http://127.0.0.1:" + port;
-      log.info("live eval daemon up at {} (home {})", baseUrl, home);
+      log.info("live eval daemon up at {} (home {})", baseUrl, home.root());
       return new LiveDaemon(context, home, baseUrl);
     } catch (RuntimeException e) {
       context.close();
-      deleteRecursively(home);
+      home.close();
       throw e;
     }
   }
@@ -104,7 +96,7 @@ public final class LiveDaemon implements AutoCloseable {
     return baseUrl;
   }
 
-  /** Non-secret provider/model identity persisted with live benchmark reports. */
+  /** Non-secret provider/model identity persisted with the benchmark report. */
   public Map<String, String> modelMetadata() {
     PieriaProperties properties = context.getBean(PieriaProperties.class);
     Map<String, String> metadata = new LinkedHashMap<>();
@@ -121,24 +113,7 @@ public final class LiveDaemon implements AutoCloseable {
     try {
       context.close();
     } finally {
-      deleteRecursively(home);
-    }
-  }
-
-  private static void deleteRecursively(Path root) {
-    if (root == null || !Files.exists(root)) {
-      return;
-    }
-    try (Stream<Path> paths = Files.walk(root)) {
-      paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-        try {
-          Files.deleteIfExists(path);
-        } catch (IOException ignored) {
-          // Best-effort cleanup of a temp dir; a leftover file is harmless.
-        }
-      });
-    } catch (IOException e) {
-      log.warn("could not fully clean eval daemon home {}: {}", root, e.getMessage());
+      home.close();
     }
   }
 }

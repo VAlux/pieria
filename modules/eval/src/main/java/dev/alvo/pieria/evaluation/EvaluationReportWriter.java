@@ -1,52 +1,50 @@
 package dev.alvo.pieria.evaluation;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.time.format.DateTimeFormatter;
-import java.util.Objects;
 
 /**
- * Writes reports into a caller-selected local output directory. The repository ignores
- * {@code pieria-eval-reports/} for ad hoc runs.
+ * Reads and writes benchmark reports as JSON. The written file is the source of truth for a run —
+ * {@link HtmlReportWriter} renders it, and {@link #read(Path)} loads it back so a past run can be
+ * re-rendered or re-judged without re-driving the daemon.
+ *
+ * <p>Reports land in a caller-selected directory; the repository ignores {@code pieria-eval-reports/}.
  */
 public final class EvaluationReportWriter {
 
-	public static final Path DEFAULT_OUTPUT_DIRECTORY = Path.of("pieria-eval-reports");
-
 	private final ObjectMapper objectMapper;
 
-	public EvaluationReportWriter(ObjectMapper objectMapper) {
-		SimpleModule module = new SimpleModule();
-		module.addSerializer(Instant.class, new JsonSerializer<>() {
-			@Override
-			public void serialize(Instant value, JsonGenerator generator, SerializerProvider serializers)
-				throws IOException {
-				generator.writeString(DateTimeFormatter.ISO_INSTANT.format(value));
-			}
-		});
-		this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper")
-			.copy()
-			.registerModule(module);
-	}
-
 	public EvaluationReportWriter() {
-		this(new ObjectMapper());
+		this.objectMapper = new ObjectMapper()
+			.registerModule(new JavaTimeModule())
+			.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+			.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 	}
 
 	public Path write(EvaluationReport report, Path outputDirectory) throws IOException {
 		Files.createDirectories(outputDirectory);
-		String timestamp = DateTimeFormatter.ISO_INSTANT.format(report.generatedAt())
-			.replace(':', '-');
-		Path file = outputDirectory.resolve("evaluation-" + timestamp + ".json");
+		Path file = outputDirectory.resolve(fileName(report) + ".json");
 		objectMapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), report);
 		return file;
+	}
+
+	public EvaluationReport read(Path reportFile) throws IOException {
+		return objectMapper.readValue(reportFile.toFile(), EvaluationReport.class);
+	}
+
+	/**
+	 * Timestamped base name shared by a run's JSON and HTML files, so the pair sorts together and
+	 * stays filesystem-safe on Windows (where {@code :} is illegal in a file name).
+	 */
+	static String fileName(EvaluationReport report) {
+		return "evaluation-"
+			+ DateTimeFormatter.ISO_INSTANT.format(report.generatedAt()).replace(':', '-');
 	}
 }

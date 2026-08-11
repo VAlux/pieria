@@ -30,6 +30,19 @@
 					"blip_caption": "a photo of a dog on a mountain trail",
 					"dia_id": "D2:2"
 				}
+			],
+			"session_3_date_time": "9:02 am on 2 June, 2023",
+			"session_3": [
+				{
+					"speaker": "Caroline",
+					"text": "Biscuit started agility classes at the Oakland training club.",
+					"dia_id": "D3:1"
+				},
+				{
+					"speaker": "Melanie",
+					"text": "I signed up for the charity race downtown.",
+					"dia_id": "D3:2"
+				}
 			]
 		},
 		"qa": [
@@ -37,13 +50,65 @@
 				"question": "What is the name of Caroline's dog?",
 				"answer": "Biscuit",
 				"evidence": ["D1:1"],
+				"category": 4
+			},
+			{
+				"question": "When did Melanie first ask about Biscuit's breed?",
+				"answer": "8 May 2023",
+				"evidence": ["D1:2"],
 				"category": 2
 			},
 			{
-				"question": "Where did Caroline go hiking?",
+				"question": "Where did Caroline take her beagle mix hiking?",
 				"answer": "Yosemite",
 				"evidence": ["D2:1"],
-				"category": 2
+				"category": 1
+			},
+			{
+				"question": "What kind of dog is a beagle mix?",
+				"answer": "a crossbreed of a beagle and another breed",
+				"evidence": ["D2:1"],
+				"category": 3
+			},
+			{
+				"question": "Where does Biscuit take agility classes?",
+				"answer": "the Oakland training club",
+				"evidence": ["D3:1"],
+				"category": 4
+			},
+			{
+				"question": "How did Melanie feel after the charity race?",
+				"adversarial_answer": "not mentioned",
+				"evidence": ["D3:2"],
+				"category": 5
+			}
+		]
+	},
+	{
+		"sample_id": "conv-2",
+		"conversation": {
+			"speaker_a": "Jon",
+			"speaker_b": "Priya",
+			"session_1_date_time": "7:30 pm on 3 March, 2023",
+			"session_1": [
+				{
+					"speaker": "Jon",
+					"text": "I moved to Lisbon for the new job at the shipping company.",
+					"dia_id": "D1:1"
+				},
+				{
+					"speaker": "Priya",
+					"text": "Congratulations! How is the apartment hunt going?",
+					"dia_id": "D1:2"
+				}
+			]
+		},
+		"qa": [
+			{
+				"question": "Which city did Jon move to?",
+				"answer": "Lisbon",
+				"evidence": ["D1:1"],
+				"category": 4
 			}
 		]
 	}

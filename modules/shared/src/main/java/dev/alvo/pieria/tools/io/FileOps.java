@@ -5,8 +5,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.stream.Stream;
 
 public final class FileOps {
 
@@ -78,6 +80,28 @@ public final class FileOps {
       return Files.readString(path);
     } catch (IOException | UncheckedIOException e) {
       return null;
+    }
+  }
+
+  /**
+   * Deletes {@code root} and everything under it, deepest entry first, swallowing every failure. For
+   * throwaway directories (temp homes, scratch output) where a leftover file is harmless and an
+   * exception on cleanup would mask the real outcome. A missing {@code root} is a no-op.
+   */
+  public static void deleteRecursivelyQuietly(Path root) {
+    if (root == null || !Files.exists(root)) {
+      return;
+    }
+    try (Stream<Path> paths = Files.walk(root)) {
+      paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+        try {
+          Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+          // Best-effort: a leftover file in a throwaway directory is harmless.
+        }
+      });
+    } catch (IOException | UncheckedIOException ignored) {
+      // Best-effort: the caller is discarding this tree anyway.
     }
   }
 }

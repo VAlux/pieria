@@ -65,6 +65,34 @@ class TranscriptNormalizerTests {
   }
 
   @Test
+  void relativeDatesResolveAgainstTheMessagesOwnTimestampWhenItHasOne() {
+    // A back-filled transcript: the turn was spoken in 2023 but is being ingested in 2026.
+    Instant spokenAt = Instant.parse("2023-05-08T13:56:00Z");
+    List<Message> messages = List.of(
+      new Message(null, "s1", "user", "I went to the support group yesterday.", spokenAt));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content()).isEqualTo("I went to the support group 2023-05-07.");
+    assertThat(result.get(0).createdAt()).isEqualTo(spokenAt);
+  }
+
+  @Test
+  void eachMessageResolvesAgainstItsOwnSessionSoAMultiMonthTranscriptStaysCorrect() {
+    List<Message> messages = List.of(
+      new Message(null, "s1", "user", "met yesterday", Instant.parse("2023-05-08T13:56:00Z")),
+      new Message(null, "s1", "user", "met yesterday", Instant.parse("2023-06-09T10:15:00Z")),
+      Message.of("s1", "user", "met yesterday"));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result).extracting(Message::content).containsExactly(
+      "met 2023-05-07",
+      "met 2023-06-08",
+      "met 2026-05-21"); // no timestamp of its own → the request time
+  }
+
+  @Test
   void rendersRoleLabeledTranscriptWithLineIndices() {
     List<Message> messages = List.of(
       Message.of("s1", "user", "hello"),

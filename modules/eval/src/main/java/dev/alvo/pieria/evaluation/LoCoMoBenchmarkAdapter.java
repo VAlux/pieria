@@ -9,24 +9,31 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
 /**
  * Parses the real <a href="https://github.com/snap-research/locomo">LoCoMo</a> dataset
- * ({@code locomo10.json}) into {@link EvaluationFixture}s the harness can drive.
+ * ({@code locomo10.json}) into {@link EvaluationFixture}s the harness can drive, applying the
+ * {@link BenchmarkConfig} subset filters as it goes.
  *
  * <h2>Encoded schema assumptions (defensive — missing/extra fields are tolerated)</h2>
  * The on-disk file is a JSON <em>array</em> of samples. Each sample object is assumed to contain:
  * <ul>
  *   <li>{@code sample_id} — string id (defaults to {@code locomo-<index>} when absent), used as the
- *       fixture name and ingest session id.</li>
+ *       fixture name, the ingest session id, and the {@code --conversations=<ids>} selector.</li>
  *   <li>{@code conversation} — an object whose keys are either speaker labels
  *       ({@code speaker_a}, {@code speaker_b}) or per-session entries. Session turns live under
  *       numbered keys {@code session_1}, {@code session_2}, … each holding an array of turn objects;
@@ -35,27 +42,36 @@ import java.util.TreeMap;
  *       {@code speaker} (or {@code role}) and a {@code text} (or {@code clean_text} / {@code value}
  *       / {@code content}) field; turns with blank text are skipped. Image-only turns expose a
  *       {@code blip_caption} we fold into the text when {@code text} is empty.</li>
- *   <li>{@code qa} — an array of question/answer objects. Each is assumed to expose {@code question}
- *       and {@code answer} (coerced to a string; numeric/boolean answers are stringified). An
- *       optional {@code evidence} field (string or array of strings, dialog ids such as
- *       {@code "D1:2"}) is <em>resolved to the referenced turn text</em> via each turn's
- *       {@code dia_id} and recorded as expected recall evidence — the raw ids never match a
- *       retrieved memory, so resolving them is what makes retrieval hit-rate/MRR meaningful for
- *       LoCoMo. Ids that cannot be resolved are kept verbatim (they simply never match).
- *       {@code category 5} (adversarial, answer often "Not mentioned") is kept as-is — the harness
- *       still scores it.</li>
+ *   <li>{@code qa} — an array of question/answer objects exposing {@code question}, {@code answer}
+ *       (or {@code adversarial_answer} for {@code category 5}), and {@code category}. The
+ *       {@code evidence} field (string or array of dialog ids such as {@code "D1:2"}) is
+ *       <em>resolved to the referenced turn text</em> via each turn's {@code dia_id} and recorded as
+ *       expected recall evidence — the raw ids never match a retrieved memory, so resolving them is
+ *       what makes retrieval hit-rate/MRR meaningful. Ids that cannot be resolved are kept verbatim
+ *       (they simply never match).</li>
  * </ul>
  *
- * <p>The transcript is mapped to ingest messages by alternating user/assistant roles is NOT done —
+ * <h2>Session timestamps</h2>
+ * Every turn is ingested prefixed with its session's date — {@code "[1:56 pm on 8 May, 2023]
+ * Caroline: …"} — so each chunk the daemon extracts from carries the date. Without this, LoCoMo's
+ * category-2 (temporal) questions, whose gold answers <em>are</em> dates, are unanswerable by
+ * construction. The resolved evidence text deliberately keeps the <em>undated</em> turn body, so the
+ * harness's token-containment scoring is unaffected by the prefix.
+ *
+ * <h2>Roles</h2>
  * LoCoMo is two human speakers, so the first speaker maps to {@code user} and the second to
- * {@code assistant} to fit the daemon's role model, with the speaker name preserved inline in the
- * message text so the model can still attribute turns. Expected memories are intentionally left
- * empty: LoCoMo provides no gold extraction set, only QA, so extraction precision/recall are not
- * meaningful for this benchmark and the harness reports them as vacuous.
+ * {@code assistant} to fit the daemon's role model, with the speaker name preserved inline so the
+ * model can still attribute turns.
  */
 public final class LoCoMoBenchmarkAdapter {
 
   private static final String PROFILE = "locomo-eval";
+
+  /** {@code "1:56 pm on 8 May, 2023"} — case-insensitive so the dataset's lowercase am/pm parses. */
+  private static final DateTimeFormatter SESSION_DATE_TIME = new DateTimeFormatterBuilder()
+    .parseCaseInsensitive()
+    .appendPattern("h:mm a 'on' d MMMM, yyyy")
+    .toFormatter(Locale.ENGLISH);
 
   private final ObjectMapper objectMapper;
 
@@ -67,59 +83,76 @@ public final class LoCoMoBenchmarkAdapter {
     this(new ObjectMapper());
   }
 
-  /**
-   * Loads and parses a local {@code locomo10.json} file.
-   */
-  public List<EvaluationFixture> load(Path datasetFile) throws IOException {
+  /** Loads and parses a local {@code locomo10.json} file, applying the config's subset filters. */
+  public List<EvaluationFixture> load(Path datasetFile, BenchmarkConfig config) throws IOException {
     try (InputStream in = Files.newInputStream(datasetFile)) {
-      return parse(in);
+      return parse(in, config);
     }
   }
 
-  public List<EvaluationFixture> parse(InputStream in) throws IOException {
-    return parse(objectMapper.readTree(in));
+  public List<EvaluationFixture> parse(InputStream in, BenchmarkConfig config) throws IOException {
+    return parse(objectMapper.readTree(in), config);
   }
 
-  /**
-   * Parses an already-read JSON tree (array of samples).
-   */
-  public List<EvaluationFixture> parse(JsonNode root) {
+  /** Parses an already-read JSON tree (array of samples). */
+  public List<EvaluationFixture> parse(JsonNode root, BenchmarkConfig config) {
     List<EvaluationFixture> fixtures = new ArrayList<>();
     if (root == null) {
       return fixtures;
     }
     Iterable<JsonNode> samples = root.isArray() ? root : List.of(root);
+    List<String> matchedIds = new ArrayList<>();
     int index = 0;
     for (JsonNode sample : samples) {
       index++;
-      EvaluationFixture fixture = parseSample(sample, index);
+      String name = sampleName(sample, index);
+      if (!config.conversationIds().isEmpty()) {
+        if (!config.conversationIds().contains(name)) {
+          continue;
+        }
+        matchedIds.add(name);
+      } else if (config.conversations() > 0 && fixtures.size() >= config.conversations()) {
+        break;
+      }
+      EvaluationFixture fixture = parseSample(sample, name, config);
       if (fixture != null) {
         fixtures.add(fixture);
       }
     }
+
+    // A typo'd id would otherwise silently run a different (or empty) slice for hours.
+    List<String> missing = new ArrayList<>(config.conversationIds());
+    missing.removeAll(matchedIds);
+    if (!missing.isEmpty()) {
+      throw new IllegalArgumentException("no conversation in the dataset matches: " + missing);
+    }
     return fixtures;
   }
 
-  private EvaluationFixture parseSample(JsonNode sample, int index) {
+  private static String sampleName(JsonNode sample, int index) {
+    String sampleId = sample == null ? "" : text(sample, "sample_id", "id");
+    return sampleId.isBlank() ? "locomo-" + index : sampleId;
+  }
+
+  private EvaluationFixture parseSample(JsonNode sample, String name, BenchmarkConfig config) {
     if (sample == null || !sample.isObject()) {
       return null;
     }
-    String sampleId = text(sample, "sample_id", "id");
-    String name = sampleId.isBlank() ? "locomo-" + index : sampleId;
-    String sessionId = "locomo-" + name;
 
-    // dia_id -> turn text, populated during conversation parsing so QA evidence ids resolve to text.
+    // dia_id -> undated turn text, populated while parsing so QA evidence ids resolve to text.
     Map<String, String> evidenceText = new LinkedHashMap<>();
-    List<TranscriptMessage> transcript = parseConversation(sample.get("conversation"), evidenceText);
-    List<RecallExpectation> recalls = parseQa(sample.get("qa"), evidenceText);
+    List<TranscriptMessage> transcript =
+      parseConversation(sample.get("conversation"), config.sessions(), evidenceText);
+    List<RecallExpectation> recalls = parseQa(sample.get("qa"), evidenceText, config);
 
     if (transcript.isEmpty() || recalls.isEmpty()) {
       return null;
     }
-    return new EvaluationFixture(name, PROFILE, sessionId, transcript, List.of(), recalls);
+    return new EvaluationFixture(name, PROFILE, "locomo-" + name, transcript, recalls);
   }
 
   private List<TranscriptMessage> parseConversation(JsonNode conversation,
+                                                    int sessionLimit,
                                                     Map<String, String> evidenceText) {
     List<TranscriptMessage> messages = new ArrayList<>();
     if (conversation == null || !conversation.isObject()) {
@@ -131,25 +164,26 @@ public final class LoCoMoBenchmarkAdapter {
 
     // Collect numbered sessions in ascending order so the dialogue stays chronological.
     Map<Integer, JsonNode> sessions = new TreeMap<>();
-    Iterator<Map.Entry<String, JsonNode>> it = conversation.fields();
-    while (it.hasNext()) {
-      Map.Entry<String, JsonNode> entry = it.next();
+    for (Map.Entry<String, JsonNode> entry : conversation.properties()) {
       Integer n = sessionNumber(entry.getKey());
-      if (n != null && entry.getValue() != null && entry.getValue().isArray()) {
+      if (n != null && entry.getValue() != null && entry.getValue().isArray()
+        && (sessionLimit <= 0 || n <= sessionLimit)) {
         sessions.put(n, entry.getValue());
       }
     }
 
-    for (JsonNode session : sessions.values()) {
-      for (JsonNode turn : session) {
+    for (Map.Entry<Integer, JsonNode> session : sessions.entrySet()) {
+      String dateTime = text(conversation, "session_" + session.getKey() + "_date_time");
+      Instant spokenAt = parseSessionDateTime(dateTime);
+      for (JsonNode turn : session.getValue()) {
         String body = turnBody(turn);
-        TranscriptMessage message = parseTurn(turn, speakerA, body);
+        TranscriptMessage message = parseTurn(turn, speakerA, body, dateTime, spokenAt);
         if (message != null) {
           messages.add(message);
           String diaId = text(turn, "dia_id", "id");
           if (!diaId.isBlank()) {
-            // Evidence is compared against retrieved memory text, so record the turn body
-            // (without the speaker prefix) as the resolvable text for this dialog id.
+            // Evidence is compared against retrieved memory text, so record the bare turn body
+            // (no speaker prefix, no date prefix) as the resolvable text for this dialog id.
             evidenceText.put(diaId, body);
           }
         }
@@ -169,18 +203,48 @@ public final class LoCoMoBenchmarkAdapter {
     return body;
   }
 
-  private TranscriptMessage parseTurn(JsonNode turn, String speakerA, String body) {
+  private TranscriptMessage parseTurn(JsonNode turn, String speakerA, String body, String dateTime,
+                                      Instant spokenAt) {
     if (turn == null || !turn.isObject() || body.isBlank()) {
       return null;
     }
     String speaker = text(turn, "speaker", "role", "from");
     // Two-human dialogue → first speaker = user, everyone else = assistant; keep the name inline.
     String role = speaker.isBlank() || speaker.equalsIgnoreCase(speakerA) ? "user" : "assistant";
-    String content = speaker.isBlank() ? body : speaker + ": " + body;
-    return new TranscriptMessage(role, content);
+    StringBuilder content = new StringBuilder();
+    if (!dateTime.isBlank()) {
+      content.append('[').append(dateTime).append("] ");
+    }
+    if (!speaker.isBlank()) {
+      content.append(speaker).append(": ");
+    }
+    content.append(body);
+    return new TranscriptMessage(role, content.toString(), spokenAt);
   }
 
-  private List<RecallExpectation> parseQa(JsonNode qa, Map<String, String> evidenceText) {
+  /**
+   * Parses LoCoMo's session stamp — {@code "1:56 pm on 8 May, 2023"}, the single shape used by all
+   * 288 sessions in {@code locomo10.json} — into an instant, treated as UTC.
+   *
+   * <p>The stamp is sent to the daemon as each turn's message timestamp, which is what makes the
+   * transcript's relative dates ("yesterday") resolve against 2023 rather than the ingest wall clock.
+   * The prefix in the turn text handles the rest; the two work together. Unparseable ⇒ {@code null},
+   * which just falls back to the daemon's clock.
+   */
+  private static Instant parseSessionDateTime(String dateTime) {
+    if (dateTime == null || dateTime.isBlank()) {
+      return null;
+    }
+    try {
+      return LocalDateTime.parse(dateTime.strip(), SESSION_DATE_TIME).toInstant(ZoneOffset.UTC);
+    } catch (DateTimeParseException e) {
+      return null;
+    }
+  }
+
+  private List<RecallExpectation> parseQa(JsonNode qa,
+                                          Map<String, String> evidenceText,
+                                          BenchmarkConfig config) {
     List<RecallExpectation> recalls = new ArrayList<>();
     if (qa == null || !qa.isArray()) {
       return recalls;
@@ -188,6 +252,10 @@ public final class LoCoMoBenchmarkAdapter {
 
     for (JsonNode item : qa) {
       if (item == null || !item.isObject()) {
+        continue;
+      }
+      int category = item.path("category").asInt(0);
+      if (!config.acceptsCategory(category)) {
         continue;
       }
       String question = text(item, "question", "query");
@@ -198,10 +266,72 @@ public final class LoCoMoBenchmarkAdapter {
       if (question.isBlank() || answer.isBlank()) {
         continue;
       }
-      List<String> evidence = resolveEvidence(stringList(item.get("evidence")), evidenceText);
-      recalls.add(new RecallExpectation(question, evidence, answer));
+      List<String> evidenceIds = stringList(item.get("evidence"));
+      if (!withinSessionLimit(evidenceIds, config.sessions())) {
+        continue;
+      }
+      recalls.add(new RecallExpectation(
+        question, resolveEvidence(evidenceIds, evidenceText), answer, category));
     }
-    return recalls;
+    return sample(recalls, config.questions());
+  }
+
+  /**
+   * With a {@code --sessions} cap, a question whose evidence lives in a dropped session is
+   * unanswerable — dropping it keeps the subset's score honest. Dialog ids are {@code D<session>:<turn>};
+   * a question with no evidence at all cannot be placed, so it is dropped too whenever a cap is active.
+   */
+  private static boolean withinSessionLimit(List<String> evidenceIds, int sessionLimit) {
+    if (sessionLimit <= 0) {
+      return true;
+    }
+    if (evidenceIds.isEmpty()) {
+      return false;
+    }
+    for (String id : evidenceIds) {
+      Integer session = evidenceSession(id);
+      if (session == null || session > sessionLimit) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static Integer evidenceSession(String evidenceId) {
+    if (evidenceId == null || !evidenceId.startsWith("D")) {
+      return null;
+    }
+    int colon = evidenceId.indexOf(':');
+    String digits = colon < 0 ? evidenceId.substring(1) : evidenceId.substring(1, colon);
+    try {
+      return Integer.parseInt(digits);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Takes {@code limit} questions spread evenly across the list rather than the first {@code limit}:
+   * LoCoMo's {@code qa} array is loosely ordered by category, so a head slice would silently bias a
+   * subset run towards one reasoning type.
+   */
+  private static List<RecallExpectation> sample(List<RecallExpectation> recalls, int limit) {
+    if (limit <= 0 || recalls.size() <= limit) {
+      return recalls;
+    }
+    int stride = Math.max(1, Math.ceilDiv(recalls.size(), limit));
+    List<RecallExpectation> sampled = new ArrayList<>(limit);
+    for (int i = 0; i < recalls.size() && sampled.size() < limit; i += stride) {
+      sampled.add(recalls.get(i));
+    }
+    // A stride that overshoots can leave the tail short; top up from the end, skipping duplicates.
+    for (int i = recalls.size() - 1; i >= 0 && sampled.size() < limit; i--) {
+      RecallExpectation candidate = recalls.get(i);
+      if (!sampled.contains(candidate)) {
+        sampled.add(candidate);
+      }
+    }
+    return List.copyOf(sampled);
   }
 
   /**

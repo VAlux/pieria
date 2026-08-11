@@ -22,8 +22,9 @@ import org.springframework.stereotype.Component;
  *   <li>Preserve source order. The position of a normalized message in the returned list is its
  *       stable provenance index (the {@code [n]} rendered by {@link #render}).</li>
  *   <li>Resolve only obvious, unambiguous relative dates ("yesterday"/"today"/"tomorrow") against
- *       the request timestamp, rewriting them to absolute ISO dates. Anything fuzzier is left
- *       untouched for the model. No model call is made here.</li>
+ *       <em>when that message was spoken</em> — its own {@code createdAt} when it has one, else the
+ *       request timestamp — rewriting them to absolute ISO dates. Anything fuzzier is left untouched
+ *       for the model. No model call is made here.</li>
  *   <li>Keep raw message text otherwise intact.</li>
  * </ul>
  */
@@ -41,20 +42,27 @@ public class TranscriptNormalizer {
    * Validate, order-preserve, and date-normalize the given messages.
    *
    * @param messages    raw inbound messages (may contain invalid entries)
-   * @param requestTime the ingest request timestamp; relative dates resolve against this (UTC)
+   * @param requestTime fallback timestamp for messages that carry no {@code createdAt} of their own;
+   *                    relative dates resolve against the message's time, else this one (UTC)
    * @return a new list of valid, normalized messages in source order
    */
   public List<Message> normalize(List<Message> messages, Instant requestTime) {
     if (messages == null) {
       return List.of();
     }
-    LocalDate today = LocalDate.ofInstant(requestTime, ZoneOffset.UTC);
+    LocalDate fallback = LocalDate.ofInstant(requestTime, ZoneOffset.UTC);
     List<Message> out = new ArrayList<>(messages.size());
     for (Message m : messages) {
       if (m == null || isBlank(m.role()) || isBlank(m.content()) || isBlank(m.sessionId())) {
         continue;
       }
-      String content = resolveRelativeDates(m.content(), today);
+      // A back-filled or replayed transcript carries the time each turn was actually spoken; without
+      // it "yesterday" would silently resolve to the day before the ingest, not the day before the
+      // conversation. Multi-session transcripts spanning months need this per message, not per request.
+      LocalDate spokenOn = m.createdAt() == null
+        ? fallback
+        : LocalDate.ofInstant(m.createdAt(), ZoneOffset.UTC);
+      String content = resolveRelativeDates(m.content(), spokenOn);
       out.add(new Message(m.id(), m.sessionId(), m.role().trim(), content, m.createdAt()));
     }
     return out;

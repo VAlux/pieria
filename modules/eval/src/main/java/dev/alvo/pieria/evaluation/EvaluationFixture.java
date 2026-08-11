@@ -1,22 +1,17 @@
 package dev.alvo.pieria.evaluation;
 
-import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.domain.memory.Message;
-
+import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
 
 /**
- * Checked-in deterministic evaluation data: transcript, expected extraction output, expected
- * recall evidence, and the pinned answer for each recall query.
+ * One LoCoMo conversation prepared for the harness: the transcript to ingest and the questions to
+ * recall, each with its gold answer and the evidence turns that answer it.
  */
 public record EvaluationFixture(
 	String name,
 	String profileName,
 	String sessionId,
 	List<TranscriptMessage> transcript,
-	List<ExpectedMemory> expectedMemories,
 	List<RecallExpectation> recalls) {
 
 	public EvaluationFixture {
@@ -24,22 +19,7 @@ public record EvaluationFixture(
 		profileName = requireText(profileName, "profileName");
 		sessionId = requireText(sessionId, "sessionId");
 		transcript = transcript == null ? List.of() : List.copyOf(transcript);
-		expectedMemories = expectedMemories == null ? List.of() : List.copyOf(expectedMemories);
 		recalls = recalls == null ? List.of() : List.copyOf(recalls);
-	}
-
-	public List<Message> toMessages() {
-		return transcript.stream()
-			.map(m -> Message.of(sessionId, m.role(), m.content()))
-			.toList();
-	}
-
-	static String normalizedContent(String content) {
-		return content == null ? "" : content.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
-	}
-
-	static String memoryKey(MemoryType type, String content, String topicKey) {
-		return type.wire() + "\n" + normalizedContent(content) + "\n" + Objects.toString(topicKey, "");
 	}
 
 	private static String requireText(String value, String field) {
@@ -49,34 +29,28 @@ public record EvaluationFixture(
 		return value;
 	}
 
-	public record TranscriptMessage(String role, String content) {
+	/**
+	 * One turn. {@code timestamp} is the session's date-time, sent to the daemon so relative dates in
+	 * the turn ("yesterday") resolve against when the conversation happened rather than the ingest.
+	 * Null when the dataset gave no date for the session.
+	 */
+	public record TranscriptMessage(String role, String content, Instant timestamp) {
 		public TranscriptMessage {
 			role = requireText(role, "role");
 			content = requireText(content, "content");
 		}
 	}
 
-	public record ExpectedMemory(
-		MemoryType type,
-		String content,
-		String topicKey,
-		String payload) {
-
-		public ExpectedMemory {
-			type = Objects.requireNonNull(type, "type");
-			content = requireText(content, "content");
-			payload = payload == null ? "{}" : payload;
-		}
-
-		String key() {
-			return memoryKey(type, content, topicKey);
-		}
-	}
-
+	/**
+	 * One question. {@code category} is the LoCoMo question category (1 multi-hop, 2 temporal,
+	 * 3 open-domain, 4 single-hop, 5 adversarial), carried through so the report can break the score
+	 * down by reasoning type.
+	 */
 	public record RecallExpectation(
 		String query,
 		List<String> expectedEvidence,
-		String expectedAnswer) {
+		String expectedAnswer,
+		int category) {
 
 		public RecallExpectation {
 			query = requireText(query, "query");

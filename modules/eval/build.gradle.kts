@@ -13,12 +13,37 @@ tasks.withType<Test> {
 	testLogging {
 		showStandardStreams = true
 	}
-	// Resolve relative paths (datasets/, pieria-eval-reports/) against the repo root so live
-	// benchmark runs find their dataset and write their report where the docs say they will.
+	// The tests here are pure adapter/config/renderer unit tests — no daemon, no model provider.
+	// Resolve relative paths against the repo root anyway, to match how the benchmark tasks run.
 	workingDir = rootDir
-	// The live benchmark test (DaemonBenchmarkLiveTests) self-disables via
-	// @EnabledIfEnvironmentVariable(PIERIA_LIVE_EVAL): it boots a real daemon and needs Ollama, so it
-	// never runs in CI. The remaining tests are pure adapter/fixture-loader unit tests.
+}
+
+/**
+ * Runs the LoCoMo benchmark against a real daemon booted in-process on a throwaway DB. Needs a local
+ * dataset (datasets/locomo/locomo10.json) and a reachable model provider — never run by CI.
+ *
+ *   ./gradlew :eval:locomo --args="--conversations=1 --sessions=3 --questions=10 --no-judge"
+ */
+tasks.register<JavaExec>("locomo") {
+	group = "verification"
+	description = "Run the LoCoMo benchmark against a real daemon (see --args=\"--help\")"
+	mainClass = "dev.alvo.pieria.evaluation.BenchmarkRunner"
+	classpath = sourceSets["main"].runtimeClasspath
+	// datasets/ and pieria-eval-reports/ are repo-root relative.
+	workingDir = rootDir
+}
+
+/**
+ * Re-renders a previously written report JSON as HTML, without re-running the benchmark.
+ *
+ *   ./gradlew :eval:locomoReport --args="pieria-eval-reports/evaluation-....json"
+ */
+tasks.register<JavaExec>("locomoReport") {
+	group = "verification"
+	description = "Render an existing benchmark report JSON as HTML"
+	mainClass = "dev.alvo.pieria.evaluation.HtmlReportWriter"
+	classpath = sourceSets["main"].runtimeClasspath
+	workingDir = rootDir
 }
 
 dependencies {
@@ -29,6 +54,10 @@ dependencies {
 	implementation(project(":daemon"))
 	implementation(project(":shared"))
 	implementation("com.fasterxml.jackson.core:jackson-databind")
+	// EvaluationReport.generatedAt is an Instant; the report must round-trip through JSON.
+	implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+	// Standalone Thymeleaf (no Spring MVC) renders the JSON report into a self-contained HTML page.
+	implementation("org.thymeleaf:thymeleaf")
 	// Booting the in-process daemon (web) and the judge gateway (non-web) needs the Boot runtime.
 	implementation("org.springframework.boot:spring-boot")
 	// WebServerApplicationContext lives here (Boot 4 split); LiveDaemon reads the random port off it.

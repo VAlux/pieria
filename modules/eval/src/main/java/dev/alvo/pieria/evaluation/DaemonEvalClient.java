@@ -3,14 +3,11 @@ package dev.alvo.pieria.evaluation;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import dev.alvo.pieria.api.request.IngestRequest;
-import dev.alvo.pieria.api.request.OnboardPlanRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
-import dev.alvo.pieria.api.request.SourceSpec;
 import dev.alvo.pieria.api.response.IngestResponse;
-import dev.alvo.pieria.api.response.MemoryListResponse;
-import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
@@ -23,10 +20,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -40,15 +35,11 @@ import java.util.Objects;
  * rather than holding one blocking HTTP request open (which would time out mid-ingest). Retrieval,
  * by contrast, is a single bounded synthesis call and stays synchronous with a generous timeout.
  *
- * <p>Recall is always requested with {@code debug=true}: the debug block carries the fused candidates
- * in rank order with per-channel provenance, which is what the harness scores for retrieval hit-rate
- * / MRR. Answer synthesis still runs (mode=SYNTHESIZED) so the synthesized answer is recorded for the
- * deferred faithfulness-judging pass.
+ * <p>Recall runs at {@code mode=SYNTHESIZED}: the harness scores the fused, rank-ordered
+ * {@code memories} the daemon returns for retrieval hit-rate / MRR, and records the synthesized answer
+ * for the deferred faithfulness-judging pass.
  */
 public final class DaemonEvalClient {
-
-  public record OnboardCompletion(long coreWallMs, JsonNode result) {
-  }
 
   private static final Logger log = LoggerFactory.getLogger(DaemonEvalClient.class);
 
@@ -82,7 +73,10 @@ public final class DaemonEvalClient {
     this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     this.mapper = new ObjectMapper()
       .findAndRegisterModules() // picks up jsr310 (MemoryResponse.createdAt is an Instant)
-      .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+      .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+      // Send message timestamps as ISO-8601 strings rather than epoch decimals, so the wire body
+      // stays the documented contract and is readable when a request is logged or replayed.
+      .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
   }
 
   /**
@@ -115,42 +109,11 @@ public final class DaemonEvalClient {
   }
 
   /**
-   * Replace the profile-scoped ingestion overrides used by one isolated benchmark run.
-   */
-  public void configureIngestion(String profile, Map<String, Object> ingestionOverrides) {
-    put("/v1/profiles/" + encode(profile) + "/config",
-      Map.of("ingestion", ingestionOverrides), POLL_REQUEST_TIMEOUT);
-  }
-
-  /**
-   * Run one text-corpus onboarding plan without starting the graph child task.
-   */
-  public OnboardCompletion onboardText(String profile, Path root) {
-    OnboardPlanRequest request = new OnboardPlanRequest(
-      List.of(new SourceSpec.Text(root.toAbsolutePath().toString(), null, true)), false);
-    long started = System.nanoTime();
-    TaskSubmitResponse submit = post(
-      "/v1/profiles/" + encode(profile) + "/onboard/async?label=eval-onboard",
-      request, TaskSubmitResponse.class, POLL_REQUEST_TIMEOUT);
-    JsonNode task = awaitTask(submit.taskId(), ingestTaskTimeout, "onboard");
-    return new OnboardCompletion((System.nanoTime() - started) / 1_000_000L, task.path("result"));
-  }
-
-  public ProfileStatsResponse stats(String profile) {
-    return get("/v1/profiles/" + encode(profile) + "/stats",
-      ProfileStatsResponse.class, POLL_REQUEST_TIMEOUT);
-  }
-
-  public MemoryListResponse memories(String profile) {
-    return get("/v1/profiles/" + encode(profile) + "/memories?session=pieria-init",
-      MemoryListResponse.class, POLL_REQUEST_TIMEOUT);
-  }
-
-  /**
-   * POST /v1/profiles/{profile}/recall — full synthesized recall with debug provenance.
+   * POST /v1/profiles/{profile}/recall — full synthesized recall. The returned {@code memories} are
+   * the RRF-fused candidates in rank order, which is exactly what the harness scores.
    */
   public RecallResponse recall(String profile, String query, int limit) {
-    RecallRequest request = new RecallRequest(query, limit, true, RecallMode.SYNTHESIZED);
+    RecallRequest request = new RecallRequest(query, limit, false, RecallMode.SYNTHESIZED);
     return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class, recallTimeout);
   }
 
@@ -283,47 +246,6 @@ public final class DaemonEvalClient {
       throw e;
     } catch (Exception e) {
       throw new IllegalStateException("POST " + path + " failed: " + e.getMessage(), e);
-    }
-  }
-
-  private void put(String path, Object body, Duration timeout) {
-    exchangeWithBody("PUT", path, body, timeout);
-  }
-
-  private <T> T get(String path, Class<T> responseType, Duration timeout) {
-    try {
-      HttpResponse<String> resp = http.send(
-        HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(timeout).GET().build(),
-        HttpResponse.BodyHandlers.ofString());
-      if (resp.statusCode() / 100 != 2) {
-        throw new IllegalStateException("GET " + path + " -> " + resp.statusCode() + ": " + truncate(resp.body()));
-      }
-      return mapper.readValue(resp.body(), responseType);
-    } catch (IllegalStateException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new IllegalStateException("GET " + path + " failed: " + e.getMessage(), e);
-    }
-  }
-
-  private void exchangeWithBody(String method, String path, Object body, Duration timeout) {
-    try {
-      String json = mapper.writeValueAsString(body);
-      HttpResponse<String> resp = http.send(
-        HttpRequest.newBuilder(URI.create(baseUrl + path))
-          .timeout(timeout)
-          .header("Content-Type", "application/json")
-          .method(method, HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-          .build(),
-        HttpResponse.BodyHandlers.ofString());
-      if (resp.statusCode() / 100 != 2) {
-        throw new IllegalStateException(method + " " + path + " -> " + resp.statusCode() + ": "
-          + truncate(resp.body()));
-      }
-    } catch (IllegalStateException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new IllegalStateException(method + " " + path + " failed: " + e.getMessage(), e);
     }
   }
 

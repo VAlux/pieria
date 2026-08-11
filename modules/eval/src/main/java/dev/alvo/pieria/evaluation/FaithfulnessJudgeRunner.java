@@ -1,8 +1,8 @@
 package dev.alvo.pieria.evaluation;
 
-import dev.alvo.pieria.evaluation.EvaluationReport.FixtureReport;
-import dev.alvo.pieria.evaluation.EvaluationReport.RecallReport;
-import dev.alvo.pieria.evaluation.EvaluationReport.Summary;
+import dev.alvo.pieria.evaluation.EvaluationReport.CategoryScore;
+import dev.alvo.pieria.evaluation.EvaluationReport.ConversationReport;
+import dev.alvo.pieria.evaluation.EvaluationReport.QueryReport;
 import dev.alvo.pieria.model.ModelGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,14 +12,14 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Judge-later pass: fills in answer faithfulness on a report the {@link EvaluationRunner} produced
- * against the daemon. The daemon run records each query's expected and actual answer but leaves the
- * faithfulness flag {@code false}; this pass runs a judge {@link ModelGateway} over those recorded
- * pairs and returns a new report with the flag set and the fixture/summary faithfulness aggregates
- * recomputed. Everything else (retrieval metrics, latency, evidence) is carried through unchanged.
+ * Judge-later pass: fills in answer faithfulness on conversation reports the {@link EvaluationRunner}
+ * produced against the daemon. The daemon run records each question's expected and actual answer but
+ * leaves the faithfulness flag {@code false}; this pass runs a judge {@link ModelGateway} over those
+ * recorded pairs and returns new reports with the flag set and the aggregates recomputed. Everything
+ * else (retrieval metrics, latency, evidence) is carried through unchanged.
  *
- * <p>Keeping judging separate from the daemon run means the expensive end-to-end pass never has to
- * be repeated to re-score answers — you can re-judge a written report with a different judge model.
+ * <p>Keeping judging separate from the daemon run means the expensive end-to-end pass never has to be
+ * repeated to re-score answers — a written report can be re-judged with a different judge model.
  */
 public final class FaithfulnessJudgeRunner {
 
@@ -31,63 +31,47 @@ public final class FaithfulnessJudgeRunner {
     this.judge = Objects.requireNonNull(judge, "judge");
   }
 
-  public EvaluationReport judge(EvaluationReport report) {
-    List<FixtureReport> judgedFixtures = new ArrayList<>(report.fixtures().size());
-    for (FixtureReport fixture : report.fixtures()) {
-      judgedFixtures.add(judgeFixture(fixture));
+  public List<ConversationReport> judge(List<ConversationReport> conversations) {
+    List<ConversationReport> judged = new ArrayList<>(conversations.size());
+    for (int i = 0; i < conversations.size(); i++) {
+      ConversationReport conversation = conversations.get(i);
+      log.info("judging [{}/{}] {} — {} answers",
+        i + 1, conversations.size(), conversation.name(), conversation.queries().size());
+      judged.add(judgeConversation(conversation));
     }
-    Summary summary = rescoreSummary(report.summary(), judgedFixtures);
-    return new EvaluationReport(report.generatedAt(), judgedFixtures, summary);
+    return judged;
   }
 
-  private FixtureReport judgeFixture(FixtureReport fixture) {
-    List<RecallReport> judged = new ArrayList<>(fixture.recalls().size());
-    int faithfulCount = 0;
-    for (RecallReport recall : fixture.recalls()) {
+  private ConversationReport judgeConversation(ConversationReport conversation) {
+    List<QueryReport> judged = new ArrayList<>(conversation.queries().size());
+    for (QueryReport query : conversation.queries()) {
       boolean faithful = judge.judgeAnswerFaithfulness(
-        recall.query(), recall.expectedAnswer(), recall.actualAnswer());
-      if (faithful) {
-        faithfulCount++;
-      }
-      judged.add(new RecallReport(
-        recall.query(),
-        recall.expectedEvidence(),
-        recall.actualEvidence(),
-        recall.hitRate(),
-        recall.reciprocalRank(),
+        query.question(), query.expectedAnswer(), query.actualAnswer());
+      judged.add(new QueryReport(
+        query.question(),
+        query.category(),
+        query.expectedAnswer(),
+        query.actualAnswer(),
         faithful,
-        recall.expectedAnswer(),
-        recall.actualAnswer(),
-        recall.latencyMs()));
+        query.expectedEvidence(),
+        query.retrievedMemories(),
+        query.hitRate(),
+        query.reciprocalRank(),
+        query.latencyMs()));
     }
-    double faithfulness = judged.isEmpty() ? 0.0 : (double) faithfulCount / judged.size();
-    log.info("{} — faithfulness {}/{} ({})", fixture.fixtureName(), faithfulCount, judged.size(),
-      String.format("%.3f", faithfulness));
 
-    return new FixtureReport(
-      fixture.fixtureName(),
-      fixture.extraction(),
-      judged,
-      fixture.retrievalHitRate(),
-      fixture.meanReciprocalRank(),
-      faithfulness,
-      fixture.latency(),
-      fixture.tokenUsage());
-  }
+    CategoryScore score = EvaluationReport.score(judged);
+    log.info("{} — faithfulness {}", conversation.name(),
+      String.format("%.3f", score.answerFaithfulness()));
 
-  private static Summary rescoreSummary(Summary summary, List<FixtureReport> fixtures) {
-    double faithfulness = fixtures.isEmpty() ? 0.0 : fixtures.stream()
-      .mapToDouble(FixtureReport::answerFaithfulness)
-      .average()
-      .orElse(0.0);
-    return new Summary(
-      summary.fixtureCount(),
-      summary.extractionPrecision(),
-      summary.extractionRecall(),
-      summary.retrievalHitRate(),
-      summary.meanReciprocalRank(),
-      faithfulness,
-      summary.latency(),
-      summary.tokenUsage());
+    return new ConversationReport(
+      conversation.name(),
+      conversation.turns(),
+      conversation.memoriesStored(),
+      score.answerFaithfulness(),
+      conversation.retrievalHitRate(),
+      conversation.meanReciprocalRank(),
+      conversation.latency(),
+      judged);
   }
 }

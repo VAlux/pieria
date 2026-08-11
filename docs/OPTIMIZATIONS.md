@@ -276,12 +276,12 @@ reference. `docs/eval/BASELINE.md` currently holds a single `_tbd_` row — **th
 baseline to regress against**. Recording one is the gating task for items 6–12:
 
 ```bash
-PIERIA_LIVE_EVAL=1 ./gradlew :eval:test --tests "*DaemonBenchmarkLiveTests*"
+./gradlew :eval:locomo --args="--runs=3"
 ```
 
 Pin and record everything `BASELINE.md` lists (dataset slice, all three models, RRF weights,
 ingestion config, judge model, git SHA), then commit the results row. Read faithfulness as the
-north star and the diagnostics to localize any regression: extraction precision/recall for items
+north star and the diagnostics to localize any regression: the per-category breakdown for items
 6–8, hit-rate and MRR for items 9–11.
 
 ---

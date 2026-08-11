@@ -123,9 +123,7 @@ public class ProfileController {
   @PostMapping("/ingest")
   public IngestResponse ingest(@PathVariable String name,
                                @Valid @RequestBody IngestRequest request) {
-    List<Message> messages = request.messages().stream()
-      .map(m -> Message.of(request.sessionId(), m.role(), m.content()))
-      .toList();
+    List<Message> messages = toMessages(request);
 
     List<Memory> stored =
       ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples());
@@ -203,9 +201,7 @@ public class ProfileController {
   public TaskSubmitResponse ingestAsync(@PathVariable String name,
                                         @RequestParam(name = "label", required = false) String label,
                                         @Valid @RequestBody IngestRequest request) {
-    List<Message> messages = request.messages().stream()
-      .map(m -> Message.of(request.sessionId(), m.role(), m.content()))
-      .toList();
+    List<Message> messages = toMessages(request);
 
     String kind = label == null || label.isBlank() ? "ingest" : label;
     UUID taskId = tasks.submit(kind, name, progress -> {
@@ -218,6 +214,19 @@ public class ProfileController {
     });
 
     return new TaskSubmitResponse(taskId.toString());
+  }
+
+  /**
+   * Map inbound DTOs onto domain messages, stamping each with when it was spoken: the message's own
+   * {@code timestamp} if present, else the request's {@code occurredAt}, else {@code null} (the
+   * daemon's clock). This is what lets a replayed or back-filled transcript resolve its relative
+   * dates against the conversation rather than the ingest.
+   */
+  private static List<Message> toMessages(IngestRequest request) {
+    return request.messages().stream()
+      .map(m -> new Message(null, request.sessionId(), m.role(), m.content(),
+        m.timestamp() == null ? request.occurredAt() : m.timestamp()))
+      .toList();
   }
 
   private ParsedTranscript parseTranscript(String sessionId, String harness, String transcript) {

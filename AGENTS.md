@@ -48,6 +48,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 - **Supersession, not deletion**: when a new keyed `fact` or `instruction` shares a `topic_key` with an existing memory, mark the old one superseded and point the new row's `supersedes` at it. Remove the old vector in the same transaction.
 - **Tasks excluded from vector index**: `task` memories are discoverable via FTS/listing but not embedded, to keep the index lean.
 - **Temporal arithmetic in Java, not the model**: date math and duration calculations are handled deterministically in code and injected into synthesis prompts as pre-computed facts.
+- **Ingest time is not conversation time**: `TranscriptNormalizer` rewrites "yesterday"/"today"/"tomorrow" to absolute dates against *when the turn was spoken* — `Message.createdAt` when set, else the request's `occurredAt`, else the daemon clock. A replayed or back-filled transcript must send those timestamps (`IngestRequest.occurredAt`, or per-turn `MessageDto.timestamp` for multi-session transcripts), or its relative dates silently resolve to the ingest wall clock. Message timestamps are excluded from the content-addressed id, so supplying them keeps ingest idempotent.
 
 ### REST API surface (`/v1/profiles/{name}`)
 
@@ -68,7 +69,8 @@ All modules live under `modules/`:
 - `shared`: HTTP request/response DTOs, config file model/loader, daemon HTTP clients, `ProfileResolver`, and generic utilities (`dev.alvo.pieria.tools`). Every other module depends on it.
 - `daemon`: REST controllers, domain, storage, ingestion, retrieval, and model gateway.
 - `gateway`: stdio MCP tools and the HTTP client that forwards to the daemon.
-- `eval`: offline evaluation harness — fixtures, runner, report writer, and benchmark adapters.
+- `eval`: the LoCoMo benchmark harness — dataset adapter, runner, and JSON/HTML report writers. Run it
+  with `./gradlew :eval:locomo --args="--help"`; see `modules/eval/README.md`.
 
 ## Utility code: no duplication across modules
 
