@@ -8,7 +8,11 @@ import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.response.IngestResponse;
+import dev.alvo.pieria.api.response.MemoryListResponse;
+import dev.alvo.pieria.api.response.MemoryResponse;
+import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.evaluation.EvaluationReport.Spend;
 import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import org.slf4j.Logger;
@@ -115,6 +119,45 @@ public final class DaemonEvalClient {
   public RecallResponse recall(String profile, String query, int limit) {
     RecallRequest request = new RecallRequest(query, limit, false, RecallMode.SYNTHESIZED);
     return post("/v1/profiles/" + encode(profile) + "/recall", request, RecallResponse.class, recallTimeout);
+  }
+
+  /**
+   * GET /v1/profiles/{profile}/memories — every memory the profile holds, in store order. This is
+   * the corpus the extraction gate is judged against: it answers "did the fact survive ingestion at
+   * all", independently of whether recall would have ranked it. Returns an empty list when the
+   * listing is unavailable.
+   */
+  public List<String> memories(String profile) {
+    JsonNode listing = getJson("/v1/profiles/" + encode(profile) + "/memories", recallTimeout);
+    if (listing == null) {
+      log.warn("memory listing for profile {} unavailable — extraction coverage will read as 0", profile);
+      return List.of();
+    }
+    return mapper.convertValue(listing, MemoryListResponse.class).memories().stream()
+      .map(MemoryResponse::content)
+      .filter(content -> content != null && !content.isBlank())
+      .toList();
+  }
+
+  /**
+   * The profile's real inference spend so far, from {@code GET /stats}. The daemon costs each tier
+   * server-side from the configured {@code pieria.stats.spend.<tier>} prices, so a run benchmarked
+   * with {@code --config} reports actual money; without prices the token counts still come back and
+   * the cost reads zero. Returns {@link Spend#NONE} when stats are unavailable.
+   */
+  public Spend spend(String profile) {
+    JsonNode stats = getJson("/v1/profiles/" + encode(profile) + "/stats", POLL_REQUEST_TIMEOUT);
+    if (stats == null || stats.path("spend").isMissingNode() || stats.path("spend").isNull()) {
+      return Spend.NONE;
+    }
+    ProfileSpend reported = mapper.convertValue(stats.get("spend"), ProfileSpend.class);
+    List<Spend.TierSpend> tiers = reported.tiers() == null ? List.of()
+      : reported.tiers().stream()
+        .map(t -> new Spend.TierSpend(t.tier(), t.calls(), t.promptTokens(), t.completionTokens(),
+          t.costUsd()))
+        .toList();
+    return new Spend(tiers, reported.totalPromptTokens(), reported.totalCompletionTokens(),
+      reported.totalCostUsd(), reported.costAvailable());
   }
 
   /**

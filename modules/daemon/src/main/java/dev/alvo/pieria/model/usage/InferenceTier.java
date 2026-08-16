@@ -11,7 +11,7 @@ public enum InferenceTier {
   /** Small/fast structured stages: extract (unified), verify, classify, extractGraph, analyzeQuery. */
   EXTRACTION,
 
-  /** Large model: synthesizeRecall (and the eval-only judgeAnswerFaithfulness). */
+  /** Large model: synthesizeRecall (and the eval-only judgeAnswer / judgeEvidenceSupport). */
   SYNTHESIS,
 
   /** Embedding model. Note: some providers (Ollama) do not report embedding token usage. */
@@ -26,7 +26,7 @@ public enum InferenceTier {
       return EXTRACTION;
     }
     return switch (stage) {
-      case "synthesizeRecall", "judgeAnswerFaithfulness" -> SYNTHESIS;
+      case "synthesizeRecall", "judgeAnswer", "judgeEvidenceSupport" -> SYNTHESIS;
       case "embed" -> EMBEDDING;
       default -> EXTRACTION;
     };

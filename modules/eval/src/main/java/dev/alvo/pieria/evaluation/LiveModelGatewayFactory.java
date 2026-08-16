@@ -1,6 +1,7 @@
 package dev.alvo.pieria.evaluation;
 
 import dev.alvo.pieria.PieriaApplication;
+import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.OpenAiModelGateway;
 import org.springframework.boot.SpringApplication;
@@ -8,6 +9,7 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -23,7 +25,7 @@ import java.util.Objects;
  *
  * <p>To judge against a different provider (e.g. a hosted OpenAI baseline), point
  * {@link #fromSpring(Path)} at a config file naming it, or bypass this class and hand any
- * {@link ModelGateway} to {@link FaithfulnessJudgeRunner}.
+ * {@link ModelGateway} to {@link JudgeRunner}.
  */
 public final class LiveModelGatewayFactory implements AutoCloseable {
 
@@ -67,6 +69,21 @@ public final class LiveModelGatewayFactory implements AutoCloseable {
   /** The live model gateway to judge answer faithfulness. */
   public ModelGateway gateway() {
     return gateway;
+  }
+
+  /**
+   * The per-tier token prices this context was configured with
+   * ({@code pieria.stats.spend.<tier>.input-price} / {@code .output-price}), keyed by lower-case tier
+   * name.
+   *
+   * <p>The judge runs outside the daemon, so its calls never reach a profile's spend counters and the
+   * daemon cannot cost them. Exposing the price table lets the harness cost the judge's own token
+   * usage exactly as the daemon costs the pipeline's, rather than reporting one in dollars and the
+   * other in bare tokens.
+   */
+  public Map<String, PieriaProperties.Stats.TierPrice> tierPrices() {
+    PieriaProperties.Stats stats = context.getBean(PieriaProperties.class).stats();
+    return stats == null || stats.spend() == null ? Map.of() : stats.spend();
   }
 
   @Override

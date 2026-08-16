@@ -7,12 +7,12 @@
 	<style>
 		:root {
 			--bg: #fbfbfa; --panel: #ffffff; --border: #e3e1dc; --text: #1f1e1c;
-			--muted: #6d6a63; --accent: #a4562b; --good: #2f7a4a; --bad: #a33a3a;
+			--muted: #6d6a63; --accent: #a4562b; --good: #2f7a4a; --bad: #a33a3a; --warn: #9a7326;
 		}
 		@media (prefers-color-scheme: dark) {
 			:root {
 				--bg: #17161a; --panel: #201f24; --border: #34323a; --text: #ecebe8;
-				--muted: #9a968e; --accent: #d68a5c; --good: #6bbd8a; --bad: #d97a7a;
+				--muted: #9a968e; --accent: #d68a5c; --good: #6bbd8a; --bad: #d97a7a; --warn: #d4ab5e;
 			}
 		}
 		* { box-sizing: border-box; }
@@ -25,6 +25,7 @@
 		h2 { font-size: 1.05rem; margin: 2.25rem 0 .75rem; letter-spacing: .01em; }
 		h3 { font-size: .95rem; margin: 0; }
 		.muted { color: var(--muted); }
+		.note { font-size: .85rem; color: var(--muted); margin: -.35rem 0 .75rem; }
 		.meta { margin: 0 0 1.5rem; font-size: .875rem; color: var(--muted); }
 		.meta code { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; }
 
@@ -32,7 +33,17 @@
 		.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .85rem .95rem; }
 		.card .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 		.card .value { font-size: 1.5rem; font-weight: 600; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+		.card .sub { font-size: .75rem; color: var(--muted); margin-top: .15rem; font-variant-numeric: tabular-nums; }
 		.card.primary .value { color: var(--accent); }
+		.card.bad .value { color: var(--bad); }
+
+		.funnel { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+		.stage { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .85rem .95rem; position: relative; }
+		.stage .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+		.stage .value { font-size: 1.35rem; font-weight: 600; margin-top: .3rem; font-variant-numeric: tabular-nums; }
+		.stage .sub { font-size: .75rem; color: var(--muted); margin-top: .15rem; }
+		.bar { height: 4px; border-radius: 999px; background: var(--border); margin-top: .55rem; overflow: hidden; }
+		.bar > span { display: block; height: 100%; background: var(--accent); }
 
 		.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
 		table { border-collapse: collapse; width: 100%; font-size: .875rem; }
@@ -56,6 +67,7 @@
 		.badge { font-size: .7rem; border-radius: 999px; padding: .1rem .5rem; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 		.badge.pass { color: var(--good); border-color: var(--good); }
 		.badge.fail { color: var(--bad); border-color: var(--bad); }
+		.badge.warn { color: var(--warn); border-color: var(--warn); }
 		.query-body { padding: .2rem .95rem 1rem 2rem; font-size: .875rem; }
 		.query-body dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: .8rem; }
 		.query-body dd { margin: .2rem 0 0; }
@@ -75,18 +87,21 @@
 		<span th:text="${report.config().runs()}">1</span> run(s)
 	</p>
 
-	<section class="cards">
+	<section class="cards" th:with="s=${summary.score()}">
 		<div class="card primary">
-			<div class="label">Faithfulness</div>
-			<div class="value" th:text="${fmt.pct(summary.answerFaithfulness())}">0%</div>
+			<div class="label">Accuracy</div>
+			<div class="value" th:text="${fmt.pct(s.accuracy())}">0%</div>
+			<div class="sub" th:text="${s.correct()} + ' of ' + ${s.questions()} + ' correct'">…</div>
+		</div>
+		<div class="card bad">
+			<div class="label">Hallucination</div>
+			<div class="value" th:text="${fmt.pct(s.hallucinationRate())}">0%</div>
+			<div class="sub" th:text="${s.wrong()} + ' asserted wrongly'">…</div>
 		</div>
 		<div class="card">
-			<div class="label">Hit rate</div>
-			<div class="value" th:text="${fmt.pct(summary.retrievalHitRate())}">0%</div>
-		</div>
-		<div class="card">
-			<div class="label">MRR</div>
-			<div class="value" th:text="${fmt.num(summary.meanReciprocalRank())}">0.000</div>
+			<div class="label">Abstained</div>
+			<div class="value" th:text="${fmt.pct(s.abstentionRate())}">0%</div>
+			<div class="sub" th:text="${s.abstained()} + ' declined to answer'">…</div>
 		</div>
 		<div class="card">
 			<div class="label">Ingestion</div>
@@ -98,6 +113,34 @@
 		</div>
 	</section>
 
+	<h2>Where questions are lost</h2>
+	<p class="note">
+		Each gate is conditional on the one before it, over the
+		<span th:text="${summary.score().gatedQuestions()}">0</span> questions that have a gold fact to
+		find (adversarial questions are excluded — they have none). A low first stage is an extraction
+		policy result, not a retrieval regression.
+	</p>
+	<section class="funnel" th:with="s=${summary.score()}">
+		<div class="stage">
+			<div class="label">1 · Extracted</div>
+			<div class="value" th:text="${fmt.pct(s.extractionCoverage())}">0%</div>
+			<div class="sub">gold fact survived ingestion</div>
+			<div class="bar"><span th:style="'width:' + ${fmt.pct(s.extractionCoverage())}"></span></div>
+		</div>
+		<div class="stage">
+			<div class="label">2 · Retrieved</div>
+			<div class="value" th:text="${fmt.pct(s.retrievalRecall())}">0%</div>
+			<div class="sub">of those, surfaced by recall</div>
+			<div class="bar"><span th:style="'width:' + ${fmt.pct(s.retrievalRecall())}"></span></div>
+		</div>
+		<div class="stage">
+			<div class="label">3 · Answered</div>
+			<div class="value" th:text="${fmt.pct(s.synthesisAccuracy())}">0%</div>
+			<div class="sub">of those, answered correctly</div>
+			<div class="bar"><span th:style="'width:' + ${fmt.pct(s.synthesisAccuracy())}"></span></div>
+		</div>
+	</section>
+
 	<h2>By question category</h2>
 	<div class="panel">
 		<table>
@@ -105,18 +148,68 @@
 			<tr>
 				<th>Category</th>
 				<th class="num">Questions</th>
-				<th class="num">Faithfulness</th>
-				<th class="num">Hit rate</th>
-				<th class="num">MRR</th>
+				<th class="num">Accuracy</th>
+				<th class="num">Correct</th>
+				<th class="num">Wrong</th>
+				<th class="num">Abstained</th>
+				<th class="num">Extracted</th>
+				<th class="num">Retrieved</th>
 			</tr>
 			</thead>
 			<tbody>
 			<tr th:each="entry : ${summary.byCategory()}">
 				<td th:text="${fmt.category(entry.key)}">1 — multi-hop</td>
 				<td class="num" th:text="${entry.value.questions()}">0</td>
-				<td class="num" th:text="${fmt.pct(entry.value.answerFaithfulness())}">0%</td>
-				<td class="num" th:text="${fmt.pct(entry.value.retrievalHitRate())}">0%</td>
-				<td class="num" th:text="${fmt.num(entry.value.meanReciprocalRank())}">0.000</td>
+				<td class="num" th:text="${fmt.pct(entry.value.accuracy())}">0%</td>
+				<td class="num" th:text="${entry.value.correct()}">0</td>
+				<td class="num" th:text="${entry.value.wrong()}">0</td>
+				<td class="num" th:text="${entry.value.abstained()}">0</td>
+				<td class="num" th:text="${entry.value.gatedQuestions() == 0} ? 'n/a' : ${fmt.pct(entry.value.extractionCoverage())}">0%</td>
+				<td class="num" th:text="${entry.value.gatedQuestions() == 0} ? 'n/a' : ${fmt.pct(entry.value.retrievalRecall())}">0%</td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+
+	<h2>What the run cost</h2>
+	<p class="note" th:unless="${summary.spend().priced()}">
+		No per-tier prices are configured, so only token counts are shown — this is not a free run. Set
+		<code>pieria.stats.spend.&lt;tier&gt;.input-price</code> / <code>.output-price</code> in the
+		config you benchmark against to get dollars here.
+	</p>
+	<div class="panel">
+		<table>
+			<thead>
+			<tr>
+				<th>Stage</th>
+				<th class="num">Calls</th>
+				<th class="num">Prompt tokens</th>
+				<th class="num">Completion tokens</th>
+				<th class="num" th:if="${summary.spend().priced()}">Cost</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr th:each="tier : ${summary.pipelineSpend().tiers()}">
+				<td th:text="'pipeline · ' + ${tier.tier()}">pipeline · extraction</td>
+				<td class="num" th:text="${tier.calls()}">0</td>
+				<td class="num" th:text="${tier.promptTokens()}">0</td>
+				<td class="num" th:text="${tier.completionTokens()}">0</td>
+				<td class="num" th:if="${summary.spend().priced()}" th:text="${fmt.money(tier.costUsd())}">$0</td>
+			</tr>
+			<tr th:each="tier : ${summary.judgeSpend().tiers()}">
+				<td th:text="'judge · ' + ${tier.tier()}">judge · synthesis</td>
+				<td class="num" th:text="${tier.calls()}">0</td>
+				<td class="num" th:text="${tier.promptTokens()}">0</td>
+				<td class="num" th:text="${tier.completionTokens()}">0</td>
+				<td class="num" th:if="${summary.spend().priced()}" th:text="${fmt.money(tier.costUsd())}">$0</td>
+			</tr>
+			<tr>
+				<td><strong>total</strong></td>
+				<td class="num"></td>
+				<td class="num" th:text="${summary.spend().promptTokens()}">0</td>
+				<td class="num" th:text="${summary.spend().completionTokens()}">0</td>
+				<td class="num" th:if="${summary.spend().priced()}"
+				    th:text="${fmt.money(summary.spend().costUsd())}">$0</td>
 			</tr>
 			</tbody>
 		</table>
@@ -150,7 +243,7 @@
 	</div>
 
 	<h2>Conversations</h2>
-	<p class="muted" th:if="${report.config().runs() > 1}" style="font-size:.85rem;margin-top:-.35rem">
+	<p class="note" th:if="${report.config().runs() > 1}">
 		Summary metrics pool every run; the per-conversation detail below is the last run's.
 	</p>
 
@@ -159,27 +252,32 @@
 			<h3 th:text="${conversation.name()}">conv-26</h3>
 			<span class="stat" th:text="${conversation.queries().size()} + ' questions'">0 questions</span>
 			<span class="stat" th:text="${conversation.turns()} + ' turns → ' + ${conversation.memoriesStored()} + ' memories'">…</span>
-			<span class="stat" th:text="'faithfulness ' + ${fmt.pct(conversation.answerFaithfulness())}">…</span>
-			<span class="stat" th:text="'hit rate ' + ${fmt.pct(conversation.retrievalHitRate())}">…</span>
-			<span class="stat" th:text="'mrr ' + ${fmt.num(conversation.meanReciprocalRank())}">…</span>
+			<span class="stat" th:text="'accuracy ' + ${fmt.pct(conversation.score().accuracy())}">…</span>
+			<span class="stat" th:text="'extracted ' + ${fmt.pct(conversation.score().extractionCoverage())}">…</span>
+			<span class="stat" th:text="'retrieved ' + ${fmt.pct(conversation.score().retrievalRecall())}">…</span>
 			<span class="stat" th:text="'ingest ' + ${fmt.duration(conversation.latency().ingestionMs())}">…</span>
 		</summary>
 
 		<details class="query" th:each="query : ${conversation.queries()}">
 			<summary>
-				<span class="badge" th:classappend="${query.answerFaithful()} ? 'pass' : 'fail'"
-				      th:text="${query.answerFaithful()} ? 'faithful' : 'unfaithful'">unfaithful</span>
+				<span class="badge" th:classappend="${fmt.outcomeClass(query)}"
+				      th:text="${fmt.outcome(query)}">unjudged</span>
 				<span class="question" th:text="${query.question()}">…</span>
 				<span class="badge" th:text="${fmt.category(query.category())}">…</span>
 			</summary>
 			<dl class="query-body">
-				<dt>Expected answer</dt>
+				<dt th:text="${query.expectAbstention()} ? 'Trap answer (asserting it is the failure)' : 'Expected answer'">Expected answer</dt>
 				<dd th:text="${fmt.text(query.expectedAnswer())}">…</dd>
 
 				<dt>Daemon answer</dt>
 				<dd th:text="${fmt.text(query.actualAnswer())}">…</dd>
 
-				<dt th:text="'Retrieval — hit rate ' + ${fmt.pct(query.hitRate())} + ', reciprocal rank ' + ${fmt.num(query.reciprocalRank())} + ', ' + ${query.latencyMs()} + 'ms'">…</dt>
+				<dt>Funnel</dt>
+				<dd th:text="'extracted: ' + ${fmt.gate(query.factExtracted())}
+				           + ' · retrieved: ' + ${fmt.gate(query.evidenceRetrieved())}
+				           + ' · ' + ${query.latencyMs()} + 'ms'">…</dd>
+
+				<dt>Gold evidence turns</dt>
 				<dd>
 					<span class="empty" th:if="${query.expectedEvidence().isEmpty()}">no gold evidence</span>
 					<ol class="evidence" th:unless="${query.expectedEvidence().isEmpty()}">
@@ -192,6 +290,14 @@
 					<span class="empty" th:if="${query.retrievedMemories().isEmpty()}">nothing retrieved</span>
 					<ol class="evidence" th:unless="${query.retrievedMemories().isEmpty()}">
 						<li th:each="memory : ${query.retrievedMemories()}" th:text="${memory}">…</li>
+					</ol>
+				</dd>
+
+				<dt th:unless="${query.extractionCandidates().isEmpty()}"
+				    th:text="'Extraction shortlist (' + ${query.extractionCandidates().size()} + ' stored memories judged for gate 1)'">…</dt>
+				<dd th:unless="${query.extractionCandidates().isEmpty()}">
+					<ol class="evidence">
+						<li th:each="memory : ${query.extractionCandidates()}" th:text="${memory}">…</li>
 					</ol>
 				</dd>
 			</dl>

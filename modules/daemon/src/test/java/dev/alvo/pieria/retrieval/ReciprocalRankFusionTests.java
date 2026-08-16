@@ -147,6 +147,38 @@ class ReciprocalRankFusionTests {
   }
 
   @Test
+  void recencyMeansWhenStatedNotWhenStored() {
+    // A back-filled 2023 transcript ingested today: newest in the store, oldest in the conversation.
+    Memory backFilled = stated("b", "2026-06-01T00:00:00Z", "2023-05-25T00:00:00Z");
+    Memory current = stated("a", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
+
+    List<RecallCandidate> fused = rrf().fuse(List.of(
+      hit(backFilled, RetrievalChannelType.FTS_MEMORY, 1),
+      hit(current, RetrievalChannelType.FTS_MEMORY, 1)));
+
+    // Ranking on store time would put the back-filled memory first purely for arriving last.
+    assertThat(fused).extracting(rc -> rc.memory().id()).containsExactly("a", "b");
+  }
+
+  @Test
+  void memoriesWithoutAStatedTimeStillRankByStoreTime() {
+    Memory older = mem("m", Instant.parse("2026-01-01T00:00:00Z"));
+    Memory newer = mem("z", Instant.parse("2026-02-01T00:00:00Z"));
+
+    List<RecallCandidate> fused = rrf().fuse(List.of(
+      hit(older, RetrievalChannelType.FTS_MEMORY, 1),
+      hit(newer, RetrievalChannelType.FTS_MEMORY, 1)));
+
+    assertThat(fused).extracting(rc -> rc.memory().id()).containsExactly("z", "m");
+  }
+
+  /** A memory stored at one time and stated at another, the way a replayed transcript arrives. */
+  private static Memory stated(String id, String createdAt, String statedAt) {
+    return new Memory(id, "s1", MemoryType.FACT, "content-" + id, null, null, false,
+      "{\"stated_at\":\"" + statedAt + "\"}", null, Instant.parse(createdAt));
+  }
+
+  @Test
   void duplicateSameChannelHitsUseBestRank() {
     Instant t = Instant.parse("2026-01-01T00:00:00Z");
     Memory m = mem("m", t);

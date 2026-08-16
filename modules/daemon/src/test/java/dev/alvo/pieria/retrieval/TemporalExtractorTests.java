@@ -6,6 +6,7 @@ import dev.alvo.pieria.retrieval.model.TemporalFact;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -122,6 +123,12 @@ class TemporalExtractorTests {
   }
 
   @Test
+  void nYearsAgoResolvesAsYearsNotDays() {
+    assertThat(extract("2 years ago")).extracting(TemporalFact::render)
+      .containsExactly("2 years ago resolves to: 2024-05-23");
+  }
+
+  @Test
   void inNDaysResolves() {
     assertThat(extract("remind me in 5 days")).extracting(TemporalFact::render)
       .containsExactly("in 5 days resolves to: 2026-05-28");
@@ -190,5 +197,96 @@ class TemporalExtractorTests {
     assertThatCode(() -> extractor.extract("how long ago?", NOW, List.of(ev)))
       .doesNotThrowAnyException();
     assertThat(extractor.extract("how long ago?", NOW, List.of(ev))).isEmpty();
+  }
+
+  // ---- residual relative references in memory content ----
+
+  @Test
+  void residualReferenceIsResolvedAgainstTheMemorysOwnOccurrenceDate() {
+    Memory ev = event("planning a camping trip next month", "{\"occurred_at\":\"2023-05-25\"}");
+
+    List<TemporalFact> facts = extractor.extract("when is the camping trip?", NOW, List.of(ev));
+
+    // Resolved against when the content was true (2023), not when recall runs (2026).
+    assertThat(facts).extracting(TemporalFact::render)
+      .contains("\"next month\" in the memory dated 2023-05-25 resolves to: June 2023");
+  }
+
+  @Test
+  void statedAtAnchorsAReferenceWhenTheMemoryRecordsNoEventDate() {
+    Memory ev = event("planning a camping trip next month", "{\"stated_at\":\"2023-05-25T13:14:00Z\"}");
+
+    List<TemporalFact> facts = extractor.extract("when is the camping trip?", NOW, List.of(ev));
+
+    assertThat(facts).extracting(TemporalFact::render)
+      .contains("\"next month\" in the memory dated 2023-05-25 resolves to: June 2023");
+  }
+
+  @Test
+  void occurredAtWinsOverStatedAtBecauseItIsWhenTheThingHappened() {
+    // Mentioned in May, happened in June: anchoring on the event's own date gives July, not June.
+    Memory ev = event("the follow-up retro is next month",
+      "{\"stated_at\":\"2023-05-25T13:14:00Z\",\"occurred_at\":\"2023-06-08\"}");
+
+    List<TemporalFact> facts = extractor.extract("when is the follow-up retro?", NOW, List.of(ev));
+
+    assertThat(facts).extracting(TemporalFact::render)
+      .contains("\"next month\" in the memory dated 2023-06-08 resolves to: July 2023");
+  }
+
+  @Test
+  void residualReferenceWithoutAnAnchorIsFlaggedRatherThanGuessed() {
+    Memory ev = event("planning a camping trip next month", "{}");
+
+    List<TemporalFact> facts = extractor.extract("when is the camping trip?", NOW, List.of(ev));
+
+    // Memory.createdAt is store time, not content time, so resolving against it would be silently
+    // wrong for any back-filled transcript. Saying so beats guessing.
+    assertThat(facts).extracting(TemporalFact::render).contains(
+      "\"next month\" in a memory has no recorded date to anchor it: "
+        + "leave it unresolved — do not infer a date");
+  }
+
+  @Test
+  void fuzzyReferencesAreNeverResolvedEvenWithAnAnchor() {
+    Memory ev = event("hiked a lot last summer", "{\"occurred_at\":\"2023-05-25\"}");
+
+    List<TemporalFact> facts = extractor.extract("when did they hike?", NOW, List.of(ev));
+
+    // A season spans months and is hemisphere-dependent: there is no date to resolve it to.
+    assertThat(facts).extracting(TemporalFact::render).contains(
+      "\"last summer\" in a memory has no recorded date to anchor it: "
+        + "leave it unresolved — do not infer a date");
+  }
+
+  @Test
+  void residualOffsetsAndDayWordsResolveAgainstTheAnchor() {
+    Memory ev = event("started 3 weeks ago and finishes tomorrow", "{\"occurred_at\":\"2023-05-25\"}");
+
+    List<TemporalFact> facts = extractor.extract("when did it start?", NOW, List.of(ev));
+
+    assertThat(facts).extracting(TemporalFact::render).contains(
+      "\"3 weeks ago\" in the memory dated 2023-05-25 resolves to: 2023-05-04",
+      "\"tomorrow\" in the memory dated 2023-05-25 resolves to: 2023-05-26");
+  }
+
+  @Test
+  void residualFactsAreCappedSoTheyCannotCrowdOutTheMemories() {
+    List<Memory> many = new ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      many.add(event("item " + i + " is due next month", "{}"));
+    }
+
+    List<TemporalFact> facts = extractor.extract("what is due?", NOW, many);
+
+    // De-duplication collapses the identical phrasing to one; the cap bounds the distinct case.
+    assertThat(facts).hasSizeLessThanOrEqualTo(6);
+  }
+
+  @Test
+  void memoriesWithoutRelativeReferencesAddNothing() {
+    Memory ev = event("the release shipped on 2023-05-25", "{\"occurred_at\":\"2023-05-25\"}");
+
+    assertThat(extractor.extract("what shipped?", NOW, List.of(ev))).isEmpty();
   }
 }

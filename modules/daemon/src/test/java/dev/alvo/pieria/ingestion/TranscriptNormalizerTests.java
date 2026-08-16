@@ -93,6 +93,84 @@ class TranscriptNormalizerTests {
   }
 
   @Test
+  void replacesRelativePeriodsAtTheSpeakersOwnGranularity() {
+    // Replacement, not annotation: an appended "(June 2026)" is detachable, and extraction was
+    // observed re-attaching it to a neighbouring clause, stranding "next month" with no anchor.
+    List<Message> messages = List.of(
+      Message.of("s1", "user", "We're going camping next month and I moved last year."));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content())
+      .isEqualTo("We're going camping June 2026 and I moved 2025.");
+  }
+
+  @Test
+  void resolvesEveryRelativePeriodUnitAgainstTheSpeakingDate() {
+    // Friday 2023-05-26: ISO week starts Monday the 22nd, its weekend Saturday is the 27th.
+    Instant spokenAt = Instant.parse("2023-05-26T09:00:00Z");
+    List<Message> messages = List.of(
+      new Message(null, "s1", "user",
+        "last week, this week, next week, this weekend, last weekend, this month, this year",
+        spokenAt));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content()).isEqualTo(
+      "the week of 2023-05-15, the week of 2023-05-22, the week of 2023-05-29, "
+        + "the weekend of 2023-05-27, the weekend of 2023-05-20, May 2023, 2023");
+  }
+
+  @Test
+  void treatsPastAndComingAsLastAndNext() {
+    List<Message> messages = List.of(
+      Message.of("s1", "user", "the past month was rough but the coming year looks good"));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content())
+      .isEqualTo("April 2026 was rough but 2027 looks good");
+  }
+
+  @Test
+  void aLeadingArticleIsConsumedForMonthsButReinstatedForWeeks() {
+    List<Message> messages = List.of(
+      Message.of("s1", "user", "I rested the last week and travelled the next month"));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content())
+      .isEqualTo("I rested the week of 2026-05-11 and travelled June 2026");
+  }
+
+  @Test
+  void leavesGenuinelyFuzzyPeriodsForTheModel() {
+    // Seasons are hemisphere-dependent and have no calendar definition, so they stay as written.
+    List<Message> messages = List.of(
+      Message.of("s1", "user", "we hiked last summer and might go again next spring, a while back"));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result.get(0).content())
+      .isEqualTo("we hiked last summer and might go again next spring, a while back");
+  }
+
+  @Test
+  void relativePeriodsAnchorOnEachMessagesOwnTimestamp() {
+    // The whole point of the fix: a back-filled 2023 transcript must not resolve against the ingest
+    // wall clock, or every period lands three years out.
+    List<Message> messages = List.of(
+      new Message(null, "s1", "user", "camping next month", Instant.parse("2023-05-25T13:14:00Z")),
+      new Message(null, "s1", "user", "camping next month", Instant.parse("2023-12-09T10:15:00Z")));
+
+    List<Message> result = normalizer.normalize(messages, requestTime);
+
+    assertThat(result).extracting(Message::content).containsExactly(
+      "camping June 2023",
+      "camping January 2024"); // rolls the year over
+  }
+
+  @Test
   void rendersRoleLabeledTranscriptWithLineIndices() {
     List<Message> messages = List.of(
       Message.of("s1", "user", "hello"),

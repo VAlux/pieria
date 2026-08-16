@@ -170,9 +170,9 @@ public record PieriaProperties(
 
       /**
        * Whether reasoning is enabled for {@code stage}. A per-stage override in {@code stages} wins;
-       * otherwise the synthesis stages ({@code synthesizeRecall}, {@code judgeAnswerFaithfulness},
-       * {@code summarizeCode}) use {@code synthesis} and every other (structured) stage uses
-       * {@code structured}.
+       * otherwise the synthesis stages ({@code synthesizeRecall}, {@code judgeAnswer},
+       * {@code judgeEvidenceSupport}, {@code summarizeCode}) use {@code synthesis} and every other
+       * (structured) stage uses {@code structured}.
        */
       public boolean enabledFor(String stage) {
         Boolean override = stages.get(stage);
@@ -180,7 +180,7 @@ public record PieriaProperties(
           return override;
         }
         return switch (stage) {
-          case "synthesizeRecall", "judgeAnswerFaithfulness", "summarizeCode" -> synthesis;
+          case "synthesizeRecall", "judgeAnswer", "judgeEvidenceSupport", "summarizeCode" -> synthesis;
           default -> structured;
         };
       }

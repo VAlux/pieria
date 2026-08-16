@@ -1,10 +1,11 @@
 package dev.alvo.pieria.evaluation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.alvo.pieria.evaluation.EvaluationReport.CategoryScore;
 import dev.alvo.pieria.evaluation.EvaluationReport.ConversationReport;
 import dev.alvo.pieria.evaluation.EvaluationReport.Latency;
 import dev.alvo.pieria.evaluation.EvaluationReport.QueryReport;
+import dev.alvo.pieria.evaluation.EvaluationReport.Score;
+import dev.alvo.pieria.evaluation.EvaluationReport.Spend;
 import dev.alvo.pieria.evaluation.EvaluationReport.Summary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -29,8 +31,8 @@ import java.util.Map;
  *   ./gradlew :eval:locomo --args="--conversations=1 --sessions=3 --questions=10 --no-judge"
  * }</pre>
  *
- * <p>Answer faithfulness is judged in a second pass with a judge gateway deliberately separate from
- * the daemon under test, so answers can be re-scored without re-driving the expensive run.
+ * <p>All scoring happens in a second pass ({@link JudgeRunner}) with a judge gateway deliberately
+ * separate from the daemon under test, so a run can be re-scored without re-driving it.
  */
 public final class BenchmarkRunner {
 
@@ -97,15 +99,17 @@ public final class BenchmarkRunner {
 
     // Judging is a separate pass over the recorded answers, so the daemon under test is already shut
     // down by the time the judge context boots — the two never compete for the model provider.
+    Spend judgeSpend = Spend.NONE;
     if (config.judge()) {
       try (LiveModelGatewayFactory judge = LiveModelGatewayFactory.fromSpring(configFile)) {
-        FaithfulnessJudgeRunner judgeRunner = new FaithfulnessJudgeRunner(judge.gateway());
+        JudgeRunner judgeRunner = new JudgeRunner(judge.gateway());
         runs.replaceAll(judgeRunner::judge);
+        judgeSpend = judgeRunner.spend(judge.tierPrices());
       }
     }
 
     EvaluationReport report = new EvaluationReport(
-      Instant.now(), BENCHMARK, config, models, summarize(runs), runs.getLast());
+      Instant.now(), BENCHMARK, config, models, summarize(runs, judgeSpend), runs.getLast());
 
     Path json = new EvaluationReportWriter().write(report, config.outputPath());
     Path html = new HtmlReportWriter().write(report, config.outputPath());
@@ -117,9 +121,10 @@ public final class BenchmarkRunner {
    * micro-average, the LoCoMo convention), while latency and stored-memory counts are averaged per
    * run; the report's conversation detail is the last run's, which is what spot-checking wants.
    */
-  static Summary summarize(List<List<ConversationReport>> runs) {
+  static Summary summarize(List<List<ConversationReport>> runs, Spend judgeSpend) {
     List<ConversationReport> last = runs.getLast();
     List<QueryReport> pooled = new ArrayList<>();
+    List<Spend> spends = new ArrayList<>();
     long ingestionMs = 0;
     long recallMs = 0;
     long memories = 0;
@@ -129,19 +134,25 @@ public final class BenchmarkRunner {
         ingestionMs += conversation.latency().ingestionMs();
         recallMs += conversation.latency().recallMs();
         memories += conversation.memoriesStored();
+        spends.add(conversation.spend());
       }
     }
 
+    // Spend is summed, not averaged: it is what the run actually cost, and every repeat of --runs is
+    // a fresh profile paid for in full. Latency stays a per-run average, which is what it means.
+    Spend pipelineSpend = Spend.sum(spends);
+    Spend total = Spend.sum(List.of(pipelineSpend, judgeSpend == null ? Spend.NONE : judgeSpend));
+
     int n = runs.size();
-    CategoryScore overall = EvaluationReport.score(pooled);
     return new Summary(
       last.size(),
       EvaluationReport.allQueries(last).size(),
       (int) (memories / n),
-      overall.answerFaithfulness(),
-      overall.retrievalHitRate(),
-      overall.meanReciprocalRank(),
+      EvaluationReport.score(pooled),
       Latency.of(ingestionMs / n, recallMs / n),
+      pipelineSpend,
+      judgeSpend == null ? Spend.NONE : judgeSpend,
+      total,
       EvaluationReport.scoreByCategory(pooled));
   }
 
@@ -161,19 +172,39 @@ public final class BenchmarkRunner {
 
   private static void logResult(EvaluationReport report, Path json, Path html) {
     Summary s = report.summary();
-    log.info("LoCoMo done — faithfulness={} hitRate={} mrr={} ingest={} recall={}",
-      String.format("%.3f", s.answerFaithfulness()),
-      String.format("%.3f", s.retrievalHitRate()),
-      String.format("%.3f", s.meanReciprocalRank()),
+    Score overall = s.score();
+    log.info("LoCoMo done — accuracy={} (correct {}, wrong {}, abstained {} of {})",
+      pct(overall.accuracy()), overall.correct(), overall.wrong(), overall.abstained(),
+      overall.questions());
+    log.info("  funnel — extracted={} → retrieved={} → answered={} (over {} answerable questions)",
+      pct(overall.extractionCoverage()), pct(overall.retrievalRecall()),
+      pct(overall.synthesisAccuracy()), overall.gatedQuestions());
+    log.info("  hallucination rate={}, ingest={}, recall={}",
+      pct(overall.hallucinationRate()),
       EvaluationRunner.formatDuration(s.latency().ingestionMs()),
       EvaluationRunner.formatDuration(s.latency().recallMs()));
+    log.info("  spend — pipeline {}, judge {}, total {}",
+      describe(s.pipelineSpend()), describe(s.judgeSpend()), describe(s.spend()));
     s.byCategory().forEach((category, score) -> log.info(
-      "  category {} — {} questions, faithfulness={} hitRate={} mrr={}",
-      category, score.questions(),
-      String.format("%.3f", score.answerFaithfulness()),
-      String.format("%.3f", score.retrievalHitRate()),
-      String.format("%.3f", score.meanReciprocalRank())));
+      "  category {} — {} questions, accuracy={} extracted={} retrieved={}",
+      category, score.questions(), pct(score.accuracy()),
+      pct(score.extractionCoverage()), pct(score.retrievalRecall())));
     System.out.println("json report: " + json.toAbsolutePath());
     System.out.println("html report: " + html.toAbsolutePath());
+  }
+
+  private static String pct(double value) {
+    return String.format("%.3f", value);
+  }
+
+  /**
+   * Tokens always, dollars only when the benchmarked config prices its tiers — an unpriced run must
+   * not read as a free one.
+   */
+  private static String describe(Spend spend) {
+    String tokens = spend.promptTokens() + " in / " + spend.completionTokens() + " out";
+    return spend.priced()
+      ? String.format(Locale.ROOT, "$%.4f (%s)", spend.costUsd(), tokens)
+      : tokens + " (no prices configured)";
   }
 }

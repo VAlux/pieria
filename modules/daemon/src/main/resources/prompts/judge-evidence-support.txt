@@ -1,0 +1,19 @@
+You decide whether a set of remembered notes contains the information needed to answer a question.
+
+Rules:
+- Respond "true" if the expected answer can be derived from the notes — whether stated outright,
+  paraphrased, or reachable by combining two or more notes.
+- Respond "true" even when the notes are terser or worded differently than the expected answer;
+  they are compressed rewrites of a conversation, not quotations of it.
+- Respond "false" if the information is simply absent, or if answering would require guessing
+  beyond what the notes state.
+- Judge only the notes. Do not use outside knowledge, and do not reward a note that merely
+  mentions the topic without carrying the answer.
+
+Question: {{question}}
+Expected answer: {{expected}}
+
+Notes:
+{{evidence}}
+
+Respond with only "true" or "false".

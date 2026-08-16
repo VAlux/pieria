@@ -45,12 +45,19 @@ public record EvaluationFixture(
 	 * One question. {@code category} is the LoCoMo question category (1 multi-hop, 2 temporal,
 	 * 3 open-domain, 4 single-hop, 5 adversarial), carried through so the report can break the score
 	 * down by reasoning type.
+	 *
+	 * <p>{@code expectAbstention} inverts what counts as success. LoCoMo's category-5 questions are
+	 * <em>adversarial</em>: the question attributes a real fact to the wrong speaker, and the
+	 * dataset's {@code adversarial_answer} is the trap it is baiting, not a gold answer. The correct
+	 * behaviour is to decline, so for these questions {@code expectedAnswer} holds the trap text and
+	 * a run scores correct only when the daemon refuses to assert it.
 	 */
 	public record RecallExpectation(
 		String query,
 		List<String> expectedEvidence,
 		String expectedAnswer,
-		int category) {
+		int category,
+		boolean expectAbstention) {
 
 		public RecallExpectation {
 			query = requireText(query, "query");

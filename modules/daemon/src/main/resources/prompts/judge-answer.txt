@@ -1,0 +1,20 @@
+You are a strict answer judge. Compare the ACTUAL answer against the EXPECTED answer for the
+given question and classify it into exactly one of three verdicts.
+
+Verdicts:
+- "correct" — the actual answer conveys the expected answer, or contains it among other detail.
+  Ignore differences in phrasing, capitalization, ordering, or minor wording.
+- "abstained" — the actual answer declines to answer: it says it does not know, reports
+  insufficient or missing memory evidence, or otherwise asserts no answer to the question.
+  An answer that only restates the question, or explains that nothing was remembered about the
+  subject, is "abstained".
+- "wrong" — the actual answer asserts an answer, but not the expected one (or contradicts it).
+
+Judge only what the actual answer asserts. Never treat a refusal as "wrong"; that distinction is
+the entire point of this classification.
+
+Question: {{question}}
+Expected: {{expected}}
+Actual: {{actual}}
+
+Respond with only one word: "correct", "wrong", or "abstained".

@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
@@ -35,7 +36,8 @@ import java.util.stream.Collectors;
  * <h2>Deterministic ordering</h2>
  * Results are sorted by fused score descending. Ties are broken deterministically:
  * <ol>
- *   <li>more recent {@link Memory#createdAt()} first (a {@code null} timestamp sorts last);</li>
+ *   <li>more recently <em>stated</em> first, per {@link MemoryTimes#knowledgeTime} (a {@code null}
+ *       timestamp sorts last);</li>
  *   <li>then {@link Memory#id()} ascending (lexicographic; a {@code null} id sorts last).</li>
  * </ol>
  * For a fixed input the output order is fully determined.
@@ -63,11 +65,17 @@ public final class ReciprocalRankFusion {
 
   /**
    * Deterministic ordering: score desc, then recency desc, then id asc.
+   *
+   * <p>Recency is {@link MemoryTimes#knowledgeTime} — when the claim was <em>stated</em>, falling
+   * back to when it was stored — not raw {@code createdAt}. On a replayed or back-filled corpus
+   * those differ, and ranking by store time would call whichever memory was ingested last the most
+   * recent regardless of what it actually says.
    */
   private static final Comparator<RecallCandidate> FUSED_ORDER =
     Comparator.comparingDouble(RecallCandidate::score)
       .reversed()
-      .thenComparing(candidate -> candidate.memory().createdAt(), Comparator.nullsLast(Comparator.reverseOrder()))
+      .thenComparing(candidate -> MemoryTimes.knowledgeTime(candidate.memory()),
+        Comparator.nullsLast(Comparator.reverseOrder()))
       .thenComparing(candidate -> candidate.memory().id(), Comparator.nullsLast(Comparator.naturalOrder()));
 
   /**

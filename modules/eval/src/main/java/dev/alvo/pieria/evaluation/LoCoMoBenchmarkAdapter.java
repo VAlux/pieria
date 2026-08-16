@@ -42,8 +42,11 @@ import java.util.TreeMap;
  *       {@code speaker} (or {@code role}) and a {@code text} (or {@code clean_text} / {@code value}
  *       / {@code content}) field; turns with blank text are skipped. Image-only turns expose a
  *       {@code blip_caption} we fold into the text when {@code text} is empty.</li>
- *   <li>{@code qa} — an array of question/answer objects exposing {@code question}, {@code answer}
- *       (or {@code adversarial_answer} for {@code category 5}), and {@code category}. The
+ *   <li>{@code qa} — an array of question/answer objects exposing {@code question}, {@code answer},
+ *       and {@code category}. An entry carrying only {@code adversarial_answer} (category 5) is an
+ *       <em>adversarial</em> question: that text is the trap the question baits, not a gold answer,
+ *       so the expectation is recorded as abstention-expected (see
+ *       {@link EvaluationFixture.RecallExpectation}). The
  *       {@code evidence} field (string or array of dialog ids such as {@code "D1:2"}) is
  *       <em>resolved to the referenced turn text</em> via each turn's {@code dia_id} and recorded as
  *       expected recall evidence — the raw ids never match a retrieved memory, so resolving them is
@@ -259,8 +262,12 @@ public final class LoCoMoBenchmarkAdapter {
         continue;
       }
       String question = text(item, "question", "query");
+      // An `adversarial_answer` with no `answer` is the trap, not the gold: the question misattributes
+      // a real fact to the other speaker, and the correct behaviour is to decline. Scoring it as the
+      // expected answer inverts the metric for roughly a quarter of the corpus.
       String answer = stringValue(item.get("answer"));
-      if (answer.isBlank()) {
+      boolean expectAbstention = answer.isBlank();
+      if (expectAbstention) {
         answer = stringValue(item.get("adversarial_answer"));
       }
       if (question.isBlank() || answer.isBlank()) {
@@ -271,7 +278,7 @@ public final class LoCoMoBenchmarkAdapter {
         continue;
       }
       recalls.add(new RecallExpectation(
-        question, resolveEvidence(evidenceIds, evidenceText), answer, category));
+        question, resolveEvidence(evidenceIds, evidenceText), answer, category, expectAbstention));
     }
     return sample(recalls, config.questions());
   }

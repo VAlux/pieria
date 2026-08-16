@@ -394,6 +394,23 @@ public class IngestionService {
   }
 
   /**
+   * When a chunk was spoken: the first turn in it that carries a timestamp, else {@code ingestTime}.
+   *
+   * <p>The first turn rather than the last because a chunk's relative references were normalized
+   * against the turn that contained them, and a chunk opens where the previous one left off. The
+   * fallback matches {@link TranscriptNormalizer}'s: a caller that supplies no timestamps is
+   * declaring the conversation is happening now.
+   */
+  private static Instant spokenAt(Chunk chunk, Instant ingestTime) {
+    for (Message message : chunk.messages()) {
+      if (message.createdAt() != null) {
+        return message.createdAt();
+      }
+    }
+    return ingestTime;
+  }
+
+  /**
    * Stamp the session id onto messages that lack one, then validate and normalize the transcript.
    */
   private List<Message> normalizeMessages(List<Message> messages, String sessionId) {
@@ -581,6 +598,15 @@ public class IngestionService {
       transcriptByChunk.put(c.index(), c.transcript());
     }
 
+    // When each chunk was spoken, stamped onto every memory it produces so retrieval can anchor any
+    // relative reference that survived into the stored text. Same fallback chain the normalizer used
+    // to rewrite those references, so the two can never disagree about "now".
+    Instant ingestTime = Instant.now();
+    Map<Integer, Instant> statedAtByChunk = new HashMap<>();
+    for (Chunk c : chunks) {
+      statedAtByChunk.put(c.index(), spokenAt(c, ingestTime));
+    }
+
     // Raw source tokens per chunk: what re-reading this chunk's turns would cost, counting each
     // message exactly once. Chunks deliberately overlap (pieria.ingestion.chunk-overlap-messages),
     // so a message is attributed to the first chunk that contains it; summed over all chunks this
@@ -757,7 +783,8 @@ public class IngestionService {
 
             long storeStart = System.nanoTime();
             StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
-              graph, graphOutcome, perMemorySourceTokens, k + 1, survivors.size());
+              graph, graphOutcome, perMemorySourceTokens, statedAtByChunk.get(chunkIndex),
+              k + 1, survivors.size());
             sqliteStoreNanos += System.nanoTime() - storeStart;
             stored.add(s.stored());
             if (s.superseded()) {
@@ -868,18 +895,20 @@ public class IngestionService {
    * memory is stored regardless.
    *
    * <p>{@code sourceTokens} is this memory's proportional slice of its source chunk's raw turns —
-   * the re-read cost the impact panel reports against.
+   * the re-read cost the impact panel reports against. {@code statedAt} is when the source chunk was
+   * spoken, stamped into the payload as the anchor for any relative reference in the content.
    */
   private StoredOne storeMemory(String profileId, String sessionId, String content,
                                 Classification classification, GraphFragment graph, GraphOutcome graphOutcome,
-                                long sourceTokens, int index, int total) {
+                                long sourceTokens, Instant statedAt, int index, int total) {
     log.debug("ingest classified candidate={}/{} type={} hasTopicKey={} interrogativeQueries={} graph={}",
       index, total, classification.type(), classification.topicKey() != null,
       classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size(),
       graphOutcome);
 
     String embedText = buildEmbedText(classification.interrogativeQueries(), content);
-    String payload = classification.payload() == null ? "{}" : classification.payload();
+    String payload = MemoryPayloads.withStatedAt(
+      classification.payload() == null ? "{}" : classification.payload(), statedAt);
     Memory candidate = new Memory(
       null, sessionId, classification.type(), content, classification.topicKey(),
       null, false, payload, embedText, null);

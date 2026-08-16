@@ -568,6 +568,65 @@ class SqliteMemoryStoreTests {
     assertEquals("User lives in Munich", active.get(0).content());
   }
 
+  /**
+   * Replaying an old transcript must not overwrite newer knowledge. Supersession otherwise fires on
+   * store order alone, so a back-filled 2023 conversation would replace a 2026 fact simply by being
+   * ingested last — which is exactly what every benchmark run and every transcript re-import does.
+   */
+  @Test
+  void anOlderStatementArrivingLateDoesNotSupersedeNewerKnowledge() {
+    Profile p = store.getOrCreateProfile("back-fill");
+    StoreOutcome current = store.store(p.id(),
+      statedFact("User lives in Munich", "s2", "location", "2026-01-01T00:00:00Z"));
+
+    StoreOutcome backFilled = store.store(p.id(),
+      statedFact("User lives in Berlin", "s1", "location", "2023-05-25T13:14:00Z"));
+
+    // The late arrival is the stale one: it is kept as history, not promoted over the current fact.
+    assertNull(backFilled.supersededId());
+    assertTrue(backFilled.stored().superseded());
+    assertFalse(isSuperseded(current.stored().id()));
+    assertFalse(backFilled.enqueuedVector(), "a superseded row is never embedded");
+
+    List<Memory> active = store.listMemories(p.id(), MemoryType.FACT, null);
+    assertEquals(1, active.size());
+    assertEquals("User lives in Munich", active.get(0).content());
+  }
+
+  @Test
+  void aNewerStatementArrivingLateStillSupersedesAsBefore() {
+    Profile p = store.getOrCreateProfile("in-order");
+    StoreOutcome older = store.store(p.id(),
+      statedFact("User lives in Berlin", "s1", "location", "2023-05-25T13:14:00Z"));
+
+    StoreOutcome newer = store.store(p.id(),
+      statedFact("User lives in Munich", "s2", "location", "2026-01-01T00:00:00Z"));
+
+    assertEquals(older.stored().id(), newer.supersededId());
+    assertTrue(isSuperseded(older.stored().id()));
+    assertFalse(newer.stored().superseded());
+  }
+
+  @Test
+  void withoutStatedTimesSupersessionKeepsItsStoreOrderBehaviour() {
+    Profile p = store.getOrCreateProfile("no-stated-at");
+    StoreOutcome first = store.store(p.id(),
+      Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", "location", null));
+
+    StoreOutcome second = store.store(p.id(),
+      Memory.of(MemoryType.FACT, "User lives in Munich", "s2", "location", null));
+
+    // No evidence of staleness on either side, so nothing changes for pre-existing data.
+    assertEquals(first.stored().id(), second.supersededId());
+    assertTrue(isSuperseded(first.stored().id()));
+  }
+
+  /** A fact carrying when it was stated, the way ingestion stamps it. */
+  private static Memory statedFact(String content, String sessionId, String topicKey, String statedAt) {
+    return Memory.of(MemoryType.FACT, content, sessionId, topicKey,
+      "{\"stated_at\":\"" + statedAt + "\"}");
+  }
+
   // The drift this exists for, taken from real profile data: the same fact re-extracted next
   // session under a different invented topic key, which exact-key supersession cannot see.
   @Test

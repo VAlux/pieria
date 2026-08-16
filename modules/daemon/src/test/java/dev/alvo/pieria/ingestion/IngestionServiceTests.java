@@ -26,6 +26,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -93,6 +94,35 @@ class IngestionServiceTests {
       Files.deleteIfExists(Path.of(dbFile.toAbsolutePath() + "-wal"));
       Files.deleteIfExists(Path.of(dbFile.toAbsolutePath() + "-shm"));
     }
+  }
+
+  @Test
+  void storedMemoriesCarryWhenTheSourceTurnWasSpoken() {
+    Instant spokenAt = Instant.parse("2023-05-25T13:14:00Z");
+
+    List<Memory> stored = service.ingest("proj", "s1", List.of(
+      new Message(null, null, "user", "I love coffee", spokenAt),
+      new Message(null, null, "assistant", "noted", spokenAt)));
+
+    // Retrieval anchors a memory's relative references on this, so it must be the speaking time —
+    // not the ingest time, which for a back-filled transcript is years out.
+    assertTrue(stored.getFirst().payload().contains("\"stated_at\":\"2023-05-25T13:14:00Z\""),
+      "payload should record the speaking time, was: " + stored.getFirst().payload());
+  }
+
+  @Test
+  void untimestampedTurnsFallBackToTheIngestTime() {
+    Instant before = Instant.now();
+
+    List<Memory> stored = service.ingest("proj", "s1",
+      List.of(msg("user", "I love coffee"), msg("assistant", "noted")));
+
+    // A caller supplying no timestamps is declaring the conversation is happening now — the same
+    // fallback TranscriptNormalizer used when it rewrote this transcript's relative dates.
+    String payload = stored.getFirst().payload();
+    assertTrue(payload.contains("\"stated_at\":"), "payload should still record a time: " + payload);
+    Instant statedAt = Instant.parse(payload.replaceAll(".*\"stated_at\":\"([^\"]+)\".*", "$1"));
+    assertFalse(statedAt.isBefore(before), "fallback should be the ingest time");
   }
 
   @Test

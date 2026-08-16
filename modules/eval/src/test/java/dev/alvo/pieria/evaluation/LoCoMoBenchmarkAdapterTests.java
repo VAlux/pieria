@@ -72,14 +72,21 @@ class LoCoMoBenchmarkAdapterTests {
 		assertThat(first.query()).isEqualTo("What is the name of Caroline's dog?");
 		assertThat(first.expectedAnswer()).isEqualTo("Biscuit");
 		assertThat(first.category()).isEqualTo(4);
+		assertThat(first.expectAbstention()).isFalse();
 		// Evidence id "D1:1" resolves to the bare turn text — no date prefix, no speaker prefix — so
-		// the harness's token-containment scoring is unaffected by how turns are ingested.
+		// the harness's evidence shortlisting is unaffected by how turns are ingested.
 		assertThat(first.expectedEvidence())
 			.containsExactly("I just adopted a rescue dog named Biscuit last weekend!");
+	}
 
-		// Category 5 carries no "answer", only "adversarial_answer".
-		RecallExpectation adversarial = fixture.recalls().getLast();
+	@Test
+	void anEntryWithOnlyAnAdversarialAnswerIsMarkedAbstentionExpected() throws Exception {
+		RecallExpectation adversarial = parseSample().getFirst().recalls().getLast();
+
+		// "adversarial_answer" is the trap the question baits, not a gold answer: the fact is real but
+		// belongs to the other speaker, so asserting it is the failure and declining is the pass.
 		assertThat(adversarial.category()).isEqualTo(5);
+		assertThat(adversarial.expectAbstention()).isTrue();
 		assertThat(adversarial.expectedAnswer()).isEqualTo("not mentioned");
 	}
 

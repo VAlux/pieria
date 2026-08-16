@@ -21,7 +21,7 @@ class InferenceUsageTests {
       assertEquals(InferenceTier.EXTRACTION, InferenceTier.forStage(stage), stage);
     }
     assertEquals(InferenceTier.SYNTHESIS, InferenceTier.forStage("synthesizeRecall"));
-    assertEquals(InferenceTier.SYNTHESIS, InferenceTier.forStage("judgeAnswerFaithfulness"));
+    assertEquals(InferenceTier.SYNTHESIS, InferenceTier.forStage("judgeAnswer"));
     assertEquals(InferenceTier.EMBEDDING, InferenceTier.forStage("embed"));
     // Unknown / null stages fall back to the structured-pipeline default.
     assertEquals(InferenceTier.EXTRACTION, InferenceTier.forStage("somethingNew"));

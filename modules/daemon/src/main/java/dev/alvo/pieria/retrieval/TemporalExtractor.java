@@ -1,8 +1,10 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.tools.RelativeDates;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -50,7 +52,30 @@ import java.util.regex.Pattern;
  *   <li><b>Event memory {@code occurred_at}</b> (only {@link MemoryType#EVENT}): when the query
  *       asks "how long ago" / "days since" / "when", emits days since each event date. Example —
  *       {@code "days since event (2026-05-01): <content>" : "22 days ago"}.</li>
+ *   <li><b>Residual relative references in memory content</b> — see below.</li>
  * </ol>
+ *
+ * <h2>Residual relative references</h2>
+ * Ingestion rewrites relative dates out of a transcript while it still knows when each turn was
+ * spoken, but some survive into stored memories: text remembered directly through {@code
+ * POST /memories} never passes through that rewrite, and references with no calendar definition
+ * ("last summer", "a while back") are deliberately left alone.
+ *
+ * <p>Left unremarked, synthesis treats them as arithmetic it is entitled to do — one observed answer
+ * combined a stored "June 2023" with a stray "next month" and confidently reported July. So each
+ * residual reference becomes a fact of its own:
+ * <ul>
+ *   <li>with a trustworthy anchor (an {@code occurred_at} recording when the content was true), the
+ *       reference is <em>resolved</em>: {@code "\"next month\" in the memory dated 2023-05-25
+ *       resolves to" : "June 2023"};</li>
+ *   <li>without one, it is <em>flagged</em>: {@code "\"next month\" in a memory has no recorded date
+ *       to anchor it" : "leave it unresolved — do not infer a date"}.</li>
+ * </ul>
+ *
+ * <p>{@code Memory.createdAt} is deliberately <strong>not</strong> used as the anchor: it records
+ * when Pieria stored a fact, not when the fact was true, so a back-filled transcript would resolve
+ * every reference to the ingest date and be silently, confidently wrong. Flagging is the honest
+ * fallback.
  *
  * <p>Pluralization is handled: {@code "1 day"}, not {@code "1 days"}. JSON {@code occurred_at} is
  * parsed with a small dependency-free regex ({@code "occurred_at"\s*:\s*"..."}) to stay pure and
@@ -61,19 +86,25 @@ public final class TemporalExtractor {
   private static final Pattern ISO_DATE = Pattern.compile("\\b(\\d{4})-(\\d{2})-(\\d{2})\\b");
 
   private static final Pattern N_AGO = Pattern.compile(
-    "\\b(\\d+)\\s+(day|days|week|weeks|month|months)\\s+ago\\b", Pattern.CASE_INSENSITIVE);
+    "\\b(\\d+)\\s+(day|days|week|weeks|month|months|year|years)\\s+ago\\b", Pattern.CASE_INSENSITIVE);
 
   private static final Pattern IN_N = Pattern.compile(
-    "\\bin\\s+(\\d+)\\s+(day|days|week|weeks|month|months)\\b", Pattern.CASE_INSENSITIVE);
-
-  private static final Pattern OCCURRED_AT = Pattern.compile(
-    "\"occurred_at\"\\s*:\\s*\"([^\"]+)\"");
+    "\\bin\\s+(\\d+)\\s+(day|days|week|weeks|month|months|year|years)\\b", Pattern.CASE_INSENSITIVE);
 
   private static final Pattern SPAN_PHRASE = Pattern.compile(
     "\\b(between|from|how long)\\b", Pattern.CASE_INSENSITIVE);
 
   private static final Pattern SINCE_PHRASE = Pattern.compile(
     "\\b(how long ago|days since|how long since|when did|when was)\\b", Pattern.CASE_INSENSITIVE);
+
+  private static final Pattern RESIDUAL_DAY = Pattern.compile(
+    "\\b(yesterday|today|tomorrow)\\b", Pattern.CASE_INSENSITIVE);
+
+  /**
+   * How many residual references to report before stopping. A handful is enough to keep synthesis
+   * honest; beyond that the facts would crowd out the memories themselves in the prompt.
+   */
+  private static final int MAX_RESIDUAL_FACTS = 6;
 
   /**
    * Extract deterministic temporal facts from a query.
@@ -170,7 +201,99 @@ public final class TemporalExtractor {
       }
     }
 
+    // 8: relative references that survived into the memories themselves.
+    addResidualFacts(facts, seen, candidates);
+
     return facts;
+  }
+
+  // ---- residual references in memory content ----
+
+  /**
+   * Resolves — or, failing an anchor, flags — every relative reference still present in the
+   * candidate memories, so synthesis never has to decide for itself what "next month" meant.
+   */
+  private static void addResidualFacts(List<TemporalFact> facts, Set<String> seen, List<Memory> candidates) {
+    if (candidates == null) {
+      return;
+    }
+    int reported = 0;
+    for (Memory memory : candidates) {
+      if (memory == null || memory.content() == null || memory.content().isBlank()) {
+        continue;
+      }
+      LocalDate anchor = MemoryTimes.anchor(memory);
+      for (String reference : residualReferences(memory.content())) {
+        if (reported >= MAX_RESIDUAL_FACTS) {
+          return;
+        }
+        int before = facts.size();
+        add(facts, seen, residualFact(reference, anchor));
+        if (facts.size() > before) {
+          reported++;
+        }
+      }
+    }
+  }
+
+  /** Every relative reference in one memory's text, in the order they appear. */
+  private static List<String> residualReferences(String content) {
+    List<String> references = new ArrayList<>();
+    collect(references, RelativeDates.PERIOD, content);
+    collect(references, RelativeDates.FUZZY, content);
+    collect(references, RESIDUAL_DAY, content);
+    collect(references, N_AGO, content);
+    collect(references, IN_N, content);
+    return references;
+  }
+
+  private static void collect(List<String> references, Pattern pattern, String content) {
+    Matcher matcher = pattern.matcher(content);
+    while (matcher.find()) {
+      references.add(matcher.group().trim());
+    }
+  }
+
+  /**
+   * A resolved fact when the memory records when its content was true, and an explicit
+   * leave-it-alone instruction when it does not.
+   */
+  private static TemporalFact residualFact(String reference, LocalDate anchor) {
+    String resolved = anchor == null ? null : resolveResidual(reference, anchor);
+    if (resolved == null) {
+      return new TemporalFact(
+        "\"" + reference + "\" in a memory has no recorded date to anchor it",
+        "leave it unresolved — do not infer a date");
+    }
+    return new TemporalFact(
+      "\"" + reference + "\" in the memory dated " + anchor + " resolves to", resolved);
+  }
+
+  /** The absolute date/period a reference names, or {@code null} when it has no calendar meaning. */
+  private static String resolveResidual(String reference, LocalDate anchor) {
+    Matcher period = RelativeDates.PERIOD.matcher(reference);
+    if (period.matches()) {
+      return RelativeDates.period(period.group(1), period.group(2), anchor);
+    }
+    Matcher day = RESIDUAL_DAY.matcher(reference);
+    if (day.matches()) {
+      return switch (day.group(1).toLowerCase(Locale.ROOT)) {
+        case "yesterday" -> anchor.minusDays(1).toString();
+        case "tomorrow" -> anchor.plusDays(1).toString();
+        default -> anchor.toString();
+      };
+    }
+    Matcher ago = N_AGO.matcher(reference);
+    if (ago.matches()) {
+      long n = parseLong(ago.group(1));
+      return n < 0 ? null : minus(anchor, n, ago.group(2)).toString();
+    }
+    Matcher in = IN_N.matcher(reference);
+    if (in.matches()) {
+      long n = parseLong(in.group(1));
+      return n < 0 ? null : plus(anchor, n, in.group(2)).toString();
+    }
+    return null; // fuzzy: seasons, "a while back" — no calendar definition to resolve to
   }
 
   // ---- helpers ----
@@ -194,19 +317,7 @@ public final class TemporalExtractor {
   }
 
   private static LocalDate parseOccurredAt(String payload) {
-    if (payload == null) {
-      return null;
-    }
-    Matcher m = OCCURRED_AT.matcher(payload);
-    if (!m.find()) {
-      return null;
-    }
-    String value = m.group(1).trim();
-    // accept full ISO instant or a bare yyyy-MM-dd; use the leading date prefix.
-    if (value.length() >= 10) {
-      return safeDate(value.substring(0, 10));
-    }
-    return null;
+    return MemoryTimes.dateField(payload, MemoryTimes.OCCURRED_AT);
   }
 
   private static LocalDate safeDate(String value) {
@@ -229,6 +340,7 @@ public final class TemporalExtractor {
     return switch (unit.toLowerCase(Locale.ROOT)) {
       case "week", "weeks" -> base.minusWeeks(n);
       case "month", "months" -> base.minusMonths(n);
+      case "year", "years" -> base.minusYears(n);
       default -> base.minusDays(n);
     };
   }
@@ -237,6 +349,7 @@ public final class TemporalExtractor {
     return switch (unit.toLowerCase(Locale.ROOT)) {
       case "week", "weeks" -> base.plusWeeks(n);
       case "month", "months" -> base.plusMonths(n);
+      case "year", "years" -> base.plusYears(n);
       default -> base.plusDays(n);
     };
   }

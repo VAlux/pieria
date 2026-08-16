@@ -1,5 +1,7 @@
 package dev.alvo.pieria.evaluation;
 
+import dev.alvo.pieria.evaluation.EvaluationReport.QueryReport;
+import dev.alvo.pieria.model.ModelGateway.AnswerVerdict;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.templatemode.TemplateMode;
@@ -84,6 +86,11 @@ public final class HtmlReportWriter {
       return EvaluationRunner.formatDuration(millis);
     }
 
+    /** {@code 0.0713 -> "$0.0713"} — four places, because a subset run costs cents. */
+    public String money(double usd) {
+      return String.format(Locale.ROOT, "$%.4f", usd);
+    }
+
     /** {@code 2 -> "2 — temporal"} */
     public String category(int category) {
       String name = CATEGORY_NAMES.get(category);
@@ -93,6 +100,44 @@ public final class HtmlReportWriter {
     /** Empty rather than {@code "null"} for a question the daemon declined to answer. */
     public String text(String value) {
       return value == null || value.isBlank() ? "—" : value;
+    }
+
+    /**
+     * The badge label for a question's outcome. An adversarial question reads as "declined" when it
+     * passed and "took the bait" when it did not, because "correct" against a trap answer would
+     * describe the opposite of what happened.
+     */
+    public String outcome(QueryReport query) {
+      if (query.verdict() == null) {
+        return "unjudged";
+      }
+      if (query.expectAbstention()) {
+        return query.correct() ? "declined" : "took the bait";
+      }
+      return switch (query.verdict()) {
+        case CORRECT -> "correct";
+        case WRONG -> "wrong";
+        case ABSTAINED -> "abstained";
+      };
+    }
+
+    /** {@code pass} / {@code fail} / neutral, driving the badge colour. */
+    public String outcomeClass(QueryReport query) {
+      if (query.verdict() == null) {
+        return "";
+      }
+      if (query.correct()) {
+        return "pass";
+      }
+      return query.verdict() == AnswerVerdict.ABSTAINED && !query.expectAbstention() ? "warn" : "fail";
+    }
+
+    /** A funnel gate that does not apply (adversarial) or was never judged reads {@code n/a}. */
+    public String gate(Boolean value) {
+      if (value == null) {
+        return "n/a";
+      }
+      return value ? "yes" : "no";
     }
   }
 

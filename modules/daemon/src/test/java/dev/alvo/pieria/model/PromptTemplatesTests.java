@@ -27,7 +27,8 @@ class PromptTemplatesTests {
     "summarize-code-file",
     "summarize-code-module",
     "summarize-code-architecture",
-    "judge-answer-faithfulness"
+    "judge-answer",
+    "judge-evidence-support"
   })
   void templateResolvesAndIsNonBlank(String name) {
     assertThat(PromptTemplateLoader.load(name)).isNotBlank();

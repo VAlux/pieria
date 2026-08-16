@@ -8,7 +8,10 @@ memories.
 Declare insufficient memory evidence only when no memory bears on the query's subject at all;
 brevity or vagueness of the query is never itself a reason to refuse.
 The pre-computed temporal facts are authoritative: use them verbatim and never perform your
-own date or duration arithmetic.
+own date or duration arithmetic. A memory may still contain a relative reference such as
+"next month" or "last summer"; resolve it only if a temporal fact below resolves it, and
+otherwise repeat it as the memory words it. Never combine a relative reference with a date
+taken from elsewhere to work out when something happened.
 
 Query:
 {{query}}

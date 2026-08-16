@@ -7,36 +7,49 @@ import dev.alvo.pieria.evaluation.EvaluationFixture.RecallExpectation;
 import dev.alvo.pieria.evaluation.EvaluationReport.ConversationReport;
 import dev.alvo.pieria.evaluation.EvaluationReport.Latency;
 import dev.alvo.pieria.evaluation.EvaluationReport.QueryReport;
+import dev.alvo.pieria.evaluation.EvaluationReport.Spend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
+import java.time.Duration;
+
 /**
  * Drives a <em>real</em> running daemon over HTTP. For each conversation it POSTs the transcript to
  * {@code /ingest/async}, waits for the vectorization outbox to drain, then runs each question against
- * {@code /recall} and scores the fused, ranked memories the daemon returns.
+ * {@code /recall} and records the fused, ranked memories the daemon returns.
  *
  * <p>Nothing here instantiates the ingestion/retrieval services or a stub store: metrics reflect the
- * deployed pipeline (sqlite-vec + FTS5 + graph + RRF) and the daemon's own configuration. Answer
- * faithfulness is <strong>deferred</strong>: the daemon's synthesized answer is recorded per question
- * for a later judging pass ({@link FaithfulnessJudgeRunner}); {@code answerFaithful} stays
- * {@code false} until that pass fills it in.
+ * deployed pipeline (sqlite-vec + FTS5 + graph + RRF) and the daemon's own configuration.
+ *
+ * <p><strong>This pass scores nothing.</strong> Every judgement — the answer verdict and both funnel
+ * gates — needs a model, and the judge gateway deliberately boots only after the daemon under test
+ * has shut down so the two never compete for the provider. So this pass records the raw material
+ * ({@link JudgeRunner} turns it into scores): the synthesized answer, the retrieved memories, and a
+ * lexical shortlist of the stored memories most likely to carry each gold answer. Recording rather
+ * than scoring is also what lets a written report be re-judged without re-driving the expensive run.
  */
 public final class EvaluationRunner {
 
   private static final Logger log = LoggerFactory.getLogger(EvaluationRunner.class);
 
-  /** Fraction of an evidence turn's content words a memory must cover to count as retrieved. */
-  private static final double EVIDENCE_MATCH_THRESHOLD = 0.6;
+  /**
+   * How many stored memories to put in front of the extraction judge per question. The shortlist is
+   * lexical and deliberately generous: it only has to rank the right memory into the top slice, not
+   * decide anything. Its threshold-free use is why the token overlap below is sound here while it was
+   * useless as a pass/fail evidence matcher — extraction rewrites turns tersely enough that measured
+   * containment tops out around 0.5, well under any threshold worth setting.
+   */
+  private static final int EXTRACTION_SHORTLIST = 20;
 
-  /** Dropped before containment so filler words don't dominate short evidence turns. */
+  /** Dropped before overlap scoring so filler words don't dominate short gold answers. */
   private static final Set<String> STOPWORDS = Set.of(
     "a", "an", "the", "i", "you", "we", "he", "she", "it", "they", "me", "my", "your", "our",
     "is", "are", "was", "were", "be", "been", "am", "do", "does", "did", "have", "has", "had",
@@ -88,6 +101,10 @@ public final class EvaluationRunner {
     log.info("[{}/{}] {} — ingest done ({} memories, {}ms extract + {}ms vectorize)",
       index, total, fixture.name(), stored, ingestPostMs, vectorizeMs);
 
+    // The whole corpus, for the extraction gate: "was the fact stored at all", independent of rank.
+    List<String> storedMemories = client.memories(profile);
+    List<Set<String>> storedTokens = storedMemories.stream().map(EvaluationRunner::contentTokens).toList();
+
     List<QueryReport> queries = new ArrayList<>();
     long recallMs = 0;
     List<RecallExpectation> recalls = fixture.recalls();
@@ -103,7 +120,21 @@ public final class EvaluationRunner {
       recallMs += latencyMs;
 
       List<String> retrieved = result.memories().stream().map(MemoryResponse::content).toList();
-      queries.add(queryReport(expectation, retrieved, result.answer(), latencyMs));
+      queries.add(new QueryReport(
+        expectation.query(),
+        expectation.category(),
+        expectation.expectAbstention(),
+        expectation.expectedAnswer(),
+        result.answer(),
+        null, // verdict and both gates are filled in by the judge pass
+        null,
+        null,
+        expectation.expectedEvidence(),
+        retrieved,
+        expectation.expectAbstention()
+          ? List.of() // no gold fact to find, so the extraction gate does not apply
+          : shortlist(expectation, storedMemories, storedTokens),
+        latencyMs));
 
       int remaining = recalls.size() - (q + 1);
       long avgQueryMs = elapsedMs(queriesStart) / (q + 1);
@@ -114,16 +145,51 @@ public final class EvaluationRunner {
     }
     log.info("[{}/{}] {} — recall done ({}ms)", index, total, fixture.name(), recallMs);
 
-    EvaluationReport.CategoryScore score = EvaluationReport.score(queries);
+    // Read after the recalls, so the figure covers this conversation's whole pipeline: extraction,
+    // verification, graph, embedding and synthesis. The profile is unique per conversation and run,
+    // so the counters are never shared with another fixture.
+    Spend spend = client.spend(profile);
+    log.info("[{}/{}] {} — spend {} prompt + {} completion tokens{}",
+      index, total, fixture.name(), spend.promptTokens(), spend.completionTokens(),
+      spend.priced() ? String.format(Locale.ROOT, " ($%.4f)", spend.costUsd()) : "");
+
     return new ConversationReport(
       fixture.name(),
       messages.size(),
       stored,
-      score.answerFaithfulness(),
-      score.retrievalHitRate(),
-      score.meanReciprocalRank(),
+      EvaluationReport.score(queries),
       Latency.of(ingestionMs, recallMs),
-      queries);
+      spend,
+      queries,
+      storedMemories);
+  }
+
+  /**
+   * The stored memories most lexically related to a question's gold answer and evidence, best first.
+   * Ties and near-misses are fine — the judge decides; this only has to keep the right memory from
+   * falling out of a bounded prompt.
+   */
+  private static List<String> shortlist(RecallExpectation expectation,
+                                        List<String> storedMemories,
+                                        List<Set<String>> storedTokens) {
+    if (storedMemories.size() <= EXTRACTION_SHORTLIST) {
+      return storedMemories;
+    }
+    Set<String> target = new HashSet<>(contentTokens(expectation.expectedAnswer()));
+    for (String evidence : expectation.expectedEvidence()) {
+      target.addAll(contentTokens(evidence));
+    }
+
+    record Scored(String memory, double overlap) { }
+    List<Scored> scored = new ArrayList<>(storedMemories.size());
+    for (int i = 0; i < storedMemories.size(); i++) {
+      scored.add(new Scored(storedMemories.get(i), overlap(target, storedTokens.get(i))));
+    }
+    return scored.stream()
+      .sorted(Comparator.comparingDouble(Scored::overlap).reversed())
+      .limit(EXTRACTION_SHORTLIST)
+      .map(Scored::memory)
+      .toList();
   }
 
   /**
@@ -143,67 +209,18 @@ public final class EvaluationRunner {
     return value == null ? "" : value.strip().replaceAll("[^A-Za-z0-9._-]+", "-");
   }
 
-  private static QueryReport queryReport(RecallExpectation expectation, List<String> retrieved,
-                                         String actualAnswer, long latencyMs) {
-    // Extraction rewrites turns into terse memories, so an evidence turn rarely equals a memory
-    // verbatim. Match on stopword-filtered token containment instead: an expected evidence item
-    // "hits" when some retrieved memory covers at least EVIDENCE_MATCH_THRESHOLD of its content
-    // words. MRR is the reciprocal of the best (smallest) rank among all matching memories.
-    List<Set<String>> retrievedTokens = new ArrayList<>(retrieved.size());
-    for (String content : retrieved) {
-      retrievedTokens.add(contentTokens(content));
-    }
-
-    int hits = 0;
-    int firstRank = 0;
-    for (String expected : expectation.expectedEvidence()) {
-      int rank = firstMatchingRank(contentTokens(expected), retrievedTokens);
-      if (rank > 0) {
-        hits++;
-        if (firstRank == 0 || rank < firstRank) {
-          firstRank = rank;
-        }
-      }
-    }
-
-    return new QueryReport(
-      expectation.query(),
-      expectation.category(),
-      expectation.expectedAnswer(),
-      actualAnswer,
-      false, // judged in a later pass
-      expectation.expectedEvidence(),
-      retrieved,
-      ratio(hits, expectation.expectedEvidence().size()),
-      firstRank == 0 ? 0.0 : 1.0 / firstRank,
-      latencyMs);
-  }
-
-  /** Rank (1-based) of the first memory whose tokens cover the expected evidence, or 0 for none. */
-  private static int firstMatchingRank(Set<String> expectedTokens, List<Set<String>> retrievedTokens) {
-    if (expectedTokens.isEmpty()) {
-      return 0;
-    }
-    for (int i = 0; i < retrievedTokens.size(); i++) {
-      if (containment(expectedTokens, retrievedTokens.get(i)) >= EVIDENCE_MATCH_THRESHOLD) {
-        return i + 1;
-      }
-    }
-    return 0;
-  }
-
-  /** Fraction of {@code expected} tokens present in {@code actual} (0 when {@code expected} empty). */
-  private static double containment(Set<String> expected, Set<String> actual) {
-    if (expected.isEmpty()) {
+  /** Fraction of {@code target} tokens present in {@code candidate} (0 when {@code target} empty). */
+  private static double overlap(Set<String> target, Set<String> candidate) {
+    if (target.isEmpty()) {
       return 0.0;
     }
-    int overlap = 0;
-    for (String token : expected) {
-      if (actual.contains(token)) {
-        overlap++;
+    int matched = 0;
+    for (String token : target) {
+      if (candidate.contains(token)) {
+        matched++;
       }
     }
-    return (double) overlap / expected.size();
+    return (double) matched / target.size();
   }
 
   private static Set<String> contentTokens(String content) {
@@ -217,13 +234,6 @@ public final class EvaluationRunner {
       }
     }
     return tokens;
-  }
-
-  private static double ratio(int numerator, int denominator) {
-    if (denominator == 0) {
-      return numerator == 0 ? 1.0 : 0.0;
-    }
-    return (double) numerator / denominator;
   }
 
   private static long elapsedMs(long startedAtNanos) {

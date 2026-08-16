@@ -12,6 +12,7 @@ import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -594,6 +595,17 @@ public class SqliteMemoryStore implements MemoryStore {
     if (supersededId == null && supersedable) {
       supersededId = activeIdByNearDuplicateContent(profileId, memory, id);
     }
+
+    // A replayed or back-filled transcript arrives after facts that are already newer than it. Left
+    // unchecked the incoming row would supersede them purely because it was stored last, silently
+    // replacing current knowledge with older knowledge. When the predecessor was stated later, the
+    // incoming memory is the stale one: keep it as history and leave the active row alone.
+    boolean staleOnArrival = supersededId != null && statedBefore(memory, supersededId, profileId);
+    if (staleOnArrival) {
+      log.debug("store keeping memory {} superseded on arrival: {} states the topic later", id, supersededId);
+      supersededId = null;
+    }
+
     if (supersededId != null) {
       jdbc.sql("UPDATE memories SET superseded = 1, embedding = NULL WHERE id = ?")
         .param(supersededId)
@@ -614,7 +626,7 @@ public class SqliteMemoryStore implements MemoryStore {
       memory.content(),
       memory.topicKey(),
       supersededId != null ? supersededId : memory.supersedes(),
-      memory.superseded(),
+      memory.superseded() || staleOnArrival,
       memory.payload(),
       memory.embedText(),
       memory.createdAt());
@@ -627,7 +639,8 @@ public class SqliteMemoryStore implements MemoryStore {
     persistGraph(profileId, stored.id(), graph);
 
     boolean enqueuedVector = false;
-    if (memory.type() != MemoryType.TASK) {
+    // Superseded rows carry no vector, so a memory that arrived already stale is never embedded.
+    if (memory.type() != MemoryType.TASK && !staleOnArrival) {
       // Tasks are not embedded; everything else gets an idempotent outbox entry.
       int affected = jdbc.sql(
           """
@@ -649,6 +662,22 @@ public class SqliteMemoryStore implements MemoryStore {
    * row IS the incoming memory (identical content-addressed id): a re-ingest must stay idempotent,
    * not supersede the row it would re-insert.
    */
+  /**
+   * Whether {@code memory} states its topic <em>earlier</em> than the predecessor it would otherwise
+   * supersede — i.e. it is older knowledge arriving later.
+   *
+   * <p>Compared on {@link MemoryTimes#knowledgeTime}, so a transcript that says when it was spoken is
+   * ordered by that rather than by when it happened to be ingested. Unknown on either side means no
+   * evidence of staleness, and supersession proceeds as before.
+   */
+  private boolean statedBefore(Memory memory, String predecessorId, String profileId) {
+    Instant incoming = MemoryTimes.knowledgeTime(memory);
+    Instant existing = memoryByIdAndProfile(predecessorId, profileId)
+      .map(MemoryTimes::knowledgeTime)
+      .orElse(null);
+    return incoming != null && existing != null && incoming.isBefore(existing);
+  }
+
   private String activeIdByTopicKey(String profileId, Memory memory, String id) {
     return jdbc.sql(
         """

@@ -139,7 +139,7 @@ class OpenAiModelGatewayReasoningTests {
     assertThat(defaults.effortFor("verify")).isEqualTo("none");
     assertThat(defaults.effortFor("extract")).isEqualTo("none");
     assertThat(defaults.effortFor("synthesizeRecall")).isEqualTo("none");
-    assertThat(defaults.effortFor("judgeAnswerFaithfulness")).isEqualTo("none");
+    assertThat(defaults.effortFor("judgeAnswer")).isEqualTo("none");
 
     Reasoning overridden = new Reasoning(false, true, "none", "medium",
       Map.of("verify", true, "synthesizeRecall", false));

@@ -1100,6 +1100,29 @@ public class OpenAiModelGateway implements ModelGateway {
     }
   }
 
+  /**
+   * A synthesis-tier call returning the raw assistant text. Goes through {@code chatResponse()}
+   * rather than {@code content()} so the reply's token usage is recorded like every other stage —
+   * the judge stages are eval-only but not free, and on a benchmark run they are a large share of the
+   * spend.
+   */
+  private String callSynthesisText(String prompt, String stage) {
+    ChatResponse chatResponse = retry.execute(stage, () -> synthesisChatClient.prompt()
+      .user(prompt)
+      .options(reasoningOptions(stage, properties.model().synthesisModel()))
+      .call()
+      .chatResponse());
+
+    logTokenUsage(stage, chatResponse);
+
+    if (chatResponse == null || chatResponse.getResult() == null
+      || chatResponse.getResult().getOutput() == null) {
+      return "";
+    }
+    String text = chatResponse.getResult().getOutput().getText();
+    return text == null ? "" : text;
+  }
+
   private static String joinedOrNone(List<String> lines) {
     return lines == null || lines.isEmpty()
       ? "(none)"
@@ -1107,8 +1130,8 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   @Override
-  public boolean judgeAnswerFaithfulness(String question, String expectedAnswer, String actualAnswer) {
-    String prompt = PromptTemplateLoader.render("judge-answer-faithfulness", Map.of(
+  public AnswerVerdict judgeAnswer(String question, String expectedAnswer, String actualAnswer) {
+    String prompt = PromptTemplateLoader.render("judge-answer", Map.of(
       "question", question == null ? "" : question,
       "expected", expectedAnswer == null ? "" : expectedAnswer,
       "actual", actualAnswer == null ? "" : actualAnswer));
@@ -1117,13 +1140,9 @@ public class OpenAiModelGateway implements ModelGateway {
     LOGGER.info("judge actual='{}'", truncate(actualAnswer, 120));
 
     try {
-      String response = retry.execute("judgeAnswerFaithfulness", () -> synthesisChatClient.prompt()
-        .user(prompt)
-        .options(reasoningOptions("judgeAnswerFaithfulness", properties.model().synthesisModel()))
-        .call()
-        .content());
+      String response = callSynthesisText(prompt, "judgeAnswer");
 
-      boolean verdict = response != null && response.strip().toLowerCase(Locale.ROOT).startsWith("true");
+      AnswerVerdict verdict = parseVerdict(response, expectedAnswer, actualAnswer);
 
       LOGGER.info("judge verdict={} raw='{}'", verdict, truncate(response, 40));
 
@@ -1131,13 +1150,62 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (RuntimeException e) {
       LOGGER.warn("judge call failed ({}); falling back to exact match", e.getMessage());
 
-      String normExpected = expectedAnswer == null ? "" : expectedAnswer.strip().toLowerCase(Locale.ROOT);
-      String normActual = actualAnswer == null ? "" : actualAnswer.strip().toLowerCase(Locale.ROOT);
-      boolean verdict = normExpected.equals(normActual);
+      AnswerVerdict verdict = ModelGateway.super.judgeAnswer(question, expectedAnswer, actualAnswer);
 
       LOGGER.info("judge verdict={} (exact-match fallback)", verdict);
 
       return verdict;
+    }
+  }
+
+  /**
+   * Maps the judge's one-word reply to a verdict. An unparseable reply is not silently scored as a
+   * failure — it falls back to the deterministic comparison so a flaky judge cannot manufacture
+   * hallucinations that never happened.
+   */
+  private static AnswerVerdict parseVerdict(String response, String expectedAnswer, String actualAnswer) {
+    String reply = response == null ? "" : response.strip().toLowerCase(Locale.ROOT);
+    if (reply.startsWith("correct")) {
+      return AnswerVerdict.CORRECT;
+    }
+    if (reply.startsWith("abstain")) {
+      return AnswerVerdict.ABSTAINED;
+    }
+    if (reply.startsWith("wrong")) {
+      return AnswerVerdict.WRONG;
+    }
+    LOGGER.warn("unparseable judge verdict '{}'; falling back to exact match", truncate(response, 40));
+    if (actualAnswer == null || actualAnswer.isBlank()) {
+      return AnswerVerdict.ABSTAINED;
+    }
+    return expectedAnswer != null && expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip())
+      ? AnswerVerdict.CORRECT
+      : AnswerVerdict.WRONG;
+  }
+
+  @Override
+  public boolean judgeEvidenceSupport(String question, String expectedAnswer, List<String> evidence) {
+    List<String> notes = evidence == null ? List.of() : evidence;
+    if (notes.isEmpty()) {
+      return false;
+    }
+    String prompt = PromptTemplateLoader.render("judge-evidence-support", Map.of(
+      "question", question == null ? "" : question,
+      "expected", expectedAnswer == null ? "" : expectedAnswer,
+      "evidence", joinedOrNone(notes)));
+
+    try {
+      String response = callSynthesisText(prompt, "judgeEvidenceSupport");
+
+      boolean supported = response != null && response.strip().toLowerCase(Locale.ROOT).startsWith("true");
+
+      LOGGER.info("evidence support={} over {} notes for '{}'",
+        supported, notes.size(), truncate(question, 60));
+
+      return supported;
+    } catch (RuntimeException e) {
+      LOGGER.warn("evidence-support call failed ({}); falling back to containment", e.getMessage());
+      return ModelGateway.super.judgeEvidenceSupport(question, expectedAnswer, notes);
     }
   }
 

@@ -2,12 +2,15 @@ package dev.alvo.pieria.ingestion;
 
 
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.tools.RelativeDates;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
@@ -21,12 +24,29 @@ import org.springframework.stereotype.Component;
  *       cannot fail an entire ingest; the surviving messages keep their relative source order.</li>
  *   <li>Preserve source order. The position of a normalized message in the returned list is its
  *       stable provenance index (the {@code [n]} rendered by {@link #render}).</li>
- *   <li>Resolve only obvious, unambiguous relative dates ("yesterday"/"today"/"tomorrow") against
- *       <em>when that message was spoken</em> — its own {@code createdAt} when it has one, else the
- *       request timestamp — rewriting them to absolute ISO dates. Anything fuzzier is left untouched
- *       for the model. No model call is made here.</li>
+ *   <li>Resolve unambiguous relative dates against <em>when that message was spoken</em> — its own
+ *       {@code createdAt} when it has one, else the request timestamp. No model call is made here;
+ *       this is the deterministic half of "temporal arithmetic in Java, not the model". Anything
+ *       genuinely fuzzy ("last summer", "a while back") is left untouched for the model.</li>
  *   <li>Keep raw message text otherwise intact.</li>
  * </ul>
+ *
+ * <h2>Relative dates are replaced, never annotated</h2>
+ * Every resolved reference is <em>substituted at the same granularity the speaker used</em>:
+ * "yesterday" becomes an ISO date, "next month" becomes {@code "June 2023"}, "last week" becomes
+ * {@code "the week of 2023-05-15"}. No precision is invented, because a month-precision phrase is
+ * replaced by a month and a week-precision phrase by a week.
+ *
+ * <p>An earlier version instead <em>appended</em> the absolute period — {@code "next month
+ * (June 2023)"} — and that failed in practice: a parenthetical is detachable, and the extractor
+ * re-attached the date to a neighbouring clause, leaving "next month" anchored to nothing. Synthesis
+ * then did its own arithmetic on the stray date and answered a month late. A replacement cannot come
+ * apart from its referent, because the phrase <em>is</em> the date.
+ *
+ * <p>Periods matter more than they look: across a real multi-session corpus they outnumber
+ * day-precision references roughly 2.6 to 1. Left unresolved they enter the store as permanently
+ * undated facts ("planning a camping trip next month"), which no amount of retrieval quality can
+ * repair afterwards, because the anchor date is gone by then.
  */
 @Component
 public class TranscriptNormalizer {
@@ -37,6 +57,14 @@ public class TranscriptNormalizer {
   private static final Pattern YESTERDAY = Pattern.compile("\\byesterday\\b", Pattern.CASE_INSENSITIVE);
   private static final Pattern TODAY = Pattern.compile("\\btoday\\b", Pattern.CASE_INSENSITIVE);
   private static final Pattern TOMORROW = Pattern.compile("\\btomorrow\\b", Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Calendar periods relative to the speaking date, shared with the retrieval side so a rewritten
+   * transcript and a resolved temporal fact can never disagree. Seasons are deliberately absent:
+   * "last summer" is hemisphere-dependent and has no calendar definition, so it stays fuzzy and goes
+   * to the model as written.
+   */
+  private static final Pattern RELATIVE_PERIOD = RelativeDates.PERIOD;
 
   /**
    * Validate, order-preserve, and date-normalize the given messages.
@@ -52,19 +80,21 @@ public class TranscriptNormalizer {
     }
     LocalDate fallback = LocalDate.ofInstant(requestTime, ZoneOffset.UTC);
     List<Message> out = new ArrayList<>(messages.size());
-    for (Message m : messages) {
-      if (m == null || isBlank(m.role()) || isBlank(m.content()) || isBlank(m.sessionId())) {
+    for (Message message : messages) {
+      if (message == null || isBlank(message.role()) || isBlank(message.content()) || isBlank(message.sessionId())) {
         continue;
       }
       // A back-filled or replayed transcript carries the time each turn was actually spoken; without
       // it "yesterday" would silently resolve to the day before the ingest, not the day before the
       // conversation. Multi-session transcripts spanning months need this per message, not per request.
-      LocalDate spokenOn = m.createdAt() == null
+      LocalDate spokenOn = message.createdAt() == null
         ? fallback
-        : LocalDate.ofInstant(m.createdAt(), ZoneOffset.UTC);
-      String content = resolveRelativeDates(m.content(), spokenOn);
-      out.add(new Message(m.id(), m.sessionId(), m.role().trim(), content, m.createdAt()));
+        : LocalDate.ofInstant(message.createdAt(), ZoneOffset.UTC);
+
+      String content = resolveRelativeDates(message.content(), spokenOn);
+      out.add(new Message(message.id(), message.sessionId(), message.role().trim(), content, message.createdAt()));
     }
+
     return out;
   }
 
@@ -99,7 +129,17 @@ public class TranscriptNormalizer {
     result = YESTERDAY.matcher(result).replaceAll(today.minusDays(1).format(ISO_DATE));
     result = TODAY.matcher(result).replaceAll(today.format(ISO_DATE));
     result = TOMORROW.matcher(result).replaceAll(today.plusDays(1).format(ISO_DATE));
+    result = RELATIVE_PERIOD.matcher(result)
+      .replaceAll(match -> Matcher.quoteReplacement(resolvePeriod(match, today)));
     return result;
+  }
+
+  /**
+   * The absolute period a relative one names, at the same granularity: {@code "next month"} spoken
+   * on 2023-05-25 becomes {@code "June 2023"}.
+   */
+  private static String resolvePeriod(MatchResult match, LocalDate spokenOn) {
+    return RelativeDates.period(match.group(1), match.group(2), spokenOn);
   }
 
   private static boolean isBlank(String s) {

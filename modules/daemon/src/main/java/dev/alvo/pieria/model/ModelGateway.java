@@ -12,6 +12,8 @@ import dev.alvo.pieria.ingestion.model.VerificationResult;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Provider-agnostic access to chat + embedding models, backed by Spring AI.
@@ -161,14 +163,49 @@ public interface ModelGateway {
   }
 
   /**
-   * Judge whether {@code actualAnswer} is semantically faithful to {@code expectedAnswer} for the
-   * given {@code question}. The default falls back to case-insensitive exact match so test stubs
-   * and CI gateways that don't implement this keep working without a live model.
+   * How a synthesized answer compares to the expected one. Declining to answer is deliberately kept
+   * distinct from answering wrongly: for a memory layer, refusing to assert a fact that was never
+   * stored is correct behaviour, while asserting a wrong one is a hallucination. Collapsing the two
+   * hides which of the two a regression actually is.
    */
-  default boolean judgeAnswerFaithfulness(String question, String expectedAnswer, String actualAnswer) {
-    if (expectedAnswer == null && actualAnswer == null) return true;
-    if (expectedAnswer == null || actualAnswer == null) return false;
-    return expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip());
+  enum AnswerVerdict {
+    /** Conveys the expected answer. */
+    CORRECT,
+    /** Asserts something, but not the expected answer. */
+    WRONG,
+    /** Declines to answer / reports insufficient memory evidence. */
+    ABSTAINED
+  }
+
+  /**
+   * Judge {@code actualAnswer} against {@code expectedAnswer} for the given {@code question}. The
+   * default falls back to case-insensitive exact match so test stubs and CI gateways that don't
+   * implement this keep working without a live model.
+   */
+  default AnswerVerdict judgeAnswer(String question, String expectedAnswer, String actualAnswer) {
+    if (actualAnswer == null || actualAnswer.isBlank()) {
+      return AnswerVerdict.ABSTAINED;
+    }
+    return expectedAnswer != null && expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip())
+      ? AnswerVerdict.CORRECT
+      : AnswerVerdict.WRONG;
+  }
+
+  /**
+   * Judge whether {@code evidence} contains the information needed to answer {@code question} with
+   * {@code expectedAnswer} — regardless of phrasing, and without requiring any single item to state
+   * it outright. Used by the benchmark to separate "the fact was never stored" from "it was stored
+   * but not retrieved" from "it was retrieved but answered badly". The default falls back to
+   * case-insensitive substring containment so stubs keep working without a live model.
+   */
+  default boolean judgeEvidenceSupport(String question, String expectedAnswer, List<String> evidence) {
+    if (expectedAnswer == null || expectedAnswer.isBlank() || evidence == null) {
+      return false;
+    }
+    String needle = expectedAnswer.strip().toLowerCase(Locale.ROOT);
+    return evidence.stream()
+      .filter(Objects::nonNull)
+      .anyMatch(item -> item.toLowerCase(Locale.ROOT).contains(needle));
   }
 
   /**

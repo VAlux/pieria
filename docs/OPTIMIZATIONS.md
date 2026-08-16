@@ -98,9 +98,10 @@ Design notes:
   stored, and storage is content-addressed, so replaying them is a no-op.
 - Include the prompt version and model name in the hash so a prompt edit or model swap invalidates
   cleanly rather than silently serving stale extractions.
-- `TranscriptNormalizer.resolveRelativeDates` (`:89`) rewrites "today"/"yesterday" against the
-  request timestamp, so a chunk's hash legitimately changes across a day boundary. That is correct
-  behavior — different content — and only costs one cold miss.
+- `TranscriptNormalizer.resolveRelativeDates` rewrites "today"/"yesterday" and calendar periods
+  ("next month") against the turn's own timestamp, falling back to the request timestamp, so
+  an untimestamped chunk's hash legitimately changes across a day boundary. That is correct behavior
+  — different content — and only costs one cold miss.
 
 **2. Defer the trailing partial chunk**
 Saves: ~40 → ~7 extractions on a 40-turn session | Risk: low | Status: **implemented**
