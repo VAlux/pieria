@@ -62,6 +62,39 @@ public class ProfileConfigService {
     });
   }
 
+  /**
+   * All three layers for one profile in a single read. The console needs the sparse override map
+   * to tell "overridden to the global value" apart from "inherited" — diffing effective against
+   * global cannot distinguish them.
+   */
+  public ProfileConfigDetail detail(String profileName) {
+    DaemonOverrides global = toFullOverrides(configResolver.global());
+
+    return store.findProfile(profileName)
+      .map(profile -> new ProfileConfigDetail(
+        global,
+        storedOverrides(profile.id()),
+        effectiveFor(profile.id())))
+      .orElseGet(() -> new ProfileConfigDetail(
+        global,
+        new DaemonOverrides(null, null),
+        global));
+  }
+
+  /**
+   * The profile's raw stored overrides, or an empty set. Fail-open like the resolver: a corrupt
+   * row must not break the config page.
+   */
+  private DaemonOverrides storedOverrides(String profileId) {
+    try {
+      return store.getProfileConfig(profileId)
+        .map(json -> ConfigCodec.bind(ConfigCodec.parseJson(json), DaemonOverrides.class))
+        .orElseGet(() -> new DaemonOverrides(null, null));
+    } catch (RuntimeException e) {
+      return new DaemonOverrides(null, null);
+    }
+  }
+
   private DaemonOverrides effectiveFor(String profileId) {
     return toFullOverrides(configResolver.resolve(profileId));
   }

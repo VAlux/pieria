@@ -78,6 +78,16 @@ public class ProfileConfigController {
   }
 
   /**
+   * The three configuration layers for this profile: the global baseline, the profile's own
+   * (sparse) overrides, and the effective result. Additive — the plain GET keeps its shape, which
+   * the CLI depends on.
+   */
+  @GetMapping("/detail")
+  public JsonNode detail(@PathVariable String name) {
+    return ConfigCodec.toNode(configService.detail(name));
+  }
+
+  /**
    * Reject any key outside the {@link DaemonOverrides} shape. Mapped to 400 by the global handler.
    */
   private static void validateWhitelist(JsonNode body) {
