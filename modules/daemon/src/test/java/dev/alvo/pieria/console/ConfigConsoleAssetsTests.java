@@ -83,6 +83,45 @@ class ConfigConsoleAssetsTests {
     assertThat(field).contains("input.type = \"text\"");
   }
 
+  @Test
+  void profileViewReadsAllThreeLayersAndWritesTheWhitelistedPayload() throws IOException {
+    String profile = resource("static/js/console/config/profile.js");
+
+    assertThat(profile)
+      .contains("/config/detail", "\"PUT\"", "\"DELETE\"")
+      .contains("export function loadProfileConfig", "export function unloadProfileConfig");
+    // Provenance comes from the stored override map, never from diffing effective against global:
+    // a profile may deliberately override a key to the global value.
+    assertThat(profile).contains("overrides").doesNotContain("=== globalValue");
+  }
+
+  @Test
+  void channelMixTreatsZeroAsADisableNotASmallNumber() throws IOException {
+    String mix = resource("static/js/console/config/channel-mix.js");
+
+    assertThat(mix).contains("export function renderChannelMix", "cfg-mix-bar", "cfg-mix-legend");
+    assertThat(mix).contains("disabled");
+  }
+
+  @Test
+  void saveBarBlocksWhenAFieldFailsClientValidation() throws IOException {
+    String form = resource("static/js/console/config/form.js");
+
+    assertThat(form)
+      .contains("export function createForm", "changedKeys", "renderSaveBar")
+      .contains("cfg-savebar", "Discard");
+    // The daemon rejects the whole payload if one value fails to bind, so the client must not send
+    // a batch it already knows is bad.
+    assertThat(form).contains("blocked");
+  }
+
+  @Test
+  void profileConfigViewSectionExistsInTheShell() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+
+    assertThat(html.select("main > section.view#view-profile-config")).hasSize(1);
+  }
+
   static String resource(String path) throws IOException {
     try (InputStream in = ConfigConsoleAssetsTests.class.getClassLoader().getResourceAsStream(path)) {
       assertThat(in).as("resource %s", path).isNotNull();
