@@ -46,23 +46,40 @@ public final class PropertiesFileEditor {
     }
   }
 
-  /** The value assigned to {@code key}, ignoring commented-out lines. */
+  /**
+   * The value assigned to {@code key}, ignoring commented-out lines. When a key appears multiple
+   * times (a hand-maintained file may have accidental duplicates), this returns the value the
+   * daemon would load — the last occurrence, which is how {@link java.util.Properties} resolves
+   * duplicates via {@link java.util.Properties#load}.
+   */
   public Optional<String> get(String key) {
-    int at = indexOf(key);
-    if (at < 0) {
+    List<Integer> indices = indicesOf(key);
+    if (indices.isEmpty()) {
       return Optional.empty();
     }
+    int at = indices.get(indices.size() - 1);  // last occurrence
     String line = lines.get(at);
     int separator = separatorIndex(line, key);
     return Optional.of(line.substring(separator + 1).trim());
   }
 
-  /** Assign {@code key}, replacing an existing assignment in place or appending a new one. */
+  /**
+   * Assign {@code key}, replacing an existing assignment in place or appending a new one. When
+   * duplicates are present (a hand-maintained file may have accidental duplicates), this collapses
+   * them — the first occurrence is rewritten with the new value, and any later duplicates are
+   * removed. This matches the daemon's loading behaviour: a duplicate that is not the last
+   * occurrence is dead code.
+   */
   public void set(String key, String value) {
-    int at = indexOf(key);
+    List<Integer> indices = indicesOf(key);
     String assignment = key + "=" + (value == null ? "" : value);
-    if (at >= 0) {
-      lines.set(at, assignment);
+    if (!indices.isEmpty()) {
+      // Remove later duplicates in reverse order to preserve indices.
+      for (int i = indices.size() - 1; i > 0; i--) {
+        lines.remove((int) indices.get(i));
+      }
+      // Rewrite the first (now the only) occurrence.
+      lines.set(indices.get(0), assignment);
       return;
     }
     if (!lines.contains(MANAGED_HEADER)) {
@@ -74,11 +91,15 @@ public final class PropertiesFileEditor {
     lines.add(assignment);
   }
 
-  /** Drop {@code key} entirely, so the daemon's shipped default applies again. Idempotent. */
+  /**
+   * Drop {@code key} entirely, so the daemon's shipped default applies again. When duplicates are
+   * present, removes all occurrences so the key cannot re-emerge from a later duplicate. Idempotent.
+   */
   public void remove(String key) {
-    int at = indexOf(key);
-    if (at >= 0) {
-      lines.remove(at);
+    List<Integer> indices = indicesOf(key);
+    // Remove in reverse order to preserve indices as we delete.
+    for (int i = indices.size() - 1; i >= 0; i--) {
+      lines.remove((int) indices.get(i));
     }
   }
 
@@ -89,9 +110,8 @@ public final class PropertiesFileEditor {
   public void write(Path file) {
     try {
       Path parent = file.toAbsolutePath().getParent();
-      if (parent != null) {
-        Files.createDirectories(parent);
-      }
+      // getParent() is null only at filesystem roots; no config file lives there.
+      Files.createDirectories(parent);
       Path temp = Files.createTempFile(parent, "pieria-properties", ".tmp");
       Files.write(temp, lines, StandardCharsets.UTF_8);
       try {
@@ -104,7 +124,8 @@ public final class PropertiesFileEditor {
     }
   }
 
-  private int indexOf(String key) {
+  private List<Integer> indicesOf(String key) {
+    List<Integer> result = new ArrayList<>();
     Pattern pattern = Pattern.compile("^\\s*" + Pattern.quote(key) + "\\s*[=:]");
     for (int i = 0; i < lines.size(); i++) {
       String line = lines.get(i);
@@ -114,10 +135,10 @@ public final class PropertiesFileEditor {
       }
       Matcher matcher = pattern.matcher(line);
       if (matcher.find()) {
-        return i;
+        result.add(i);
       }
     }
-    return -1;
+    return result;
   }
 
   private static int separatorIndex(String line, String key) {

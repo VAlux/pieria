@@ -117,4 +117,48 @@ class PropertiesFileEditorTests {
 
     assertThat(Files.readAllLines(file)).contains("pieria.daemon.port=8077");
   }
+
+  @Test
+  void getReportsTheValueThePropertiesParserWouldResolve() throws IOException {
+    Path file = write("pieria.daemon.port=1111", "pieria.daemon.port=2222");
+
+    assertThat(PropertiesFileEditor.read(file).get("pieria.daemon.port")).contains("2222");
+  }
+
+  @Test
+  void setCollapsesDuplicateAssignmentsSoTheDaemonLoadsTheNewValue() throws IOException {
+    Path file = write("pieria.daemon.port=1111", "# keep me", "pieria.daemon.port=2222");
+
+    PropertiesFileEditor editor = PropertiesFileEditor.read(file);
+    editor.set("pieria.daemon.port", "9090");
+    editor.write(file);
+
+    assertThat(Files.readAllLines(file)).containsExactly("pieria.daemon.port=9090", "# keep me");
+  }
+
+  @Test
+  void removeDropsEveryAssignmentNotJustTheFirst() throws IOException {
+    Path file = write("pieria.daemon.port=1111", "pieria.provider.name=ollama", "pieria.daemon.port=2222");
+
+    PropertiesFileEditor editor = PropertiesFileEditor.read(file);
+    editor.remove("pieria.daemon.port");
+    editor.write(file);
+
+    assertThat(Files.readAllLines(file)).containsExactly("pieria.provider.name=ollama");
+    assertThat(PropertiesFileEditor.read(file).get("pieria.daemon.port")).isEmpty();
+  }
+
+  @Test
+  void aKeyThatIsAPrefixOfAnotherKeyIsNotConfusedWithIt() throws IOException {
+    Path file = write("pieria.db.path=/one", "pieria.db.path.backup=/two");
+
+    PropertiesFileEditor editor = PropertiesFileEditor.read(file);
+    assertThat(editor.get("pieria.db.path")).contains("/one");
+    assertThat(editor.get("pieria.db.path.backup")).contains("/two");
+
+    editor.set("pieria.db.path", "/three");
+    editor.write(file);
+
+    assertThat(Files.readAllLines(file)).containsExactly("pieria.db.path=/three", "pieria.db.path.backup=/two");
+  }
 }
