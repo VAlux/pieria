@@ -1,0 +1,1083 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root {
+      --bg: #0e1116;
+      --panel: #161b22;
+      --panel-2: #1c232d;
+      --border: #2a323d;
+      --text: #e6edf3;
+      --muted: #8b98a5;
+      --dim: #6b7681;
+      --danger: #f85149;
+      --ok: #3fb950;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.5 var(--ui); -webkit-font-smoothing: antialiased;
+    }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { color: #79b8ff; text-decoration: underline; }
+
+    button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+    input, select, textarea {
+      font: inherit; color: var(--text);
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px; outline: none;
+    }
+    input::placeholder, textarea::placeholder { color: var(--dim); }
+    textarea { resize: vertical; font: inherit; }
+    select {
+      appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%236b7681' d='M2 4l4 4 4-4z'/></svg>");
+      background-repeat: no-repeat; background-position: right 10px center;
+    }
+
+    /* Uppercase micro-label — one treatment, used for every section and field label. */
+    .lbl {
+      font-size: 11px; font-weight: 600; letter-spacing: .6px;
+      text-transform: uppercase; color: var(--dim);
+    }
+    .mono { font-family: var(--mono); }
+    .num { font-variant-numeric: tabular-nums; }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+    }
+
+    /* Memory row: type carries a 2px rail, the chip is tinted rather than flooded. */
+    .mem {
+      display: flex; align-items: stretch; overflow: hidden;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; cursor: pointer; text-align: left; width: 100%;
+    }
+    .mem:hover { background: var(--panel-2); border-color: #3a4553; }
+    .chip {
+      flex: none; min-width: 76px; text-align: center;
+      font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+    }
+    .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+    .tag {
+      font-size: 11px; color: var(--dim); border: 1px solid var(--border);
+      border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+    }
+    .icon-btn {
+      flex: none; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 8px; color: var(--dim);
+      border: 1px solid transparent;
+    }
+    .icon-btn:hover { color: var(--danger); background: rgba(248,81,73,.12); border-color: rgba(248,81,73,.4); }
+    .icon-btn svg, .ico svg {
+      fill: none; stroke: currentColor; stroke-width: 1.7;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+    .ico { display: inline-flex; align-items: center; justify-content: center; }
+
+    .ghost-btn {
+      display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px;
+      border-radius: 8px; border: 1px solid var(--border); color: var(--muted);
+      background: var(--panel);
+    }
+    .ghost-btn:hover { background: var(--panel-2); color: var(--text); }
+
+    .check {
+      display: inline-flex; align-items: center; gap: 7px;
+      color: var(--muted); cursor: pointer; user-select: none; font-size: 13px;
+    }
+    .check input { width: 15px; height: 15px; accent-color: #58a6ff; }
+
+    table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.data th, table.data td {
+      text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border);
+    }
+    table.data th:first-child, table.data td:first-child { text-align: left; }
+    table.data th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
+    table.data tr:last-child td { border-bottom: 0; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 1.3s linear infinite; }
+    @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  </style>
+</helmet>
+
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; display: flex; flex-direction: column; background: #0e1116">
+
+  <!-- ============ TOP BAR ============ -->
+  <div style="flex: none; height: 56px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #161b22; border-bottom: 1px solid #2a323d">
+    <div style="display: flex; align-items: baseline; gap: 9px">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: .2px">Pieria</span>
+      <span style="font-size: 12px; color: #6b7681">Console</span>
+    </div>
+
+    <div style="width: 1px; height: 22px; background: #2a323d"></div>
+
+    <nav style="display: flex; gap: 2px">
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="6">
+        <button onClick="{{ n.pick }}" style="padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: {{ n.weight }}; color: {{ n.color }}; background: {{ n.bg }}">{{ n.label }}</button>
+      </sc-for>
+    </nav>
+
+    <div style="flex: 1 1 auto"></div>
+
+    <!-- background task tray -->
+    <div style="position: relative">
+      <button class="ghost-btn" onClick="{{ toggleTray }}" style="color: {{ tray.color }}; border-color: {{ tray.border }}; background: {{ tray.bg }}">
+        <span class="ico spin" style="width: 15px">
+          <svg width="15" height="15" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round">
+            <circle cx="12" cy="12" r="9" stroke-dasharray="40 17"/>
+          </svg>
+        </span>
+        {{ tray.label }}
+      </button>
+
+      <sc-if value="{{ trayOpen }}" hint-placeholder-val="{{ true }}">
+      <div style="position: absolute; top: 44px; right: 0; width: 380px; z-index: 30; background: #161b22; border: 1px solid #2a323d; border-radius: 10px; box-shadow: 0 18px 44px rgba(0,0,0,.55); overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 12px 14px">
+          <span class="lbl">Background tasks</span>
+          <div style="flex: 1 1 auto"></div>
+          <span class="mono num" style="font-size: 11px; color: #6b7681">{{ tray.summary }}</span>
+        </div>
+
+        <sc-for list="{{ tasks }}" as="t" hint-placeholder-count="3">
+          <div style="padding: 12px 14px; border-top: 1px solid #2a323d">
+            <div style="display: flex; align-items: center; gap: 9px">
+              <span class="mono" style="flex: 1 1 auto; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ t.kind }}</span>
+              <span class="mono" style="flex: none; font-size: 11px; color: #6b7681">{{ t.profile }}</span>
+              <span class="mono" style="flex: none; font-size: 10.5px; font-weight: 600; letter-spacing: .3px; padding: 2px 7px; border-radius: 999px; color: {{ t.color }}; background: {{ t.tint }}">{{ t.status }}</span>
+              <sc-if value="{{ t.running }}" hint-placeholder-val="{{ true }}">
+                <button class="icon-btn" style="width: 22px; height: 22px">
+                  <svg width="13" height="13" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+                </button>
+              </sc-if>
+            </div>
+
+            <sc-if value="{{ t.running }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top: 9px">
+              <sc-for list="{{ t.lanes }}" as="l" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 10px; margin: 6px 0">
+                  <span style="flex: none; width: 58px; font-size: 11.5px; color: #6b7681; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ l.name }}</span>
+                  <div style="flex: 1 1 auto; height: 6px; background: #0e1116; border-radius: 999px; overflow: hidden">
+                    <div style="height: 100%; width: {{ l.pct }}; background: {{ l.color }}; border-radius: 999px"></div>
+                  </div>
+                  <span class="mono num" style="flex: none; width: 62px; text-align: right; font-size: 11px; color: {{ l.countColor }}">{{ l.count }}</span>
+                </div>
+              </sc-for>
+            </div>
+            </sc-if>
+
+            <sc-if value="{{ t.failed }}" hint-placeholder-val="{{ false }}">
+              <div class="mono" style="margin-top: 8px; padding: 8px 10px; background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.3); border-radius: 7px; font-size: 11.5px; line-height: 1.5; color: #f85149">{{ t.error }}</div>
+            </sc-if>
+
+            <div style="font-size: 11px; color: #6b7681; margin-top: 9px">{{ t.elapsed }}</div>
+          </div>
+        </sc-for>
+      </div>
+      </sc-if>
+    </div>
+
+    <button class="ghost-btn">
+      <span class="ico"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
+      Export
+    </button>
+  </div>
+
+  <!-- ============ SHELL ============ -->
+  <div style="flex: 1 1 auto; display: flex; min-height: 0">
+
+    <!-- ---- side panel ---- -->
+    <aside style="flex: 0 0 240px; display: flex; flex-direction: column; background: #161b22; border-right: 1px solid #2a323d; min-height: 0">
+      <div style="flex: 1 1 auto; overflow-y: auto; padding: 12px 8px; min-height: 0">
+        <div style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px">
+          <span class="ico" style="width: 20px; color: #6b7681">
+            <svg width="17" height="17" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round">
+              <path d="M4 6.5C4 5.1 7.6 4 12 4s8 1.1 8 2.5S16.4 9 12 9 4 7.9 4 6.5Zm0 0v5C4 12.9 7.6 14 12 14s8-1.1 8-2.5v-5m-16 5v5C4 17.9 7.6 19 12 19s8-1.1 8-2.5v-5"/>
+            </svg>
+          </span>
+          <span class="lbl">Profiles</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 6px">
+          <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="4">
+            <button onClick="{{ p.pick }}" style="display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px 7px 0; border-radius: 8px; text-align: left; background: {{ p.bg }}; color: {{ p.color }}">
+              <span style="flex: none; width: 2px; height: 16px; border-radius: 2px; background: {{ p.rail }}"></span>
+              <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: {{ p.weight }}">{{ p.name }}</span>
+              <span class="mono num" style="flex: none; font-size: 11px; color: #6b7681">{{ p.count }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="flex: none; padding: 10px 8px 14px; border-top: 1px solid #2a323d">
+        <div style="display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px">
+          <span class="ico" style="width: 20px; color: #6b7681">
+            <svg width="17" height="17" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round">
+              <path d="M3 12h3.5l2-6.5 3.5 13 2.5-6.5H21"/>
+            </svg>
+          </span>
+          <span class="lbl">Daemon</span>
+        </div>
+
+        <div style="padding: 0 9px">
+          <div style="display: flex; align-items: center; gap: 9px; margin: 3px 0 11px">
+            <span style="flex: none; width: 7px; height: 7px; border-radius: 999px; background: {{ daemon.dot }}; box-shadow: 0 0 0 3px {{ daemon.halo }}"></span>
+            <span style="flex: 1 1 auto; font-size: 13px; font-weight: 600; color: {{ daemon.color }}">{{ daemon.label }}</span>
+            <span class="mono num" style="flex: none; font-size: 11px; color: #6b7681">{{ daemon.port }}</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <sc-for list="{{ daemon.rows }}" as="d" hint-placeholder-count="4">
+              <div style="display: flex; align-items: baseline; gap: 8px">
+                <span style="flex: 1 1 auto; font-size: 12px; color: #6b7681">{{ d.k }}</span>
+                <span class="mono num" style="flex: none; font-size: 11.5px; color: {{ d.color }}">{{ d.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <button style="flex: none; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; color: #6b7681; border-top: 1px solid #2a323d; font-size: 13px">
+        <span class="ico" style="width: 20px"><svg width="18" height="18" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round"><path d="m14 6-6 6 6 6"/></svg></span>
+        Collapse
+      </button>
+    </aside>
+
+    <!-- ---- main ---- -->
+    <main style="flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 20px 20px 48px">
+
+      <!-- ======== MEMORIES ======== -->
+      <sc-if value="{{ isMemories }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px">
+          <div style="position: relative; flex: 1 1 260px; min-width: 200px">
+            <span class="ico" style="position: absolute; left: 10px; top: 0; bottom: 0; color: #6b7681">
+              <svg width="15" height="15" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            </span>
+            <input value="{{ q }}" onInput="{{ setQ }}" placeholder="search content, topic key, session…" style="width: 100%; padding-left: 32px">
+          </div>
+
+          <div style="display: flex; gap: 3px; padding: 3px; background: #161b22; border: 1px solid #2a323d; border-radius: 9px">
+            <sc-for list="{{ typePills }}" as="t" hint-placeholder-count="5">
+              <button onClick="{{ t.pick }}" style="padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; letter-spacing: .3px; color: {{ t.color }}; background: {{ t.bg }}">{{ t.label }}</button>
+            </sc-for>
+          </div>
+
+          <select><option>All sessions</option></select>
+          <select><option>Newest</option></select>
+          <label class="check"><input type="checkbox" checked="{{ sup }}" onChange="{{ toggleSup }}"> superseded</label>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{ mems }}" as="m" hint-placeholder-count="6">
+            <div class="mem" onClick="{{ m.open }}" style="opacity: {{ m.opacity }}">
+              <div style="flex: none; width: 2px; background: {{ m.color }}"></div>
+              <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: {{ rowPad }}">
+                <span class="chip" style="color: {{ m.color }}; background: {{ m.tint }}; margin-top: 1px">{{ m.type }}</span>
+                <div style="flex: 1 1 auto; min-width: 0">
+                  <div class="clamp" style="font-size: 14px; line-height: 1.45; -webkit-line-clamp: {{ clamp }}">{{ m.content }}</div>
+                  <div class="mono" style="font-size: 11.5px; color: #6b7681; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                    <span style="color: {{ accent }}">{{ m.key }}</span>{{ m.session }}
+                  </div>
+                </div>
+                <sc-if value="{{ m.isSuperseded }}" hint-placeholder-val="{{ false }}">
+                  <span class="tag" style="margin-top: 2px">superseded</span>
+                </sc-if>
+                <span class="num" style="flex: none; width: 62px; text-align: right; font-size: 12px; color: #6b7681; margin-top: 2px">{{ m.rel }}</span>
+                <sc-if value="{{ m.isActive }}" hint-placeholder-val="{{ true }}">
+                  <button class="icon-btn" onClick="{{ m.forget }}" style="margin-top: -2px">
+                    <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-9 0 1 13h10l1-13"/></svg>
+                  </button>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align: center; color: #6b7681; padding: 56px 20px">No memories match the current filters.</div>
+        </sc-if>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px">
+          <span class="num" style="font-size: 13px; color: #6b7681">{{ pagerInfo }}</span>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <button class="ghost-btn" style="padding: 6px 12px; opacity: .45">Prev</button>
+            <span class="num" style="font-size: 13px; color: #6b7681">Page 1 of 24</span>
+            <button class="ghost-btn" style="padding: 6px 12px">Next</button>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======== ADD ======== -->
+      <sc-if value="{{ isAdd }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+        <div class="panel" style="max-width: 780px">
+          <div class="lbl" style="margin-bottom: 16px">Add a memory</div>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label class="lbl" style="text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #8b98a5">Type <span style="color: #f85149">*</span></label>
+              <select><option>fact</option></select>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label class="lbl" style="text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #8b98a5">Topic key</label>
+              <input class="mono" placeholder="optional, e.g. recall-latency" style="font-size: 13px">
+            </div>
+            <div style="grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px">
+              <label class="lbl" style="text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #8b98a5">Content <span style="color: #f85149">*</span></label>
+              <textarea placeholder="The canonical statement to remember…" style="min-height: 96px"></textarea>
+              <span style="font-size: 12px; color: #6b7681">A keyed fact or instruction supersedes the prior memory sharing its topic key.</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label class="lbl" style="text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #8b98a5">Session id</label>
+              <input class="mono" placeholder="optional" style="font-size: 13px">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label class="lbl" style="text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: #8b98a5">Payload (JSON)</label>
+              <textarea class="mono" placeholder='{"source":"manual"}' style="min-height: 96px; font-size: 12.5px"></textarea>
+            </div>
+            <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; margin-top: 2px">
+              <button style="padding: 8px 16px; border-radius: 8px; font-weight: 600; color: #0b1220; background: {{ accent }}">Store memory</button>
+              <span style="font-size: 12px; color: #6b7681">Writes straight to the daemon — no ingestion pass.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======== RECALL ======== -->
+      <sc-if value="{{ isRecall }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px">
+          <input value="How does supersession decide which memory wins?" style="flex: 1 1 320px; min-width: 240px">
+          <select><option>Synthesized — full answer</option></select>
+          <select><option>10</option></select>
+          <button style="padding: 8px 18px; border-radius: 8px; font-weight: 600; color: #0b1220; background: {{ accent }}">Ask</button>
+        </div>
+        <p style="font-size: 12px; color: #6b7681; margin: 0 0 18px">Synthesized runs the full retrieval and synthesis pipeline. Analyzed and Evidence skip synthesis and return the supporting memories directly.</p>
+
+        <div class="panel" style="padding: 20px 22px">
+          <div class="lbl" style="margin-bottom: 12px">Answer</div>
+          <div style="max-width: 68ch; font-size: 15px; line-height: 1.65">
+            Supersession is ordered by when a claim was <em style="font-style: normal; color: {{ accent }}">stated</em>, not when it was stored. A new keyed fact or instruction replaces the memory sharing its topic key only if its knowledge time is later; a replayed or back-filled transcript that arrives carrying an older stated time is stored already superseded, kept as history and never embedded, so it cannot overwrite current knowledge.
+          </div>
+          <button onClick="{{ toggleExplain }}" style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 16px; padding: 14px 0 0; border-top: 1px solid #2a323d; text-align: left">
+            <span class="ico" style="color: #6b7681; transform: rotate({{ explainRot }}deg)">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="m9 6 6 6-6 6"/></svg>
+            </span>
+            <span class="mono num" style="font-size: 11.5px; color: #6b7681">10 memories · 7 of 8 channels · 7.34s</span>
+            <span style="flex: 1 1 auto"></span>
+            <span style="font-size: 12px; font-weight: 500; color: {{ accent }}">{{ explainLabel }}</span>
+          </button>
+        </div>
+
+        <!-- ===== retrieval explain (RecallResponse.RecallDebug) ===== -->
+        <sc-if value="{{ explain }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px">
+
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 12px">Where the time went</div>
+            <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+              <span class="num" style="font-size: 28px; font-weight: 600; letter-spacing: -.4px">7.34</span>
+              <span style="font-size: 13px; color: #6b7681">seconds end to end</span>
+            </div>
+            <div style="display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: #0e1116">
+              <div style="width: 13.4%; background: {{ accent }}"></div>
+              <div style="width: 86.6%; background: #2a323d"></div>
+            </div>
+            <div style="display: flex; gap: 20px; margin-top: 11px">
+              <div style="display: flex; align-items: center; gap: 7px">
+                <span style="width: 8px; height: 8px; border-radius: 2px; background: {{ accent }}"></span>
+                <span style="font-size: 12px; color: #8b98a5">channels (parallel)</span>
+                <span class="mono num" style="font-size: 12px">0.99s</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 7px">
+                <span style="width: 8px; height: 8px; border-radius: 2px; background: #2a323d"></span>
+                <span style="font-size: 12px; color: #8b98a5">query analysis + HyDE + synthesis</span>
+                <span class="mono num" style="font-size: 12px">6.35s</span>
+              </div>
+            </div>
+            <p style="margin: 12px 0 0; font-size: 12px; color: #6b7681">The retrieval channels are a seventh of the wall clock. <span class="mono">RecallDebug</span> itemises only the channels, so the remainder is inferred from the request's own timing — itemising the model stages needs a new field.</p>
+          </div>
+
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 5px">Channels</div>
+            <p style="margin: 0 0 12px; font-size: 12px; color: #6b7681">Wave 1 fans out from the query; <span class="mono">graph</span> and <span class="mono">code_graph</span> run second, seeded from wave-1 hits. <span class="mono">cap</span> marks a channel that hit the 10-result limit and had more to give. A failed channel would report the 3,000 ms timeout rather than its real elapsed time.</p>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+              <sc-for list="{{ channels }}" as="c" hint-placeholder-count="8">
+                <div style="padding: 9px 11px; background: #0e1116; border: 1px solid {{ c.border }}; border-radius: 8px">
+                  <div style="display: flex; align-items: center; gap: 7px; min-width: 0">
+                    <span style="flex: none; width: 6px; height: 6px; border-radius: 999px; background: {{ c.dot }}"></span>
+                    <span class="mono" style="flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: {{ c.nameColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.channel }}</span>
+                  </div>
+                  <div style="display: flex; align-items: baseline; gap: 5px; margin-top: 7px">
+                    <span class="num" style="font-size: 15px; font-weight: 600; color: {{ c.hitColor }}">{{ c.hits }}</span>
+                    <span style="font-size: 11px; color: #6b7681">{{ c.hitLabel }}</span>
+                    <span style="flex: 1 1 auto"></span>
+                    <span class="mono num" style="font-size: 11px; color: {{ c.latColor }}">{{ c.latency }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 5px">Fused candidates — RRF rank order</div>
+            <p style="margin: 0 0 6px; font-size: 12px; color: #6b7681">Channels in contribution order, strongest first — the <span class="mono">rrf:</span> prefix every <span class="mono">source</span> carries is dropped, it never varies.</p>
+            <sc-for list="{{ candidates }}" as="c" hint-placeholder-count="6">
+              <div style="display: grid; grid-template-columns: 26px minmax(0, 1fr) 68px 226px; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid #1c232d">
+                <span class="mono num" style="font-size: 11.5px; color: #6b7681">{{ c.rank }}</span>
+                <div style="min-width: 0">
+                  <div style="font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.content }}</div>
+                  <div class="mono" style="font-size: 10.5px; color: #6b7681; margin-top: 2px">{{ c.id }}</div>
+                </div>
+                <span class="mono num" style="font-size: 12.5px; text-align: right">{{ c.score }}</span>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end">
+                  <sc-for list="{{ c.sources }}" as="s" hint-placeholder-count="2">
+                    <span class="mono" style="font-size: 10.5px; padding: 2px 6px; border-radius: 5px; color: {{ s.color }}; background: {{ s.bg }}">{{ s.name }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 4px">Temporal facts injected into synthesis</div>
+            <sc-for list="{{ temporalFacts }}" as="f" hint-placeholder-count="0">
+              <div class="mono" style="font-size: 11.5px; color: #8b98a5; padding: 7px 0; border-bottom: 1px solid #1c232d">{{ f }}</div>
+            </sc-for>
+            <sc-if value="{{ noTemporalFacts }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: center; gap: 9px; padding: 12px 0 4px">
+                <span class="ico" style="color: #4d5763"><svg width="15" height="15" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round"><circle cx="12" cy="12" r="8.5"/><path d="M12 12V7.5M12 12l3 2.5"/></svg></span>
+                <span style="font-size: 13px; color: #6b7681">None — nothing in the retrieved set carried a resolvable date reference.</span>
+              </div>
+            </sc-if>
+            <p style="margin: 12px 0 0; font-size: 12px; color: #6b7681">Computed in Java from each memory's <span class="mono">stated_at</span> / <span class="mono">occurred_at</span> and handed to the model as fixed strings — the model never does the arithmetic. Empty is the common case: three measured recalls, including a deliberately date-loaded one, all returned none.</p>
+          </div>
+        </div>
+        </sc-if>
+
+        <div class="lbl" style="margin: 22px 0 10px">Supporting memories (4)</div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{ support }}" as="m" hint-placeholder-count="4">
+            <div class="mem">
+              <div style="flex: none; width: 2px; background: {{ m.color }}"></div>
+              <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: {{ rowPad }}">
+                <span class="chip" style="color: {{ m.color }}; background: {{ m.tint }}; margin-top: 1px">{{ m.type }}</span>
+                <div style="flex: 1 1 auto; min-width: 0">
+                  <div class="clamp" style="font-size: 14px; line-height: 1.45; -webkit-line-clamp: {{ clamp }}">{{ m.content }}</div>
+                  <div class="mono" style="font-size: 11.5px; color: #6b7681; margin-top: 4px"><span style="color: {{ accent }}">{{ m.key }}</span>{{ m.session }}</div>
+                </div>
+                <span class="num" style="flex: none; width: 62px; text-align: right; font-size: 12px; color: #6b7681; margin-top: 2px">{{ m.rel }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======== STATISTICS ======== -->
+      <sc-if value="{{ isStats }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px">
+          <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+            <div style="position: relative; overflow: hidden; background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 16px 18px">
+              <div style="position: absolute; inset: 0 0 auto 0; height: 2px; background: {{ t.rail }}"></div>
+              <div class="num" style="font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.4px">{{ t.num }}</div>
+              <div class="lbl" style="margin-top: 4px">{{ t.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 14px">By type</div>
+            <sc-for list="{{ bars }}" as="b" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 12px; margin: 9px 0">
+                <span class="mono" style="flex: none; width: 82px; font-size: 12px; color: #8b98a5">{{ b.name }}</span>
+                <div style="flex: 1 1 auto; height: 8px; background: #0e1116; border-radius: 999px; overflow: hidden">
+                  <div style="height: 100%; width: {{ b.pct }}; background: {{ b.color }}; border-radius: 999px"></div>
+                </div>
+                <span class="mono num" style="flex: none; width: 46px; text-align: right; font-size: 12.5px">{{ b.count }}</span>
+              </div>
+            </sc-for>
+            <p class="mono" style="font-size: 11.5px; color: #6b7681; margin: 16px 0 0; line-height: 1.6">
+              Range 2026-05-24 → 2026-08-25<br>Profile created 2026-05-22
+            </p>
+          </div>
+
+          <div class="panel">
+            <div class="lbl" style="margin-bottom: 14px">Impact</div>
+            <sc-for list="{{ impact }}" as="r" hint-placeholder-count="5">
+              <div style="display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid #1c232d">
+                <span style="flex: 1 1 auto; font-size: 13px; color: #8b98a5">{{ r.label }}</span>
+                <span class="num" style="flex: none; font-size: 14px; font-weight: 600">{{ r.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top: 16px">
+          <div class="lbl" style="margin-bottom: 12px">Inference spend</div>
+          <table class="data">
+            <tr><th>Tier</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Cost</th></tr>
+            <sc-for list="{{ spend }}" as="s" hint-placeholder-count="3">
+              <tr>
+                <td class="mono" style="font-size: 12.5px">{{ s.tier }}</td>
+                <td class="num">{{ s.calls }}</td>
+                <td class="num">{{ s.prompt }}</td>
+                <td class="num">{{ s.completion }}</td>
+                <td class="num">{{ s.cost }}</td>
+              </tr>
+            </sc-for>
+            <tr>
+              <td style="font-weight: 600">Total</td>
+              <td></td>
+              <td class="num" style="font-weight: 600">3,914,205</td>
+              <td class="num" style="font-weight: 600">288,640</td>
+              <td class="num" style="font-weight: 600">$14.86</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======== AUDIT ======== -->
+      <sc-if value="{{ isAudit }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px">
+          <div style="position: relative; flex: 1 1 220px; min-width: 180px">
+            <span class="ico" style="position: absolute; left: 10px; top: 0; bottom: 0; color: #6b7681">
+              <svg width="15" height="15" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            </span>
+            <input placeholder="search requests, responses, ids…" style="width: 100%; padding-left: 32px">
+          </div>
+          <select><option>All operations</option></select>
+          <select><option>All clients</option></select>
+          <select><option>All harnesses</option></select>
+          <select><option>All outcomes</option></select>
+          <label class="check"><input type="checkbox"> truncated</label>
+          <button class="ghost-btn" style="padding: 7px 12px">Clear</button>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <sc-for list="{{ audit }}" as="a" hint-placeholder-count="8">
+            <div class="mem" style="align-items: center">
+              <div style="flex: none; width: 2px; background: {{ a.color }}"></div>
+              <div style="flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: 150px 176px 150px 62px 64px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 12px">
+                <span class="mono num" style="font-size: 11.5px; color: #6b7681">{{ a.time }}</span>
+                <span class="mono" style="font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ a.operation }}</span>
+                <span style="font-size: 12px; color: #8b98a5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ a.caller }}</span>
+                <span class="mono num" style="justify-self: start; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: {{ a.color }}; background: {{ a.tint }}">{{ a.status }}</span>
+                <span class="mono num" style="font-size: 11.5px; color: #6b7681; text-align: right">{{ a.duration }}</span>
+                <span style="font-size: 12.5px; color: #6b7681; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ a.preview }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ======== GRAPH ======== -->
+      <sc-if value="{{ isGraph }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width: 1120px; margin: 0 auto">
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 14px">
+          <div style="position: relative; flex: 1 1 280px">
+            <span class="ico" style="position: absolute; left: 10px; top: 0; bottom: 0; color: #6b7681">
+              <svg width="15" height="15" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            </span>
+            <input placeholder="search entities…" style="width: 100%; padding-left: 32px">
+          </div>
+          <label class="check" style="gap: 8px"><span class="lbl">Depth</span><select style="padding: 6px 28px 6px 10px"><option>1 hop</option></select></label>
+          <div style="flex: 1 1 auto"></div>
+          <button class="ghost-btn" style="padding: 7px 12px">Fit</button>
+          <button class="ghost-btn" style="padding: 7px 12px">Reset</button>
+        </div>
+
+        <div style="display: flex; gap: 12px; height: 588px">
+          <div style="position: relative; flex: 1 1 auto; background: #0b0e13; border: 1px solid #2a323d; border-radius: 10px; overflow: hidden">
+            <svg width="100%" height="100%" viewBox="0 0 760 586" preserveAspectRatio="xMidYMid meet">
+              <g stroke="#2a323d" stroke-width="1">
+                <path d="M380 293 L250 190"/><path d="M380 293 L520 200"/><path d="M380 293 L245 400"/>
+                <path d="M380 293 L540 380"/><path d="M380 293 L370 140"/><path d="M380 293 L390 450"/>
+                <path d="M250 190 L150 120"/><path d="M250 190 L160 260"/><path d="M520 200 L630 140"/>
+                <path d="M520 200 L640 270"/><path d="M245 400 L140 460"/><path d="M540 380 L650 440"/>
+                <path d="M390 450 L300 510"/><path d="M390 450 L490 520"/><path d="M370 140 L280 80"/>
+              </g>
+              <g>
+                <circle cx="150" cy="120" r="7" fill="#3fb950"/><circle cx="160" cy="260" r="7" fill="#3fb950"/>
+                <circle cx="630" cy="140" r="7" fill="#d29922"/><circle cx="640" cy="270" r="7" fill="#bc8cff"/>
+                <circle cx="140" cy="460" r="7" fill="#39c5cf"/><circle cx="650" cy="440" r="7" fill="#f778ba"/>
+                <circle cx="300" cy="510" r="7" fill="#39c5cf"/><circle cx="490" cy="520" r="7" fill="#d29922"/>
+                <circle cx="280" cy="80" r="7" fill="#bc8cff"/>
+                <circle cx="250" cy="190" r="11" fill="#58a6ff"/><circle cx="520" cy="200" r="11" fill="#bc8cff"/>
+                <circle cx="245" cy="400" r="11" fill="#3fb950"/><circle cx="540" cy="380" r="11" fill="#d29922"/>
+                <circle cx="370" cy="140" r="11" fill="#39c5cf"/><circle cx="390" cy="450" r="11" fill="#f778ba"/>
+                <circle cx="380" cy="293" r="17" fill="#58a6ff" stroke="#e6edf3" stroke-width="2"/>
+              </g>
+              <g fill="#8b98a5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
+                <text x="380" y="330" fill="#e6edf3" text-anchor="middle" font-size="12">MemoryStore</text>
+                <text x="250" y="176" text-anchor="middle">SqliteStore</text>
+                <text x="520" y="186" text-anchor="middle">IngestionService</text>
+                <text x="245" y="425" text-anchor="middle">RetrievalService</text>
+                <text x="540" y="405" text-anchor="middle">ModelGateway</text>
+                <text x="370" y="126" text-anchor="middle">sqlite-vec</text>
+                <text x="390" y="475" text-anchor="middle">VectorizationWorker</text>
+              </g>
+            </svg>
+
+            <div style="position: absolute; left: 12px; top: 12px; width: 208px; background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 12px">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px">
+                <span class="lbl">Entity types</span>
+                <span class="mono num" style="font-size: 11px; color: #6b7681">7 / 7</span>
+              </div>
+              <sc-for list="{{ entityTypes }}" as="e" hint-placeholder-count="6">
+                <label class="check" style="display: flex; gap: 8px; padding: 3px 0; font-size: 12.5px">
+                  <span style="flex: none; width: 8px; height: 8px; border-radius: 999px; background: {{ e.color }}"></span>
+                  <span style="flex: 1 1 auto; color: #e6edf3">{{ e.name }}</span>
+                  <span class="mono num" style="color: #6b7681; font-size: 11px">{{ e.count }}</span>
+                </label>
+              </sc-for>
+            </div>
+
+            <div class="mono" style="position: absolute; left: 12px; bottom: 12px; font-size: 11.5px; color: #6b7681">248 entities · 611 relations · depth 1</div>
+          </div>
+
+          <aside style="flex: 0 0 280px; background: #161b22; border: 1px solid #2a323d; border-radius: 10px; display: flex; flex-direction: column; overflow: hidden">
+            <div style="display: flex; align-items: center; gap: 9px; padding: 13px 14px; border-bottom: 1px solid #2a323d">
+              <span class="chip" style="min-width: 0; color: #58a6ff; background: rgba(88,166,255,.14)">interface</span>
+              <span style="font-size: 14px; font-weight: 600">MemoryStore</span>
+            </div>
+            <div style="padding: 14px; overflow-y: auto">
+              <div class="lbl" style="margin-bottom: 6px">Summary</div>
+              <p style="margin: 0 0 16px; font-size: 13px; line-height: 1.55; color: #e6edf3">Single interface behind both storage backends. Every retrieval channel and ingestion write is defined against it, which is what makes the local-to-server move a backend swap.</p>
+              <div class="lbl" style="margin-bottom: 6px">Relations (9)</div>
+              <div style="display: flex; flex-direction: column; gap: 5px">
+                <sc-for list="{{ relations }}" as="r" hint-placeholder-count="5">
+                  <div class="mono" style="display: flex; align-items: baseline; gap: 7px; font-size: 11.5px">
+                    <span style="color: #6b7681">{{ r.verb }}</span>
+                    <span style="color: {{ accent }}">{{ r.target }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+      </sc-if>
+
+    </main>
+  </div>
+
+  <!-- ============ DETAIL DRAWER ============ -->
+  <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closeDrawer }}" style="position: absolute; inset: 0; background: rgba(0,0,0,.5); z-index: 40"></div>
+  <aside style="position: absolute; top: 0; right: 0; bottom: 0; width: 520px; z-index: 41; background: #161b22; border-left: 1px solid #2a323d; display: flex; flex-direction: column; box-shadow: -16px 0 40px rgba(0,0,0,.45)">
+    <header style="flex: none; display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid #2a323d">
+      <span class="chip" style="color: {{ sel.color }}; background: {{ sel.tint }}">{{ sel.type }}</span>
+      <div style="flex: 1 1 auto"></div>
+      <button class="ghost-btn" style="padding: 6px 11px; font-size: 13px; color: #f85149; border-color: rgba(248,81,73,.4)">
+        <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" style="fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round"><path d="M4 7h16M9 7V5h6v2m-9 0 1 13h10l1-13"/></svg></span>
+        Forget
+      </button>
+      <button class="icon-btn" onClick="{{ closeDrawer }}" style="color: #8b98a5">
+        <svg width="15" height="15" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+
+    <div style="flex: 1 1 auto; overflow-y: auto; padding: 18px 16px">
+      <div class="lbl" style="margin-bottom: 7px">Content</div>
+      <p style="margin: 0 0 20px; font-size: 14.5px; line-height: 1.6">{{ sel.content }}</p>
+
+      <div class="lbl" style="margin-bottom: 7px">Payload</div>
+      <pre class="mono" style="margin: 0 0 20px; padding: 12px 14px; background: #0e1116; border: 1px solid #2a323d; border-radius: 8px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: #8b98a5">{{ sel.payload }}</pre>
+
+      <div style="display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 9px 16px; font-size: 13px">
+        <sc-for list="{{ sel.rows }}" as="r" hint-placeholder-count="6">
+          <span class="lbl" style="padding-top: 1px">{{ r.k }}</span>
+          <span class="mono" style="font-size: 12.5px; word-break: break-all; color: #e6edf3">{{ r.v }}</span>
+        </sc-for>
+      </div>
+    </div>
+  </aside>
+  </sc-if>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#58a6ff","options":["#58a6ff","#3fb950","#bc8cff","#d29922"],"section":"Theme"},"density":{"editor":"enum","options":["comfortable","compact"],"default":"comfortable","section":"Layout"},"daemonState":{"editor":"enum","options":["healthy","degraded"],"default":"healthy","section":"State"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      view: "memories", type: "", q: "", sup: false, sel: null, profile: "pieria",
+      trayOpen: false, explain: false
+    };
+  }
+
+  renderVals() {
+    const self = this;
+    const accent = this.props.accent ?? "#58a6ff";
+    const compact = (this.props.density ?? "comfortable") === "compact";
+
+    const COLOR = { fact: "#58a6ff", event: "#d29922", instruction: "#bc8cff", task: "#3fb950" };
+    const TINT = {
+      fact: "rgba(88,166,255,.14)", event: "rgba(210,153,34,.14)",
+      instruction: "rgba(188,140,255,.14)", task: "rgba(63,185,80,.14)"
+    };
+
+    // ---- top navigation ----
+    const views = [
+      ["memories", "Memories"], ["add", "Add"], ["recall", "Recall"],
+      ["stats", "Statistics"], ["audit", "Audit"], ["graph", "Graph"]
+    ];
+    const nav = views.map(function (v) {
+      const on = self.state.view === v[0];
+      return {
+        label: v[1],
+        color: on ? accent : "#8b98a5",
+        bg: on ? "rgba(88,166,255,.13)" : "transparent",
+        weight: on ? "600" : "500",
+        pick: function () { self.setState({ view: v[0], sel: null }); }
+      };
+    });
+
+    // ---- profiles ----
+    const profileData = [["pieria", "2,367"], ["codemie", "418"], ["scratch", "96"], ["locomo-eval", "31"]];
+    const profiles = profileData.map(function (p) {
+      const on = self.state.profile === p[0];
+      return {
+        name: p[0], count: p[1],
+        bg: on ? "#1c232d" : "transparent",
+        color: on ? "#e6edf3" : "#8b98a5",
+        rail: on ? accent : "transparent",
+        weight: on ? "600" : "500",
+        pick: function () { self.setState({ profile: p[0] }); }
+      };
+    });
+
+    // ---- memories ----
+    const all = [
+      { type: "fact", key: "daemon:writer-model", session: "pieria:arch", rel: "2h ago", superseded: false,
+        content: "The daemon is the only writer to the embedded SQLite store; harnesses connect through thin MCP stdio gateways and never open the database directly." },
+      { type: "instruction", key: "build:native-targets", session: "pieria:build", rel: "5h ago", superseded: false,
+        content: "Never run nativeCompile, nativeDist or deployLocal unattended — they are slow and deployLocal overwrites the installed binaries. Verify with ./gradlew test and compileJava instead." },
+      { type: "fact", key: "ingest:supersession-order", session: "pieria:arch", rel: "1d ago", superseded: false,
+        content: "Supersession is ordered by when a claim was stated (MemoryTimes.knowledgeTime), not when it was stored, so a replayed transcript cannot replace newer knowledge with older knowledge." },
+      { type: "fact", key: "retrieval:channels", session: "pieria:arch", rel: "1d ago", superseded: false,
+        content: "Retrieval fans out across five parallel channels — FTS, exact key, raw message FTS, direct vector and HyDE vector — then fuses the results with RRF before synthesis." },
+      { type: "task", key: "", session: "pieria:eval", rel: "2d ago", superseded: false,
+        content: "Re-run the LoCoMo harness against the new grounding pre-filter and compare per-category F1 against the 2026-08-13 baseline report." },
+      { type: "event", key: "", session: "pieria:release", rel: "3d ago", superseded: false,
+        content: "Windows and Linux support landed; the installation scripts now pre-flight unsupported architectures before downloading a distribution." },
+      { type: "fact", key: "store:id-scheme", session: "pieria:arch", rel: "4d ago", superseded: false,
+        content: "Message and memory ids include profileId in the SHA-256 input and truncate to 128 bits, so ingest stays idempotent within a profile while identical content can coexist across profiles." },
+      { type: "instruction", key: "vector:task-exclusion", session: "pieria:arch", rel: "5d ago", superseded: false,
+        content: "Task memories are discoverable through FTS and listing but are never embedded, which keeps the vector index lean." },
+      { type: "fact", key: "temporal:anchor", session: "pieria:arch", rel: "6d ago", superseded: true,
+        content: "Retrieval resolves relative dates against Memory.createdAt when no occurred_at is present." },
+      { type: "fact", key: "temporal:anchor", session: "pieria:arch", rel: "6d ago", superseded: false,
+        content: "Retrieval resolves relative dates against the stated_at stamped into each memory's payload — never Memory.createdAt, which is store time and would resolve a back-filled transcript to the ingest date." }
+    ];
+
+    const term = this.state.q.trim().toLowerCase();
+    const decorate = function (m, i) {
+      return {
+        type: m.type, content: m.content, rel: m.rel,
+        color: COLOR[m.type], tint: TINT[m.type],
+        opacity: m.superseded ? "0.5" : "1",
+        isSuperseded: !!m.superseded, isActive: !m.superseded,
+        key: m.key, session: m.key && m.session ? " · " + m.session : (m.session || ""),
+        open: function () { self.setState({ sel: m }); },
+        forget: function (e) { if (e && e.stopPropagation) e.stopPropagation(); }
+      };
+    };
+
+    const mems = all.filter(function (m) {
+      if (!self.state.sup && m.superseded) return false;
+      if (self.state.type && m.type !== self.state.type) return false;
+      if (term) {
+        const hay = (m.content + " " + m.key + " " + m.session).toLowerCase();
+        if (hay.indexOf(term) < 0) return false;
+      }
+      return true;
+    }).map(decorate);
+
+    // ---- type filter pills ----
+    const pillDefs = [["", "All"], ["fact", "fact"], ["event", "event"], ["instruction", "instruction"], ["task", "task"]];
+    const typePills = pillDefs.map(function (p) {
+      const on = self.state.type === p[0];
+      const c = COLOR[p[0]] || "#e6edf3";
+      return {
+        label: p[1],
+        color: on ? (p[0] ? c : "#e6edf3") : "#8b98a5",
+        bg: on ? (p[0] ? TINT[p[0]] : "#1c232d") : "transparent",
+        pick: function () { self.setState({ type: p[0] }); }
+      };
+    });
+
+    // ---- selected memory (drawer) ----
+    const s = this.state.sel;
+    const sel = s ? {
+      type: s.type, content: s.content, color: COLOR[s.type], tint: TINT[s.type],
+      payload: '{\n  "source": "conversation",\n  "stated_at": "2026-08-23T14:02:11Z",\n  "confidence": 0.92\n}',
+      rows: [
+        { k: "Type", v: s.type },
+        { k: "Topic key", v: s.key || "—" },
+        { k: "Session", v: s.session || "—" },
+        { k: "Created", v: "2026-08-23, 14:02:11" },
+        { k: "Superseded", v: s.superseded ? "yes" : "no" },
+        { k: "Id", v: "91f8b6c5776630f7ca7e4b9fc2236a38" }
+      ]
+    } : null;
+
+    // ---- statistics ----
+    const tiles = [
+      { num: "2,367", label: "Active memories", rail: accent },
+      { num: "184", label: "Superseded", rail: "transparent" },
+      { num: "46", label: "Sessions", rail: "transparent" },
+      { num: "0", label: "Vector backlog", rail: "transparent" }
+    ];
+    const bars = [
+      { name: "fact", count: "1,482", pct: "100%", color: COLOR.fact },
+      { name: "event", count: "421", pct: "28%", color: COLOR.event },
+      { name: "instruction", count: "308", pct: "21%", color: COLOR.instruction },
+      { name: "task", count: "156", pct: "11%", color: COLOR.task }
+    ];
+    const impact = [
+      { label: "Recalls served", value: "1,284" },
+      { label: "Est. tokens saved", value: "4,182,600" },
+      { label: "Tokens ingested", value: "612,940" },
+      { label: "Tokens stored", value: "188,310" },
+      { label: "≈ context windows saved", value: "20.9 ×" },
+      { label: "≈ cost saved", value: "$62.74" }
+    ];
+    const spend = [
+      { tier: "small", calls: "9,412", prompt: "3,204,880", completion: "241,006", cost: "$9.14" },
+      { tier: "large", calls: "612", prompt: "588,140", completion: "44,209", cost: "$5.31" },
+      { tier: "embedding", calls: "2,884", prompt: "121,185", completion: "3,425", cost: "$0.41" }
+    ];
+
+    // ---- audit ----
+    const auditData = [
+      ["14:02:11", "recall", "gateway · claude-code", "200", "3,142 ms", "answer synthesized from 4 memories", "ok"],
+      ["14:01:47", "memory.remember", "hook · claude-code", "201", "88 ms", "stored 1 memory, superseded 1", "ok"],
+      ["13:58:02", "ingest.transcript", "gateway · codex", "200", "12,408 ms", "18 candidates, 11 stored, 3 verified", "ok"],
+      ["13:55:19", "memory.list", "console", "200", "31 ms", "2,367 memories", "ok"],
+      ["13:49:55", "code.index", "cli", "200", "48,220 ms", "612 files indexed, 94 skipped", "ok"],
+      ["13:44:07", "recall", "gateway · claude-code", "504", "30,004 ms", "model gateway timed out after 30s", "err"],
+      ["13:40:12", "memory.forget", "console", "204", "12 ms", "(empty response)", "ok"],
+      ["13:31:58", "ingest", "gateway · opencode", "499", "2,190 ms", "client closed request", "cancel"]
+    ];
+    const OUT = {
+      ok: { color: "#3fb950", tint: "rgba(63,185,80,.12)" },
+      err: { color: "#f85149", tint: "rgba(248,81,73,.12)" },
+      cancel: { color: "#8b98a5", tint: "rgba(139,152,165,.12)" }
+    };
+    const audit = auditData.map(function (a) {
+      return {
+        time: a[0], operation: a[1], caller: a[2], status: a[3],
+        duration: a[4], preview: a[5],
+        color: OUT[a[6]].color, tint: OUT[a[6]].tint
+      };
+    });
+
+    // ---- graph ----
+    const entityTypes = [
+      { name: "interface", color: "#58a6ff", count: "12" },
+      { name: "service", color: "#bc8cff", count: "28" },
+      { name: "component", color: "#3fb950", count: "41" },
+      { name: "library", color: "#d29922", count: "19" },
+      { name: "concept", color: "#39c5cf", count: "63" },
+      { name: "file", color: "#f778ba", count: "85" }
+    ];
+    const relations = [
+      { verb: "implemented-by", target: "SqliteMemoryStore" },
+      { verb: "implemented-by", target: "PostgresMemoryStore" },
+      { verb: "written-by", target: "IngestionService" },
+      { verb: "read-by", target: "RetrievalService" },
+      { verb: "indexed-by", target: "VectorizationWorker" }
+    ];
+
+    // ---- daemon status ----
+    // Fields mirror GET /pieria-health (status, db, modelProvider) and GET /pieria-status
+    // (backend, vectorSearch, vectorizationOutboxDepth, modelProvider). vectorSearch is the
+    // signal worth the space: it degrades silently to FTS-only when sqlite-vec fails to load.
+    const degraded = (this.props.daemonState ?? "healthy") === "degraded";
+    const daemon = degraded ? {
+      dot: "#d29922", halo: "rgba(210,153,34,.15)", color: "#d29922",
+      label: "Degraded", port: ":8077",
+      rows: [
+        { k: "Backend", v: "sqlite", color: "#8b98a5" },
+        { k: "Vector search", v: "FTS only", color: "#d29922" },
+        { k: "Outbox", v: "1,284", color: "#d29922" },
+        { k: "Provider", v: "unreachable", color: "#f85149" }
+      ]
+    } : {
+      dot: "#3fb950", halo: "rgba(63,185,80,.15)", color: "#e6edf3",
+      label: "Running", port: ":8077",
+      rows: [
+        { k: "Backend", v: "sqlite", color: "#8b98a5" },
+        { k: "Vector search", v: "on", color: "#3fb950" },
+        { k: "Outbox", v: "0", color: "#8b98a5" },
+        { k: "Provider", v: "epam-dial", color: "#8b98a5" }
+      ]
+    };
+
+    // ---- background tasks (GET /v1/tasks → TaskSummary + TaskLaneProgress) ----
+    // Lanes carry name/state/phase/done/total, which is what makes a real progress bar
+    // possible; startedAtEpochMs is what the elapsed line is computed from.
+    const lane = function (name, done, total, state) {
+      const pct = total ? Math.round(done / total * 100) : 0;
+      return {
+        name: name, count: done + "/" + total, pct: pct + "%",
+        color: state === "done" ? "#3fb950" : state === "pending" ? "#2a323d" : accent,
+        countColor: state === "pending" ? "#4d5763" : "#6b7681"
+      };
+    };
+    const tasks = [
+      {
+        kind: "code.index", profile: "pieria", status: "RUNNING",
+        running: true, failed: false, error: "",
+        color: accent, tint: "rgba(88,166,255,.14)",
+        lanes: [lane("scan", 612, 612, "done"), lane("symbols", 412, 612, "run"), lane("edges", 0, 612, "pending")],
+        elapsed: "started 48s ago"
+      },
+      {
+        kind: "ingest.transcript", profile: "pieria", status: "RUNNING",
+        running: true, failed: false, error: "",
+        color: accent, tint: "rgba(88,166,255,.14)",
+        lanes: [lane("extract", 14, 18, "run"), lane("verify", 3, 14, "run")],
+        elapsed: "started 12s ago"
+      },
+      {
+        kind: "onboard", profile: "codemie", status: "FAILED",
+        running: false, failed: true,
+        error: "model_unreachable — ollama did not respond within 30s",
+        color: "#f85149", tint: "rgba(248,81,73,.12)",
+        lanes: [], elapsed: "failed 2m ago"
+      }
+    ];
+    const tray = {
+      label: "2 running", summary: "3 in the last hour",
+      color: this.state.trayOpen ? accent : "#8b98a5",
+      border: this.state.trayOpen ? accent : "#2a323d",
+      bg: this.state.trayOpen ? "rgba(88,166,255,.13)" : "#161b22"
+    };
+
+    // ---- retrieval explain (RecallResponse.RecallDebug, requested with debug=true) ----
+    // Wire names are RetrievalChannelType.name().toLowerCase(ROOT) — see ProfileController#debugBlock.
+    // Wave 1 first, then the two second-wave channels seeded from wave-1 hits.
+    const CH = {
+      fts_memory: "#58a6ff", exact_key: "#3fb950", fts_message: "#39c5cf", direct_vector: "#bc8cff",
+      hyde_vector: "#f778ba", symbol_fts: "#7ee787", graph: "#d29922", code_graph: "#ff7b72"
+    };
+    const chanRgba = {
+      fts_memory: "rgba(88,166,255,.14)", exact_key: "rgba(63,185,80,.14)",
+      fts_message: "rgba(57,197,207,.14)", direct_vector: "rgba(188,140,255,.14)",
+      hyde_vector: "rgba(247,120,186,.14)", symbol_fts: "rgba(126,231,135,.14)",
+      graph: "rgba(210,153,34,.14)", code_graph: "rgba(255,123,114,.14)"
+    };
+    // Measured: POST /v1/profiles/pieria/recall {"debug":true,"mode":"ANALYZED"} on 2026-08-25.
+    // Six of eight channels return exactly the 10-result cap, so the hit count is mostly
+    // reporting the limit — the informative ones are the three that came in under it.
+    const CAP = 10;
+    const chanData = [
+      ["fts_memory", 10, 37, false], ["exact_key", 0, 36, false],
+      ["fts_message", 10, 177, false], ["direct_vector", 10, 986, false],
+      ["hyde_vector", 10, 984, false], ["symbol_fts", 7, 58, false],
+      ["graph", 10, 37, false], ["code_graph", 9, 121, false]
+    ];
+    const channels = chanData.map(function (c) {
+      const failed = c[3];
+      const empty = c[1] === 0;
+      const capped = c[1] >= CAP;
+      const slow = c[2] >= 500;
+      return {
+        channel: c[0], hits: failed ? "—" : String(c[1]),
+        hitLabel: failed ? "timed out" : capped ? "hits · cap" : "hits",
+        latency: (failed ? 3000 : c[2]).toLocaleString() + " ms",
+        dot: failed ? "#f85149" : empty ? "#4d5763" : CH[c[0]],
+        border: failed ? "rgba(248,81,73,.35)" : "#2a323d",
+        nameColor: failed ? "#f85149" : empty ? "#6b7681" : "#e6edf3",
+        hitColor: failed ? "#f85149" : empty ? "#4d5763" : "#e6edf3",
+        latColor: failed ? "#f85149" : slow ? "#d29922" : "#6b7681"
+      };
+    });
+
+    const src = function (names) {
+      return names.map(function (n) { return { name: n, color: CH[n], bg: chanRgba[n] }; });
+    };
+    // Real candidates from the same measured call, ids and scores verbatim.
+    const candidates = [
+      { rank: "1", score: "0.04548", id: "6deef1b1…", content: "Supersession of stale procedural knowledge occurs by replacing old keyed instructions with newer ones.", sources: src(["fts_memory", "direct_vector", "hyde_vector"]) },
+      { rank: "2", score: "0.04436", id: "7dbc25f9…", content: "Existing memories without stated_at are unaffected by supersession and ranking fixes.", sources: src(["hyde_vector", "direct_vector", "fts_memory"]) },
+      { rank: "3", score: "0.03279", id: "5483a2fd…", content: "Source file RetrievalServiceTests.java (java) defines: class RetrievalServiceTests, method …", sources: src(["code_graph", "symbol_fts"]) },
+      { rank: "4", score: "0.03227", id: "96a59526…", content: "Supersession in Phase 2 finds active memories with the same profile id and topic key.", sources: src(["hyde_vector", "direct_vector"]) },
+      { rank: "5", score: "0.03226", id: "1e4902b4…", content: "Source file GraphExplorerServiceTests.java (java) defines: class GraphExplorerServiceTests, …", sources: src(["code_graph", "symbol_fts"]) },
+      { rank: "6", score: "0.03200", id: "6c69fd09…", content: "Supersession is extended to close the prior memory's valid_to at the new memory's valid_from.", sources: src(["direct_vector", "hyde_vector"]) }
+    ];
+    const temporalFacts = [];
+
+    return {
+      daemon: daemon,
+
+      tray: tray, tasks: tasks,
+      trayOpen: this.state.trayOpen,
+      toggleTray: function () { self.setState({ trayOpen: !self.state.trayOpen }); },
+
+      explain: this.state.explain,
+      explainRot: this.state.explain ? "90" : "0",
+      explainLabel: this.state.explain ? "Hide retrieval detail" : "Why this answer?",
+      toggleExplain: function () { self.setState({ explain: !self.state.explain }); },
+      channels: channels, candidates: candidates, temporalFacts: temporalFacts,
+      noTemporalFacts: temporalFacts.length === 0,
+
+      accent: accent,
+      rowPad: compact ? "7px 12px" : "11px 12px",
+      clamp: compact ? "1" : "2",
+
+      nav: nav, profiles: profiles,
+      isMemories: this.state.view === "memories",
+      isAdd: this.state.view === "add",
+      isRecall: this.state.view === "recall",
+      isStats: this.state.view === "stats",
+      isAudit: this.state.view === "audit",
+      isGraph: this.state.view === "graph",
+
+      q: this.state.q,
+      setQ: function (e) { self.setState({ q: e.target.value }); },
+      sup: this.state.sup,
+      toggleSup: function () { self.setState({ sup: !self.state.sup }); },
+      typePills: typePills,
+      mems: mems,
+      isEmpty: mems.length === 0,
+      pagerInfo: "Showing 1–" + mems.length + " of 2,367",
+
+      support: all.slice(2, 6).map(decorate),
+
+      hasSel: !!sel, sel: sel,
+      closeDrawer: function () { self.setState({ sel: null }); },
+
+      tiles: tiles, bars: bars, impact: impact, spend: spend,
+      audit: audit, entityTypes: entityTypes, relations: relations
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #0e1116; color: #e6edf3;
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { color: #79b8ff; text-decoration: underline; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .num { font-variant-numeric: tabular-nums; }
+    .note { font-size: 12.5px; line-height: 1.6; color: #6b7681; max-width: 74ch; }
+    .stage { border: 1px solid #2a323d; border-radius: 10px; overflow: hidden; background: #0e1116; }
+    .tagline {
+      display: flex; width: fit-content; align-items: center; gap: 7px;
+      font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 999px;
+    }
+    .sec {
+      font-size: 12px; font-weight: 600; letter-spacing: .8px; text-transform: uppercase;
+      color: #8b98a5; padding-bottom: 10px; border-bottom: 1px solid #2a323d; margin-bottom: 20px;
+    }
+
+    /* --- faithful reproduction of the shipping console --- */
+    .old-nav button {
+      background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 12px;
+      color: #8b98a5; font: inherit; cursor: pointer;
+    }
+    .old-nav button.active { background: #161b22; border-color: #2a323d; color: #e6edf3; }
+    .old-btn {
+      font: inherit; color: #e6edf3; background: #161b22; border: 1px solid #2a323d;
+      border-radius: 8px; padding: 8px 10px; cursor: pointer;
+    }
+    .old-chip {
+      flex: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+      padding: 2px 8px; border-radius: 999px; color: #0b1220; white-space: nowrap;
+    }
+    .old-mem {
+      display: flex; align-items: center; gap: 12px;
+      background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 10px 12px;
+    }
+    .old-mem-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .old-mem-meta { color: #8b98a5; font-size: 12px; margin-top: 2px; }
+    .old-tile { background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 14px 16px; }
+    .old-tile .n { font-size: 26px; font-weight: 600; }
+    .old-tile .l { color: #8b98a5; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+
+    /* --- refreshed --- */
+    .new-chip {
+      flex: none; min-width: 76px; text-align: center;
+      font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px;
+    }
+    .new-mem {
+      display: flex; align-items: stretch; overflow: hidden;
+      background: #161b22; border: 1px solid #2a323d; border-radius: 10px;
+    }
+    svg.ico { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+</helmet>
+
+<div style="width: 1200px; min-height: 2100px; padding: 40px 40px 56px; background: #0e1116">
+
+  <div style="margin-bottom: 34px">
+    <h1 style="margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -.3px">What actually changes</h1>
+    <p class="note" style="margin: 0; max-width: 82ch">Left column reproduces the shipping console from <span class="mono" style="color: #8b98a5">base.css</span> and <span class="mono" style="color: #8b98a5">console.css</span> at their real values. Right column is the refresh. Same palette, same radii, same font stack, same views.</p>
+  </div>
+
+  <!-- ============ 1. TOP BAR ============ -->
+  <div class="sec">1 · Top bar and navigation</div>
+
+  <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px">
+    <div>
+      <span class="tagline" style="color: #8b98a5; background: rgba(139,152,165,.12); margin-bottom: 8px">Today</span>
+      <div class="stage">
+        <div style="display: flex; gap: 10px; align-items: center; padding: 12px 16px; background: #0e1116; border-bottom: 1px solid #2a323d">
+          <div style="font-weight: 600; letter-spacing: .2px">Pieria <small style="color: #8b98a5; font-weight: 400; margin-left: 6px">Console</small></div>
+          <div class="old-nav" style="display: flex; gap: 4px; margin-left: 4px">
+            <button class="active">Memories</button><button>Add</button><button>Recall</button>
+            <button>Statistics</button><button>Audit</button><button>Graph</button>
+          </div>
+          <div style="flex: 1 1 auto"></div>
+          <button class="old-btn">⬇ Export</button>
+        </div>
+        <div style="height: 46px; background: #0e1116"></div>
+      </div>
+    </div>
+
+    <div>
+      <span class="tagline" style="color: #58a6ff; background: rgba(88,166,255,.14); margin-bottom: 8px">Refreshed</span>
+      <div class="stage">
+        <div style="height: 56px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #161b22; border-bottom: 1px solid #2a323d">
+          <div style="display: flex; align-items: baseline; gap: 9px">
+            <span style="font-size: 15px; font-weight: 600; letter-spacing: .2px">Pieria</span>
+            <span style="font-size: 12px; color: #6b7681">Console</span>
+          </div>
+          <div style="width: 1px; height: 22px; background: #2a323d"></div>
+          <nav style="display: flex; gap: 2px">
+            <sc-for list="{{ nav }}" as="n" hint-placeholder-count="6">
+              <span style="padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: {{ n.weight }}; color: {{ n.color }}; background: {{ n.bg }}">{{ n.label }}</span>
+            </sc-for>
+          </nav>
+          <div style="flex: 1 1 auto"></div>
+          <span style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 8px; border: 1px solid #2a323d; color: #8b98a5; background: #161b22">
+            <svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+            Export
+          </span>
+        </div>
+        <div style="height: 46px; background: #0e1116"></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin: 0 0 42px">The bar and the scroll field are both <span class="mono" style="color: #8b98a5">--bg</span> today, separated only by a hairline, so the chrome floats. Moving it to <span class="mono" style="color: #8b98a5">--panel</span> makes it continuous with the side panel and gives the content field an edge. Active navigation goes from a panel-coloured box — nearly the same value as its neighbours — to an accent tint, so the current view is legible at a glance rather than on inspection.</p>
+
+  <!-- ============ 2. MEMORY LIST ============ -->
+  <div class="sec">2 · Memory list</div>
+
+  <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px">
+    <div>
+      <span class="tagline" style="color: #8b98a5; background: rgba(139,152,165,.12); margin-bottom: 8px">Today</span>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{ rows }}" as="m" hint-placeholder-count="4">
+          <div class="old-mem" style="opacity: {{ m.opacity }}">
+            <span class="old-chip" style="background: {{ m.color }}">{{ m.type }}</span>
+            <div style="flex: 1 1 auto; min-width: 0">
+              <div class="old-mem-content">{{ m.content }}</div>
+              <div class="old-mem-meta"><span style="color: #58a6ff">{{ m.key }}</span>{{ m.oldMeta }}</div>
+            </div>
+            <span style="flex: none; color: #8b98a5; font-size: 15px; line-height: 1">🗑</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div>
+      <span class="tagline" style="color: #58a6ff; background: rgba(88,166,255,.14); margin-bottom: 8px">Refreshed</span>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{ rows }}" as="m" hint-placeholder-count="4">
+          <div class="new-mem" style="opacity: {{ m.opacity }}">
+            <div style="flex: none; width: 2px; background: {{ m.color }}"></div>
+            <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px">
+              <span class="new-chip" style="color: {{ m.color }}; background: {{ m.tint }}; margin-top: 1px">{{ m.type }}</span>
+              <div style="flex: 1 1 auto; min-width: 0">
+                <div style="font-size: 14px; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden">{{ m.content }}</div>
+                <div class="mono" style="font-size: 11.5px; color: #6b7681; margin-top: 4px"><span style="color: #58a6ff">{{ m.key }}</span>{{ m.newMeta }}</div>
+              </div>
+              <span class="num" style="flex: none; width: 62px; text-align: right; font-size: 12px; color: #6b7681; margin-top: 2px">{{ m.rel }}</span>
+              <span style="flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-top: -2px; color: #6b7681">
+                <svg class="ico" width="15" height="15" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-9 0 1 13h10l1-13"/></svg>
+              </span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin: 0 0 42px">Three things. The saturated chip is the loudest element on the page and it only says what type a row is — it becomes a tint, and the type moves to a 2px rail that reads down the whole column. Content stops at one truncated line today, which cuts most memories mid-clause; two lines cost 18px and usually carry the whole claim. Time leaves the metadata run for its own tabular column — the same information, but scannable vertically instead of buried at the end of each sentence.</p>
+
+  <!-- ============ 3. STATISTICS ============ -->
+  <div class="sec">3 · Statistics</div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-bottom: 16px">
+    <div>
+      <span class="tagline" style="color: #8b98a5; background: rgba(139,152,165,.12); margin-bottom: 8px">Today</span>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px">
+        <div class="old-tile"><div class="n">2,367</div><div class="l">Active memories</div></div>
+        <div class="old-tile"><div class="n">184</div><div class="l">Superseded</div></div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 16px">
+        <h2 style="font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #8b98a5; margin: 0 0 12px; font-weight: 600">By type</h2>
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="4">
+          <div style="display: flex; align-items: center; gap: 10px; margin: 8px 0">
+            <span style="width: 92px; flex: none; color: #8b98a5; text-transform: capitalize">{{ b.name }}</span>
+            <div style="flex: 1; height: 20px; background: #0e1116; border: 1px solid #2a323d; border-radius: 6px; overflow: hidden">
+              <div style="height: 100%; width: {{ b.pct }}; background: {{ b.color }}"></div>
+            </div>
+            <span class="num" style="width: 44px; flex: none; text-align: right">{{ b.count }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div>
+      <span class="tagline" style="color: #58a6ff; background: rgba(88,166,255,.14); margin-bottom: 8px">Refreshed</span>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px">
+        <div style="position: relative; overflow: hidden; background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 16px 18px">
+          <div style="position: absolute; inset: 0 0 auto 0; height: 2px; background: #58a6ff"></div>
+          <div class="num" style="font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.4px">2,367</div>
+          <div style="font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #6b7681; margin-top: 4px">Active memories</div>
+        </div>
+        <div style="background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 16px 18px">
+          <div class="num" style="font-size: 28px; font-weight: 600; line-height: 1.2; letter-spacing: -.4px">184</div>
+          <div style="font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #6b7681; margin-top: 4px">Superseded</div>
+        </div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #2a323d; border-radius: 10px; padding: 16px">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: #6b7681; margin-bottom: 14px">By type</div>
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="4">
+          <div style="display: flex; align-items: center; gap: 12px; margin: 9px 0">
+            <span class="mono" style="flex: none; width: 82px; font-size: 12px; color: #8b98a5">{{ b.name }}</span>
+            <div style="flex: 1 1 auto; height: 8px; background: #0e1116; border-radius: 999px; overflow: hidden">
+              <div style="height: 100%; width: {{ b.pct }}; background: {{ b.color }}; border-radius: 999px"></div>
+            </div>
+            <span class="mono num" style="flex: none; width: 46px; text-align: right; font-size: 12.5px">{{ b.count }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" style="margin: 0">Four tiles of equal weight answer "how many of everything" but not "what is this profile". The headline count takes a rail and a slightly larger tabular numeral; the rest recede. The 20px bordered bar track outweighed its own fill — an 8px pill puts the ink back on the data.</p>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":1200,"height":2160}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const COLOR = { fact: "#58a6ff", event: "#d29922", instruction: "#bc8cff", task: "#3fb950" };
+    const TINT = {
+      fact: "rgba(88,166,255,.14)", event: "rgba(210,153,34,.14)",
+      instruction: "rgba(188,140,255,.14)", task: "rgba(63,185,80,.14)"
+    };
+
+    const views = ["Memories", "Add", "Recall", "Statistics", "Audit", "Graph"];
+
+    return {
+      nav: views.map(function (label, i) {
+        const on = i === 0;
+        return {
+          label: label,
+          color: on ? "#58a6ff" : "#8b98a5",
+          bg: on ? "rgba(88,166,255,.13)" : "transparent",
+          weight: on ? "600" : "500"
+        };
+      }),
+
+      rows: [
+        { type: "fact", color: COLOR.fact, tint: TINT.fact, opacity: "1",
+          content: "Supersession is ordered by when a claim was stated (MemoryTimes.knowledgeTime), not when it was stored, so a replayed transcript cannot replace newer knowledge with older knowledge.",
+          key: "ingest:supersession-order", oldMeta: " · pieria:arch · 1d ago", newMeta: " · pieria:arch", rel: "1d ago" },
+        { type: "instruction", color: COLOR.instruction, tint: TINT.instruction, opacity: "1",
+          content: "Never run nativeCompile, nativeDist or deployLocal unattended — they are slow and deployLocal overwrites the installed binaries. Verify with ./gradlew test and compileJava instead.",
+          key: "build:native-targets", oldMeta: " · pieria:build · 5h ago", newMeta: " · pieria:build", rel: "5h ago" },
+        { type: "task", color: COLOR.task, tint: TINT.task, opacity: "1",
+          content: "Re-run the LoCoMo harness against the new grounding pre-filter and compare per-category F1 against the 2026-08-13 baseline report.",
+          key: "", oldMeta: "pieria:eval · 2d ago", newMeta: "pieria:eval", rel: "2d ago" },
+        { type: "event", color: COLOR.event, tint: TINT.event, opacity: "1",
+          content: "Windows and Linux support landed; the installation scripts now pre-flight unsupported architectures before downloading a distribution.",
+          key: "", oldMeta: "pieria:release · 3d ago", newMeta: "pieria:release", rel: "3d ago" }
+      ],
+
+      bars: [
+        { name: "fact", count: "1,482", pct: "100%", color: COLOR.fact },
+        { name: "event", count: "421", pct: "28%", color: COLOR.event },
+        { name: "instruction", count: "308", pct: "21%", color: COLOR.instruction },
+        { name: "task", count: "156", pct: "11%", color: COLOR.task }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

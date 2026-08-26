@@ -1,0 +1,334 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:#0e1116;--panel:#161b22;--panel-2:#1c232d;--border:#2a323d;
+      --text:#e6edf3;--muted:#8b98a5;--dim:#6b7681;
+      --accent:#58a6ff;--danger:#f85149;--ok:#3fb950;--warn:#d29922;
+      --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{color:#79b8ff;text-decoration:underline}
+    h1,h2,h3,p{margin:0}
+    input,button,select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+    button,select{cursor:pointer}
+    svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--accent);height:16px}
+    input[type=checkbox]{width:15px;height:15px;padding:0;accent-color:var(--accent)}
+    select{appearance:none;-webkit-appearance:none;padding-right:28px;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%236b7681' d='M2 4l4 4 4-4z'/></svg>");
+      background-repeat:no-repeat;background-position:right 9px center}
+    .mono{font-family:var(--mono)}
+    .num{font-variant-numeric:tabular-nums}
+    .sec{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+    .cap{font-size:12px;color:var(--dim);line-height:1.55}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+    .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--panel-2)}
+    .chip{font-size:11px;font-weight:600;letter-spacing:.3px;padding:2px 8px;border-radius:999px}
+    .over{color:var(--accent);background:rgba(88,166,255,.13)}
+    .keyline{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:1px}
+    .val{width:86px;text-align:right;font-size:12.5px;padding:6px 9px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  </style>
+</helmet>
+
+<div style="min-height:2900px;background:var(--bg);padding:36px 40px 60px">
+  <div style="max-width:1020px;margin:0 auto">
+
+    <h1 style="font-size:22px;font-weight:600;letter-spacing:-.3px">Configuration UI — states</h1>
+    <p class="cap" style="margin-top:7px;max-width:80ch">
+      Every state the two configuration screens can be in. Field rows are the whole vocabulary:
+      one row shape, four provenance states, six control kinds.
+    </p>
+
+    <!-- ============ 1. anatomy ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">1 · Field row anatomy</h2>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 0">
+        <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+        <div style="flex:1 1 auto;min-width:0">
+          <div style="font-size:13px;font-weight:600">Entity-relation graph</div>
+          <div class="keyline">weight-graph</div>
+        </div>
+        <div style="flex:none;width:266px;display:flex;align-items:center;justify-content:flex-end;gap:10px">
+          <input type="range" min="0" max="5" step="0.1" value="2" style="flex:1 1 auto;max-width:154px">
+          <input type="text" value="2.0" class="val">
+        </div>
+        <div style="flex:none;width:126px;text-align:right"><span class="chip over">overridden</span></div>
+        <div style="flex:none;width:28px;display:flex;justify-content:flex-end">
+          <span style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;color:var(--dim)"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4h4"/></svg></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--panel-2)">
+        <div style="flex:none;width:18px"></div>
+        <div style="flex:1 1 auto"><div style="font-size:11.5px;color:var(--accent);font-weight:600">Label + key</div><div class="cap">Human name over the literal kebab-case key the daemon binds. The key is what you grep for; it is never hidden behind prose.</div></div>
+        <div style="flex:none;width:266px"><div style="font-size:11.5px;color:var(--accent);font-weight:600">Control</div><div class="cap">Fixed width so every row aligns regardless of control kind.</div></div>
+        <div style="flex:none;width:126px"><div style="font-size:11.5px;color:var(--accent);font-weight:600">Provenance</div><div class="cap">Where this value comes from.</div></div>
+        <div style="flex:none;width:28px"><div style="font-size:11.5px;color:var(--accent);font-weight:600">Reset</div></div>
+      </div>
+      <p class="cap" style="margin-top:14px">
+        The dot on the left and the bold label appear only when the value is set at this layer.
+        Inherited rows stay quiet — only the exception is marked, so a page of 28 fields reads as
+        &ldquo;these six are mine&rdquo; at a glance.
+      </p>
+    </div>
+
+    <!-- ============ 2. provenance ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">2 · Provenance</h2>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+      <div class="card">
+        <div class="sec" style="margin-bottom:10px">Profile page</div>
+        <div class="row">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;font-weight:600">Exact topic-key match</div><div class="keyline">weight-exact-key</div></div>
+          <input type="text" value="4.0" class="val">
+          <span class="chip over">overridden</span>
+        </div>
+        <div class="row" style="border-bottom:0">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:transparent"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;color:var(--muted)">Direct vector</div><div class="keyline">weight-direct-vector</div></div>
+          <input type="text" value="1.0" class="val" style="color:var(--muted)">
+          <span class="mono" style="font-size:11px;color:var(--dim)">global 1.0</span>
+        </div>
+        <p class="cap" style="margin-top:12px">Two states. An inherited row shows the value it inherits, so you never have to open the global page to know what you are getting.</p>
+      </div>
+      <div class="card">
+        <div class="sec" style="margin-bottom:10px">Global page</div>
+        <div class="row">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;font-weight:600">Model-call log level</div><div class="keyline">logging.level.dev.alvo.pieria.model</div></div>
+          <span class="chip over">set</span>
+        </div>
+        <div class="row" style="border-bottom:0">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:transparent"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;color:var(--muted)">Graph enrichment parallelism</div><div class="keyline">pieria.reminiscence.parallelism</div></div>
+          <span class="mono" style="font-size:11px;color:var(--dim)">default</span>
+        </div>
+        <p class="cap" style="margin-top:12px"><span class="mono" style="color:var(--muted)">set</span> means written into <span class="mono" style="color:var(--muted)">pieria.properties</span> in the config dir; <span class="mono" style="color:var(--muted)">default</span> is the shipped value.</p>
+      </div>
+    </div>
+
+    <!-- ============ 3. controls ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">3 · Control kinds</h2>
+    <div class="card">
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Weight</div><div class="keyline">slider + number, 0–5</div></div>
+        <div style="flex:none;width:266px;display:flex;align-items:center;justify-content:flex-end;gap:10px">
+          <input type="range" min="0" max="5" step="0.1" value="1" style="flex:1 1 auto;max-width:154px">
+          <input type="text" value="1.0" class="val">
+        </div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Integer</div><div class="keyline">right-aligned, tabular</div></div>
+        <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><input type="text" value="3000" class="val"></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Text</div><div class="keyline">monospace — these are machine strings</div></div>
+        <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><input type="text" value="qwen3.5:9b-mlx" class="mono" style="width:236px;font-size:12.5px;padding:6px 9px"></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Secret</div><div class="keyline">masked until set at this layer</div></div>
+        <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><input type="text" value="••••••••" class="mono" style="width:236px;font-size:12.5px;padding:6px 9px;color:var(--muted)"></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Boolean</div><div class="keyline">checkbox, accent-coloured</div></div>
+        <div style="flex:none;width:266px;display:flex;justify-content:flex-end;align-items:center"><input type="checkbox" checked></div>
+      </div>
+      <div class="row">
+        <div style="flex:1 1 auto"><div style="font-size:13px">Enum</div><div class="keyline">values come from the Java enum, not a free string</div></div>
+        <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><select class="mono" style="width:168px;font-size:12.5px;padding:6px 28px 6px 9px"><option>synthesized</option></select></div>
+      </div>
+      <div class="row" style="border-bottom:0;opacity:.75">
+        <div style="flex:1 1 auto"><div style="font-size:13px;color:var(--muted)">Locked</div><div class="keyline">read-only until deliberately unlocked</div></div>
+        <div style="flex:none;width:266px;display:flex;align-items:center;justify-content:flex-end;gap:9px">
+          <input type="text" value="1024" class="val" style="opacity:.5;color:var(--dim)">
+          <span style="display:inline-flex;color:var(--dim)"><svg width="14" height="14" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 4. channel mix ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">4 · Channel mix</h2>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+      <div class="card">
+        <div style="display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--bg)">
+          <div style="width:31.6%;background:#58a6ff"></div>
+          <div style="width:10.5%;background:#3fb950"></div>
+          <div style="width:10.5%;background:#bc8cff"></div>
+          <div style="width:10.5%;background:#56d4dd"></div>
+          <div style="width:5.3%;background:#d29922"></div>
+          <div style="width:21.1%;background:#ff7b72"></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:11px">
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px"><span style="width:8px;height:8px;border-radius:2px;background:#58a6ff"></span><span class="mono">exact-key</span><span class="mono num">4.0</span></span>
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px"><span style="width:8px;height:8px;border-radius:2px;background:#3fb950"></span><span class="mono">fts-memory</span><span class="mono num">1.0</span></span>
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px"><span style="width:8px;height:8px;border-radius:2px;background:#bc8cff"></span><span class="mono">hyde-vector</span><span class="mono num">1.0</span></span>
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px"><span style="width:8px;height:8px;border-radius:2px;background:#ff7b72"></span><span class="mono">graph</span><span class="mono num">2.0</span></span>
+        </div>
+        <p class="cap" style="margin-top:12px">Six weights only mean anything relative to each other. The bar is the value; the numbers are the detail.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--bg)">
+          <div style="width:40%;background:#58a6ff"></div>
+          <div style="width:13.3%;background:#3fb950"></div>
+          <div style="width:13.3%;background:#bc8cff"></div>
+          <div style="width:13.3%;background:#56d4dd"></div>
+          <div style="width:6.7%;background:#d29922"></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:11px">
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px;opacity:.5"><span style="width:8px;height:8px;border-radius:2px;background:var(--border)"></span><span class="mono">graph</span><span class="mono num">0.0</span></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 10px;font-size:12px;color:var(--warn);background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.3);border-radius:7px">
+          <span style="display:inline-flex"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 8v5m0 3h.01M10.3 4.3 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span>
+          <span>The graph channel weight is 0, so the channel is disabled and its traversal settings are inactive.</span>
+        </div>
+        <p class="cap" style="margin-top:12px">Zero is a documented disable, not a small number. The segment disappears and the dependent section greys out.</p>
+      </div>
+    </div>
+
+    <!-- ============ 5. save bar ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">5 · Save bar</h2>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;background:var(--panel-2);border:1px solid var(--border);border-radius:10px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <span style="font-size:13px;font-weight:600">3 changes</span>
+          <span class="mono" style="font-size:11.5px;color:var(--dim)">PUT /v1/profiles/pieria/config</span>
+          <span style="flex:1 1 auto"></span>
+          <button style="padding:7px 14px;font-size:13px;color:var(--muted);background:transparent">Discard</button>
+          <button style="padding:7px 16px;font-size:13px;font-weight:600;background:var(--accent);border-color:var(--accent);color:#0b1220">Save overrides</button>
+        </div>
+        <p class="cap" style="margin-top:6px">Dirty. The bar does not exist until something changes.</p>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;background:var(--panel-2);border:1px solid var(--border);border-radius:10px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <span style="font-size:13px;font-weight:600">2 changes</span>
+          <span style="font-size:12px;color:var(--warn)">· restart required</span>
+          <span class="mono" style="font-size:11.5px;color:var(--dim)">PUT /v1/config</span>
+          <span style="flex:1 1 auto"></span>
+          <button style="padding:7px 14px;font-size:13px;color:var(--muted);background:transparent">Discard</button>
+          <button style="padding:7px 16px;font-size:13px;font-weight:600;background:var(--accent);border-color:var(--accent);color:#0b1220">Save configuration</button>
+        </div>
+        <p class="cap" style="margin-top:6px">Global page, restart-tier change. The bar says so before you commit, not after.</p>
+      </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;background:var(--panel-2);border:1px solid var(--border);border-radius:10px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--danger)"></span>
+          <span style="font-size:13px;font-weight:600">4 changes</span>
+          <span class="mono" style="font-size:11.5px;color:var(--dim)">PUT /v1/profiles/pieria/config</span>
+          <span style="flex:1 1 auto"></span>
+          <span style="font-size:12px;color:var(--danger)">Fix the highlighted field first</span>
+          <button style="padding:7px 14px;font-size:13px;color:var(--muted);background:transparent">Discard</button>
+          <button style="padding:7px 16px;font-size:13px;font-weight:600;background:var(--panel);border-color:var(--border);color:var(--dim);opacity:.55;cursor:default">Save overrides</button>
+        </div>
+        <p class="cap" style="margin-top:6px">Blocked. The daemon rejects the whole payload if one value fails to bind, so the client refuses to send it.</p>
+      </div>
+    </div>
+
+    <!-- ============ 6. validation ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">6 · Validation</h2>
+    <div class="card">
+      <div style="padding:11px 0;border-bottom:1px solid var(--panel-2)">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;font-weight:600">RRF k</div><div class="keyline">rrf-k</div></div>
+          <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><input type="text" value="sixty" class="val" style="border-color:var(--danger)"></div>
+          <div style="flex:none;width:126px;text-align:right"><span class="chip over">overridden</span></div>
+          <div style="flex:none;width:28px"></div>
+        </div>
+        <div style="margin:6px 0 2px 18px;padding:7px 10px;font-size:11.5px;color:var(--danger);background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:7px">Must be a number. The daemon rejects the whole payload if any value fails to bind.</div>
+      </div>
+      <div style="padding:11px 0">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--danger)"></span>
+          <div style="flex:1 1 auto"><div style="font-size:13px;font-weight:600;color:var(--danger)">embedding-dimension</div><div class="keyline">from .pieria/config.toml</div></div>
+          <div style="flex:none;width:266px;display:flex;justify-content:flex-end"><input type="text" value="768" class="val" style="border-color:var(--danger)"></div>
+          <div style="flex:none;width:126px;text-align:right"><span class="mono" style="font-size:11px;color:var(--danger)">rejected</span></div>
+          <div style="flex:none;width:28px"></div>
+        </div>
+        <div style="margin:6px 0 2px 18px;padding:7px 10px;font-size:11.5px;color:var(--danger);background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:7px">
+          <span class="mono">400</span> unknown or non-overridable config key: <span class="mono">retrieval.embedding-dimension</span> — this key is process-global and cannot be set per profile.
+        </div>
+      </div>
+      <p class="cap" style="margin-top:12px">
+        Two sources of truth. The first is caught in the browser; the second is the daemon's own
+        whitelist rejection, surfaced on the offending row rather than as a toast that scrolls away.
+      </p>
+    </div>
+
+    <!-- ============ 7. locked flow ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">7 · Unlocking a locked field</h2>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="card" style="border-color:rgba(248,81,73,.3)">
+        <p style="font-size:12.5px;color:var(--muted);line-height:1.6">
+          <span style="color:var(--danger);font-weight:600">These cannot be changed in place.</span>
+          The embedding dimension fixes the width of the <span class="mono" style="color:var(--text)">memories_vec</span> column,
+          so changing it invalidates every stored vector — it needs a re-embed, not a save.
+        </p>
+        <button style="margin-top:11px;display:inline-flex;align-items:center;gap:8px;padding:6px 12px;font-size:12.5px;color:var(--muted);background:transparent">
+          <span style="display:inline-flex"><svg width="14" height="14" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0"/></svg></span>
+          Unlock to edit
+        </button>
+      </div>
+      <div class="card" style="border-color:rgba(248,81,73,.3)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:12.5px;flex:1 1 auto">Unlock anyway? You will still have to re-embed <span class="num">2,436</span> memories.</span>
+          <button style="padding:6px 12px;font-size:12.5px;color:var(--muted);background:transparent">Cancel</button>
+          <button style="padding:6px 12px;font-size:12.5px;font-weight:600;color:var(--danger);background:transparent;border-color:rgba(248,81,73,.45)">Unlock</button>
+        </div>
+      </div>
+      <div class="card" style="border-color:rgba(248,81,73,.3)">
+        <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--danger)">
+          <span style="display:inline-flex"><svg width="14" height="14" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg></span>
+          <span style="flex:1 1 auto">Unlocked. Saving these needs a restart and a full re-embed.</span>
+          <button style="padding:5px 11px;font-size:12px;color:var(--muted);background:transparent">Lock again</button>
+        </div>
+      </div>
+      <p class="cap">
+        The daemon has no endpoint that stops this, so the UI is the only guard. Three deliberate
+        steps, and the consequence is stated in memories — a number the operator recognises — not in
+        abstract terms.
+      </p>
+    </div>
+
+    <!-- ============ 8. edge states ============ -->
+    <h2 class="sec" style="margin:34px 0 11px">8 · Edge states</h2>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--border)"></span>
+          <span style="font-size:13px;color:var(--muted)">No overrides</span>
+        </div>
+        <p class="cap" style="margin-top:9px">Every field inherits. The summary strip reads <span class="mono" style="color:var(--muted)">0 of 28</span> and the reset button is absent — there is nothing to reset.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--danger);box-shadow:0 0 0 3px rgba(248,81,73,.15)"></span>
+          <span style="font-size:13px;color:var(--danger)">Daemon unreachable</span>
+        </div>
+        <p class="cap" style="margin-top:9px">The form renders from the last known effective config, read-only, with the save bar suppressed. Editing a config you cannot write is worse than not showing it.</p>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--warn)"></span>
+          <span style="font-size:13px;color:var(--warn)">Config pushed by CLI</span>
+        </div>
+        <p class="cap" style="margin-top:9px">A <span class="mono" style="color:var(--muted)">pieria config sync</span> replaced the overrides while the page was open. The banner offers to reload rather than silently overwriting on save.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 2100, "title": "Profile config — clickable" },
+    { "file": "Global.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 2100, "title": "Global daemon config — clickable" },
+    { "file": "States.dc.html", "x": 0, "y": 2260, "w": 1100, "h": 2900, "title": "States and controls" },
+    { "file": "SidePanel.dc.html", "x": 1220, "y": 2260, "w": 880, "h": 1240, "title": "Where it lives" }
+  ],
+  "annotations": [
+    {
+      "id": "start-here",
+      "x": 0,
+      "y": -210,
+      "w": 620,
+      "text": "Start here. Expand this artboard and use it — it really works.\n\nDrag a channel weight and the mix bar reflows. Drop 'graph' to 0 and the channel switches off and its traversal section greys out. Edit anything and the save bar appears; type a word into a number field and Save blocks. The reset arrow on an overridden row drops it back to inherited.\n\nThe two artboards below cover every state as stills, and where the two entry points land in the side panel."
+    },
+    {
+      "id": "backend-gap",
+      "x": 1560,
+      "y": -210,
+      "w": 600,
+      "text": "This half needs backend work. The daemon has no HTTP write path for process-global properties — only the per-profile whitelist exists today, so PUT /v1/config is a proposal, not an endpoint.\n\nThe live / restart split is my read of which properties are bound once at startup; worth checking against the Spring binding before building. The locked tier is the part I'd not compromise on: nothing stops an embedding-dimension change today.\n\nProfile counts and the two 'set' global values are plausible samples, not measurements."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

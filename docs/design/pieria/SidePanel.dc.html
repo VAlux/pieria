@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:#0e1116;--panel:#161b22;--panel-2:#1c232d;--border:#2a323d;
+      --text:#e6edf3;--muted:#8b98a5;--dim:#6b7681;
+      --accent:#58a6ff;--danger:#f85149;--ok:#3fb950;--warn:#d29922;
+      --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{color:#79b8ff;text-decoration:underline}
+    h1,h2,p{margin:0}
+    svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    .mono{font-family:var(--mono)}
+    .num{font-variant-numeric:tabular-nums}
+    .sec{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+    .cap{font-size:12px;color:var(--dim);line-height:1.6}
+    .panel{width:240px;background:var(--panel);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+    .cat{height:40px;display:flex;align-items:center;gap:10px;padding:0 8px;color:var(--dim);font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase}
+    .catico{flex:0 0 24px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center}
+    .item{display:flex;align-items:center;gap:8px;padding:7px 9px 7px 0;font-size:13px;color:var(--muted);border-radius:8px}
+    .rail{flex:none;width:2px;height:16px;border-radius:2px;background:transparent}
+    .cnt{flex:none;font-size:11px;color:var(--dim)}
+    .new{position:relative}
+    .newtag{font-size:10px;font-weight:700;letter-spacing:.4px;color:#0b1220;background:var(--accent);border-radius:4px;padding:1px 5px}
+  </style>
+</helmet>
+
+<div style="min-height:1240px;background:var(--bg);padding:36px 40px 60px">
+  <div style="max-width:800px;margin:0 auto">
+
+    <h1 style="font-size:22px;font-weight:600;letter-spacing:-.3px">Where configuration lives</h1>
+    <p class="cap" style="margin-top:7px;max-width:74ch">
+      The side panel already has exactly the two categories the two configuration layers need. No new
+      nav tab, no new chrome — placement itself teaches the scoping.
+    </p>
+
+    <div style="display:flex;gap:40px;margin-top:30px">
+
+      <!-- ---------- today ---------- -->
+      <div style="flex:none;width:240px">
+        <div class="sec" style="margin-bottom:10px">Today</div>
+        <div class="panel" style="height:560px">
+          <div style="flex:1 1 auto;padding:10px 8px">
+            <div class="cat">
+              <span class="catico"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M4 6.5C4 5.1 7.6 4 12 4s8 1.1 8 2.5S16.4 9 12 9 4 7.9 4 6.5Zm0 0v5C4 12.9 7.6 14 12 14s8-1.1 8-2.5v-5m-16 5v5C4 17.9 7.6 19 12 19s8-1.1 8-2.5v-5"/></svg></span>
+              <span>Profiles</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">
+              <div class="item" style="color:var(--text);background:var(--panel-2);font-weight:600"><span class="rail" style="background:var(--accent)"></span><span style="flex:1 1 auto">pieria</span><span class="cnt num">2,436</span></div>
+              <div class="item"><span class="rail"></span><span style="flex:1 1 auto">codemie</span><span class="cnt num">312</span></div>
+              <div class="item"><span class="rail"></span><span style="flex:1 1 auto">scratch</span><span class="cnt num">48</span></div>
+            </div>
+          </div>
+          <div style="flex:none;padding:10px 8px 14px;border-top:1px solid var(--border)">
+            <div class="cat" style="height:30px">
+              <span class="catico"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M3 12h3.5l2-6.5 3.5 13 2.5-6.5H21"/></svg></span>
+              <span>Daemon</span>
+            </div>
+            <div style="padding:0 9px">
+              <div style="display:flex;align-items:center;gap:9px;margin:3px 0 11px">
+                <span style="flex:none;width:7px;height:7px;border-radius:999px;background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.15)"></span>
+                <span style="flex:1 1 auto;font-size:13px;font-weight:600">Running</span>
+                <span class="mono num" style="font-size:11px;color:var(--dim)">:8077</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Backend</span><span style="font-size:11.5px;color:var(--muted)">sqlite</span></div>
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Vector search</span><span style="font-size:11.5px;color:var(--ok)">on</span></div>
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Provider</span><span style="font-size:11.5px;color:var(--muted)">ollama</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="cap" style="margin-top:12px">Two categories. Selecting a profile switches what the six nav tabs are showing; the daemon block is read-only status.</p>
+      </div>
+
+      <!-- arrow -->
+      <div style="flex:none;display:flex;align-items:center;padding-top:150px;color:var(--dim)">
+        <svg width="26" height="26" viewBox="0 0 24 24"><path d="M4 12h15m0 0-5-5m5 5-5 5"/></svg>
+      </div>
+
+      <!-- ---------- proposed ---------- -->
+      <div style="flex:none;width:240px">
+        <div class="sec" style="margin-bottom:10px;color:var(--accent)">Proposed</div>
+        <div class="panel" style="height:560px;border-color:rgba(88,166,255,.35)">
+          <div style="flex:1 1 auto;padding:10px 8px">
+            <div class="cat">
+              <span class="catico"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M4 6.5C4 5.1 7.6 4 12 4s8 1.1 8 2.5S16.4 9 12 9 4 7.9 4 6.5Zm0 0v5C4 12.9 7.6 14 12 14s8-1.1 8-2.5v-5m-16 5v5C4 17.9 7.6 19 12 19s8-1.1 8-2.5v-5"/></svg></span>
+              <span>Profiles</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">
+              <div class="item" style="color:var(--text);font-weight:600"><span class="rail"></span><span style="flex:1 1 auto">pieria</span><span class="cnt num">2,436</span></div>
+              <div style="padding-left:11px;display:flex;flex-direction:column;gap:2px">
+                <div class="item" style="padding:6px 9px 6px 0;font-size:12.5px">
+                  <span class="rail" style="height:14px"></span>
+                  <span style="flex:0 0 18px;display:inline-flex;color:var(--dim)"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+                  <span>Memories</span>
+                </div>
+                <div class="item" style="padding:6px 9px 6px 0;font-size:12.5px;color:var(--text);background:var(--panel-2);font-weight:600">
+                  <span class="rail" style="height:14px;background:var(--accent)"></span>
+                  <span style="flex:0 0 18px;display:inline-flex;color:var(--accent)"><svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg></span>
+                  <span style="flex:1 1 auto">Configuration</span>
+                  <span class="newtag">NEW</span>
+                </div>
+              </div>
+              <div class="item"><span class="rail"></span><span style="flex:1 1 auto">codemie</span><span class="cnt num">312</span></div>
+              <div class="item"><span class="rail"></span><span style="flex:1 1 auto">scratch</span><span class="cnt num">48</span></div>
+            </div>
+          </div>
+          <div style="flex:none;padding:10px 8px 14px;border-top:1px solid var(--border)">
+            <div class="cat" style="height:30px">
+              <span class="catico"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M3 12h3.5l2-6.5 3.5 13 2.5-6.5H21"/></svg></span>
+              <span>Daemon</span>
+            </div>
+            <div style="padding:0 9px">
+              <div style="display:flex;align-items:center;gap:9px;margin:3px 0 11px">
+                <span style="flex:none;width:7px;height:7px;border-radius:999px;background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.15)"></span>
+                <span style="flex:1 1 auto;font-size:13px;font-weight:600">Running</span>
+                <span class="mono num" style="font-size:11px;color:var(--dim)">:8077</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Backend</span><span style="font-size:11.5px;color:var(--muted)">sqlite</span></div>
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Vector search</span><span style="font-size:11.5px;color:var(--ok)">on</span></div>
+                <div style="display:flex;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Provider</span><span style="font-size:11.5px;color:var(--muted)">ollama</span></div>
+              </div>
+            </div>
+            <div class="item" style="margin-top:10px;padding:7px 9px 7px 0;font-size:12.5px">
+              <span class="rail"></span>
+              <span style="flex:0 0 18px;display:inline-flex;color:var(--dim)"><svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg></span>
+              <span style="flex:1 1 auto">Configuration</span>
+              <span class="newtag">NEW</span>
+            </div>
+          </div>
+        </div>
+        <p class="cap" style="margin-top:12px">Two new entries, both reusing the existing item style. The active profile reveals its own sections; the daemon block gains the one global entry.</p>
+      </div>
+    </div>
+
+    <!-- routes -->
+    <div style="margin-top:38px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px">
+      <div class="sec" style="margin-bottom:14px">Routes and write paths</div>
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:11px 0;border-bottom:1px solid var(--panel-2)">
+        <span class="mono" style="flex:0 0 250px;font-size:12px;color:var(--accent)">#/profile/pieria/config</span>
+        <span style="flex:1 1 auto;font-size:12.5px;color:var(--muted)">Per-profile overrides — retrieval and ingestion only</span>
+        <span class="mono" style="flex:none;font-size:11.5px;color:var(--ok)">exists</span>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:11px 0 11px 250px;border-bottom:1px solid var(--panel-2)">
+        <span class="mono" style="flex:1 1 auto;font-size:11.5px;color:var(--dim)">GET · PUT · DELETE /v1/profiles/{name}/config</span>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:11px 0;border-bottom:1px solid var(--panel-2)">
+        <span class="mono" style="flex:0 0 250px;font-size:12px;color:var(--accent)">#/daemon/config</span>
+        <span style="flex:1 1 auto;font-size:12.5px;color:var(--muted)">Process-global settings — provider, models, paths, ports</span>
+        <span class="mono" style="flex:none;font-size:11.5px;color:var(--warn)">new</span>
+      </div>
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:11px 0 0 250px">
+        <span class="mono" style="flex:1 1 auto;font-size:11.5px;color:var(--dim)">GET · PUT /v1/config &nbsp;— needs a controller, a writer for pieria.properties, and a restart-required contract</span>
+      </div>
+    </div>
+
+    <p class="cap" style="margin-top:20px;max-width:74ch">
+      The per-profile half is drawable against the daemon as it stands today. The global half is the
+      part that needs backend work: there is no HTTP write path for process-global properties, and
+      <span class="mono" style="color:var(--muted)">pieria daemon restart</span> is a CLI command that
+      manages the process — the browser cannot call it.
+    </p>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

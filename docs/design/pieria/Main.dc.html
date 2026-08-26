@@ -1,0 +1,658 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --bg:#0e1116;--panel:#161b22;--panel-2:#1c232d;--border:#2a323d;
+      --text:#e6edf3;--muted:#8b98a5;--dim:#6b7681;
+      --accent:#58a6ff;--danger:#f85149;--ok:#3fb950;--warn:#d29922;
+      --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{color:#79b8ff;text-decoration:underline}
+    h1,h2,p{margin:0}
+    input,button,select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+    input:focus,select:focus{outline:none;border-color:var(--accent)}
+    button,select{cursor:pointer}
+    button:hover{background:var(--panel-2)}
+    svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--accent);height:16px;cursor:pointer}
+    input[type=checkbox]{width:15px;height:15px;padding:0;accent-color:var(--accent);cursor:pointer}
+    select{appearance:none;-webkit-appearance:none;padding-right:28px;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%236b7681' d='M2 4l4 4 4-4z'/></svg>");
+      background-repeat:no-repeat;background-position:right 9px center}
+    .mono{font-family:var(--mono)}
+    .num{font-variant-numeric:tabular-nums}
+    .sec{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+  </style>
+</helmet>
+
+<div style="--accent: {{accent}}; min-height:2100px; display:flex; flex-direction:column; background:var(--bg)">
+
+  <!-- ============ topbar ============ -->
+  <div style="flex:none;height:56px;display:flex;gap:14px;align-items:center;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:baseline;gap:9px;font-size:15px;font-weight:600;letter-spacing:.2px">
+      Pieria <span style="color:var(--dim);font-size:12px;font-weight:400">Console</span>
+    </div>
+    <div style="width:1px;height:22px;background:var(--border)"></div>
+    <div style="display:flex;gap:2px">
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Memories</button>
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Add</button>
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Recall</button>
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Statistics</button>
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Audit</button>
+      <button style="background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 12px;font-size:13px;color:var(--muted)">Graph</button>
+    </div>
+    <div style="flex:1 1 auto"></div>
+    <button style="display:inline-flex;align-items:center;gap:7px;padding:7px 12px;color:var(--muted);background:transparent;border:1px solid transparent">
+      <span style="display:inline-flex"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
+      Export
+    </button>
+  </div>
+
+  <!-- ============ shell ============ -->
+  <div style="display:flex;flex:1 1 auto;min-height:0">
+
+    <!-- ---- side panel ---- -->
+    <aside style="flex:0 0 240px;width:240px;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--border)">
+      <div style="flex:1 1 auto;padding:10px 8px">
+
+        <section>
+          <div style="height:40px;display:flex;align-items:center;gap:10px;padding:0 8px;color:var(--dim);font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase">
+            <span style="flex:0 0 24px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M4 6.5C4 5.1 7.6 4 12 4s8 1.1 8 2.5S16.4 9 12 9 4 7.9 4 6.5Zm0 0v5C4 12.9 7.6 14 12 14s8-1.1 8-2.5v-5m-16 5v5C4 17.9 7.6 19 12 19s8-1.1 8-2.5v-5"/></svg></span>
+            <span>Profiles</span>
+          </div>
+          <ul style="list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:2px">
+            <li>
+              <div style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px 7px 0;font-size:13px;color:var(--text);background:transparent;border-radius:8px">
+                <span style="flex:none;width:2px;height:16px;border-radius:2px;background:transparent"></span>
+                <span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">pieria</span>
+                <span style="flex:none;font-size:11px;color:var(--dim)" class="num">2,436</span>
+              </div>
+              <!-- profile reveals its own sections; Configuration is the new one -->
+              <ul style="list-style:none;margin:2px 0 0;padding:0 0 0 11px;display:flex;flex-direction:column;gap:2px">
+                <li>
+                  <div style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 9px 6px 0;font-size:12.5px;color:var(--muted);border-radius:8px">
+                    <span style="flex:none;width:2px;height:14px;border-radius:2px;background:transparent"></span>
+                    <span style="flex:0 0 18px;display:inline-flex;color:var(--dim)"><svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
+                    <span>Memories</span>
+                  </div>
+                </li>
+                <li>
+                  <div style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 9px 6px 0;font-size:12.5px;color:var(--text);background:var(--panel-2);border-radius:8px;font-weight:600">
+                    <span style="flex:none;width:2px;height:14px;border-radius:2px;background:var(--accent)"></span>
+                    <span style="flex:0 0 18px;display:inline-flex;color:var(--accent)"><svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg></span>
+                    <span>Configuration</span>
+                  </div>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <div style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px 7px 0;font-size:13px;color:var(--muted);border-radius:8px">
+                <span style="flex:none;width:2px;height:16px;border-radius:2px;background:transparent"></span>
+                <span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">codemie</span>
+                <span style="flex:none;font-size:11px;color:var(--dim)" class="num">312</span>
+              </div>
+            </li>
+            <li>
+              <div style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px 7px 0;font-size:13px;color:var(--muted);border-radius:8px">
+                <span style="flex:none;width:2px;height:16px;border-radius:2px;background:transparent"></span>
+                <span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">scratch</span>
+                <span style="flex:none;font-size:11px;color:var(--dim)" class="num">48</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <!-- daemon block, now with the global config entry -->
+      <div style="flex:none;padding:10px 8px 12px;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;height:30px;padding:0 8px;color:var(--dim);font-size:11px;font-weight:600;letter-spacing:.6px;text-transform:uppercase">
+          <span style="flex:0 0 24px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="M3 12h3.5l2-6.5 3.5 13 2.5-6.5H21"/></svg></span>
+          <span>Daemon</span>
+        </div>
+        <div style="padding:0 9px">
+          <div style="display:flex;align-items:center;gap:9px;margin:3px 0 11px">
+            <span style="flex:none;width:7px;height:7px;border-radius:999px;background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.15)"></span>
+            <span style="flex:1 1 auto;font-size:13px;font-weight:600">Running</span>
+            <span style="flex:none;font-size:11px;color:var(--dim)" class="mono num">:8077</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Backend</span><span style="font-size:11.5px;color:var(--muted)">sqlite</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Vector search</span><span style="font-size:11.5px;color:var(--ok)">on</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="flex:1 1 auto;font-size:12px;color:var(--dim)">Provider</span><span style="font-size:11.5px;color:var(--muted)">ollama</span></div>
+          </div>
+        </div>
+        <!-- global config lives with the daemon, because that is its scope -->
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:7px 9px 7px 0;font-size:12.5px;color:var(--muted);border-radius:8px">
+          <span style="flex:none;width:2px;height:16px;border-radius:2px;background:transparent"></span>
+          <span style="flex:0 0 18px;display:inline-flex;color:var(--dim)"><svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg></span>
+          <span>Configuration</span>
+        </div>
+      </div>
+
+      <div style="flex:none;height:48px;padding:0 16px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim);border-top:1px solid var(--border)">
+        <span style="flex:0 0 24px;display:inline-flex"><svg width="20" height="20" viewBox="0 0 24 24" style="stroke-width:1.8"><path d="m14 6-6 6 6 6"/></svg></span>
+        <span>Collapse</span>
+      </div>
+    </aside>
+
+    <!-- ---- main ---- -->
+    <div style="flex:1 1 auto;min-width:0;padding:20px 20px 110px">
+      <div style="max-width:1120px;margin:0 auto">
+
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:5px">
+          <h1 style="font-size:19px;font-weight:600;letter-spacing:-.2px">Configuration</h1>
+          <span class="mono" style="font-size:12.5px;color:var(--accent)">pieria</span>
+        </div>
+        <p style="margin-bottom:16px;color:var(--dim);font-size:12.5px;max-width:78ch">
+          Overrides for this profile only. Anything left alone inherits the global configuration.
+          The daemon accepts the retrieval and ingestion keys below and rejects everything else.
+        </p>
+
+        <!-- summary strip -->
+        <div style="display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:13px 16px;margin-bottom:14px">
+          <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+          <span style="font-size:13px"><span class="num" style="font-weight:600">{{summary.count}}</span> of <span class="num">28</span> fields overridden</span>
+          <span style="color:var(--dim);font-size:12.5px">{{summary.rest}} inherited from global</span>
+          <span style="flex:1 1 auto"></span>
+          <button onClick="{{onAskResetAll}}" style="padding:6px 12px;font-size:12.5px;color:var(--danger);background:transparent;border-color:var(--border)">Reset all overrides</button>
+        </div>
+
+        <!-- sections -->
+        <sc-for list="{{sections}}" as="section" hint-placeholder-count="5">
+          <section style="background:var(--panel);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden">
+            <button onClick="{{section.toggle}}" style="width:100%;display:flex;align-items:center;gap:10px;padding:13px 16px;background:transparent;border:0;border-radius:0;text-align:left">
+              <span style="flex:none;display:inline-flex;color:var(--dim);{{section.chev}}"><svg width="15" height="15" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></svg></span>
+              <span style="font-size:13px;font-weight:600">{{section.title}}</span>
+              <span style="font-size:12px;color:var(--dim)">{{section.note}}</span>
+              <span style="flex:1 1 auto"></span>
+              <sc-if value="{{section.badge}}" hint-placeholder-val="{{true}}">
+                <span style="font-size:11px;font-weight:600;letter-spacing:.3px;padding:2px 8px;border-radius:999px;color:var(--accent);background:rgba(88,166,255,.13)">{{section.badgeText}}</span>
+              </sc-if>
+            </button>
+
+            <sc-if value="{{section.open}}" hint-placeholder-val="{{true}}">
+              <div style="padding:0 16px 6px">
+
+                <!-- channel mix: six weights only mean something relative to each other -->
+                <sc-if value="{{section.isMix}}" hint-placeholder-val="{{true}}">
+                  <div style="padding:2px 0 14px;border-bottom:1px solid var(--panel-2);margin-bottom:2px">
+                    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:9px">
+                      <span class="sec">Channel mix</span>
+                      <span style="flex:1 1 auto"></span>
+                      <span class="mono num" style="font-size:11.5px;color:var(--dim)">total {{mix.total}}</span>
+                    </div>
+                    <div style="display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--bg)">
+                      <sc-for list="{{mix.segments}}" as="seg" hint-placeholder-count="6">
+                        <div style="{{seg.style}}" title="{{seg.title}}"></div>
+                      </sc-for>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:11px">
+                      <sc-for list="{{mix.legend}}" as="lg" hint-placeholder-count="6">
+                        <button onClick="{{lg.focus}}" style="{{lg.style}}">
+                          <span style="{{lg.swatch}}"></span>
+                          <span class="mono" style="font-size:11.5px">{{lg.name}}</span>
+                          <span class="mono num" style="font-size:11.5px;color:var(--text)">{{lg.val}}</span>
+                          <span class="num" style="font-size:11px;color:var(--dim)">{{lg.pct}}</span>
+                        </button>
+                      </sc-for>
+                    </div>
+                    <sc-if value="{{mix.hasOff}}" hint-placeholder-val="{{false}}">
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 10px;font-size:12px;color:var(--warn);background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.3);border-radius:7px">
+                        <span style="display:inline-flex"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M12 8v5m0 3h.01M10.3 4.3 2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span>
+                        <span>{{mix.offText}}</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-if>
+
+                <!-- field rows -->
+                <sc-for list="{{section.rows}}" as="row" hint-placeholder-count="6">
+                  <div style="{{row.wrap}}">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <span style="{{row.dot}}"></span>
+                      <div style="flex:1 1 auto;min-width:0">
+                        <div style="{{row.labelStyle}}">{{row.label}}</div>
+                        <div class="mono" style="font-size:11px;color:var(--dim);margin-top:1px">{{row.key}}</div>
+                      </div>
+
+                      <div style="flex:none;width:266px;display:flex;align-items:center;justify-content:flex-end;gap:10px">
+                        <sc-if value="{{row.isWeight}}" hint-placeholder-val="{{true}}">
+                          <input type="range" min="0" max="5" step="0.1" value="{{row.raw}}" onChange="{{row.onRange}}" style="flex:1 1 auto;max-width:154px">
+                        </sc-if>
+                        <sc-if value="{{row.isNumeric}}" hint-placeholder-val="{{true}}">
+                          <input type="text" value="{{row.raw}}" onChange="{{row.onInput}}" class="mono num" style="{{row.inputStyle}}">
+                        </sc-if>
+                        <sc-if value="{{row.isBool}}" hint-placeholder-val="{{false}}">
+                          <input type="checkbox" checked="{{row.checked}}" onChange="{{row.onToggle}}">
+                        </sc-if>
+                        <sc-if value="{{row.isEnum}}" hint-placeholder-val="{{false}}">
+                          <select value="{{row.raw}}" onChange="{{row.onInput}}" class="mono" style="width:168px;font-size:12.5px;padding:6px 28px 6px 9px">
+                            <sc-for list="{{row.options}}" as="opt" hint-placeholder-count="3">
+                              <option value="{{opt.value}}">{{opt.label}}</option>
+                            </sc-for>
+                          </select>
+                        </sc-if>
+                      </div>
+
+                      <div style="flex:none;width:126px;text-align:right">
+                        <sc-if value="{{row.isOver}}" hint-placeholder-val="{{true}}">
+                          <span style="font-size:11px;font-weight:600;letter-spacing:.3px;padding:2px 8px;border-radius:999px;color:var(--accent);background:rgba(88,166,255,.13)">overridden</span>
+                        </sc-if>
+                        <sc-if value="{{row.isInherit}}" hint-placeholder-val="{{true}}">
+                          <span class="mono" style="font-size:11px;color:var(--dim)">{{row.inheritText}}</span>
+                        </sc-if>
+                      </div>
+
+                      <div style="flex:none;width:28px;display:flex;justify-content:flex-end">
+                        <sc-if value="{{row.isOver}}" hint-placeholder-val="{{true}}">
+                          <button onClick="{{row.onReset}}" title="Reset to global" style="width:28px;height:28px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid transparent;border-radius:8px;color:var(--dim)">
+                            <svg width="15" height="15" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4h4"/></svg>
+                          </button>
+                        </sc-if>
+                      </div>
+                    </div>
+
+                    <sc-if value="{{row.hasError}}" hint-placeholder-val="{{false}}">
+                      <div style="margin:6px 0 2px 18px;padding:7px 10px;font-size:11.5px;color:var(--danger);background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:7px">{{row.error}}</div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+
+                <sc-if value="{{section.inactive}}" hint-placeholder-val="{{false}}">
+                  <div style="padding:10px 0 12px;font-size:12px;color:var(--dim)">{{section.inactiveText}}</div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </section>
+        </sc-for>
+
+        <p style="margin-top:16px;font-size:12px;color:var(--dim);max-width:78ch">
+          Global-only settings — provider, model names, embedding dimension, database path, daemon
+          port — are not on this page. They live under <span style="color:var(--muted)">Daemon → Configuration</span>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ save bar: only when dirty ============ -->
+  <sc-if value="{{bar.show}}" hint-placeholder-val="{{true}}">
+    <div style="position:fixed;left:240px;right:0;bottom:0;z-index:30;display:flex;align-items:center;gap:14px;padding:13px 24px;background:var(--panel-2);border-top:1px solid var(--border);box-shadow:0 -10px 30px rgba(0,0,0,.45)">
+      <span style="flex:none;width:6px;height:6px;border-radius:999px;background:var(--accent)"></span>
+      <span style="font-size:13px;font-weight:600">{{bar.text}}</span>
+      <span class="mono" style="font-size:11.5px;color:var(--dim)">{{bar.endpoint}}</span>
+      <span style="flex:1 1 auto"></span>
+      <sc-if value="{{bar.blocked}}" hint-placeholder-val="{{false}}">
+        <span style="font-size:12px;color:var(--danger);margin-right:4px">{{bar.blockedText}}</span>
+      </sc-if>
+      <button onClick="{{bar.onDiscard}}" style="padding:7px 14px;font-size:13px;color:var(--muted);background:transparent">Discard</button>
+      <button onClick="{{bar.onSave}}" style="{{bar.saveStyle}}">{{bar.saveText}}</button>
+    </div>
+  </sc-if>
+
+  <!-- ============ reset-all confirm ============ -->
+  <sc-if value="{{confirm.show}}" hint-placeholder-val="{{false}}">
+    <div style="position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center">
+      <div style="width:min(520px,92vw);background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden">
+        <div style="padding:18px 20px 4px">
+          <h2 style="font-size:15px;font-weight:600;margin-bottom:8px">Reset all overrides for <span class="mono" style="color:var(--accent)">pieria</span>?</h2>
+          <p style="font-size:13px;color:var(--muted);line-height:1.55">
+            Every field on this page falls back to the global configuration. Nothing is deleted from
+            the profile — only its overrides.
+          </p>
+        </div>
+        <div style="margin:14px 20px;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+          <div class="sec" style="margin-bottom:9px">These values change</div>
+          <sc-for list="{{confirm.rows}}" as="c" hint-placeholder-count="4">
+            <div style="display:flex;align-items:baseline;gap:10px;padding:4px 0;font-size:12px">
+              <span class="mono" style="flex:1 1 auto;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{c.key}}</span>
+              <span class="mono num" style="flex:none;color:var(--dim);text-decoration:line-through">{{c.from}}</span>
+              <span style="flex:none;color:var(--dim)">→</span>
+              <span class="mono num" style="flex:none;color:var(--text)">{{c.to}}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;padding:4px 20px 18px">
+          <button onClick="{{confirm.onCancel}}" style="padding:7px 14px;font-size:13px;color:var(--muted);background:transparent">Cancel</button>
+          <button onClick="{{confirm.onConfirm}}" style="padding:7px 14px;font-size:13px;font-weight:600;color:var(--danger);background:transparent;border-color:rgba(248,81,73,.45)">Reset overrides</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ toast ============ -->
+  <sc-if value="{{toast.show}}" hint-placeholder-val="{{false}}">
+    <div style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:50;padding:10px 16px;font-size:13px;background:var(--panel-2);border:1px solid rgba(63,185,80,.5);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4)">{{toast.text}}</div>
+  </sc-if>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#58a6ff","options":["#58a6ff","#3fb950","#bc8cff","#d29922"],"section":"Theme"},"density":{"editor":"enum","default":"comfortable","options":["comfortable","compact"],"section":"Theme"}}'>
+class Component extends DCLogic {
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      over: this.seed(),
+      saved: this.seed(),
+      open: { channels: true, graph: false, code: false, fusion: false, ingestion: true },
+      focus: null,
+      confirm: false,
+      toast: false
+    };
+  }
+
+  /* Overrides the profile starts with — six of the twenty-eight whitelisted keys. */
+  seed() {
+    return {
+      'weight-exact-key': '4.0',
+      'weight-graph': '2.0',
+      'recall-mode': 'EVIDENCE',
+      'channel-timeout-ms': '5000',
+      'chunk-size-chars': '14000',
+      'graph-from-extraction': true
+    };
+  }
+
+  /* The global layer this profile inherits from (daemon defaults, application.properties). */
+  globals() {
+    return {
+      'vector-enabled': true, 'rrf-k': '60',
+      'weight-exact-key': '3.0', 'weight-fts-memory': '1.0', 'weight-hyde-vector': '1.0',
+      'weight-direct-vector': '1.0', 'weight-fts-message': '0.5', 'weight-graph': '1.0',
+      'graph-depth': '2', 'graph-fanout': '20', 'graph-seed-limit': '8',
+      'channel-limit': '10', 'channel-timeout-ms': '3000',
+      'weight-symbol-fts': '1.0', 'weight-code-graph': '1.0',
+      'code-graph-depth': '2', 'code-graph-fanout': '20', 'code-graph-seed-limit': '8',
+      'code-graph-min-confidence': 'heuristic', 'recall-mode': 'SYNTHESIZED',
+      'near-duplicate-threshold': '0.60', 'semantic-duplicate-threshold': '0.78',
+      'chunk-size-chars': '10000', 'chunk-overlap-messages': '2',
+      'max-extraction-concurrency': '4', 'interrogative-queries-per-memory': '0',
+      'max-extracted-candidates-per-chunk': '0', 'graph-from-extraction': false
+    };
+  }
+
+  catalogue() {
+    return [
+      { id: 'channels', title: 'Retrieval channels', note: 'weights and vector toggle', mix: true, fields: [
+        { key: 'weight-exact-key', label: 'Exact topic-key match', kind: 'weight', color: '#58a6ff' },
+        { key: 'weight-fts-memory', label: 'Full-text over memories', kind: 'weight', color: '#3fb950' },
+        { key: 'weight-hyde-vector', label: 'HyDE vector', kind: 'weight', color: '#bc8cff' },
+        { key: 'weight-direct-vector', label: 'Direct vector', kind: 'weight', color: '#56d4dd' },
+        { key: 'weight-fts-message', label: 'Full-text over raw messages', kind: 'weight', color: '#d29922' },
+        { key: 'weight-graph', label: 'Entity-relation graph', kind: 'weight', color: '#ff7b72' },
+        { key: 'vector-enabled', label: 'Vector search enabled', kind: 'bool' }
+      ]},
+      { id: 'graph', title: 'Graph traversal', note: 'second-wave expansion', dependsOn: 'weight-graph', fields: [
+        { key: 'graph-depth', label: 'Depth', kind: 'int', hint: 'hops' },
+        { key: 'graph-fanout', label: 'Fanout', kind: 'int' },
+        { key: 'graph-seed-limit', label: 'Seed limit', kind: 'int' }
+      ]},
+      { id: 'code', title: 'Code graph', note: 'source-index channels', fields: [
+        { key: 'weight-symbol-fts', label: 'Symbol full-text weight', kind: 'num' },
+        { key: 'weight-code-graph', label: 'Code-graph weight', kind: 'num' },
+        { key: 'code-graph-depth', label: 'Depth', kind: 'int' },
+        { key: 'code-graph-fanout', label: 'Fanout', kind: 'int' },
+        { key: 'code-graph-seed-limit', label: 'Seed limit', kind: 'int' },
+        { key: 'code-graph-min-confidence', label: 'Minimum edge confidence', kind: 'enum',
+          options: [{ value: 'resolved', label: 'resolved' }, { value: 'heuristic', label: 'heuristic' }] }
+      ]},
+      { id: 'fusion', title: 'Fusion and limits', note: 'RRF, timeouts, duplicate collapse', fields: [
+        { key: 'rrf-k', label: 'RRF k', kind: 'int' },
+        { key: 'channel-limit', label: 'Results per channel', kind: 'int' },
+        { key: 'channel-timeout-ms', label: 'Channel timeout', kind: 'int', unit: 'ms' },
+        { key: 'recall-mode', label: 'Default recall tier', kind: 'enum',
+          options: [{ value: 'EVIDENCE', label: 'evidence' }, { value: 'ANALYZED', label: 'analyzed' }, { value: 'SYNTHESIZED', label: 'synthesized' }] },
+        { key: 'near-duplicate-threshold', label: 'Lexical duplicate threshold', kind: 'num' },
+        { key: 'semantic-duplicate-threshold', label: 'Semantic duplicate threshold', kind: 'num' }
+      ]},
+      { id: 'ingestion', title: 'Ingestion', note: 'per-profile tuning only', fields: [
+        { key: 'chunk-size-chars', label: 'Chunk size', kind: 'int', unit: 'chars' },
+        { key: 'chunk-overlap-messages', label: 'Chunk overlap', kind: 'int', unit: 'messages' },
+        { key: 'max-extraction-concurrency', label: 'Extraction concurrency', kind: 'int' },
+        { key: 'interrogative-queries-per-memory', label: 'Interrogative queries per memory', kind: 'int' },
+        { key: 'max-extracted-candidates-per-chunk', label: 'Max candidates per chunk', kind: 'int' },
+        { key: 'graph-from-extraction', label: 'Extract graph during ingest', kind: 'bool' }
+      ]}
+    ];
+  }
+
+  /* ---- state helpers ---- */
+
+  over() { return (this.state && this.state.over) || {}; }
+  savedMap() { return (this.state && this.state.saved) || {}; }
+  isOver(key) { return Object.prototype.hasOwnProperty.call(this.over(), key); }
+  effective(key) { return this.isOver(key) ? this.over()[key] : this.globals()[key]; }
+
+  setKey(key, value) {
+    const next = Object.assign({}, this.over());
+    next[key] = value;
+    this.setState({ over: next, toast: false });
+  }
+
+  clearKey(key) {
+    const next = Object.assign({}, this.over());
+    delete next[key];
+    this.setState({ over: next, toast: false });
+  }
+
+  changed() {
+    const a = this.over();
+    const b = this.savedMap();
+    const keys = {};
+    Object.keys(a).forEach(function (k) { keys[k] = 1; });
+    Object.keys(b).forEach(function (k) { keys[k] = 1; });
+    const self = this;
+    return Object.keys(keys).filter(function (k) {
+      const inA = Object.prototype.hasOwnProperty.call(a, k);
+      const inB = Object.prototype.hasOwnProperty.call(b, k);
+      if (inA !== inB) return true;
+      return String(a[k]) !== String(b[k]);
+    });
+  }
+
+  numeric(key) {
+    const raw = this.effective(key);
+    const n = parseFloat(raw);
+    return isFinite(n) ? n : 0;
+  }
+
+  /* A field is invalid when it is overridden with something that is not a finite number. */
+  errorFor(field) {
+    if (field.kind === 'bool' || field.kind === 'enum') return null;
+    if (!this.isOver(field.key)) return null;
+    const raw = this.over()[field.key];
+    const n = parseFloat(raw);
+    if (String(raw).trim() === '' || !isFinite(n)) {
+      return 'Must be a number. The daemon rejects the whole payload if any value fails to bind.';
+    }
+    if (n < 0) return 'Must be zero or greater.';
+    if (field.kind === 'int' && String(raw).indexOf('.') >= 0) return 'Must be a whole number.';
+    return null;
+  }
+
+  format(value) {
+    if (value === true) return 'on';
+    if (value === false) return 'off';
+    if (typeof value === 'string' && value === value.toUpperCase() && value.length > 3) return value.toLowerCase();
+    return String(value);
+  }
+
+  /* ---- render ---- */
+
+  renderVals() {
+    const self = this;
+    const st = this.state || {};
+    const open = st.open || {};
+    const dense = this.props.density === 'compact';
+    const padY = dense ? '7px' : '11px';
+    const globals = this.globals();
+    const cat = this.catalogue();
+
+    const graphOff = this.numeric('weight-graph') === 0;
+
+    /* --- channel mix --- */
+    const weights = cat[0].fields.filter(function (f) { return f.kind === 'weight'; });
+    let total = 0;
+    weights.forEach(function (f) { total += self.numeric(f.key); });
+    const safeTotal = total > 0 ? total : 1;
+
+    const segments = weights.map(function (f) {
+      const w = self.numeric(f.key);
+      const pct = (w / safeTotal) * 100;
+      return {
+        style: 'width:' + pct.toFixed(2) + '%;background:' + f.color + ';transition:width .18s ease',
+        title: f.key + ' = ' + w
+      };
+    });
+
+    const legend = weights.map(function (f) {
+      const w = self.numeric(f.key);
+      const focused = st.focus === f.key;
+      const dim = w === 0;
+      return {
+        name: f.key.replace('weight-', ''),
+        val: w.toFixed(1),
+        pct: total > 0 ? Math.round((w / safeTotal) * 100) + '%' : '0%',
+        swatch: 'width:8px;height:8px;border-radius:2px;flex:none;background:' + (dim ? 'var(--border)' : f.color),
+        style: 'display:inline-flex;align-items:center;gap:7px;padding:3px 8px;border-radius:7px;border:1px solid '
+          + (focused ? 'var(--border)' : 'transparent') + ';background:' + (focused ? 'var(--panel-2)' : 'transparent')
+          + ';opacity:' + (dim ? '.5' : '1'),
+        focus: function () { self.setState({ focus: focused ? null : f.key }); }
+      };
+    });
+
+    /* --- sections --- */
+    const sections = cat.map(function (sec) {
+      const inactive = sec.dependsOn && graphOff;
+      const rows = sec.fields.map(function (f) {
+        const isOver = self.isOver(f.key);
+        const raw = self.effective(f.key);
+        const err = self.errorFor(f);
+        const focused = st.focus === f.key;
+        const unit = f.unit ? ' ' + f.unit : '';
+
+        return {
+          key: f.key,
+          label: f.label,
+          raw: typeof raw === 'boolean' ? String(raw) : raw,
+          checked: raw === true,
+          isOver: isOver,
+          isInherit: !isOver,
+          inheritText: 'global ' + self.format(globals[f.key]) + unit,
+          isWeight: f.kind === 'weight' && !inactive,
+          isNumeric: (f.kind === 'weight' || f.kind === 'num' || f.kind === 'int') && !inactive,
+          isBool: f.kind === 'bool' && !inactive,
+          isEnum: f.kind === 'enum' && !inactive,
+          options: f.options || [],
+          hasError: !!err,
+          error: err || '',
+          labelStyle: 'font-size:13px;color:' + (isOver ? 'var(--text)' : 'var(--muted)')
+            + (isOver ? ';font-weight:600' : ''),
+          dot: 'flex:none;width:6px;height:6px;border-radius:999px;background:'
+            + (isOver ? 'var(--accent)' : 'transparent'),
+          inputStyle: 'width:86px;text-align:right;font-size:12.5px;padding:6px 9px;'
+            + (err ? 'border-color:var(--danger);' : '')
+            + (isOver ? '' : 'color:var(--muted);'),
+          wrap: 'padding:' + padY + ' 0;border-bottom:1px solid var(--panel-2);'
+            + (focused ? 'background:rgba(88,166,255,.05);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:6px;' : '')
+            + (inactive ? 'opacity:.45;' : ''),
+          onInput: function (e) { self.setKey(f.key, e.target.value); },
+          onRange: function (e) { self.setKey(f.key, parseFloat(e.target.value).toFixed(1)); },
+          onToggle: function (e) { self.setKey(f.key, e.target.checked); },
+          onReset: function () { self.clearKey(f.key); }
+        };
+      });
+
+      const overCount = sec.fields.filter(function (f) { return self.isOver(f.key); }).length;
+      const isOpen = !!open[sec.id];
+
+      return {
+        id: sec.id,
+        title: sec.title,
+        note: sec.note,
+        open: isOpen,
+        isMix: !!sec.mix,
+        rows: rows,
+        badge: overCount > 0,
+        badgeText: overCount + ' overridden',
+        chev: isOpen ? 'transform:rotate(90deg)' : '',
+        inactive: !!inactive,
+        inactiveText: 'Inactive while the graph channel weight is 0. Values are kept, not applied.',
+        toggle: function () {
+          const next = Object.assign({}, open);
+          next[sec.id] = !isOpen;
+          self.setState({ open: next });
+        }
+      };
+    });
+
+    /* --- dirty bar --- */
+    const changedKeys = this.changed();
+    const overKeys = Object.keys(this.over());
+    let anyError = false;
+    cat.forEach(function (sec) {
+      sec.fields.forEach(function (f) { if (self.errorFor(f)) anyError = true; });
+    });
+
+    const bar = {
+      show: changedKeys.length > 0,
+      text: changedKeys.length === 1 ? '1 change' : changedKeys.length + ' changes',
+      endpoint: 'PUT /v1/profiles/pieria/config',
+      blocked: anyError,
+      blockedText: 'Fix the highlighted field first',
+      saveText: 'Save overrides',
+      saveStyle: 'padding:7px 16px;font-size:13px;font-weight:600;border-radius:8px;'
+        + (anyError
+          ? 'background:var(--panel);border:1px solid var(--border);color:var(--dim);opacity:.55;cursor:default'
+          : 'background:var(--accent);border:1px solid var(--accent);color:#0b1220'),
+      onSave: function () {
+        if (anyError) return;
+        self.setState({ saved: Object.assign({}, self.over()), toast: true, focus: null });
+      },
+      onDiscard: function () {
+        self.setState({ over: Object.assign({}, self.savedMap()), toast: false, focus: null });
+      }
+    };
+
+    /* --- reset-all confirm --- */
+    const confirmRows = overKeys.map(function (k) {
+      return { key: k, from: self.format(self.over()[k]), to: self.format(globals[k]) };
+    });
+
+    return {
+      accent: this.props.accent || '#58a6ff',
+      summary: { count: overKeys.length, rest: 28 - overKeys.length },
+      mix: {
+        segments: segments,
+        legend: legend,
+        total: total.toFixed(1),
+        hasOff: graphOff,
+        offText: 'The graph channel weight is 0, so the channel is disabled and its traversal settings are inactive.'
+      },
+      sections: sections,
+      bar: bar,
+      onAskResetAll: function () { self.setState({ confirm: true }); },
+      confirm: {
+        show: !!st.confirm,
+        rows: confirmRows,
+        onCancel: function () { self.setState({ confirm: false }); },
+        onConfirm: function () { self.setState({ over: {}, confirm: false, focus: null, toast: false }); }
+      },
+      toast: { show: !!st.toast, text: 'Overrides saved for pieria' }
+    };
+  }
+}
+</script>
+</body>
+</html>

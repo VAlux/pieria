@@ -1,0 +1,24 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Console — clickable" },
+    { "file": "BeforeAfter.dc.html", "x": 1560, "y": 0, "w": 1200, "h": 2160, "title": "Before / after" },
+    { "file": "Components.dc.html", "x": 2840, "y": 0, "w": 1200, "h": 2360, "title": "Component sheet" }
+  ],
+  "annotations": [
+    {
+      "id": "start-here",
+      "x": 0,
+      "y": -168,
+      "w": 560,
+      "text": "Start here. Expand this artboard and click through it — the six nav tabs switch views, the type pills and search box filter the list, and clicking any memory row opens the detail drawer.\n\nTwo new proposals are live in here: the task tray (the spinner button in the top bar, click to open) and retrieval explain (Recall → 'Why this answer?' under the answer panel). Both render data the daemon already returns.\n\nThree tweaks sit above the frame: accent colour, comfortable/compact row density, and daemon state — flip that to 'degraded' to see the side-panel status block in its unhappy form."
+    },
+    {
+      "id": "sample-data",
+      "x": 1560,
+      "y": -168,
+      "w": 460,
+      "text": "The memory contents are real facts lifted from AGENTS.md. The counts, timings and spend figures are sample values — plausible, not measured. Swap them before showing this to anyone who might read them as metrics."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
