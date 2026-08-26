@@ -6,6 +6,8 @@ import dev.alvo.pieria.config.model.DaemonOverrides.Retrieval;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,6 +19,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ProfileConfigService {
+
+  private static final Logger log = LoggerFactory.getLogger(ProfileConfigService.class);
 
   private final MemoryStore store;
   private final EffectiveConfigResolver configResolver;
@@ -83,7 +87,9 @@ public class ProfileConfigService {
 
   /**
    * The profile's raw stored overrides, or an empty set. Fail-open like the resolver: a corrupt
-   * row must not break the config page.
+   * row must not break the config page. The failure is logged rather than swallowed outright
+   * because the console's save path PUTs the whole override set back — a silent read failure here
+   * would render as "no overrides" and the next save would quietly erase the profile's real ones.
    */
   private DaemonOverrides storedOverrides(String profileId) {
     try {
@@ -91,6 +97,7 @@ public class ProfileConfigService {
         .map(json -> ConfigCodec.bind(ConfigCodec.parseJson(json), DaemonOverrides.class))
         .orElseGet(() -> new DaemonOverrides(null, null));
     } catch (RuntimeException e) {
+      log.warn("could not read stored config overrides for {} ({}); reporting none", profileId, e.toString());
       return new DaemonOverrides(null, null);
     }
   }
