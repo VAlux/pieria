@@ -48,8 +48,8 @@ function control(field, view) {
     wrap.appendChild(slider);
   }
 
-  // "int" and "double" need no dedicated branch above: both render as this same right-aligned
-  // numeric input, with no validation or presentation difference between them at this layer.
+  // Every kind that isn't handled above (int, double, string, secret) shares this one text
+  // input; the only distinction between them is width and, for secret, the masked placeholder.
   const input = el("input", "mono num" + (WIDE_KINDS[field.kind] ? " wide" : "")
     + (view.error ? " err" : ""));
   input.type = "text";

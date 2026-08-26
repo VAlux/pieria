@@ -1,5 +1,7 @@
 package dev.alvo.pieria.console;
 
+import dev.alvo.pieria.config.schema.ConfigField;
+import dev.alvo.pieria.config.schema.ConfigSchemaService;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
@@ -7,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,28 +44,43 @@ class ConfigConsoleAssetsTests {
   }
 
   @Test
-  void fieldRendererCoversEveryControlKindTheSchemaCanDeclare() throws IOException {
+  void fieldRendererBranchesOnEveryKindThatNeedsItsOwnControl() throws IOException {
     String field = resource("static/js/console/config/field.js");
 
     assertThat(field).contains("export function renderFieldRow");
-    // Every kind in config-schema.json must have a branch, or a field renders as nothing.
-    assertThat(field).contains("\"weight\"", "\"int\"", "\"double\"", "\"bool\"", "\"enum\"",
-      "\"string\"", "\"secret\"");
+    // Only three kinds need a control of their own; the rest share the text input.
+    assertThat(field).contains("\"bool\"", "\"enum\"", "\"weight\"");
+    // The wide input is what separates free-text keys from numeric ones.
+    assertThat(field).contains("\"string\"", "\"secret\"");
     assertThat(field).contains("cfg-row", "cfg-dot", "cfg-key", "cfg-chip", "cfg-reset");
   }
 
   @Test
-  void everySchemaKindHasARendererBranch() throws IOException {
-    String schemaJson = resource("config/config-schema.json");
+  void everySchemaKindEitherBranchesOrFallsThroughToTheTextInput() throws IOException {
     String field = resource("static/js/console/config/field.js");
 
-    for (String kind : new String[] {"weight", "int", "double", "bool", "enum", "string", "secret"}) {
-      if (schemaJson.contains("\"kind\":\"" + kind + "\"")) {
-        assertThat(field)
-          .as("field.js must handle kind '%s' declared in config-schema.json", kind)
-          .contains("\"" + kind + "\"");
-      }
-    }
+    // int, double, string and secret deliberately share one text input, so they never appear as
+    // named branches. Asserting that they did would be a test a stray comment could satisfy —
+    // which is exactly what this assertion is written to avoid.
+    Set<String> branched = Set.of("bool", "enum", "weight");
+    Set<String> sharedTextInput = Set.of("int", "double", "string", "secret");
+
+    Set<String> declared = new ConfigSchemaService().all().stream()
+      .map(ConfigField::kind)
+      .collect(Collectors.toSet());
+
+    assertThat(declared).allSatisfy(kind -> assertThat(branched.contains(kind) || sharedTextInput.contains(kind))
+      .as("kind '%s' is declared in config-schema.json but field.js neither branches on it nor "
+        + "routes it to the shared text input", kind)
+      .isTrue());
+
+    branched.forEach(kind -> assertThat(field)
+      .as("field.js must branch on kind '%s'", kind)
+      .contains("\"" + kind + "\""));
+
+    // The shared fallback must exist unconditionally after the branches, or every kind routed to
+    // it renders nothing at all.
+    assertThat(field).contains("input.type = \"text\"");
   }
 
   static String resource(String path) throws IOException {
