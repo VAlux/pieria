@@ -409,6 +409,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import tools.jackson.databind.JsonNode;
 
 import java.nio.file.Files;
@@ -443,7 +444,8 @@ class ProfileConfigDetailTests {
       .driverClassName("org.sqlite.JDBC").url(url).build();
     Flyway.configure().dataSource(dataSource).load().migrate();
 
-    SqliteMemoryStore store = new SqliteMemoryStore(dataSource);
+    // SqliteMemoryStore takes a JdbcClient, not a DataSource — same as ProfileConfigApiTests.
+    SqliteMemoryStore store = new SqliteMemoryStore(JdbcClient.create(dataSource));
     PieriaProperties props = globalProps();
     EffectiveConfigResolver resolver = new EffectiveConfigResolver(props, store);
     controller = new ProfileConfigController(new ProfileConfigService(store, resolver));

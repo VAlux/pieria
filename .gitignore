@@ -50,3 +50,7 @@ packaging/native/*/*.dll
 .mcp.json
 .claude
 .codex.superpowers/
+
+# Seeded design-canvas outputs are regenerable from their .dc.html sources.
+docs/design/**/*.html
+!docs/design/**/*.dc.html
