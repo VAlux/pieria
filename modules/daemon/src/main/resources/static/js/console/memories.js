@@ -1,5 +1,5 @@
-import { $, el, api, apiFetch, escapeHtml } from "../util/dom.js";
-import { typeColor } from "../util/palette.js";
+import { $, el, api, apiFetch, escapeHtml, icon } from "../util/dom.js";
+import { typeColor, typeTint } from "../util/palette.js";
 import { relTime } from "../util/format.js";
 import { state } from "./state.js";
 import { renderBanner } from "./router.js";
@@ -47,7 +47,7 @@ function rebuildSessionFilter() {
 
 function filteredSorted() {
   const term = $("searchInput").value.trim().toLowerCase();
-  const type = $("typeFilter").value;
+  const type = state.typeFilter;
   const session = $("sessionFilter").value;
   const rows = state.memories.filter(function (m) {
     if (type && m.type !== type) return false;
@@ -69,6 +69,53 @@ function filteredSorted() {
   return rows;
 }
 
+/**
+ * One memory row. Shared with the recall view so the two lists cannot drift apart.
+ * Type is signalled by a rail down the row and a tinted chip; the relative time gets its own
+ * right-aligned tabular column rather than trailing the metadata sentence.
+ */
+export function memoryRow(m, forgettable) {
+  const row = el("div", "mem" + (m.superseded ? " superseded" : ""));
+  row.addEventListener("click", function () { openDrawer(m); });
+
+  const rail = el("div", "mem-rail");
+  rail.style.background = typeColor(m.type);
+  row.appendChild(rail);
+
+  const main = el("div", "mem-main");
+
+  const chip = el("span", "chip", m.type);
+  chip.style.color = typeColor(m.type);
+  chip.style.background = typeTint(m.type);
+  main.appendChild(chip);
+
+  const body = el("div", "mem-body");
+  body.appendChild(el("div", "mem-content", m.content || ""));
+  const meta = el("div", "mem-meta");
+  const bits = [];
+  if (m.topicKey) bits.push('<span class="key">' + escapeHtml(m.topicKey) + "</span>");
+  if (m.sessionId) bits.push(escapeHtml(m.sessionId));
+  meta.innerHTML = bits.join(" · ");
+  body.appendChild(meta);
+  main.appendChild(body);
+
+  if (m.superseded) main.appendChild(el("span", "tag-super", "superseded"));
+  main.appendChild(el("span", "mem-time num", relTime(m.createdAt)));
+
+  if (forgettable && !m.superseded) {
+    const del = el("button", "icon-btn");
+    del.type = "button";
+    del.title = "Forget";
+    del.setAttribute("aria-label", "Forget this memory");
+    del.appendChild(icon("trash", 15));
+    del.addEventListener("click", function (ev) { ev.stopPropagation(); forgetMemory(m); });
+    main.appendChild(del);
+  }
+
+  row.appendChild(main);
+  return row;
+}
+
 export function renderMemories() {
   const list = $("memList");
   const pager = $("memPager");
@@ -83,35 +130,7 @@ export function renderMemories() {
   page = Math.min(Math.max(1, page), totalPages);
   const start = (page - 1) * PAGE_SIZE;
   const pageRows = rows.slice(start, start + PAGE_SIZE);
-  pageRows.forEach(function (m) {
-    const row = el("div", "mem" + (m.superseded ? " superseded" : ""));
-    row.addEventListener("click", function () { openDrawer(m); });
-
-    const chip = el("span", "chip", m.type);
-    chip.style.background = typeColor(m.type);
-    row.appendChild(chip);
-
-    const body = el("div", "mem-body");
-    body.appendChild(el("div", "mem-content", m.content || ""));
-    const meta = el("div", "mem-meta");
-    const bits = [];
-    if (m.topicKey) bits.push('<span class="key">' + escapeHtml(m.topicKey) + "</span>");
-    if (m.sessionId) bits.push(escapeHtml(m.sessionId));
-    bits.push(relTime(m.createdAt));
-    meta.innerHTML = bits.join(" · ");
-    body.appendChild(meta);
-    row.appendChild(body);
-
-    if (m.superseded) {
-      row.appendChild(el("span", "tag-super", "superseded"));
-    } else {
-      const del = el("button", "icon-btn", "🗑");
-      del.title = "Forget";
-      del.addEventListener("click", function (ev) { ev.stopPropagation(); forgetMemory(m); });
-      row.appendChild(del);
-    }
-    list.appendChild(row);
-  });
+  pageRows.forEach(function (m) { list.appendChild(memoryRow(m, true)); });
   renderPager(pager, rows.length, totalPages, start, pageRows.length);
 }
 
@@ -119,10 +138,10 @@ function renderPager(host, total, totalPages, start, shown) {
   host.appendChild(el("span", "pager-info", "Showing " + (start + 1) + "–" + (start + shown) + " of " + total));
   if (totalPages <= 1) return;
   const nav = el("div", "pager-nav");
-  const prev = el("button", null, "‹ Prev");
+  const prev = el("button", null, "Prev");
   prev.disabled = page <= 1;
   prev.addEventListener("click", function () { page--; renderMemories(); scrollListTop(); });
-  const next = el("button", null, "Next ›");
+  const next = el("button", null, "Next");
   next.disabled = page >= totalPages;
   next.addEventListener("click", function () { page++; renderMemories(); scrollListTop(); });
   nav.appendChild(prev);

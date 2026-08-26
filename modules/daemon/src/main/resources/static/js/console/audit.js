@@ -71,21 +71,27 @@ function renderAudit(events) {
     const row = el("button", "audit-row");
     row.type = "button";
     row.addEventListener("click", function () { loadDetail(event.id); });
-    row.appendChild(el("span", "audit-time", fmtDate(event.completedAt)));
-    row.appendChild(el("span", "audit-operation", event.operation));
-    row.appendChild(el("span", "audit-caller", caller(event)));
+    // Same rail vocabulary as the memory rows, so outcome is readable at the left edge before
+    // any of the columns are read.
+    row.appendChild(el("div", "audit-rail " + event.outcome));
+
+    const main = el("div", "audit-main");
+    main.appendChild(el("span", "audit-time", fmtDate(event.completedAt)));
+    main.appendChild(el("span", "audit-operation", event.operation));
+    main.appendChild(el("span", "audit-caller", caller(event)));
     const outcome = el("span", "audit-outcome " + event.outcome, event.httpStatus == null ? event.outcome : String(event.httpStatus));
-    row.appendChild(outcome);
-    row.appendChild(el("span", "audit-duration", event.durationMs + " ms"));
-    row.appendChild(el("span", "audit-preview", event.errorMessage || event.responsePreview || "(empty response)"));
-    if (event.requestTruncated || event.responseTruncated) row.appendChild(el("span", "tag-super", "truncated"));
+    main.appendChild(outcome);
+    main.appendChild(el("span", "audit-duration", event.durationMs + " ms"));
+    main.appendChild(el("span", "audit-preview", event.errorMessage || event.responsePreview || "(empty response)"));
+    if (event.requestTruncated || event.responseTruncated) main.appendChild(el("span", "tag-super", "truncated"));
+    row.appendChild(main);
     list.appendChild(row);
   });
   const nav = el("div", "pager-nav");
-  const prev = el("button", null, "‹ Prev");
+  const prev = el("button", null, "Prev");
   prev.disabled = history.length === 0;
   prev.addEventListener("click", function () { cursor = history.pop() || null; loadAudit(false); });
-  const next = el("button", null, "Next ›");
+  const next = el("button", null, "Next");
   next.disabled = !nextCursor;
   next.addEventListener("click", function () { history.push(cursor); cursor = nextCursor; loadAudit(false); });
   nav.appendChild(prev);

@@ -3,5 +3,8 @@ export const state = {
   profile: "",
   view: "memories",
   memories: [],          // last fetched list for the current profile
-  includeSuperseded: false
+  includeSuperseded: false,
+  // The type filter is a segmented control rather than a <select>, so its value lives here
+  // instead of on a form element.
+  typeFilter: ""
 };

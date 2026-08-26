@@ -9,6 +9,8 @@ import { submitRecall } from "./recall.js";
 import { exportProfile } from "./export.js";
 import { applyAuditFilters, clearAuditFilters } from "./audit.js";
 import { initSidePanel } from "./side-panel.js";
+import { initDaemonStatus } from "./daemon.js";
+import { initTaskTray } from "./tasks.js";
 
 const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph"];
 let auditSearchTimer = null;
@@ -29,7 +31,15 @@ function wireUp() {
     if (b) setView(b.dataset.view);
   });
   $("searchInput").addEventListener("input", resetPageAndRender);
-  $("typeFilter").addEventListener("change", resetPageAndRender);
+  $("typeFilter").addEventListener("click", function (e) {
+    const b = e.target.closest("button[data-type]");
+    if (!b) return;
+    state.typeFilter = b.dataset.type;
+    $("typeFilter").querySelectorAll("button[data-type]").forEach(function (other) {
+      other.classList.toggle("active", other === b);
+    });
+    resetPageAndRender();
+  });
   $("sessionFilter").addEventListener("change", resetPageAndRender);
   $("sortSelect").addEventListener("change", resetPageAndRender);
   $("supToggle").addEventListener("change", function () {
@@ -63,6 +73,8 @@ function wireUp() {
 
 function boot() {
   initSidePanel();
+  initDaemonStatus();
+  initTaskTray();
   wireUp();
   const params = new URLSearchParams(location.search);
   const initialView = params.get("view");

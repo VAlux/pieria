@@ -122,6 +122,96 @@ class ConsoleAssetsTests {
   }
 
   @Test
+  void daemonStatusSitsBelowTheProfileListAndReportsVectorSearch() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+    String daemon = resource("static/js/console/daemon.js");
+    String css = resource("static/css/console.css");
+
+    // The block is a sibling of the scroll area, not a category inside it, so it stays pinned to
+    // the foot of the panel while the profile list scrolls.
+    assertThat(html.select("#sidePanel > #daemonStatus")).hasSize(1);
+    assertThat(html.select("#daemonStatus #daemonDot, #daemonStatus #daemonLabel, #daemonStatus #daemonRows"))
+      .hasSize(3);
+
+    // vectorSearch is the one signal distinguishing a working daemon from a quietly reduced one:
+    // retrieval falls back to FTS-only when sqlite-vec does not load, silently.
+    assertThat(daemon)
+      .contains("/pieria-health", "/pieria-status", "status.vectorSearch", "FTS only")
+      .contains("vectorizationOutboxDepth");
+
+    // Collapsed, the block reduces to the status dot alone rather than clipping mid-row.
+    assertThat(css).contains(".side-panel.is-collapsed .daemon-rows");
+  }
+
+  @Test
+  void taskTrayRendersLaneProgressAndCanCancel() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+    String tasks = resource("static/js/console/tasks.js");
+
+    assertThat(html.select(".topbar .tray #trayBtn[aria-controls=trayPanel]")).hasSize(1);
+    assertThat(html.select(".topbar .tray #trayPanel #trayList")).hasSize(1);
+
+    // Lane done/total is what makes a real progress bar possible; a task with no lanes still has
+    // to render, so the tray reads them defensively.
+    assertThat(tasks)
+      .contains("/v1/tasks", "lane.done", "lane.total", "t.lanes || []")
+      .contains("\"DELETE\"", "startedAtEpochMs");
+
+    // Polling backs off when nothing is running — the tray is a status light, not a feed.
+    assertThat(tasks).contains("IDLE_POLL_MS", "running().length");
+  }
+
+  @Test
+  void recallAsksForDebugAndExplainsWhereTheTimeWent() throws IOException {
+    String recall = resource("static/js/console/recall.js");
+    String palette = resource("static/js/util/palette.js");
+
+    assertThat(recall).contains("debug: true");
+
+    // Channels run in parallel, so their share of wall clock is the slowest one rather than the
+    // sum — and RecallDebug itemises only the channels, so the rest is measured client-side.
+    assertThat(recall)
+      .contains("Math.max(slowest", "performance.now()")
+      .contains("query analysis + HyDE + synthesis");
+
+    // `source` is "rrf:<channel>[+<channel>...]"; the constant prefix carries no information.
+    assertThat(recall).contains("replace(/^rrf:/", "split(\"+\")");
+
+    // Channel colours are keyed by the wire form RecallDebug reports, so a channel keeps one
+    // colour across the diagnostics cards and the provenance chips.
+    assertThat(palette)
+      .contains("fts_memory", "exact_key", "fts_message", "direct_vector")
+      .contains("hyde_vector", "symbol_fts", "code_graph");
+  }
+
+  @Test
+  void memoryRowsCarryATypeRailAndASeparateTimeColumn() throws IOException {
+    String memories = resource("static/js/console/memories.js");
+    String css = resource("static/css/console.css");
+
+    // One row builder, shared with the recall view, so the two lists cannot drift apart.
+    assertThat(memories).contains("export function memoryRow", "mem-rail", "mem-time");
+    assertThat(resource("static/js/console/recall.js")).contains("memoryRow(m, false)");
+
+    // Two lines rather than one hard truncate, and the chip is a tint rather than a flood.
+    assertThat(css).contains("-webkit-line-clamp: 2", ".mem-rail");
+    assertThat(resource("static/js/util/palette.js")).contains("export function typeTint");
+  }
+
+  @Test
+  void consoleDrawsIconsAsInlineSvgRatherThanTextGlyphs() throws IOException {
+    String html = resource("static/index.html");
+    String memories = resource("static/js/console/memories.js");
+    String dom = resource("static/js/util/dom.js");
+
+    assertThat(dom).contains("export function icon");
+    // Text glyphs rendered in three unrelated typefaces and shifted baseline per platform.
+    assertThat(html).doesNotContain("⬇", "🗑");
+    assertThat(memories).doesNotContain("🗑");
+    assertThat(memories).contains("icon(\"trash\"");
+  }
+
+  @Test
   void vendoredForceLayoutIsSelfContained() throws IOException {
     String d3 = resource("static/js/vendor/d3-force.js");
 

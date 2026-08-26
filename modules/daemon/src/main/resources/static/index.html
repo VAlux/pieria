@@ -11,6 +11,7 @@
 <body>
   <div class="topbar">
     <div class="brand">Pieria <small id="profileLabel">Console</small></div>
+    <div class="topbar-rule"></div>
     <nav class="nav" id="nav">
       <button data-view="memories" class="active">Memories</button>
       <button data-view="add">Add</button>
@@ -20,7 +21,33 @@
       <button data-view="graph">Graph</button>
     </nav>
     <div class="spacer"></div>
-    <button id="exportBtn" title="Download all memories as NDJSON">⬇ Export</button>
+
+    <div class="tray">
+      <button class="tray-btn is-idle" id="trayBtn" type="button"
+              aria-controls="trayPanel" aria-expanded="false" title="Background tasks">
+        <span class="ico spin" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" focusable="false">
+            <circle cx="12" cy="12" r="9" stroke-dasharray="40 17"/>
+          </svg>
+        </span>
+        <span id="trayLabel">No tasks</span>
+      </button>
+      <div class="tray-panel" id="trayPanel" hidden>
+        <div class="tray-head">
+          <span class="section" style="margin:0">Background tasks</span>
+          <span class="spacer"></span>
+          <span class="mono num" id="traySummary"></span>
+        </div>
+        <div id="trayList"></div>
+      </div>
+    </div>
+
+    <button id="exportBtn" class="ghost-btn" title="Download all memories as NDJSON">
+      <span class="ico" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" focusable="false"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+      </span>
+      Export
+    </button>
   </div>
 
   <div class="content-shell">
@@ -40,6 +67,26 @@
           </ul>
         </section>
       </div>
+
+      <!-- Daemon status. vectorSearch is the signal worth the space: retrieval degrades silently
+           to FTS-only when sqlite-vec fails to load. -->
+      <section class="daemon" id="daemonStatus" aria-labelledby="daemonCategoryTitle">
+        <div class="daemon-header" title="Daemon">
+          <span class="side-panel-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M3 12h3.5l2-6.5 3.5 13 2.5-6.5H21"/></svg>
+          </span>
+          <span class="side-panel-category-title" id="daemonCategoryTitle">Daemon</span>
+        </div>
+        <div class="daemon-body">
+          <div class="daemon-primary">
+            <span class="daemon-dot" id="daemonDot" aria-hidden="true"></span>
+            <span class="daemon-label" id="daemonLabel">Checking…</span>
+            <span class="daemon-port mono num" id="daemonPort"></span>
+          </div>
+          <dl class="daemon-rows" id="daemonRows"></dl>
+        </div>
+      </section>
+
       <button class="side-panel-toggle" id="sidePanelToggle" type="button"
               aria-controls="sidePanelContent" aria-expanded="true" aria-label="Collapse side panel"
               title="Collapse side panel">
@@ -57,14 +104,19 @@
     <!-- ===== Memories ===== -->
     <section class="view active" id="view-memories">
       <div class="controls">
-        <input id="searchInput" class="grow" placeholder="search content, topic key, session…" autocomplete="off">
-        <select id="typeFilter" title="Filter by type">
-          <option value="">All types</option>
-          <option value="fact">fact</option>
-          <option value="event">event</option>
-          <option value="instruction">instruction</option>
-          <option value="task">task</option>
-        </select>
+        <div class="search-field grow">
+          <span class="ico" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          </span>
+          <input id="searchInput" placeholder="search content, topic key, session…" autocomplete="off">
+        </div>
+        <div class="segmented" id="typeFilter" role="group" aria-label="Filter by type">
+          <button type="button" data-type="" class="active">All</button>
+          <button type="button" data-type="fact">fact</button>
+          <button type="button" data-type="event">event</button>
+          <button type="button" data-type="instruction">instruction</button>
+          <button type="button" data-type="task">task</button>
+        </div>
         <select id="sessionFilter" title="Filter by session"><option value="">All sessions</option></select>
         <select id="sortSelect" title="Sort">
           <option value="new">Newest</option>
@@ -94,7 +146,7 @@
           </div>
           <div class="field">
             <label>Topic key <span class="hint">(supersedes prior fact/instruction with same key)</span></label>
-            <input id="addTopicKey" placeholder="optional, e.g. recall-latency">
+            <input id="addTopicKey" class="mono" placeholder="optional, e.g. recall-latency">
           </div>
           <div class="field full">
             <label>Content <span class="req">*</span></label>
@@ -102,11 +154,11 @@
           </div>
           <div class="field">
             <label>Session id</label>
-            <input id="addSession" placeholder="optional">
+            <input id="addSession" class="mono" placeholder="optional">
           </div>
           <div class="field">
             <label>Payload (JSON)</label>
-            <textarea id="addPayload" placeholder='optional, e.g. {"source":"manual"}'></textarea>
+            <textarea id="addPayload" class="mono" placeholder='optional, e.g. {"source":"manual"}'></textarea>
           </div>
           <div class="field full form-actions">
             <button class="primary" id="addSubmit">Store memory</button>
@@ -144,7 +196,12 @@
     <!-- ===== Audit ===== -->
     <section class="view" id="view-audit">
       <div class="controls audit-controls">
-        <input id="auditSearch" class="grow" placeholder="search requests, responses, ids, errors…" autocomplete="off">
+        <div class="search-field grow">
+          <span class="ico" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          </span>
+          <input id="auditSearch" placeholder="search requests, responses, ids, errors…" autocomplete="off">
+        </div>
         <select id="auditOperation" title="Filter by operation">
           <option value="">All operations</option>
           <option value="recall">recall</option>
@@ -259,8 +316,17 @@
     <header>
       <span id="drawerChip"></span>
       <span class="spacer"></span>
-      <button class="danger" id="drawerDelete" title="Forget this memory">🗑 Forget</button>
-      <button id="drawerClose" title="Close">✕</button>
+      <button class="ghost-btn danger" id="drawerDelete" title="Forget this memory">
+        <span class="ico" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" focusable="false"><path d="M4 7h16M9 7V5h6v2m-9 0 1 13h10l1-13"/></svg>
+        </span>
+        Forget
+      </button>
+      <button class="icon-only" id="drawerClose" title="Close" aria-label="Close">
+        <span class="ico" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" focusable="false"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </span>
+      </button>
     </header>
     <div class="body" id="drawerBody"></div>
   </aside>

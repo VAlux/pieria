@@ -6,9 +6,15 @@
   --border: #2a323d;
   --text: #e6edf3;
   --muted: #8b98a5;
+  /* Tertiary grey. --muted carried section labels, metadata, placeholders and disabled text at one
+     weight, so nothing receded; metadata and placeholders live here now. */
+  --dim: #6b7681;
   --accent: #58a6ff;
   --danger: #f85149;
   --ok: #3fb950;
+
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -16,18 +22,36 @@ html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 14px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
   display: flex;
   flex-direction: column;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* Machine strings — topic keys, session ids, memory ids, operations, channel names — take the
+   monospace face everywhere, not only inside pre.code. */
+.mono { font-family: var(--mono); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Every glyph in the console is an inline SVG on a 24px grid; text glyphs (⬇ 🗑 ✕) rendered in
+   three unrelated typefaces and shifted baseline per platform. */
+.ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: none;
+}
+.ico svg {
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
 input, button, select, textarea {
   font: inherit; color: var(--text);
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px;
 }
+input::placeholder, textarea::placeholder { color: var(--dim); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 button, select { cursor: pointer; }
 button:hover, select:hover { background: var(--panel-2); }
@@ -37,6 +61,18 @@ button.primary:hover { filter: brightness(1.08); background: var(--accent); }
 button.danger { color: var(--danger); }
 select {
   appearance: none; -webkit-appearance: none; padding-right: 30px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%238b98a5' d='M2 4l4 4 4-4z'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='%236b7681' d='M2 4l4 4 4-4z'/></svg>");
   background-repeat: no-repeat; background-position: right 10px center;
 }
+
+/* Buttons that are only an icon: square, quiet until hovered. */
+button.icon-only {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  background: transparent; border-color: transparent; color: var(--muted);
+}
+button.icon-only:hover { background: var(--panel-2); color: var(--text); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1.3s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

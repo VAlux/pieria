@@ -1,5 +1,5 @@
 import { $, el, addRow } from "../util/dom.js";
-import { typeColor } from "../util/palette.js";
+import { typeColor, typeTint, tint } from "../util/palette.js";
 import { fmtDate } from "../util/format.js";
 import { forgetMemory } from "./memories.js";
 
@@ -8,7 +8,10 @@ let drawerMem = null;
 export function openDrawer(m) {
   drawerMem = m;
   const chip = $("drawerChip");
-  chip.className = "chip"; chip.textContent = m.type; chip.style.background = typeColor(m.type);
+  chip.className = "chip";
+  chip.textContent = m.type;
+  chip.style.color = typeColor(m.type);
+  chip.style.background = typeTint(m.type);
   $("drawerDelete").style.display = m.superseded ? "none" : "";
 
   let payload = m.payload;
@@ -42,7 +45,10 @@ export function openAuditDrawer(e) {
   const chip = $("drawerChip");
   chip.className = "chip";
   chip.textContent = e.operation;
-  chip.style.background = e.outcome === "success" ? "var(--ok)" : e.outcome === "cancelled" ? "var(--muted)" : "var(--danger)";
+  const outcomeColor = e.outcome === "success" ? "#3fb950"
+    : e.outcome === "cancelled" ? "#8b98a5" : "#f85149";
+  chip.style.color = outcomeColor;
+  chip.style.background = tint(outcomeColor, .14);
   $("drawerDelete").style.display = "none";
 
   const body = $("drawerBody");

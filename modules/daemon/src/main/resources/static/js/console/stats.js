@@ -1,4 +1,4 @@
-import { $, el, api, apiFetch, addRow, escapeHtml } from "../util/dom.js";
+import { $, el, api, apiFetch, escapeHtml } from "../util/dom.js";
 import { typeColor } from "../util/palette.js";
 import { fmtDate, fmtInt } from "../util/format.js";
 import { state } from "./state.js";
@@ -19,7 +19,7 @@ function renderStats(s) {
 
   // headline tiles
   const tiles = el("div", "tiles");
-  tiles.appendChild(tile(fmtInt(s.totalActive), "Active memories"));
+  tiles.appendChild(tile(fmtInt(s.totalActive), "Active memories", true));
   tiles.appendChild(tile(fmtInt(s.superseded), "Superseded"));
   tiles.appendChild(tile(fmtInt(s.sessions), "Sessions"));
   if (s.vectorizationBacklog != null) tiles.appendChild(tile(fmtInt(s.vectorizationBacklog), "Vector backlog"));
@@ -63,19 +63,17 @@ function renderStats(s) {
   const imp = s.impact || {};
   const impPanel = el("div", "panel");
   impPanel.appendChild(el("h2", "section", "Impact"));
-  const dl = el("dl", "rows");
-  addRow(dl, "Recalls served", fmtInt(imp.recalls));
-  addRow(dl, "Est. tokens saved (vs. re-reading the source)", fmtInt(imp.tokensSaved));
-  addRow(dl, "Tokens ingested", fmtInt(imp.tokensIngested));
-  addRow(dl, "Tokens stored", fmtInt(imp.tokensStored));
+  impactRow(impPanel, "Recalls served", fmtInt(imp.recalls));
+  impactRow(impPanel, "Est. tokens saved (vs. re-reading the source)", fmtInt(imp.tokensSaved));
+  impactRow(impPanel, "Tokens ingested", fmtInt(imp.tokensIngested));
+  impactRow(impPanel, "Tokens stored", fmtInt(imp.tokensStored));
   if (imp.contextWindowTokens) {
-    addRow(dl, "≈ context windows saved", (imp.tokensSaved / imp.contextWindowTokens).toFixed(1)
+    impactRow(impPanel, "≈ context windows saved", (imp.tokensSaved / imp.contextWindowTokens).toFixed(1)
       + " × " + fmtInt(imp.contextWindowTokens));
   }
   if (imp.pricePerMillionTokens > 0) {
-    addRow(dl, "≈ cost saved", "$" + (imp.tokensSaved / 1e6 * imp.pricePerMillionTokens).toFixed(2));
+    impactRow(impPanel, "≈ cost saved", "$" + (imp.tokensSaved / 1e6 * imp.pricePerMillionTokens).toFixed(2));
   }
-  impPanel.appendChild(dl);
   grid.appendChild(impPanel);
   body.appendChild(grid);
 
@@ -102,8 +100,18 @@ function renderStats(s) {
   }
 }
 
-function tile(num, lbl) {
-  const t = el("div", "tile");
+// Label left, value right on a tabular figure — a plain two-column row rather than a <dl> grid,
+// so long labels wrap without dragging the number off its column.
+function impactRow(host, k, v) {
+  const row = el("div", "impact-row");
+  row.appendChild(el("span", "k", k));
+  row.appendChild(el("span", "v", v));
+  host.appendChild(row);
+}
+
+// `primary` gives the headline count an accent rail so the tiles are not four equal boxes.
+function tile(num, lbl, primary) {
+  const t = el("div", "tile" + (primary ? " primary" : ""));
   t.appendChild(el("div", "num", num));
   t.appendChild(el("div", "lbl", lbl));
   return t;

@@ -22,10 +22,15 @@ function renderProfiles(profiles) {
   list.innerHTML = "";
   profiles.forEach(function (profile) {
     const row = el("li");
-    const button = el("button", "side-panel-item", profile.name + " (" + profile.memoryCount + ")");
+    const button = el("button", "side-panel-item");
     button.type = "button";
     button.dataset.profile = profile.name;
     button.title = profile.name + " (" + profile.memoryCount + ")";
+    // Rail marks the active profile; the count is a tabular column rather than part of the label,
+    // so a scan down the list reads as names on the left and magnitudes on the right.
+    button.appendChild(el("span", "side-panel-rail"));
+    button.appendChild(el("span", "side-panel-name", profile.name));
+    button.appendChild(el("span", "side-panel-count mono num", String(profile.memoryCount)));
     if (profile.name === state.profile) {
       button.classList.add("active");
       button.setAttribute("aria-current", "page");
