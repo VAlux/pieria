@@ -59,12 +59,14 @@ class GlobalConfigServiceTests {
   }
 
   @Test
-  void writingALiveKeyMarksItSetAndNeedsNoRestart() {
+  void writingAKeyMarksItSet() {
+    // No global key is "live" tier (pieria.properties is bound once at startup and never
+    // re-read), so a plain write is exercised here for the set/fileValue bookkeeping; restart
+    // reporting itself is covered by writingARestartKeyReportsItAndStaysPendingUntilTheDaemonRestarts.
     GlobalConfigService.ApplyResult result =
       service.apply(Map.of("pieria.reminiscence.parallelism", "16"), false);
 
     assertThat(result.written()).containsExactly("pieria.reminiscence.parallelism");
-    assertThat(result.restartRequired()).isEmpty();
     assertThat(entry("pieria.reminiscence.parallelism").provenance()).isEqualTo("set");
     assertThat(entry("pieria.reminiscence.parallelism").fileValue()).isEqualTo("16");
   }
@@ -81,14 +83,15 @@ class GlobalConfigServiceTests {
   }
 
   @Test
-  void restartRequiredListsOnlyTheKeysThatNeedOne() {
+  void restartRequiredListsExactlyTheWrittenKeysSinceNoGlobalKeyIsLive() {
     Map<String, String> updates = new HashMap<>();
     updates.put("pieria.reminiscence.parallelism", "16");
     updates.put("pieria.daemon.port", "9090");
 
     GlobalConfigService.ApplyResult result = service.apply(updates, false);
 
-    assertThat(result.restartRequired()).containsExactly("pieria.daemon.port");
+    assertThat(result.restartRequired()).containsExactlyInAnyOrder(
+      "pieria.reminiscence.parallelism", "pieria.daemon.port");
   }
 
   @Test

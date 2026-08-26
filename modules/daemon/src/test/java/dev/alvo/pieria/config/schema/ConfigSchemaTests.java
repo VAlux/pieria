@@ -63,6 +63,16 @@ class ConfigSchemaTests {
       .get().extracting(ConfigField::tier).isEqualTo("locked");
   }
 
+  @Test
+  void noGlobalFieldClaimsToApplyWithoutARestart() {
+    // spring.config.import reads pieria.properties at startup and never again, so a global key
+    // cannot take effect until the daemon restarts. A "live" global tier would tell the operator
+    // their change was already in force when it was not. Per-profile keys are genuinely live —
+    // EffectiveConfigResolver invalidates its cache on write — which is why they keep that tier.
+    assertThat(schema.forScope("global")).allSatisfy(
+      field -> assertThat(field.tier()).isIn("restart", "locked"));
+  }
+
   private static Set<String> kebabComponentNames(Class<? extends Record> type) {
     Set<String> names = new LinkedHashSet<>();
     for (RecordComponent component : type.getRecordComponents()) {

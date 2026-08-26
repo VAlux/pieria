@@ -32,11 +32,11 @@
   {"key":"ingestion.max-extracted-candidates-per-chunk","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Max candidates per chunk","hint":"0 means uncapped."},
   {"key":"ingestion.graph-from-extraction","scope":"profile","section":"ingestion","tier":"live","kind":"bool","label":"Extract graph during ingest"},
 
-  {"key":"logging.level.dev.alvo.pieria.model","scope":"global","section":"observability","tier":"live","kind":"enum","options":["INFO","DEBUG","TRACE"],"label":"Model-call log level","hint":"DEBUG logs each model call with stage, model, prompt size and latency."},
-  {"key":"pieria.model.max-concurrent-structured-calls","scope":"global","section":"throughput","tier":"live","kind":"int","label":"Max concurrent structured calls","hint":"Hosted providers take 16-32; a single-GPU local Ollama gains nothing past 4."},
-  {"key":"pieria.reminiscence.parallelism","scope":"global","section":"throughput","tier":"live","kind":"int","label":"Graph enrichment parallelism"},
-  {"key":"pieria.ingestion.vectorization-interval-ms","scope":"global","section":"throughput","tier":"live","kind":"int","label":"Vectorization interval (ms)"},
-  {"key":"pieria.audit.max-body-bytes","scope":"global","section":"observability","tier":"live","kind":"int","label":"Audit body retention (bytes)"},
+  {"key":"logging.level.dev.alvo.pieria.model","scope":"global","section":"observability","tier":"restart","kind":"enum","options":["INFO","DEBUG","TRACE"],"label":"Model-call log level","hint":"DEBUG logs each model call with stage, model, prompt size and latency."},
+  {"key":"pieria.model.max-concurrent-structured-calls","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Max concurrent structured calls","hint":"Hosted providers take 16-32; a single-GPU local Ollama gains nothing past 4."},
+  {"key":"pieria.reminiscence.parallelism","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Graph enrichment parallelism"},
+  {"key":"pieria.ingestion.vectorization-interval-ms","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Vectorization interval (ms)"},
+  {"key":"pieria.audit.max-body-bytes","scope":"global","section":"observability","tier":"restart","kind":"int","label":"Audit body retention (bytes)"},
 
   {"key":"pieria.provider.type","scope":"global","section":"provider","tier":"restart","kind":"enum","options":["openai","azure"],"label":"Provider dialect","hint":"openai covers Ollama, LM Studio, llama.cpp, vLLM, OpenRouter and OpenAI."},
   {"key":"pieria.provider.base-url","scope":"global","section":"provider","tier":"restart","kind":"string","label":"Provider base URL","hint":"API root WITHOUT /v1 — the client appends it. In azure mode, the resource endpoint."},
