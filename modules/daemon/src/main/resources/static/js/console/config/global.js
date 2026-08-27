@@ -18,9 +18,11 @@ const TIERS = [
   { id: "locked", title: "Locked", note: "changing these invalidates stored data" }
 ];
 
-const LOCKED_WARNING = "The embedding dimension fixes the width of the memories_vec column, so "
-  + "changing it invalidates every stored vector — it needs a re-embed, not a save. Moving the "
-  + "database path points the daemon at a different store; the existing one is left behind.";
+const LOCKED_WARNING = "The embedding dimension fixes the width of the memories_vec column — a "
+  + "mismatch does not just leave stale vectors, it makes the daemon refuse to start on the next "
+  + "boot, and there is no console left to revert from at that point. Recovery means hand-editing "
+  + "pieria.properties back to the working value and restarting. Moving the database path points "
+  + "the daemon at a different store; the existing one is left behind.";
 
 let form = null;
 let snapshot = null;

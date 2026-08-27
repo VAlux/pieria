@@ -166,6 +166,20 @@ class ConfigConsoleAssetsTests {
   }
 
   @Test
+  void lockedWarningStatesTheDaemonRefusesToStartNotJustStaleVectors() throws IOException {
+    String global = resource("static/js/console/config/global.js");
+
+    // SqliteVectorIndex.verifyDimensionOrFail throws from an ApplicationReadyEvent listener on a
+    // width mismatch, so the daemon never comes up — there is no console left to revert from, and
+    // the only recovery is hand-editing the properties file. The warning must say so, not just that
+    // a re-embed is needed, or an operator would unlock expecting a save-and-retry path that isn't
+    // there.
+    assertThat(global).contains("refuse to start", "pieria.properties");
+    // Guard against reverting to the old (incorrect) framing that a re-embed alone fixes this.
+    assertThat(global).doesNotContain("it needs a re-embed, not a save");
+  }
+
+  @Test
   void pendingRestartIsReadFromTheServerNotInferredFromLocalEdits() throws IOException {
     String global = resource("static/js/console/config/global.js");
 
