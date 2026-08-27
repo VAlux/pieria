@@ -195,6 +195,19 @@ class ConfigConsoleAssetsTests {
     assertThat(main).contains("\"profile-config\"", "\"global-config\"");
   }
 
+  @Test
+  void anEmptyProfileStoreStillLoadsTheDaemonConfigView() throws IOException {
+    String profiles = resource("static/js/console/profiles.js");
+    String router = resource("static/js/console/router.js");
+
+    // The no-profiles branch returns before selectProfile, so without this call loadActiveView
+    // never runs and the daemon config page is unreachable on a fresh, empty store.
+    assertThat(profiles).contains("No profiles", "loadActiveView(false)");
+    // And loadActiveView must dispatch global-config BEFORE the profile guard, or the call above
+    // would still fall through to nothing.
+    assertThat(router.indexOf("global-config")).isLessThan(router.indexOf("if (!state.profile) return;"));
+  }
+
   static String resource(String path) throws IOException {
     try (InputStream in = ConfigConsoleAssetsTests.class.getClassLoader().getResourceAsStream(path)) {
       assertThat(in).as("resource %s", path).isNotNull();

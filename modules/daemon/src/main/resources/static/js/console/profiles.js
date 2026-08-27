@@ -99,6 +99,9 @@ export function loadProfiles(preferred) {
       if (!profiles.length) {
         renderProfileState("No profiles");
         renderBanner($("memList"), "No profiles found. Ingest or store a memory first.");
+        // A non-profile-scoped view still has to load here. loadActiveView dispatches
+        // global-config before its profile guard, and returns early for everything else.
+        loadActiveView(false);
         return;
       }
       const chosen = (preferred && profiles.some(function (p) {
