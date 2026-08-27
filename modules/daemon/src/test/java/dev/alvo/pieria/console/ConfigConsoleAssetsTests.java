@@ -161,6 +161,40 @@ class ConfigConsoleAssetsTests {
     assertThat(html.select("main > section.view#view-global-config")).hasSize(1);
   }
 
+  @Test
+  void bothConfigEntriesLiveInTheSidePanelNotTheNavBar() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+
+    // Global config hangs off the daemon block, because that is its scope.
+    assertThat(html.select("#sidePanel #daemonConfigLink[data-view=global-config]")).hasSize(1);
+    // A seventh nav tab would read as global and undercut the per-profile scoping.
+    assertThat(html.select(".nav button[data-view=profile-config]")).isEmpty();
+    assertThat(html.select(".nav button[data-view=global-config]")).isEmpty();
+  }
+
+  @Test
+  void selectingAProfileRevealsItsConfigurationEntry() throws IOException {
+    String profiles = resource("static/js/console/profiles.js");
+    String css = resource("static/css/console.css");
+
+    assertThat(profiles).contains("side-panel-subitem", "profile-config");
+    assertThat(css).contains(".side-panel-subitem");
+  }
+
+  @Test
+  void routerLoadsAndTearsDownBothConfigViews() throws IOException {
+    String router = resource("static/js/console/router.js");
+    String main = resource("static/js/console/main.js");
+
+    assertThat(router)
+      .contains("profile-config", "global-config")
+      .contains("loadProfileConfig", "loadGlobalConfig")
+      // Both views hold fetched state; leaving must drop it so a profile switch cannot show
+      // the previous profile's overrides.
+      .contains("unloadProfileConfig", "unloadGlobalConfig");
+    assertThat(main).contains("\"profile-config\"", "\"global-config\"");
+  }
+
   static String resource(String path) throws IOException {
     try (InputStream in = ConfigConsoleAssetsTests.class.getClassLoader().getResourceAsStream(path)) {
       assertThat(in).as("resource %s", path).isNotNull();

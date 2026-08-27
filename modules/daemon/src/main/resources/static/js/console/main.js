@@ -12,7 +12,8 @@ import { initSidePanel } from "./side-panel.js";
 import { initDaemonStatus } from "./daemon.js";
 import { initTaskTray } from "./tasks.js";
 
-const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph"];
+const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph",
+  "profile-config", "global-config"];
 let auditSearchTimer = null;
 
 function applyAuditFiltersNow() {
@@ -23,9 +24,12 @@ function applyAuditFiltersNow() {
 
 function wireUp() {
   $("profileList").addEventListener("click", function (e) {
+    const link = e.target.closest("button[data-view]");
+    if (link) { setView(link.dataset.view); return; }
     const button = e.target.closest("button[data-profile]");
     if (button) selectProfile(button.dataset.profile);
   });
+  $("daemonConfigLink").addEventListener("click", function () { setView("global-config"); });
   $("nav").addEventListener("click", function (e) {
     const b = e.target.closest("button[data-view]");
     if (b) setView(b.dataset.view);

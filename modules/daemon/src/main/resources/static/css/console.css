@@ -116,6 +116,15 @@ body.view-graph main { padding: 0; overflow: hidden; }
 .side-panel-count { flex: none; font-size: 11px; color: var(--dim); }
 .side-panel-status { padding: 7px 9px; color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
 .side-panel-status.err { color: var(--danger); }
+/* A profile's own sections, revealed when it is selected. Indented and a step quieter than the
+   profile row, so the hierarchy is legible without a second icon column. */
+.side-panel-sublist { list-style: none; margin: 2px 0 0; padding: 0 0 0 11px; }
+.side-panel-sublist li + li { margin-top: 2px; }
+.side-panel-subitem { padding: 6px 9px 6px 0; font-size: 12.5px; }
+.side-panel-subitem .side-panel-rail { height: 14px; }
+.side-panel-subitem .side-panel-icon { flex: 0 0 18px; width: 18px; height: 18px; }
+.side-panel-subitem .side-panel-icon svg { width: 15px; height: 15px; }
+.side-panel.is-collapsed .side-panel-sublist { display: none; }
 .side-panel-toggle {
   flex: none; height: 48px; margin: 0; padding: 0 16px;
   display: flex; align-items: center; gap: 10px; font-size: 13px;

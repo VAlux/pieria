@@ -17,6 +17,36 @@ function renderProfileState(message, isError) {
   list.appendChild(row);
 }
 
+// Build the profile's Configuration sub-entry. Extracted so renderProfiles (initial paint) and
+// markSelected (profile switch) share one definition rather than each building the markup inline.
+function renderSubList(row) {
+  const sub = el("ul", "side-panel-sublist");
+  const item = el("li");
+  const link = el("button", "side-panel-item side-panel-subitem");
+  link.type = "button";
+  link.dataset.view = "profile-config";
+  link.appendChild(el("span", "side-panel-rail"));
+  const gear = el("span", "side-panel-icon");
+  gear.setAttribute("aria-hidden", "true");
+  gear.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="3.2"/>'
+    + '<path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3'
+    + ' 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2'
+    + ' 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0'
+    + ' 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6'
+    + ' 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1'
+    + ' 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0'
+    + ' 0 0-1.5 1Z"/></svg>';
+  link.appendChild(gear);
+  link.appendChild(el("span", "side-panel-name", "Configuration"));
+  if (state.view === "profile-config") {
+    link.classList.add("active");
+    link.setAttribute("aria-current", "page");
+  }
+  item.appendChild(link);
+  sub.appendChild(item);
+  row.appendChild(sub);
+}
+
 function renderProfiles(profiles) {
   const list = profileList();
   list.innerHTML = "";
@@ -36,6 +66,11 @@ function renderProfiles(profiles) {
       button.setAttribute("aria-current", "page");
     }
     row.appendChild(button);
+
+    // The selected profile reveals its own sections. Configuration is per-profile, so its entry
+    // belongs under the profile rather than in the global nav.
+    if (profile.name === state.profile) renderSubList(row);
+
     list.appendChild(row);
   });
 }
@@ -46,6 +81,11 @@ function markSelected(profile) {
     button.classList.toggle("active", selected);
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
+    // The Configuration sub-entry belongs to the selected profile only.
+    const row = button.closest("li");
+    const sub = row ? row.querySelector(".side-panel-sublist") : null;
+    if (sub && !selected) sub.remove();
+    if (selected && !sub) renderSubList(row);
   });
 }
 
