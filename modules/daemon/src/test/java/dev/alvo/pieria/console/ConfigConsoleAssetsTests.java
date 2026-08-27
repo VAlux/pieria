@@ -104,6 +104,25 @@ class ConfigConsoleAssetsTests {
   }
 
   @Test
+  void channelMixCoversAllEightFusionWeightsNotJustTheChannelsSectionSliders() throws IOException {
+    String profile = resource("static/js/console/config/profile.js");
+    String mix = resource("static/js/console/config/channel-mix.js");
+
+    // RetrievalService.getWeightsForRetrievalChannels fuses eight weights: the six sliders in the
+    // "channels" section plus weight-symbol-fts and weight-code-graph, which live in the code-graph
+    // section as plain "double" fields. Selecting by key against the full schema — not `group.fields`
+    // scoped to the one section being rendered — is what reaches all eight; pinning the call site
+    // guards against reverting to a section- or kind-scoped filter that silently drops the two.
+    assertThat(profile).contains("Object.values(schemaFields).filter(function (f) {")
+      .contains("f.key.indexOf(\"retrieval.weight-\") === 0");
+    // The old bug's exact shape: `group.fields` (this section only) filtered by `kind === "weight"`
+    // (excludes the two "double" code-graph fields even if the section scope were fixed).
+    assertThat(profile).doesNotContain("group.fields.filter(function (f) { return f.kind === \"weight\"; })");
+
+    assertThat(mix).contains("\"retrieval.weight-symbol-fts\":", "\"retrieval.weight-code-graph\":");
+  }
+
+  @Test
   void saveBarBlocksWhenAFieldFailsClientValidation() throws IOException {
     String form = resource("static/js/console/config/form.js");
 

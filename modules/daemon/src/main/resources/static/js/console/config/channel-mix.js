@@ -1,4 +1,4 @@
-// The six retrieval channel weights, drawn as one bar.
+// The eight retrieval channel weights RRF actually fuses, drawn as one bar.
 //
 // A weight means nothing on its own — only its share of the total decides what the channel
 // contributes, so the bar is the value and the numbers are the detail. A weight of 0 is a
@@ -11,7 +11,11 @@ export const CHANNEL_COLORS = {
   "retrieval.weight-hyde-vector": "#bc8cff",
   "retrieval.weight-direct-vector": "#56d4dd",
   "retrieval.weight-fts-message": "#d29922",
-  "retrieval.weight-graph": "#ff7b72"
+  "retrieval.weight-graph": "#ff7b72",
+  // The two code-graph fusion weights (RetrievalService.getWeightsForRetrievalChannels) — their
+  // own fields stay plain number inputs in the code-graph section; only this legend/bar sees them.
+  "retrieval.weight-symbol-fts": "#f778ba",
+  "retrieval.weight-code-graph": "#ffa657"
 };
 
 export function renderChannelMix(container, weights, opts) {

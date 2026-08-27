@@ -206,7 +206,15 @@ function renderSection(group, errors, graphOff) {
   if (group.section === "channels") {
     mixHost = el("div");
     body.appendChild(mixHost);
-    channelFields = group.fields.filter(function (f) { return f.kind === "weight"; });
+    // The mix must total every channel RRF actually fuses, not just this section's six sliders:
+    // RetrievalService.getWeightsForRetrievalChannels weighs these six plus weight-symbol-fts and
+    // weight-code-graph, which live in the code-graph section as plain "double" fields (no slider)
+    // and stay that way here — only the bar's math and legend pick them up. Selecting by key against
+    // the full schema (rather than this section's `group.fields`) is what reaches them regardless of
+    // section-render order.
+    channelFields = Object.values(schemaFields).filter(function (f) {
+      return f.key.indexOf("retrieval.weight-") === 0;
+    });
     paintMix();
   }
 
