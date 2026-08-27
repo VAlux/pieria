@@ -133,9 +133,12 @@ function renderTier(tier, entries, errors, changed, pendingKeys) {
   section.appendChild(head);
 
   if (tier.id === "restart") {
-    const dirtyHere = entries.filter(function (e) { return changed.indexOf(e.key) >= 0; });
-    const pendingHere = entries.filter(function (e) { return pendingKeys.indexOf(e.key) >= 0; });
-    const count = dirtyHere.length + pendingHere.length;
+    // A key can be BOTH locally edited and already flagged restart-pending by the server, so
+    // this must be a union of keys — summing the two lists counts that key twice.
+    const pendingHereKeys = entries
+      .map(function (entry) { return entry.key; })
+      .filter(function (key) { return changed.indexOf(key) >= 0 || pendingKeys.indexOf(key) >= 0; });
+    const count = pendingHereKeys.length;
     if (count > 0) {
       const banner = el("div", "cfg-banner warn");
       banner.appendChild(el("div", null,
@@ -154,7 +157,19 @@ function renderTier(tier, entries, errors, changed, pendingKeys) {
     const button = el("button", null, unlocked ? "Lock again" : "Unlock to edit");
     button.type = "button";
     button.addEventListener("click", function () {
-      if (unlocked) { unlocked = false; render(); return; }
+      if (unlocked) {
+        const stranded = entries.filter(function (entry) { return changed.indexOf(entry.key) >= 0; });
+        // Re-locking would leave these edits unreachable — the row goes read-only and its reset
+        // button disappears — and a save while locked is refused. Discard them, but say so first.
+        if (stranded.length && !window.confirm("Lock these settings again? Your unsaved changes to "
+          + stranded.length + " locked setting(s) will be discarded.")) {
+          return;
+        }
+        stranded.forEach(function (entry) { form.revert(entry.key); });
+        unlocked = false;
+        render();
+        return;
+      }
       if (window.confirm("Unlock these settings? Changing them still requires a restart and a "
         + "full re-embed of every memory in the store.")) {
         unlocked = true;

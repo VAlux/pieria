@@ -49,6 +49,16 @@ export function createForm(options) {
 
     discard: function () { state.values = Object.assign({}, state.baseline); },
 
+    // Undo one field back to its loaded state. `clear` is not the same thing: for a key that was
+    // already set at this layer, clearing it means "unset me", which is itself a change.
+    revert: function (key) {
+      if (Object.prototype.hasOwnProperty.call(state.baseline, key)) {
+        state.values[key] = state.baseline[key];
+      } else {
+        delete state.values[key];
+      }
+    },
+
     commit: function () { state.baseline = Object.assign({}, state.values); },
 
     isSet: function (key) {
