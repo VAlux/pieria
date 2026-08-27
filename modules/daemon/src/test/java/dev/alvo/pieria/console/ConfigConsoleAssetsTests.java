@@ -219,6 +219,43 @@ class ConfigConsoleAssetsTests {
   }
 
   @Test
+  void bothConfigModulesExposePendingChangeCountForTheRouterToConsult() throws IOException {
+    String profile = resource("static/js/console/config/profile.js");
+    String global = resource("static/js/console/config/global.js");
+
+    assertThat(profile).contains("export function pendingChangeCount", "form.changedKeys().length");
+    assertThat(global).contains("export function pendingChangeCount", "form.changedKeys().length");
+  }
+
+  @Test
+  void navigatingAwayFromADirtyConfigViewConfirmsBeforeDiscardingEdits() throws IOException {
+    String router = resource("static/js/console/router.js");
+
+    assertThat(router).contains(
+      "pendingChangeCount as pendingProfileChanges",
+      "pendingChangeCount as pendingGlobalChanges");
+
+    int start = router.indexOf("export function setView");
+    int end = router.indexOf("export function loadActiveView");
+    assertThat(start).as("setView must exist in router.js").isNotNegative();
+    assertThat(end).as("loadActiveView must exist in router.js").isGreaterThan(start);
+    String body = router.substring(start, end);
+
+    // Declining the confirm must abort the navigation outright, not just show a dialog nobody
+    // reacts to.
+    assertThat(body).contains("if (!window.confirm(").contains("return;");
+    // The guard must run before either teardown path: unload*() on an actual view change, and the
+    // reload loadActiveView() triggers at the end of setView when re-targeting the already-active
+    // view (a stray reclick reloads and overwrites the form the same as navigating away).
+    int confirmIndex = body.indexOf("window.confirm(");
+    int unloadProfileIndex = body.indexOf("unloadProfileConfig();");
+    int unloadGlobalIndex = body.indexOf("unloadGlobalConfig();");
+    assertThat(confirmIndex).isGreaterThanOrEqualTo(0)
+      .isLessThan(unloadProfileIndex)
+      .isLessThan(unloadGlobalIndex);
+  }
+
+  @Test
   void routerLoadsAndTearsDownBothConfigViews() throws IOException {
     String router = resource("static/js/console/router.js");
     String main = resource("static/js/console/main.js");

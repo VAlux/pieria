@@ -4,11 +4,23 @@ import { loadMemories } from "./memories.js";
 import { loadStats } from "./stats.js";
 import { loadAudit } from "./audit.js";
 import { showGraph, hideGraph } from "../graph/index.js";
-import { loadProfileConfig, unloadProfileConfig } from "./config/profile.js";
-import { loadGlobalConfig, unloadGlobalConfig } from "./config/global.js";
+import { loadProfileConfig, unloadProfileConfig, pendingChangeCount as pendingProfileChanges } from "./config/profile.js";
+import { loadGlobalConfig, unloadGlobalConfig, pendingChangeCount as pendingGlobalChanges } from "./config/global.js";
 
 // Reflect the active tab in the nav, the visible section, and the URL, then (re)load its data.
 export function setView(view) {
+  // A config view is torn down below either by actually navigating away (unload*, below) or by
+  // reloading it in place when `view` re-targets the already-active one — clicking the same nav
+  // entry twice does not skip loadActiveView(), so it refetches and overwrites the form either way.
+  // Confirm before losing edits in both cases; declining aborts the navigation outright.
+  if (state.view === "profile-config" || state.view === "global-config") {
+    const pending = state.view === "profile-config" ? pendingProfileChanges() : pendingGlobalChanges();
+    if (pending > 0) {
+      const label = pending === 1 ? "1 unsaved change" : pending + " unsaved changes";
+      if (!window.confirm("Discard " + label + " on this page?")) return;
+    }
+  }
+
   const leavingGraph = state.view === "graph" && view !== "graph";
   // Both config views hold fetched state; leaving must drop it so a profile switch cannot render
   // the previous profile's overrides against the new profile's name.

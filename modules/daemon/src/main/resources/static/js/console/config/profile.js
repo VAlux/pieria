@@ -99,6 +99,11 @@ export function unloadProfileConfig() {
   saveBarHost = null;
 }
 
+/** Unsaved edit count, so the router can confirm before tearing this view down mid-edit. */
+export function pendingChangeCount() {
+  return form ? form.changedKeys().length : 0;
+}
+
 function fetchDetail(profile) {
   return apiFetch(api(profile, "/config/detail"), { headers: { Accept: "application/json" } })
     .then(function (r) {

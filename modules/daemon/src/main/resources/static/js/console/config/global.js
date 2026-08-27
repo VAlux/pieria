@@ -63,6 +63,11 @@ export function unloadGlobalConfig() {
   unlocked = false;
 }
 
+/** Unsaved edit count, so the router can confirm before tearing this view down mid-edit. */
+export function pendingChangeCount() {
+  return form ? form.changedKeys().length : 0;
+}
+
 function valueOf(entry) {
   return form.isSet(entry.key) ? form.values[entry.key] : entry.value;
 }
