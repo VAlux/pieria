@@ -8,6 +8,12 @@
         "pattern": "config/pieria-default\\.properties"
       },
       {
+        "pattern": "config/pieria-default-config\\.toml"
+      },
+      {
+        "pattern": "config/config-schema\\.json"
+      },
+      {
         "pattern": "db/migration/.*\\.sql"
       },
       {
