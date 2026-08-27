@@ -59,7 +59,14 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
     Double semanticDuplicateThreshold) {
   }
 
-  /** True when no override is set at all (PUTting this is equivalent to DELETE). */
+  /**
+   * True when no override is set at all (PUTting this is equivalent to DELETE).
+   *
+   * <p>This component list is hand-maintained and has already drifted once (two {@code Retrieval}
+   * fields were missing, which silently cleared a profile's overrides on save instead of reporting
+   * them). {@code ConfigRecordDriftTests} fails on any future record component that isn't threaded
+   * through here, so a drift is caught at test time rather than shipped.
+   */
   @JsonIgnore
   public boolean isEmpty() {
     return (ingestion == null || allNull(ingestion.chunkSizeChars(), ingestion.chunkOverlapMessages(),
@@ -71,7 +78,7 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
       retrieval.graphSeedLimit(), retrieval.channelLimit(), retrieval.channelTimeoutMs(),
       retrieval.weightSymbolFts(), retrieval.weightCodeGraph(), retrieval.codeGraphDepth(),
       retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence(),
-      retrieval.recallMode()));
+      retrieval.recallMode(), retrieval.nearDuplicateThreshold(), retrieval.semanticDuplicateThreshold()));
   }
 
   private static boolean allNull(Object... values) {
