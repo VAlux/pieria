@@ -177,7 +177,11 @@ class ConfigConsoleAssetsTests {
     String profiles = resource("static/js/console/profiles.js");
     String css = resource("static/css/console.css");
 
-    assertThat(profiles).contains("side-panel-subitem", "profile-config");
+    // Call-site shape, not bare token presence: renderSubList(row) is the actual call (built once,
+    // called from both renderProfiles and markSelected), and the dataset assignment is what makes
+    // the rendered entry route to profile-config. A stray comment mentioning either word could not
+    // satisfy this.
+    assertThat(profiles).contains("renderSubList(row)", "link.dataset.view = \"profile-config\";");
     assertThat(css).contains(".side-panel-subitem");
   }
 
@@ -189,9 +193,10 @@ class ConfigConsoleAssetsTests {
     assertThat(router)
       .contains("profile-config", "global-config")
       .contains("loadProfileConfig", "loadGlobalConfig")
-      // Both views hold fetched state; leaving must drop it so a profile switch cannot show
-      // the previous profile's overrides.
-      .contains("unloadProfileConfig", "unloadGlobalConfig");
+      // Both views hold fetched state; leaving must drop it so a profile switch cannot show the
+      // previous profile's overrides. Asserting the call site itself ("();" included), not just the
+      // bare name, so a comment mentioning these functions could not satisfy this.
+      .contains("unloadProfileConfig();", "unloadGlobalConfig();");
     assertThat(main).contains("\"profile-config\"", "\"global-config\"");
   }
 
@@ -203,9 +208,18 @@ class ConfigConsoleAssetsTests {
     // The no-profiles branch returns before selectProfile, so without this call loadActiveView
     // never runs and the daemon config page is unreachable on a fresh, empty store.
     assertThat(profiles).contains("No profiles", "loadActiveView(false)");
-    // And loadActiveView must dispatch global-config BEFORE the profile guard, or the call above
-    // would still fall through to nothing.
-    assertThat(router.indexOf("global-config")).isLessThan(router.indexOf("if (!state.profile) return;"));
+    // And within loadActiveView, global-config must be dispatched BEFORE the profile guard, or
+    // the call above still falls through to nothing. Scope the search to that function's body:
+    // "global-config" also occurs earlier in setView's teardown guard, so searching the whole
+    // file passes even with the branches reordered — an assertion that pins nothing.
+    int start = router.indexOf("export function loadActiveView");
+    assertThat(start).as("loadActiveView must exist in router.js").isNotNegative();
+    String body = router.substring(start);
+    int dispatch = body.indexOf("global-config");
+    int guard = body.indexOf("if (!state.profile) return;");
+    assertThat(dispatch).as("loadActiveView must dispatch global-config").isNotNegative();
+    assertThat(guard).as("loadActiveView must keep its profile guard").isNotNegative();
+    assertThat(dispatch).as("global-config must come before the profile guard").isLessThan(guard);
   }
 
   static String resource(String path) throws IOException {
