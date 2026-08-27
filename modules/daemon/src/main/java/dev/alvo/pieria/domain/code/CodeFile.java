@@ -31,7 +31,9 @@ public record CodeFile(
   String moduleId,
   Instant indexedAt) {
 
-  /** A freshly discovered file with no id or timestamp yet (assigned at store time). */
+  /**
+   * A freshly discovered file with no id or timestamp yet (assigned at store time).
+   */
   public static CodeFile of(String language, String repoRelPath, String contentHash, int loc, String moduleId) {
     return new CodeFile(null, null, language, repoRelPath, contentHash, loc, moduleId, null);
   }

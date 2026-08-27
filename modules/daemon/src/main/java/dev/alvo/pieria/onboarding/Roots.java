@@ -14,7 +14,9 @@ final class Roots {
   private Roots() {
   }
 
-  /** Resolve and validate a directory source root, or throw {@link IllegalArgumentException} (→ HTTP 400). */
+  /**
+   * Resolve and validate a directory source root, or throw {@link IllegalArgumentException} (→ HTTP 400).
+   */
   static Path require(String root) {
     Path path = resolve(root);
     if (!Files.isDirectory(path)) {
@@ -35,7 +37,9 @@ final class Roots {
     return path;
   }
 
-  /** Shared null/blank/absolute/parse checks; existence is checked by the caller. */
+  /**
+   * Shared null/blank/absolute/parse checks; existence is checked by the caller.
+   */
   private static Path resolve(String root) {
     if (root == null || root.isBlank()) {
       throw new IllegalArgumentException("source root is required");

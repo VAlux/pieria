@@ -20,6 +20,60 @@ import org.springframework.aot.hint.TypeReference;
  */
 public class DaemonNativeHints implements RuntimeHintsRegistrar {
 
+  private static String[] azureProviderTypes() {
+    return new String[]{
+      "com.openai.azure.AzureOpenAIServiceVersion",
+      "com.openai.azure.AzureOpenAIServiceVersion$Companion",
+      "com.openai.azure.credential.AzureApiKeyCredential",
+      "com.openai.credential.Credential",
+      "dev.alvo.pieria.config.ProviderEnvironmentPostProcessor"
+    };
+  }
+
+  private static String[] openAiErrorModelTypes() {
+    return new String[]{
+      "com.openai.models.ErrorObject"
+    };
+  }
+
+  private static String[] modelGatewayDtoTypes() {
+    String owner = "dev.alvo.pieria.model.OpenAiModelGateway$";
+    return new String[]{
+      owner + "UnifiedCandidateDto",
+      owner + "UnifiedCandidateList",
+      owner + "VerificationDto",
+      owner + "VerificationItemDto",
+      owner + "BatchVerificationDto",
+      owner + "ClassificationDto",
+      owner + "ClassificationItemDto",
+      owner + "BatchClassificationDto",
+      owner + "QueryAnalysisDto",
+      owner + "GraphDto",
+      owner + "GraphItemDto",
+      owner + "BatchGraphDto",
+      owner + "EntityDto",
+      owner + "TripleDto"
+    };
+  }
+
+  private static Class<?>[] configModelTypes() {
+    return new Class<?>[]{
+      DaemonOverrides.class,
+      DaemonOverrides.Ingestion.class,
+      DaemonOverrides.Retrieval.class,
+      PieriaConfigFile.class,
+      DiscoveryConfig.class,
+      // Every config controller method below declares a plain JsonNode return type and serializes
+      // through ConfigCodec.toNode(...) — invisible to Spring's ControllerMappingReflectiveProcessor,
+      // which reads declared method signatures, not what a method actually returns at runtime. These
+      // four are reached only by this hand-maintained list.
+      ConfigField.class,
+      GlobalConfigEntry.class,
+      GlobalConfigService.ApplyResult.class,
+      ProfileConfigDetail.class
+    };
+  }
+
   @Override
   public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
     for (Class<?> type : configModelTypes()) {
@@ -64,59 +118,5 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
     // constructor so the lookup survives in the native image.
     hints.reflection().registerType(PieriaTreeSitterLibraryLookup.class,
       MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS);
-  }
-
-  private static String[] azureProviderTypes() {
-    return new String[] {
-      "com.openai.azure.AzureOpenAIServiceVersion",
-      "com.openai.azure.AzureOpenAIServiceVersion$Companion",
-      "com.openai.azure.credential.AzureApiKeyCredential",
-      "com.openai.credential.Credential",
-      "dev.alvo.pieria.config.ProviderEnvironmentPostProcessor"
-    };
-  }
-
-  private static String[] openAiErrorModelTypes() {
-    return new String[] {
-      "com.openai.models.ErrorObject"
-    };
-  }
-
-  private static String[] modelGatewayDtoTypes() {
-    String owner = "dev.alvo.pieria.model.OpenAiModelGateway$";
-    return new String[] {
-      owner + "UnifiedCandidateDto",
-      owner + "UnifiedCandidateList",
-      owner + "VerificationDto",
-      owner + "VerificationItemDto",
-      owner + "BatchVerificationDto",
-      owner + "ClassificationDto",
-      owner + "ClassificationItemDto",
-      owner + "BatchClassificationDto",
-      owner + "QueryAnalysisDto",
-      owner + "GraphDto",
-      owner + "GraphItemDto",
-      owner + "BatchGraphDto",
-      owner + "EntityDto",
-      owner + "TripleDto"
-    };
-  }
-
-  private static Class<?>[] configModelTypes() {
-    return new Class<?>[] {
-      DaemonOverrides.class,
-      DaemonOverrides.Ingestion.class,
-      DaemonOverrides.Retrieval.class,
-      PieriaConfigFile.class,
-      DiscoveryConfig.class,
-      // Every config controller method below declares a plain JsonNode return type and serializes
-      // through ConfigCodec.toNode(...) — invisible to Spring's ControllerMappingReflectiveProcessor,
-      // which reads declared method signatures, not what a method actually returns at runtime. These
-      // four are reached only by this hand-maintained list.
-      ConfigField.class,
-      GlobalConfigEntry.class,
-      GlobalConfigService.ApplyResult.class,
-      ProfileConfigDetail.class
-    };
   }
 }

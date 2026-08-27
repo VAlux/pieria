@@ -14,7 +14,9 @@ public interface PdfExtractor {
    */
   ExtractedPdf extract(Path pdf);
 
-  /** An extracted PDF: its document title (may be blank) and extracted text. */
+  /**
+   * An extracted PDF: its document title (may be blank) and extracted text.
+   */
   record ExtractedPdf(String title, String text) {
   }
 }

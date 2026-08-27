@@ -1,55 +1,407 @@
 [
-  {"key":"retrieval.weight-exact-key","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"Exact topic-key match"},
-  {"key":"retrieval.weight-fts-memory","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"Full-text over memories"},
-  {"key":"retrieval.weight-hyde-vector","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"HyDE vector"},
-  {"key":"retrieval.weight-direct-vector","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"Direct vector"},
-  {"key":"retrieval.weight-fts-message","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"Full-text over raw messages"},
-  {"key":"retrieval.weight-graph","scope":"profile","section":"channels","tier":"live","kind":"weight","label":"Entity-relation graph","hint":"0 disables the channel entirely."},
-  {"key":"retrieval.vector-enabled","scope":"profile","section":"channels","tier":"live","kind":"bool","label":"Vector search enabled"},
-
-  {"key":"retrieval.graph-depth","scope":"profile","section":"graph","tier":"live","kind":"int","label":"Depth","hint":"Neighbourhood expansion in hops."},
-  {"key":"retrieval.graph-fanout","scope":"profile","section":"graph","tier":"live","kind":"int","label":"Fanout"},
-  {"key":"retrieval.graph-seed-limit","scope":"profile","section":"graph","tier":"live","kind":"int","label":"Seed limit"},
-
-  {"key":"retrieval.weight-symbol-fts","scope":"profile","section":"code-graph","tier":"live","kind":"double","label":"Symbol full-text weight"},
-  {"key":"retrieval.weight-code-graph","scope":"profile","section":"code-graph","tier":"live","kind":"double","label":"Code-graph weight"},
-  {"key":"retrieval.code-graph-depth","scope":"profile","section":"code-graph","tier":"live","kind":"int","label":"Depth"},
-  {"key":"retrieval.code-graph-fanout","scope":"profile","section":"code-graph","tier":"live","kind":"int","label":"Fanout"},
-  {"key":"retrieval.code-graph-seed-limit","scope":"profile","section":"code-graph","tier":"live","kind":"int","label":"Seed limit"},
-  {"key":"retrieval.code-graph-min-confidence","scope":"profile","section":"code-graph","tier":"live","kind":"enum","options":["resolved","heuristic"],"label":"Minimum edge confidence"},
-
-  {"key":"retrieval.rrf-k","scope":"profile","section":"fusion","tier":"live","kind":"int","label":"RRF k"},
-  {"key":"retrieval.channel-limit","scope":"profile","section":"fusion","tier":"live","kind":"int","label":"Results per channel"},
-  {"key":"retrieval.channel-timeout-ms","scope":"profile","section":"fusion","tier":"live","kind":"int","label":"Channel timeout (ms)"},
-  {"key":"retrieval.recall-mode","scope":"profile","section":"fusion","tier":"live","kind":"enum","options":["EVIDENCE","ANALYZED","SYNTHESIZED"],"label":"Default recall tier"},
-  {"key":"retrieval.near-duplicate-threshold","scope":"profile","section":"fusion","tier":"live","kind":"double","label":"Lexical duplicate threshold","hint":"0 disables the collapse."},
-  {"key":"retrieval.semantic-duplicate-threshold","scope":"profile","section":"fusion","tier":"live","kind":"double","label":"Semantic duplicate threshold","hint":"Cosine over stored embeddings. 0 disables."},
-
-  {"key":"ingestion.chunk-size-chars","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Chunk size (chars)"},
-  {"key":"ingestion.chunk-overlap-messages","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Chunk overlap (messages)"},
-  {"key":"ingestion.max-extraction-concurrency","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Extraction concurrency"},
-  {"key":"ingestion.interrogative-queries-per-memory","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Interrogative queries per memory"},
-  {"key":"ingestion.max-extracted-candidates-per-chunk","scope":"profile","section":"ingestion","tier":"live","kind":"int","label":"Max candidates per chunk","hint":"0 means uncapped."},
-  {"key":"ingestion.graph-from-extraction","scope":"profile","section":"ingestion","tier":"live","kind":"bool","label":"Extract graph during ingest"},
-
-  {"key":"logging.level.dev.alvo.pieria.model","scope":"global","section":"observability","tier":"restart","kind":"enum","options":["INFO","DEBUG","TRACE"],"label":"Model-call log level","hint":"DEBUG logs each model call with stage, model, prompt size and latency."},
-  {"key":"pieria.model.max-concurrent-structured-calls","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Max concurrent structured calls","hint":"Hosted providers take 16-32; a single-GPU local Ollama gains nothing past 4."},
-  {"key":"pieria.reminiscence.parallelism","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Graph enrichment parallelism"},
-  {"key":"pieria.ingestion.vectorization-interval-ms","scope":"global","section":"throughput","tier":"restart","kind":"int","label":"Vectorization interval (ms)"},
-  {"key":"pieria.audit.max-body-bytes","scope":"global","section":"observability","tier":"restart","kind":"int","label":"Audit body retention (bytes)"},
-
-  {"key":"pieria.provider.type","scope":"global","section":"provider","tier":"restart","kind":"enum","options":["openai","azure"],"label":"Provider dialect","hint":"openai covers Ollama, LM Studio, llama.cpp, vLLM, OpenRouter and OpenAI."},
-  {"key":"pieria.provider.base-url","scope":"global","section":"provider","tier":"restart","kind":"string","label":"Provider base URL","hint":"API root WITHOUT /v1 — the client appends it. In azure mode, the resource endpoint."},
-  {"key":"pieria.provider.api-key","scope":"global","section":"provider","tier":"restart","kind":"secret","label":"API key","hint":"Forwarded as the bearer token. Local providers ignore it."},
-  {"key":"pieria.provider.name","scope":"global","section":"provider","tier":"restart","kind":"string","label":"Provider label"},
-  {"key":"pieria.provider.api-version","scope":"global","section":"provider","tier":"restart","kind":"string","label":"Azure API version","hint":"Used only when the dialect is azure."},
-  {"key":"pieria.model.extraction-model","scope":"global","section":"models","tier":"restart","kind":"string","label":"Extraction model","hint":"In azure mode this is the deployment name."},
-  {"key":"pieria.model.synthesis-model","scope":"global","section":"models","tier":"restart","kind":"string","label":"Synthesis model"},
-  {"key":"pieria.model.embedding","scope":"global","section":"models","tier":"restart","kind":"string","label":"Embedding model"},
-  {"key":"pieria.daemon.host","scope":"global","section":"daemon","tier":"restart","kind":"string","label":"Bind address","hint":"Local mode must stay on a loopback address."},
-  {"key":"pieria.daemon.port","scope":"global","section":"daemon","tier":"restart","kind":"int","label":"Port"},
-
-  {"key":"pieria.model.embedding-dimension","scope":"global","section":"storage","tier":"locked","kind":"int","label":"Embedding dimension","hint":"Fixes the FLOAT[n] width of memories_vec. Changing it invalidates every stored vector."},
-  {"key":"pieria.db.path","scope":"global","section":"storage","tier":"locked","kind":"string","label":"Database path","hint":"Blank means the OS-appropriate app-data path."},
-  {"key":"pieria.storage.backend","scope":"global","section":"storage","tier":"locked","kind":"enum","options":["sqlite","postgres"],"label":"Storage backend"}
+  {
+    "key": "retrieval.weight-exact-key",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "Exact topic-key match"
+  },
+  {
+    "key": "retrieval.weight-fts-memory",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "Full-text over memories"
+  },
+  {
+    "key": "retrieval.weight-hyde-vector",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "HyDE vector"
+  },
+  {
+    "key": "retrieval.weight-direct-vector",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "Direct vector"
+  },
+  {
+    "key": "retrieval.weight-fts-message",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "Full-text over raw messages"
+  },
+  {
+    "key": "retrieval.weight-graph",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "weight",
+    "label": "Entity-relation graph",
+    "hint": "0 disables the channel entirely."
+  },
+  {
+    "key": "retrieval.vector-enabled",
+    "scope": "profile",
+    "section": "channels",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Vector search enabled"
+  },
+  {
+    "key": "retrieval.graph-depth",
+    "scope": "profile",
+    "section": "graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Depth",
+    "hint": "Neighbourhood expansion in hops."
+  },
+  {
+    "key": "retrieval.graph-fanout",
+    "scope": "profile",
+    "section": "graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Fanout"
+  },
+  {
+    "key": "retrieval.graph-seed-limit",
+    "scope": "profile",
+    "section": "graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Seed limit"
+  },
+  {
+    "key": "retrieval.weight-symbol-fts",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "double",
+    "label": "Symbol full-text weight"
+  },
+  {
+    "key": "retrieval.weight-code-graph",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "double",
+    "label": "Code-graph weight"
+  },
+  {
+    "key": "retrieval.code-graph-depth",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Depth"
+  },
+  {
+    "key": "retrieval.code-graph-fanout",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Fanout"
+  },
+  {
+    "key": "retrieval.code-graph-seed-limit",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "int",
+    "label": "Seed limit"
+  },
+  {
+    "key": "retrieval.code-graph-min-confidence",
+    "scope": "profile",
+    "section": "code-graph",
+    "tier": "live",
+    "kind": "enum",
+    "options": [
+      "resolved",
+      "heuristic"
+    ],
+    "label": "Minimum edge confidence"
+  },
+  {
+    "key": "retrieval.rrf-k",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "int",
+    "label": "RRF k"
+  },
+  {
+    "key": "retrieval.channel-limit",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Results per channel"
+  },
+  {
+    "key": "retrieval.channel-timeout-ms",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Channel timeout (ms)"
+  },
+  {
+    "key": "retrieval.recall-mode",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "enum",
+    "options": [
+      "EVIDENCE",
+      "ANALYZED",
+      "SYNTHESIZED"
+    ],
+    "label": "Default recall tier"
+  },
+  {
+    "key": "retrieval.near-duplicate-threshold",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "double",
+    "label": "Lexical duplicate threshold",
+    "hint": "0 disables the collapse."
+  },
+  {
+    "key": "retrieval.semantic-duplicate-threshold",
+    "scope": "profile",
+    "section": "fusion",
+    "tier": "live",
+    "kind": "double",
+    "label": "Semantic duplicate threshold",
+    "hint": "Cosine over stored embeddings. 0 disables."
+  },
+  {
+    "key": "ingestion.chunk-size-chars",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Chunk size (chars)"
+  },
+  {
+    "key": "ingestion.chunk-overlap-messages",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Chunk overlap (messages)"
+  },
+  {
+    "key": "ingestion.max-extraction-concurrency",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Extraction concurrency"
+  },
+  {
+    "key": "ingestion.interrogative-queries-per-memory",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Interrogative queries per memory"
+  },
+  {
+    "key": "ingestion.max-extracted-candidates-per-chunk",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "int",
+    "label": "Max candidates per chunk",
+    "hint": "0 means uncapped."
+  },
+  {
+    "key": "ingestion.graph-from-extraction",
+    "scope": "profile",
+    "section": "ingestion",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Extract graph during ingest"
+  },
+  {
+    "key": "logging.level.dev.alvo.pieria.model",
+    "scope": "global",
+    "section": "observability",
+    "tier": "restart",
+    "kind": "enum",
+    "options": [
+      "INFO",
+      "DEBUG",
+      "TRACE"
+    ],
+    "label": "Model-call log level",
+    "hint": "DEBUG logs each model call with stage, model, prompt size and latency."
+  },
+  {
+    "key": "pieria.model.max-concurrent-structured-calls",
+    "scope": "global",
+    "section": "throughput",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Max concurrent structured calls",
+    "hint": "Hosted providers take 16-32; a single-GPU local Ollama gains nothing past 4."
+  },
+  {
+    "key": "pieria.reminiscence.parallelism",
+    "scope": "global",
+    "section": "throughput",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Graph enrichment parallelism"
+  },
+  {
+    "key": "pieria.ingestion.vectorization-interval-ms",
+    "scope": "global",
+    "section": "throughput",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Vectorization interval (ms)"
+  },
+  {
+    "key": "pieria.audit.max-body-bytes",
+    "scope": "global",
+    "section": "observability",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Audit body retention (bytes)"
+  },
+  {
+    "key": "pieria.provider.type",
+    "scope": "global",
+    "section": "provider",
+    "tier": "restart",
+    "kind": "enum",
+    "options": [
+      "openai",
+      "azure"
+    ],
+    "label": "Provider dialect",
+    "hint": "openai covers Ollama, LM Studio, llama.cpp, vLLM, OpenRouter and OpenAI."
+  },
+  {
+    "key": "pieria.provider.base-url",
+    "scope": "global",
+    "section": "provider",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Provider base URL",
+    "hint": "API root WITHOUT /v1 — the client appends it. In azure mode, the resource endpoint."
+  },
+  {
+    "key": "pieria.provider.api-key",
+    "scope": "global",
+    "section": "provider",
+    "tier": "restart",
+    "kind": "secret",
+    "label": "API key",
+    "hint": "Forwarded as the bearer token. Local providers ignore it."
+  },
+  {
+    "key": "pieria.provider.name",
+    "scope": "global",
+    "section": "provider",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Provider label"
+  },
+  {
+    "key": "pieria.provider.api-version",
+    "scope": "global",
+    "section": "provider",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Azure API version",
+    "hint": "Used only when the dialect is azure."
+  },
+  {
+    "key": "pieria.model.extraction-model",
+    "scope": "global",
+    "section": "models",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Extraction model",
+    "hint": "In azure mode this is the deployment name."
+  },
+  {
+    "key": "pieria.model.synthesis-model",
+    "scope": "global",
+    "section": "models",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Synthesis model"
+  },
+  {
+    "key": "pieria.model.embedding",
+    "scope": "global",
+    "section": "models",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Embedding model"
+  },
+  {
+    "key": "pieria.daemon.host",
+    "scope": "global",
+    "section": "daemon",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Bind address",
+    "hint": "Local mode must stay on a loopback address."
+  },
+  {
+    "key": "pieria.daemon.port",
+    "scope": "global",
+    "section": "daemon",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Port"
+  },
+  {
+    "key": "pieria.model.embedding-dimension",
+    "scope": "global",
+    "section": "storage",
+    "tier": "locked",
+    "kind": "int",
+    "label": "Embedding dimension",
+    "hint": "Fixes the FLOAT[n] width of memories_vec. Changing it invalidates every stored vector."
+  },
+  {
+    "key": "pieria.db.path",
+    "scope": "global",
+    "section": "storage",
+    "tier": "locked",
+    "kind": "string",
+    "label": "Database path",
+    "hint": "Blank means the OS-appropriate app-data path."
+  },
+  {
+    "key": "pieria.storage.backend",
+    "scope": "global",
+    "section": "storage",
+    "tier": "locked",
+    "kind": "enum",
+    "options": [
+      "sqlite",
+      "postgres"
+    ],
+    "label": "Storage backend"
+  }
 ]

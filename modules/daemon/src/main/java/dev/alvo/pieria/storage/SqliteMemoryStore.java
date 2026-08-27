@@ -79,7 +79,24 @@ public class SqliteMemoryStore implements MemoryStore {
    * duplicate was inside the top 10 every time it existed.
    */
   private static final int NEAR_DUPLICATE_CANDIDATES = 10;
-
+  private static final String MEMORY_COLUMNS =
+    "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
+  private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
+  /**
+   * Edge columns qualified with the {@code e} alias — {@code edges} and {@code memories} share
+   * {@code id}, {@code profile_id} and {@code created_at}, so any query joining both must qualify.
+   */
+  private static final String EDGE_COLUMNS =
+    "e.id, e.profile_id, e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, e.created_at";
+  /**
+   * The ids of every entity an active edge touches, as a subquery. Binds profileId twice.
+   */
+  private static final String CONNECTED_ENTITY_IDS = """
+    SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
+      WHERE e.profile_id = ? AND m.superseded = 0 \
+    UNION \
+    SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
+      WHERE e.profile_id = ? AND m.superseded = 0""";
   private final JdbcClient jdbc;
   private final VecCapability vecCapability;
   private final boolean vectorEnabled;
@@ -184,6 +201,105 @@ public class SqliteMemoryStore implements MemoryStore {
       rs.getString("payload"),
       rs.getString("embed_text"),
       Instant.parse(rs.getString("created_at")));
+  }
+
+  private static boolean isCodeDerived(String topicKey) {
+    return topicKey != null && topicKey.startsWith(CODE_TOPIC_NAMESPACE);
+  }
+
+  private static List<Scored> getScoredList(List<Memory> active, List<String> terms, List<String> matchedSessions) {
+    Map<String, Scored> scored = new LinkedHashMap<>();
+
+    for (Memory memory : active) {
+      String content = memory.content() == null ? "" : memory.content().toLowerCase(java.util.Locale.ROOT);
+      int contentMatches = 0;
+      for (String term : terms) {
+        if (content.contains(term)) {
+          contentMatches++;
+        }
+      }
+      if (contentMatches > 0) {
+        scored.put(memory.id(), new Scored(memory, contentMatches, "fts-memory"));
+      } else if (memory.sessionId() != null && matchedSessions.contains(memory.sessionId())) {
+        // Surfaced indirectly via a matching raw message in the same session.
+        scored.put(memory.id(), new Scored(memory, 1, "key"));
+      }
+    }
+
+    ArrayList<Scored> scoredList = new ArrayList<>(scored.values());
+
+    scoredList.sort(Comparator
+      .comparingInt((Scored s) -> s.score).reversed()
+      .thenComparing(s -> s.memory.createdAt(), Comparator.reverseOrder()));
+
+    return scoredList;
+  }
+
+  private static Entity mapEntity(ResultSet rs) throws SQLException {
+    return new Entity(
+      rs.getString("id"),
+      rs.getString("profile_id"),
+      rs.getString("type"),
+      rs.getString("name"),
+      rs.getString("payload"),
+      Instant.parse(rs.getString("created_at")));
+  }
+
+  private static Edge mapEdge(ResultSet rs) throws SQLException {
+    return new Edge(
+      rs.getString("id"),
+      rs.getString("profile_id"),
+      rs.getString("source_entity_id"),
+      rs.getString("target_entity_id"),
+      rs.getString("relation"),
+      rs.getString("memory_id"),
+      Instant.parse(rs.getString("created_at")));
+  }
+
+  /**
+   * One direction of the neighbour lookup: match the frontier on {@code fromColumn}, return the
+   * entity on {@code toColumn}. Parameters bind in the order (profileId, frontier…, types…).
+   */
+  private static String neighborBranch(String fromColumn, String toColumn,
+                                       List<String> frontier, List<String> types) {
+    String frontierParams = String.join(", ", frontier.stream().map(_ -> "?").toList());
+    String typeJoin = types.isEmpty() ? ""
+      : " JOIN entities en ON en.id = " + toColumn;
+    String typeFilter = types.isEmpty() ? ""
+      : " AND en.type IN (" + String.join(", ", types.stream().map(_ -> "?").toList()) + ")";
+    return "SELECT " + toColumn + " AS neighbor, e.created_at AS ca FROM edges e "
+      + "JOIN memories m ON m.id = e.memory_id" + typeJoin + " "
+      + "WHERE e.profile_id = ? AND m.superseded = 0 AND " + fromColumn + " IN (" + frontierParams + ")"
+      + typeFilter;
+  }
+
+  /**
+   * Degree source rows: every active-edge endpoint, once per incidence. Binds profileId twice.
+   */
+  private static String degreeRows() {
+    return """
+      SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
+        WHERE e.profile_id = ? AND m.superseded = 0 \
+      UNION ALL \
+      SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
+        WHERE e.profile_id = ? AND m.superseded = 0""";
+  }
+
+  /**
+   * Null-safe, blank-free, order-preserving de-duplication for id / type parameter lists.
+   */
+  private static List<String> cleaned(List<String> values) {
+    if (values == null || values.isEmpty()) {
+      return List.of();
+    }
+    return values.stream().filter(v -> v != null && !v.isBlank()).distinct().toList();
+  }
+
+  /**
+   * Escape LIKE wildcards so a user's {@code %} or {@code _} matches literally.
+   */
+  private static String escapeLike(String value) {
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }
 
   @Override
@@ -425,6 +541,12 @@ public class SqliteMemoryStore implements MemoryStore {
       .optional();
   }
 
+  /**
+   * The active memory this one supersedes by exact topic key, or null. Returns null when the active
+   * row IS the incoming memory (identical content-addressed id): a re-ingest must stay idempotent,
+   * not supersede the row it would re-insert.
+   */
+
   @Override
   public void clearProfileConfig(String profileId) {
     jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?")
@@ -654,14 +776,6 @@ public class SqliteMemoryStore implements MemoryStore {
     return new StoreOutcome(stored, supersededId, enqueuedVector, insert.inserted());
   }
 
-  private record MemoryInsert(Memory stored, boolean inserted) {
-  }
-
-  /**
-   * The active memory this one supersedes by exact topic key, or null. Returns null when the active
-   * row IS the incoming memory (identical content-addressed id): a re-ingest must stay idempotent,
-   * not supersede the row it would re-insert.
-   */
   /**
    * Whether {@code memory} states its topic <em>earlier</em> than the predecessor it would otherwise
    * supersede — i.e. it is older knowledge arriving later.
@@ -726,10 +840,6 @@ public class SqliteMemoryStore implements MemoryStore {
         profileId, id, best, bestScore);
     }
     return best;
-  }
-
-  private static boolean isCodeDerived(String topicKey) {
-    return topicKey != null && topicKey.startsWith(CODE_TOPIC_NAMESPACE);
   }
 
   @Override
@@ -799,6 +909,8 @@ public class SqliteMemoryStore implements MemoryStore {
       .update();
     log.warn("Vectorization attempt failed for memory {}: {}", memoryId, lastError);
   }
+
+  // ---- sqlite-vec index + FTS5 retrieval channels ----
 
   @Override
   @Transactional
@@ -938,34 +1050,6 @@ public class SqliteMemoryStore implements MemoryStore {
     return recallCandidates;
   }
 
-  private static List<Scored> getScoredList(List<Memory> active, List<String> terms, List<String> matchedSessions) {
-    Map<String, Scored> scored = new LinkedHashMap<>();
-
-    for (Memory memory : active) {
-      String content = memory.content() == null ? "" : memory.content().toLowerCase(java.util.Locale.ROOT);
-      int contentMatches = 0;
-      for (String term : terms) {
-        if (content.contains(term)) {
-          contentMatches++;
-        }
-      }
-      if (contentMatches > 0) {
-        scored.put(memory.id(), new Scored(memory, contentMatches, "fts-memory"));
-      } else if (memory.sessionId() != null && matchedSessions.contains(memory.sessionId())) {
-        // Surfaced indirectly via a matching raw message in the same session.
-        scored.put(memory.id(), new Scored(memory, 1, "key"));
-      }
-    }
-
-    ArrayList<Scored> scoredList = new ArrayList<>(scored.values());
-
-    scoredList.sort(Comparator
-      .comparingInt((Scored s) -> s.score).reversed()
-      .thenComparing(s -> s.memory.createdAt(), Comparator.reverseOrder()));
-
-    return scoredList;
-  }
-
   private @NonNull List<String> getMatchedSessions(String profileId, List<String> terms) {
     // Session ids that have a message matching any term: lets message hits surface their memories.
     return terms.stream().flatMap(term -> jdbc
@@ -977,14 +1061,6 @@ public class SqliteMemoryStore implements MemoryStore {
       .distinct()
       .toList();
   }
-
-  private record Scored(Memory memory, int score, String source) {
-  }
-
-  // ---- sqlite-vec index + FTS5 retrieval channels ----
-
-  private static final String MEMORY_COLUMNS =
-    "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
 
   @Override
   public boolean isVectorSearchAvailable() {
@@ -1003,6 +1079,8 @@ public class SqliteMemoryStore implements MemoryStore {
       .params(memoryId, toVecJson(embedding))
       .update();
   }
+
+  // ---- entity-relation graph ----
 
   @Override
   @Transactional
@@ -1195,38 +1273,6 @@ public class SqliteMemoryStore implements MemoryStore {
       count++;
     }
     return count;
-  }
-
-  // ---- entity-relation graph ----
-
-  private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
-
-  /**
-   * Edge columns qualified with the {@code e} alias — {@code edges} and {@code memories} share
-   * {@code id}, {@code profile_id} and {@code created_at}, so any query joining both must qualify.
-   */
-  private static final String EDGE_COLUMNS =
-    "e.id, e.profile_id, e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, e.created_at";
-
-  private static Entity mapEntity(ResultSet rs) throws SQLException {
-    return new Entity(
-      rs.getString("id"),
-      rs.getString("profile_id"),
-      rs.getString("type"),
-      rs.getString("name"),
-      rs.getString("payload"),
-      Instant.parse(rs.getString("created_at")));
-  }
-
-  private static Edge mapEdge(ResultSet rs) throws SQLException {
-    return new Edge(
-      rs.getString("id"),
-      rs.getString("profile_id"),
-      rs.getString("source_entity_id"),
-      rs.getString("target_entity_id"),
-      rs.getString("relation"),
-      rs.getString("memory_id"),
-      Instant.parse(rs.getString("created_at")));
   }
 
   /**
@@ -1509,22 +1555,12 @@ public class SqliteMemoryStore implements MemoryStore {
     return List.copyOf(new LinkedHashSet<>(rows));
   }
 
-  /**
-   * One direction of the neighbour lookup: match the frontier on {@code fromColumn}, return the
-   * entity on {@code toColumn}. Parameters bind in the order (profileId, frontier…, types…).
-   */
-  private static String neighborBranch(String fromColumn, String toColumn,
-                                       List<String> frontier, List<String> types) {
-    String frontierParams = String.join(", ", frontier.stream().map(_ -> "?").toList());
-    String typeJoin = types.isEmpty() ? ""
-      : " JOIN entities en ON en.id = " + toColumn;
-    String typeFilter = types.isEmpty() ? ""
-      : " AND en.type IN (" + String.join(", ", types.stream().map(_ -> "?").toList()) + ")";
-    return "SELECT " + toColumn + " AS neighbor, e.created_at AS ca FROM edges e "
-      + "JOIN memories m ON m.id = e.memory_id" + typeJoin + " "
-      + "WHERE e.profile_id = ? AND m.superseded = 0 AND " + fromColumn + " IN (" + frontierParams + ")"
-      + typeFilter;
-  }
+  // ---- graph explorer reads ------------------------------------------------------------------
+  //
+  // Every query below reaches the edges table through an equality predicate that idx_edge_source or
+  // idx_edge_target can serve. Correlating entities and edges with a single
+  // `ON (source = id OR target = id)` predicate instead defeats both indexes and degrades to a full
+  // memories scan per entity — on a 45k-edge profile that is the difference between 60ms and 180s.
 
   @Override
   public List<Memory> findMemoriesByEntities(String profileId, List<String> entityIds, int limit) {
@@ -1610,23 +1646,6 @@ public class SqliteMemoryStore implements MemoryStore {
       .query((rs, _) -> mapMemory(rs))
       .list();
   }
-
-  // ---- graph explorer reads ------------------------------------------------------------------
-  //
-  // Every query below reaches the edges table through an equality predicate that idx_edge_source or
-  // idx_edge_target can serve. Correlating entities and edges with a single
-  // `ON (source = id OR target = id)` predicate instead defeats both indexes and degrades to a full
-  // memories scan per entity — on a 45k-edge profile that is the difference between 60ms and 180s.
-
-  /**
-   * The ids of every entity an active edge touches, as a subquery. Binds profileId twice.
-   */
-  private static final String CONNECTED_ENTITY_IDS = """
-    SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
-      WHERE e.profile_id = ? AND m.superseded = 0 \
-    UNION \
-    SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
-      WHERE e.profile_id = ? AND m.superseded = 0""";
 
   @Override
   public GraphCounts graphCounts(String profileId) {
@@ -1854,32 +1873,9 @@ public class SqliteMemoryStore implements MemoryStore {
       .list();
   }
 
-  /**
-   * Degree source rows: every active-edge endpoint, once per incidence. Binds profileId twice.
-   */
-  private static String degreeRows() {
-    return """
-      SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id \
-        WHERE e.profile_id = ? AND m.superseded = 0 \
-      UNION ALL \
-      SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id \
-        WHERE e.profile_id = ? AND m.superseded = 0""";
+  private record MemoryInsert(Memory stored, boolean inserted) {
   }
 
-  /**
-   * Null-safe, blank-free, order-preserving de-duplication for id / type parameter lists.
-   */
-  private static List<String> cleaned(List<String> values) {
-    if (values == null || values.isEmpty()) {
-      return List.of();
-    }
-    return values.stream().filter(v -> v != null && !v.isBlank()).distinct().toList();
-  }
-
-  /**
-   * Escape LIKE wildcards so a user's {@code %} or {@code _} matches literally.
-   */
-  private static String escapeLike(String value) {
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+  private record Scored(Memory memory, int score, String source) {
   }
 }

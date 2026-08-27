@@ -15,7 +15,9 @@ public final class ContentId {
   private ContentId() {
   }
 
-  /** Legacy unscoped message id, retained to recognize rows written before profile namespacing. */
+  /**
+   * Legacy unscoped message id, retained to recognize rows written before profile namespacing.
+   */
   public static String forMessage(String sessionId, String role, String content) {
     return hash128(nullToEmpty(sessionId), nullToEmpty(role), nullToEmpty(content));
   }

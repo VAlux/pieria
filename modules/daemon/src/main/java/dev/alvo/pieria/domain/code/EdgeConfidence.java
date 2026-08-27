@@ -15,21 +15,27 @@ public enum EdgeConfidence {
   HEURISTIC,
   RESOLVED;
 
-  /** Higher = more trustworthy; used for the {@code minConfidence} traversal filter. */
-  public int rank() {
-    return ordinal();
-  }
-
-  /** Canonical wire/storage form, e.g. {@code "resolved"}. */
-  public String wire() {
-    return name().toLowerCase(Locale.ROOT);
-  }
-
-  /** Parse a stored/wire value (case-insensitive); throws if unknown. */
+  /**
+   * Parse a stored/wire value (case-insensitive); throws if unknown.
+   */
   public static EdgeConfidence fromWire(String value) {
     if (value == null) {
       throw new IllegalArgumentException("confidence must not be null");
     }
     return EdgeConfidence.valueOf(value.trim().toUpperCase(Locale.ROOT));
+  }
+
+  /**
+   * Higher = more trustworthy; used for the {@code minConfidence} traversal filter.
+   */
+  public int rank() {
+    return ordinal();
+  }
+
+  /**
+   * Canonical wire/storage form, e.g. {@code "resolved"}.
+   */
+  public String wire() {
+    return name().toLowerCase(Locale.ROOT);
   }
 }

@@ -38,6 +38,32 @@ public class AuditRecorder {
     this.serverVersion = version == null || version.isBlank() ? "unknown" : version;
   }
 
+  private static String text(JsonNode node, String field) {
+    if (node == null || !node.hasNonNull(field)) return null;
+    String value = node.get(field).asText();
+    return value == null || value.isBlank() ? null : value;
+  }
+
+  private static String queryValue(String query, String name) {
+    if (query == null || query.isBlank()) return null;
+    for (String pair : query.split("&")) {
+      int equals = pair.indexOf('=');
+      if (equals > 0 && pair.substring(0, equals).equals(name)) {
+        return java.net.URLDecoder.decode(pair.substring(equals + 1), StandardCharsets.UTF_8);
+      }
+    }
+    return null;
+  }
+
+  private static String first(String... values) {
+    for (String value : values) if (value != null && !value.isBlank()) return value;
+    return null;
+  }
+
+  private static String message(Throwable failure) {
+    return Optional.ofNullable(failure.getMessage()).orElseGet(failure::toString);
+  }
+
   public void recordHttp(String profileName, String operation, String requestId, AuditCaller caller,
                          String method, String path, String query, String requestMediaType,
                          String responseMediaType, Instant startedAt, Instant completedAt, int status,
@@ -128,31 +154,5 @@ public class AuditRecorder {
     } catch (RuntimeException ignored) {
       return null;
     }
-  }
-
-  private static String text(JsonNode node, String field) {
-    if (node == null || !node.hasNonNull(field)) return null;
-    String value = node.get(field).asText();
-    return value == null || value.isBlank() ? null : value;
-  }
-
-  private static String queryValue(String query, String name) {
-    if (query == null || query.isBlank()) return null;
-    for (String pair : query.split("&")) {
-      int equals = pair.indexOf('=');
-      if (equals > 0 && pair.substring(0, equals).equals(name)) {
-        return java.net.URLDecoder.decode(pair.substring(equals + 1), StandardCharsets.UTF_8);
-      }
-    }
-    return null;
-  }
-
-  private static String first(String... values) {
-    for (String value : values) if (value != null && !value.isBlank()) return value;
-    return null;
-  }
-
-  private static String message(Throwable failure) {
-    return Optional.ofNullable(failure.getMessage()).orElseGet(failure::toString);
   }
 }

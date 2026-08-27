@@ -23,7 +23,9 @@ public final class InferenceUsageAccumulator {
     this.counters = initial;
   }
 
-  /** Add one model call's reported usage to {@code tier}. */
+  /**
+   * Add one model call's reported usage to {@code tier}.
+   */
   public void add(InferenceTier tier, long promptTokens, long completionTokens, long calls) {
     Counters c = counters.get(tier);
     c.prompt.add(promptTokens);

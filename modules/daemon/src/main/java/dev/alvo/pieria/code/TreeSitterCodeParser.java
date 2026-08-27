@@ -30,7 +30,7 @@ public class TreeSitterCodeParser implements CodeParser {
       return ParseResult.empty();
     }
     return engine.parse(pack.id(), input.content(),
-      (root, query, _) -> pack.extractor().extract(input, root, query))
+        (root, query, _) -> pack.extractor().extract(input, root, query))
       .orElse(ParseResult.empty());
   }
 }

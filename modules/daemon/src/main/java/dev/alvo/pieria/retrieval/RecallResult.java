@@ -33,12 +33,16 @@ public record RecallResult(
     graphEvidence = graphEvidence == null ? List.of() : List.copyOf(graphEvidence);
   }
 
-  /** An empty result: no answer, no candidates, no evidence — e.g. recall against an unknown profile. */
+  /**
+   * An empty result: no answer, no candidates, no evidence — e.g. recall against an unknown profile.
+   */
   public static RecallResult empty() {
     return new RecallResult(null, List.of(), List.of(), List.of(), null);
   }
 
-  /** The evidence memories in fused rank order (convenience for the concise API response). */
+  /**
+   * The evidence memories in fused rank order (convenience for the concise API response).
+   */
   public List<Memory> memories() {
     return candidates.stream().map(RecallCandidate::memory).toList();
   }

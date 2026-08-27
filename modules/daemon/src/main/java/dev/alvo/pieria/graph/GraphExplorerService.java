@@ -40,27 +40,41 @@ import java.util.Map;
 @Service
 public class GraphExplorerService {
 
-  /** Nodes returned when the caller does not ask for a specific cap. */
+  /**
+   * Nodes returned when the caller does not ask for a specific cap.
+   */
   static final int DEFAULT_NODE_LIMIT = 300;
 
-  /** Hard ceiling on nodes per response, whatever the caller asks for. */
+  /**
+   * Hard ceiling on nodes per response, whatever the caller asks for.
+   */
   static final int MAX_NODE_LIMIT = 1000;
 
-  /** Matches returned by a search when the caller does not ask for a specific cap. */
+  /**
+   * Matches returned by a search when the caller does not ask for a specific cap.
+   */
   static final int DEFAULT_SEARCH_LIMIT = 20;
 
   static final int MAX_SEARCH_LIMIT = 100;
 
-  /** Hops the neighbourhood walk will go out, at most. */
+  /**
+   * Hops the neighbourhood walk will go out, at most.
+   */
   static final int MAX_DEPTH = 3;
 
-  /** Relations listed in the inspector for one entity. */
+  /**
+   * Relations listed in the inspector for one entity.
+   */
   static final int RELATION_LIMIT = 200;
 
-  /** Provenance memories listed in the inspector for one entity. */
+  /**
+   * Provenance memories listed in the inspector for one entity.
+   */
   static final int MEMORY_LIMIT = 25;
 
-  /** Hop value for nodes that are not part of a focused walk (overview and search results). */
+  /**
+   * Hop value for nodes that are not part of a focused walk (overview and search results).
+   */
   private static final int NO_HOP = -1;
 
   private final MemoryStore store;
@@ -70,6 +84,40 @@ public class GraphExplorerService {
                               Converter<Memory, MemoryResponse> memoryResponseConverter) {
     this.store = store;
     this.memoryResponseConverter = memoryResponseConverter;
+  }
+
+  private static GraphNode node(Entity entity, int degree, int hop) {
+    return new GraphNode(entity.id(), entity.type(), entity.name(), degree, hop);
+  }
+
+  private static GraphLink link(Edge edge) {
+    return new GraphLink(edge.sourceEntityId(), edge.targetEntityId(), edge.relation(), edge.memoryId());
+  }
+
+  private static GraphEntityResponse.Relation relation(IncidentEdge incident) {
+    Entity other = incident.other();
+    return new GraphEntityResponse.Relation(
+      incident.outgoing() ? "out" : "in",
+      incident.edge().relation(),
+      other.id(),
+      other.name(),
+      other.type(),
+      incident.edge().memoryId());
+  }
+
+  private static List<String> safe(List<String> types) {
+    return types == null ? List.of() : types;
+  }
+
+  private static int nodeLimit(Integer requested) {
+    return bounded(requested, DEFAULT_NODE_LIMIT, MAX_NODE_LIMIT);
+  }
+
+  private static int bounded(Integer requested, int fallback, int ceiling) {
+    if (requested == null || requested <= 0) {
+      return Math.min(fallback, ceiling);
+    }
+    return Math.min(requested, ceiling);
   }
 
   /**
@@ -105,7 +153,9 @@ public class GraphExplorerService {
       truncated);
   }
 
-  /** Entity name search, most-connected first, for the explorer's search box. */
+  /**
+   * Entity name search, most-connected first, for the explorer's search box.
+   */
   public GraphSearchResponse search(String profileName, String query, List<String> types, Integer limit) {
     Profile profile = findOrThrow(profileName);
     int cap = bounded(limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
@@ -162,7 +212,9 @@ public class GraphExplorerService {
       totalNeighbors);
   }
 
-  /** Inspector detail for one entity: its relations and the memories they came from. */
+  /**
+   * Inspector detail for one entity: its relations and the memories they came from.
+   */
   public GraphEntityResponse entity(String profileName, String entityId) {
     Profile profile = findOrThrow(profileName);
 
@@ -196,40 +248,6 @@ public class GraphExplorerService {
     return store.inducedEdges(profileId, ids).stream()
       .map(GraphExplorerService::link)
       .toList();
-  }
-
-  private static GraphNode node(Entity entity, int degree, int hop) {
-    return new GraphNode(entity.id(), entity.type(), entity.name(), degree, hop);
-  }
-
-  private static GraphLink link(Edge edge) {
-    return new GraphLink(edge.sourceEntityId(), edge.targetEntityId(), edge.relation(), edge.memoryId());
-  }
-
-  private static GraphEntityResponse.Relation relation(IncidentEdge incident) {
-    Entity other = incident.other();
-    return new GraphEntityResponse.Relation(
-      incident.outgoing() ? "out" : "in",
-      incident.edge().relation(),
-      other.id(),
-      other.name(),
-      other.type(),
-      incident.edge().memoryId());
-  }
-
-  private static List<String> safe(List<String> types) {
-    return types == null ? List.of() : types;
-  }
-
-  private static int nodeLimit(Integer requested) {
-    return bounded(requested, DEFAULT_NODE_LIMIT, MAX_NODE_LIMIT);
-  }
-
-  private static int bounded(Integer requested, int fallback, int ceiling) {
-    if (requested == null || requested <= 0) {
-      return Math.min(fallback, ceiling);
-    }
-    return Math.min(requested, ceiling);
   }
 
   private Profile findOrThrow(String name) {

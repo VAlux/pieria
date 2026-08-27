@@ -18,7 +18,9 @@ import dev.alvo.pieria.ingestion.IngestProgressListener;
  */
 public interface OnboardingSource<S extends SourceSpec> {
 
-  /** The concrete spec subtype this source handles; used by the registry to route a request. */
+  /**
+   * The concrete spec subtype this source handles; used by the registry to route a request.
+   */
   Class<S> specType();
 
   /**

@@ -17,36 +17,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/** Java-specific interpretation of the Java language pack's query captures. */
+/**
+ * Java-specific interpretation of the Java language pack's query captures.
+ */
 final class JavaCodeExtractor implements LanguagePack.Extractor {
-
-  @Override
-  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query tags) {
-    List<CodeParser.ParsedSymbol> symbols = new ArrayList<>();
-    List<CodeParser.ParsedEdge> edges = new ArrayList<>();
-    try (QueryCursor cursor = new QueryCursor(tags)) {
-      List<QueryMatch> matches = cursor.findMatches(root).toList();
-      String pkg = matches.stream()
-        .filter(m -> !m.findNodes("def.package").isEmpty())
-        .flatMap(m -> m.findNodes("def.name").stream())
-        .map(Node::getText).filter(s -> s != null && !s.isBlank()).findFirst().orElse("");
-
-      Map<String, String> methodFqnByName = new HashMap<>();
-      for (QueryMatch match : matches) {
-        CodeParser.ParsedSymbol symbol = toSymbol(match, pkg);
-        if (symbol != null) {
-          symbols.add(symbol);
-          if (symbol.kind() == CodeSymbolKind.METHOD) {
-            methodFqnByName.putIfAbsent(symbol.name(), symbol.qualifiedName());
-          }
-        }
-      }
-      for (QueryMatch match : matches) {
-        toEdges(match, pkg, methodFqnByName, edges);
-      }
-    }
-    return ExtractionSupport.withOccurrenceSuffixes(symbols, edges);
-  }
 
   private static CodeParser.ParsedSymbol toSymbol(QueryMatch match, String pkg) {
     String name = first(match, "def.name").map(Node::getText).orElse(null);
@@ -209,5 +183,33 @@ final class JavaCodeExtractor implements LanguagePack.Extractor {
   private static Optional<Node> first(QueryMatch match, String capture) {
     List<Node> nodes = match.findNodes(capture);
     return nodes.isEmpty() ? Optional.empty() : Optional.of(nodes.getFirst());
+  }
+
+  @Override
+  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query tags) {
+    List<CodeParser.ParsedSymbol> symbols = new ArrayList<>();
+    List<CodeParser.ParsedEdge> edges = new ArrayList<>();
+    try (QueryCursor cursor = new QueryCursor(tags)) {
+      List<QueryMatch> matches = cursor.findMatches(root).toList();
+      String pkg = matches.stream()
+        .filter(m -> !m.findNodes("def.package").isEmpty())
+        .flatMap(m -> m.findNodes("def.name").stream())
+        .map(Node::getText).filter(s -> s != null && !s.isBlank()).findFirst().orElse("");
+
+      Map<String, String> methodFqnByName = new HashMap<>();
+      for (QueryMatch match : matches) {
+        CodeParser.ParsedSymbol symbol = toSymbol(match, pkg);
+        if (symbol != null) {
+          symbols.add(symbol);
+          if (symbol.kind() == CodeSymbolKind.METHOD) {
+            methodFqnByName.putIfAbsent(symbol.name(), symbol.qualifiedName());
+          }
+        }
+      }
+      for (QueryMatch match : matches) {
+        toEdges(match, pkg, methodFqnByName, edges);
+      }
+    }
+    return ExtractionSupport.withOccurrenceSuffixes(symbols, edges);
   }
 }

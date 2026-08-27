@@ -29,6 +29,10 @@ import java.util.Set;
  */
 public class AzureModelProviderAdapter implements ModelProviderAdapter {
 
+  private static String baseUrl(PieriaProperties.Provider provider) {
+    return provider.baseUrl() == null ? "" : provider.baseUrl().strip().replaceAll("/+$", "");
+  }
+
   @Override
   public OpenAIClient buildSyncClient(PieriaProperties.Provider provider) {
     return OpenAIOkHttpClient.builder()
@@ -47,10 +51,6 @@ public class AzureModelProviderAdapter implements ModelProviderAdapter {
       .azureServiceVersion(AzureOpenAIServiceVersion.fromString(provider.apiVersion()))
       .azureUrlPath(AzureUrlPathMode.LEGACY)
       .build();
-  }
-
-  private static String baseUrl(PieriaProperties.Provider provider) {
-    return provider.baseUrl() == null ? "" : provider.baseUrl().strip().replaceAll("/+$", "");
   }
 
   @Override

@@ -21,7 +21,9 @@ public record LanguagePack(
     extensions = Set.copyOf(extensions);
   }
 
-  /** Deterministic conversion from query captures to the parser's storage-neutral result. */
+  /**
+   * Deterministic conversion from query captures to the parser's storage-neutral result.
+   */
   @FunctionalInterface
   public interface Extractor {
     CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query query);

@@ -60,7 +60,9 @@ public class HttpWebFetcher implements WebFetcher {
     return new FetchedPage(title, text);
   }
 
-  /** A page fetch failed (transport error or non-2xx); fails the onboard task with a clear message. */
+  /**
+   * A page fetch failed (transport error or non-2xx); fails the onboard task with a clear message.
+   */
   static final class WebFetchException extends RuntimeException {
     WebFetchException(String message) {
       super(message);

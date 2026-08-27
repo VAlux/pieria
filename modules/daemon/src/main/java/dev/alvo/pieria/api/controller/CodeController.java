@@ -5,7 +5,6 @@ import dev.alvo.pieria.api.response.CodeIndexResponse;
 import dev.alvo.pieria.api.response.CodeStatusResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.code.CodeIndexingService;
-import dev.alvo.pieria.code.CodeIndexingService.CodeIndexStatus;
 import dev.alvo.pieria.code.CodeIndexingService.CodeIndexSummary;
 import dev.alvo.pieria.code.CodeIndexingService.SourceFile;
 import dev.alvo.pieria.code.CodeSummarizationService;
@@ -62,6 +61,30 @@ public class CodeController {
     this.tasks = tasks;
   }
 
+  private static List<SourceFile> toSourceFiles(CodeIndexRequest request) {
+    return request.files().stream()
+      .map(f -> new SourceFile(f.repoRelPath(), f.language(), f.contentHash(), f.content()))
+      .toList();
+  }
+
+  private static CodeIndexResponse toResponse(CodeIndexSummary summary, SummarizationResult summaries) {
+    return new CodeIndexResponse(
+      summary.filesReceived(),
+      summary.filesSkippedUnchanged(),
+      summary.filesParsed(),
+      summary.filesFailed(),
+      summary.symbols(),
+      summary.resolvedEdges(),
+      summary.heuristicEdges(),
+      summary.memoriesStored(),
+      summary.memoriesSuperseded(),
+      summary.graphEntities(),
+      summary.graphEdges(),
+      summaries.stored(),
+      summaries.skippedUnchanged(),
+      summaries.failed());
+  }
+
   @PostMapping("/code")
   public CodeIndexResponse index(@PathVariable String name, @Valid @RequestBody CodeIndexRequest request) {
     List<SourceFile> files = toSourceFiles(request);
@@ -109,30 +132,6 @@ public class CodeController {
       return objectMapper.valueToTree(toResponse(summary, summaries));
     });
     return new TaskSubmitResponse(taskId.toString());
-  }
-
-  private static List<SourceFile> toSourceFiles(CodeIndexRequest request) {
-    return request.files().stream()
-      .map(f -> new SourceFile(f.repoRelPath(), f.language(), f.contentHash(), f.content()))
-      .toList();
-  }
-
-  private static CodeIndexResponse toResponse(CodeIndexSummary summary, SummarizationResult summaries) {
-    return new CodeIndexResponse(
-      summary.filesReceived(),
-      summary.filesSkippedUnchanged(),
-      summary.filesParsed(),
-      summary.filesFailed(),
-      summary.symbols(),
-      summary.resolvedEdges(),
-      summary.heuristicEdges(),
-      summary.memoriesStored(),
-      summary.memoriesSuperseded(),
-      summary.graphEntities(),
-      summary.graphEdges(),
-      summaries.stored(),
-      summaries.skippedUnchanged(),
-      summaries.failed());
   }
 
   @GetMapping("/code/status")

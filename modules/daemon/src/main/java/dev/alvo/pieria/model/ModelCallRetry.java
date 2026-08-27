@@ -30,6 +30,15 @@ public final class ModelCallRetry {
   }
 
   /**
+   * Sleep, preserving interruption: a cancelled onboard aborts promptly with the last failure.
+   */
+  private static void sleep(long millis, RuntimeException lastFailure) {
+    if (Backoff.sleepInterruptibly(millis)) {
+      throw lastFailure;
+    }
+  }
+
+  /**
    * Run {@code call}, retrying transient failures per the configured policy. On a non-transient
    * failure, or once attempts are exhausted, the last exception is rethrown unchanged so the caller's
    * existing error handling (wrap in {@link ModelUnavailableException}, or a stage-local fallback)
@@ -60,12 +69,5 @@ public final class ModelCallRetry {
   private long backoffMillis(int attempt) {
     return Backoff.delayMillis(attempt, policy.initialBackoffMs(), policy.multiplier(),
       policy.maxBackoffMs(), policy.jitter());
-  }
-
-  /** Sleep, preserving interruption: a cancelled onboard aborts promptly with the last failure. */
-  private static void sleep(long millis, RuntimeException lastFailure) {
-    if (Backoff.sleepInterruptibly(millis)) {
-      throw lastFailure;
-    }
   }
 }

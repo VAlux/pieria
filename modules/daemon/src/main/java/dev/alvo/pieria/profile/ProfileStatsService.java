@@ -32,24 +32,6 @@ public class ProfileStatsService {
     this.properties = properties;
   }
 
-  public record ImpactView(long recallCount, long tokensSaved,
-                           long tokensIngested, long tokensStored,
-                           int contextWindowTokens, double pricePerMillionTokens) {
-  }
-
-  public record TierSpendView(String tier, long calls, long promptTokens, long completionTokens, double cost) {
-  }
-
-  public record SpendView(List<TierSpendView> tiers, long totalPrompt, long totalCompletion,
-                          double totalCost, boolean costAvailable) {
-  }
-
-  public record ProfileStatsView(String name, Instant createdAt, long totalActive,
-                                 Map<String, Long> byType, long superseded, long sessions,
-                                 Instant firstMemoryAt, Instant lastMemoryAt, Long backlog,
-                                 ImpactView impact, SpendView spend) {
-  }
-
   public ProfileStatsView stats(String profileName) {
     Profile profile = store.findProfile(profileName).orElseThrow(() -> NotFoundException.profile(profileName));
 
@@ -127,5 +109,23 @@ public class ProfileStatsService {
     }
 
     return new SpendView(tiers, totalPrompt, totalCompletion, totalCost, costAvailable);
+  }
+
+  public record ImpactView(long recallCount, long tokensSaved,
+                           long tokensIngested, long tokensStored,
+                           int contextWindowTokens, double pricePerMillionTokens) {
+  }
+
+  public record TierSpendView(String tier, long calls, long promptTokens, long completionTokens, double cost) {
+  }
+
+  public record SpendView(List<TierSpendView> tiers, long totalPrompt, long totalCompletion,
+                          double totalCost, boolean costAvailable) {
+  }
+
+  public record ProfileStatsView(String name, Instant createdAt, long totalActive,
+                                 Map<String, Long> byType, long superseded, long sessions,
+                                 Instant firstMemoryAt, Instant lastMemoryAt, Long backlog,
+                                 ImpactView impact, SpendView spend) {
   }
 }

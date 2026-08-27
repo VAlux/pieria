@@ -49,7 +49,9 @@ public class MarkdownOnboardingSource implements OnboardingSource<SourceSpec.Mar
       spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
   }
 
-  /** Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped. */
+  /**
+   * Read a doc as text; a doc that vanished/became unreadable between discovery and read is skipped.
+   */
   private String readDoc(Path absolute) {
     String text = FileOps.readTextQuietly(absolute);
     if (text == null) {

@@ -15,18 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Deterministic SCSS symbols and Sass-specific relations. */
+/**
+ * Deterministic SCSS symbols and Sass-specific relations.
+ */
 final class ScssCodeExtractor implements LanguagePack.Extractor {
-
-  private record Definition(Node node, String name, CodeSymbolKind kind) {
-  }
-
-  @Override
-  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
-    try (QueryCursor cursor = new QueryCursor(query)) {
-      return extractMatches(input, root, cursor.findMatches(root).toList());
-    }
-  }
 
   private static CodeParser.ParseResult extractMatches(CodeParser.ParseInput input, Node root,
                                                        List<QueryMatch> matches) {
@@ -171,5 +163,15 @@ final class ScssCodeExtractor implements LanguagePack.Extractor {
   private static Optional<Node> first(QueryMatch match, String capture) {
     List<Node> nodes = match.findNodes(capture);
     return nodes.isEmpty() ? Optional.empty() : Optional.of(nodes.getFirst());
+  }
+
+  @Override
+  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
+    try (QueryCursor cursor = new QueryCursor(query)) {
+      return extractMatches(input, root, cursor.findMatches(root).toList());
+    }
+  }
+
+  private record Definition(Node node, String name, CodeSymbolKind kind) {
   }
 }

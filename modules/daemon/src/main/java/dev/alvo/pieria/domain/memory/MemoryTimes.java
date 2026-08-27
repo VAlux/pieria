@@ -34,10 +34,14 @@ import java.util.regex.Pattern;
  */
 public final class MemoryTimes {
 
-  /** Payload key: when the turn that produced this memory was spoken. */
+  /**
+   * Payload key: when the turn that produced this memory was spoken.
+   */
   public static final String STATED_AT = "stated_at";
 
-  /** Payload key: when an event actually happened, which need not be when it was mentioned. */
+  /**
+   * Payload key: when an event actually happened, which need not be when it was mentioned.
+   */
   public static final String OCCURRED_AT = "occurred_at";
 
   private MemoryTimes() {
@@ -74,7 +78,9 @@ public final class MemoryTimes {
     return occurred != null ? occurred : dateField(memory.payload(), STATED_AT);
   }
 
-  /** A payload date field as a UTC date, or {@code null} when absent or unparseable. */
+  /**
+   * A payload date field as a UTC date, or {@code null} when absent or unparseable.
+   */
   public static LocalDate dateField(String payload, String field) {
     String value = rawField(payload, field);
     if (value == null || value.length() < 10) {
@@ -87,7 +93,9 @@ public final class MemoryTimes {
     }
   }
 
-  /** A payload date field as an instant; a bare date is taken as its UTC start of day. */
+  /**
+   * A payload date field as an instant; a bare date is taken as its UTC start of day.
+   */
   private static Instant instantField(String payload, String field) {
     String value = rawField(payload, field);
     if (value == null) {

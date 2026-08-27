@@ -28,7 +28,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** Runs a composite onboarding request through at most two concurrent, source-sequential lanes. */
+/**
+ * Runs a composite onboarding request through at most two concurrent, source-sequential lanes.
+ */
 @Service
 public class OnboardingPlanService {
 
@@ -45,6 +47,54 @@ public class OnboardingPlanService {
     this.reminiscence = reminiscence;
     this.tasks = tasks;
     this.objectMapper = objectMapper;
+  }
+
+  private static IngestProgressListener prefixed(TaskLane lane, String prefix) {
+    return (phase, done, total) -> lane.onPhase(prefix + ": " + phase, done, total);
+  }
+
+  private static String prefix(IndexedSpec indexed, int sourceCount) {
+    return "source " + (indexed.position() + 1) + "/" + sourceCount + " " + sourceType(indexed.spec());
+  }
+
+  private static void recordFailure(IndexedSpec indexed, int sourceCount, Throwable failure,
+                                    OnboardError[] errors) {
+    int sourceNumber = indexed.position() + 1;
+    String type = sourceType(indexed.spec());
+    OnboardError error = OnboardError.from(sourceNumber, type, failure);
+    errors[indexed.position()] = error;
+    log.warn("onboard source {}/{} {} failed; continuing with remaining sources: {}",
+      sourceNumber, sourceCount, type, error.message(), failure);
+  }
+
+  private static OnboardPlanResult aggregate(List<OnboardResult> results, String graphTaskId,
+                                             long graphCandidates, List<OnboardError> errors) {
+    int documents = results.stream().mapToInt(OnboardResult::documents).sum();
+    int memories = results.stream().mapToInt(OnboardResult::memoriesStored).sum();
+    int skipped = results.stream().map(OnboardResult::documentsSkipped)
+      .filter(java.util.Objects::nonNull).mapToInt(Integer::intValue).sum();
+    int deferred = results.stream().mapToInt(OnboardResult::graphDeferred).sum();
+    int symbols = sumOptional(results, OnboardResult::symbols);
+    int edges = sumOptional(results, OnboardResult::edges);
+    int summaries = sumOptional(results, OnboardResult::summariesStored);
+    return new OnboardPlanResult(results, documents, memories, skipped, deferred, symbols, edges,
+      summaries, graphTaskId, graphCandidates, errors);
+  }
+
+  private static int sumOptional(List<OnboardResult> results,
+                                 java.util.function.Function<OnboardResult, Integer> value) {
+    return results.stream().map(value).filter(java.util.Objects::nonNull)
+      .mapToInt(Integer::intValue).sum();
+  }
+
+  private static String sourceType(SourceSpec spec) {
+    return switch (spec) {
+      case SourceSpec.Markdown ignored -> "markdown";
+      case SourceSpec.SourceCode ignored -> "source-code";
+      case SourceSpec.Web ignored -> "web";
+      case SourceSpec.Pdf ignored -> "pdf";
+      case SourceSpec.Text ignored -> "text";
+    };
   }
 
   public OnboardPlanResult ingest(String profile, OnboardPlanRequest request,
@@ -211,54 +261,9 @@ public class OnboardingPlanService {
     lane.onPhase(prefix, 1, 1);
   }
 
-  private static IngestProgressListener prefixed(TaskLane lane, String prefix) {
-    return (phase, done, total) -> lane.onPhase(prefix + ": " + phase, done, total);
+  private record IndexedSpec(int position, SourceSpec spec) {
   }
 
-  private static String prefix(IndexedSpec indexed, int sourceCount) {
-    return "source " + (indexed.position() + 1) + "/" + sourceCount + " " + sourceType(indexed.spec());
+  private record IndexedWork(IndexedSpec indexed, OnboardingWork work) {
   }
-
-  private static void recordFailure(IndexedSpec indexed, int sourceCount, Throwable failure,
-                                    OnboardError[] errors) {
-    int sourceNumber = indexed.position() + 1;
-    String type = sourceType(indexed.spec());
-    OnboardError error = OnboardError.from(sourceNumber, type, failure);
-    errors[indexed.position()] = error;
-    log.warn("onboard source {}/{} {} failed; continuing with remaining sources: {}",
-      sourceNumber, sourceCount, type, error.message(), failure);
-  }
-
-  private static OnboardPlanResult aggregate(List<OnboardResult> results, String graphTaskId,
-                                             long graphCandidates, List<OnboardError> errors) {
-    int documents = results.stream().mapToInt(OnboardResult::documents).sum();
-    int memories = results.stream().mapToInt(OnboardResult::memoriesStored).sum();
-    int skipped = results.stream().map(OnboardResult::documentsSkipped)
-      .filter(java.util.Objects::nonNull).mapToInt(Integer::intValue).sum();
-    int deferred = results.stream().mapToInt(OnboardResult::graphDeferred).sum();
-    int symbols = sumOptional(results, OnboardResult::symbols);
-    int edges = sumOptional(results, OnboardResult::edges);
-    int summaries = sumOptional(results, OnboardResult::summariesStored);
-    return new OnboardPlanResult(results, documents, memories, skipped, deferred, symbols, edges,
-      summaries, graphTaskId, graphCandidates, errors);
-  }
-
-  private static int sumOptional(List<OnboardResult> results,
-                                 java.util.function.Function<OnboardResult, Integer> value) {
-    return results.stream().map(value).filter(java.util.Objects::nonNull)
-      .mapToInt(Integer::intValue).sum();
-  }
-
-  private static String sourceType(SourceSpec spec) {
-    return switch (spec) {
-      case SourceSpec.Markdown ignored -> "markdown";
-      case SourceSpec.SourceCode ignored -> "source-code";
-      case SourceSpec.Web ignored -> "web";
-      case SourceSpec.Pdf ignored -> "pdf";
-      case SourceSpec.Text ignored -> "text";
-    };
-  }
-
-  private record IndexedSpec(int position, SourceSpec spec) {}
-  private record IndexedWork(IndexedSpec indexed, OnboardingWork work) {}
 }

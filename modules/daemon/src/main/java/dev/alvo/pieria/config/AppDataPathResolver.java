@@ -15,19 +15,29 @@ public class AppDataPathResolver {
   private final AppDataProperties appData;
   private final PieriaProperties pieria;
 
-  public record AppDataPaths(
-    Path root,
-    Path databaseDir,
-    Path configDir,
-    Path logsDir,
-    Path runtimeDir,
-    Path databaseFile) {
-  }
-
-
   public AppDataPathResolver(AppDataProperties appData, PieriaProperties pieria) {
     this.appData = appData;
     this.pieria = pieria;
+  }
+
+  private static Path configured(String value, Path fallback) {
+    return value == null || value.isBlank() ? fallback : Path.of(value);
+  }
+
+  private static Path defaultDataRoot() {
+    return AppDirs.defaultDataRoot();
+  }
+
+  private static Path defaultConfigDir(Path dataRoot) {
+    return AppDirs.defaultConfigDir(dataRoot);
+  }
+
+  private static Path defaultLogsDir() {
+    return AppDirs.defaultLogsDir();
+  }
+
+  private static Path defaultRuntimeDir(Path dataRoot) {
+    return AppDirs.defaultRuntimeDir(dataRoot);
   }
 
   public AppDataPaths resolve() {
@@ -55,24 +65,13 @@ public class AppDataPathResolver {
     return Path.of(configured);
   }
 
-  private static Path configured(String value, Path fallback) {
-    return value == null || value.isBlank() ? fallback : Path.of(value);
-  }
-
-  private static Path defaultDataRoot() {
-    return AppDirs.defaultDataRoot();
-  }
-
-  private static Path defaultConfigDir(Path dataRoot) {
-    return AppDirs.defaultConfigDir(dataRoot);
-  }
-
-  private static Path defaultLogsDir() {
-    return AppDirs.defaultLogsDir();
-  }
-
-  private static Path defaultRuntimeDir(Path dataRoot) {
-    return AppDirs.defaultRuntimeDir(dataRoot);
+  public record AppDataPaths(
+    Path root,
+    Path databaseDir,
+    Path configDir,
+    Path logsDir,
+    Path runtimeDir,
+    Path databaseFile) {
   }
 
 }

@@ -1,9 +1,9 @@
 package dev.alvo.pieria.api.controller;
 
+import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.api.response.TaskListResponse;
 import dev.alvo.pieria.api.response.TaskStatusResponse;
 import dev.alvo.pieria.api.response.TaskSummary;
-import dev.alvo.pieria.api.response.TaskLaneProgress;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.task.TaskRegistry;
 import dev.alvo.pieria.task.TaskRegistry.CancelOutcome;
@@ -35,6 +35,31 @@ public class TaskController {
     this.tasks = tasks;
   }
 
+  private static TaskSummary toSummary(TaskInfo info) {
+    TaskSnapshot s = info.snapshot();
+    return new TaskSummary(
+      info.id().toString(), info.kind(), info.profile(), s.status().name(), lanes(s),
+      epochMs(s.startedAt()), s.errorKind(), s.errorMessage());
+  }
+
+  private static List<TaskLaneProgress> lanes(TaskSnapshot snapshot) {
+    return snapshot.lanes().stream().map(lane -> new TaskLaneProgress(
+      lane.name(), lane.state().name(), lane.phase(), lane.done(), lane.total(),
+      epochMs(lane.phaseStartedAt()))).toList();
+  }
+
+  private static long epochMs(Instant instant) {
+    return instant == null ? 0L : instant.toEpochMilli();
+  }
+
+  private static UUID parse(String taskId) {
+    try {
+      return UUID.fromString(taskId);
+    } catch (IllegalArgumentException e) {
+      throw NotFoundException.task(taskId);
+    }
+  }
+
   @GetMapping
   public TaskListResponse list() {
     List<TaskSummary> summaries = tasks.all().stream().map(TaskController::toSummary).toList();
@@ -63,30 +88,5 @@ public class TaskController {
       throw NotFoundException.task(taskId);
     }
     return status(taskId);
-  }
-
-  private static TaskSummary toSummary(TaskInfo info) {
-    TaskSnapshot s = info.snapshot();
-    return new TaskSummary(
-      info.id().toString(), info.kind(), info.profile(), s.status().name(), lanes(s),
-      epochMs(s.startedAt()), s.errorKind(), s.errorMessage());
-  }
-
-  private static List<TaskLaneProgress> lanes(TaskSnapshot snapshot) {
-    return snapshot.lanes().stream().map(lane -> new TaskLaneProgress(
-      lane.name(), lane.state().name(), lane.phase(), lane.done(), lane.total(),
-      epochMs(lane.phaseStartedAt()))).toList();
-  }
-
-  private static long epochMs(Instant instant) {
-    return instant == null ? 0L : instant.toEpochMilli();
-  }
-
-  private static UUID parse(String taskId) {
-    try {
-      return UUID.fromString(taskId);
-    } catch (IllegalArgumentException e) {
-      throw NotFoundException.task(taskId);
-    }
   }
 }

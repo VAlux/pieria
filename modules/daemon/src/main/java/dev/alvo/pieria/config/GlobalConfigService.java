@@ -42,11 +42,39 @@ public class GlobalConfigService {
     this.pathResolver = pathResolver;
   }
 
-  /** What was written, what was cleared, and which of those the running daemon will not pick up. */
-  public record ApplyResult(List<String> written, List<String> cleared, List<String> restartRequired) {
+  private static void validate(ConfigField field, String value) {
+    switch (field.kind()) {
+      case "int" -> parseOrThrow(field, value, () -> Long.parseLong(value.trim()));
+      case "double", "weight" -> parseOrThrow(field, value, () -> Double.parseDouble(value.trim()));
+      case "bool" -> {
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!normalized.equals("true") && !normalized.equals("false")) {
+          throw new IllegalArgumentException("'" + field.key() + "' must be true or false, got '" + value + "'");
+        }
+      }
+      case "enum" -> {
+        if (!field.options().contains(value.trim())) {
+          throw new IllegalArgumentException("'" + field.key() + "' must be one of "
+            + field.options() + ", got '" + value + "'");
+        }
+      }
+      default -> {
+        // string and secret accept any value, including the empty string.
+      }
+    }
   }
 
-  /** Every global-scoped key with its running value, file value and provenance. */
+  private static void parseOrThrow(ConfigField field, String value, Runnable parse) {
+    try {
+      parse.run();
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("'" + field.key() + "' must be a number, got '" + value + "'");
+    }
+  }
+
+  /**
+   * Every global-scoped key with its running value, file value and provenance.
+   */
   public List<GlobalConfigEntry> effective() {
     PropertiesFileEditor file = PropertiesFileEditor.read(propertiesPath());
     List<GlobalConfigEntry> entries = new ArrayList<>();
@@ -124,37 +152,13 @@ public class GlobalConfigService {
     return found.get();
   }
 
-  private static void validate(ConfigField field, String value) {
-    switch (field.kind()) {
-      case "int" -> parseOrThrow(field, value, () -> Long.parseLong(value.trim()));
-      case "double", "weight" -> parseOrThrow(field, value, () -> Double.parseDouble(value.trim()));
-      case "bool" -> {
-        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
-        if (!normalized.equals("true") && !normalized.equals("false")) {
-          throw new IllegalArgumentException("'" + field.key() + "' must be true or false, got '" + value + "'");
-        }
-      }
-      case "enum" -> {
-        if (!field.options().contains(value.trim())) {
-          throw new IllegalArgumentException("'" + field.key() + "' must be one of "
-            + field.options() + ", got '" + value + "'");
-        }
-      }
-      default -> {
-        // string and secret accept any value, including the empty string.
-      }
-    }
-  }
-
-  private static void parseOrThrow(ConfigField field, String value, Runnable parse) {
-    try {
-      parse.run();
-    } catch (NumberFormatException e) {
-      throw new IllegalArgumentException("'" + field.key() + "' must be a number, got '" + value + "'");
-    }
-  }
-
   private Path propertiesPath() {
     return pathResolver.resolve().configDir().resolve(PROPERTIES_FILE);
+  }
+
+  /**
+   * What was written, what was cleared, and which of those the running daemon will not pick up.
+   */
+  public record ApplyResult(List<String> written, List<String> cleared, List<String> restartRequired) {
   }
 }

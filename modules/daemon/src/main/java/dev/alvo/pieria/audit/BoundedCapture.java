@@ -6,7 +6,9 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
-/** Captures a prefix while counting and hashing every byte that passes through it. */
+/**
+ * Captures a prefix while counting and hashing every byte that passes through it.
+ */
 final class BoundedCapture {
   private final int limit;
   private final ByteArrayOutputStream prefix;

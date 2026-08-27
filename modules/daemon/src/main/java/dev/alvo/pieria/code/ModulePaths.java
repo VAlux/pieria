@@ -24,7 +24,9 @@ public final class ModulePaths {
   private ModulePaths() {
   }
 
-  /** The directories containing a build-marker file, sorted. */
+  /**
+   * The directories containing a build-marker file, sorted.
+   */
   public static Set<String> markerDirs(List<SourceFile> files) {
     Set<String> dirs = new TreeSet<>();
     for (SourceFile f : files) {

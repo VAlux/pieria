@@ -61,7 +61,9 @@ public class TikaPdfExtractor implements PdfExtractor {
     return new ExtractedPdf(title == null ? "" : title.strip(), handler.toString());
   }
 
-  /** A PDF failed to parse; the caller decides whether to skip the document or fail the run. */
+  /**
+   * A PDF failed to parse; the caller decides whether to skip the document or fail the run.
+   */
   static final class PdfExtractException extends RuntimeException {
     PdfExtractException(String message, Throwable cause) {
       super(message, cause);

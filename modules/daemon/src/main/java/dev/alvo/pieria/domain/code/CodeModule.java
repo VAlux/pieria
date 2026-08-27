@@ -11,8 +11,8 @@ import java.time.Instant;
  * regardless of how many files reference it. {@code id} and {@code createdAt} are assigned at store
  * time when null.
  *
- * @param name  display label (e.g. {@code "daemon"})
- * @param path  repo-relative module root (the identity component)
+ * @param name display label (e.g. {@code "daemon"})
+ * @param path repo-relative module root (the identity component)
  */
 public record CodeModule(
   String id,
@@ -21,7 +21,9 @@ public record CodeModule(
   String path,
   Instant createdAt) {
 
-  /** A freshly detected module with no id or timestamp yet (assigned at store time). */
+  /**
+   * A freshly detected module with no id or timestamp yet (assigned at store time).
+   */
   public static CodeModule of(String name, String path) {
     return new CodeModule(null, null, name, path, null);
   }

@@ -37,20 +37,6 @@ public class ConfigSchemaService {
     this.byKey = Map.copyOf(index);
   }
 
-  /** Every editable field, in declaration order. */
-  public List<ConfigField> all() {
-    return fields;
-  }
-
-  /** Fields for one scope: {@code profile} or {@code global}. */
-  public List<ConfigField> forScope(String scope) {
-    return fields.stream().filter(field -> field.scope().equals(scope)).toList();
-  }
-
-  public Optional<ConfigField> find(String key) {
-    return Optional.ofNullable(byKey.get(key));
-  }
-
   private static List<ConfigField> load() {
     try (InputStream in = new ClassPathResource(SCHEMA_RESOURCE).getInputStream()) {
       String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
@@ -63,5 +49,23 @@ public class ConfigSchemaService {
     } catch (IOException e) {
       throw new UncheckedIOException("Cannot read " + SCHEMA_RESOURCE, e);
     }
+  }
+
+  /**
+   * Every editable field, in declaration order.
+   */
+  public List<ConfigField> all() {
+    return fields;
+  }
+
+  /**
+   * Fields for one scope: {@code profile} or {@code global}.
+   */
+  public List<ConfigField> forScope(String scope) {
+    return fields.stream().filter(field -> field.scope().equals(scope)).toList();
+  }
+
+  public Optional<ConfigField> find(String key) {
+    return Optional.ofNullable(byKey.get(key));
   }
 }

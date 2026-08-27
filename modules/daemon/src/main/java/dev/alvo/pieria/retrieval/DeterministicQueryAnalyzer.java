@@ -34,15 +34,25 @@ import java.util.Set;
 @Component
 public class DeterministicQueryAnalyzer {
 
-  /** Tokens shorter than this many characters are discarded. */
+  /**
+   * Tokens shorter than this many characters are discarded.
+   */
   static final int MIN_TOKEN_LENGTH = 2;
 
-  /** Small English stopword set removed during tokenization. */
+  /**
+   * Small English stopword set removed during tokenization.
+   */
   static final Set<String> STOPWORDS = Set.of(
     "a", "an", "and", "are", "as", "at", "be", "but", "by", "do", "does", "for", "from",
     "how", "i", "in", "is", "it", "me", "my", "of", "on", "or", "tell", "that", "the",
     "to", "was", "were", "what", "when", "where", "which", "who", "why", "with", "you",
     "your", "about", "did", "had", "has", "have", "this", "these", "those");
+
+  private static void addKey(List<String> keys, Set<String> seen, String key) {
+    if (seen.add(key)) {
+      keys.add(key);
+    }
+  }
 
   /**
    * Analyze a recall query deterministically. See the class javadoc for the exact contract.
@@ -91,11 +101,5 @@ public class DeterministicQueryAnalyzer {
     }
 
     return new QueryAnalysis(topicKeys, ftsTerms, List.copyOf(entities), null);
-  }
-
-  private static void addKey(List<String> keys, Set<String> seen, String key) {
-    if (seen.add(key)) {
-      keys.add(key);
-    }
   }
 }

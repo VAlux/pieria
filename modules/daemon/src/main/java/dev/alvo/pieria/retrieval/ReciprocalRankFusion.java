@@ -60,9 +60,6 @@ import java.util.stream.Collectors;
  */
 public final class ReciprocalRankFusion {
 
-  private final int k;
-  private final Map<RetrievalChannelType, Double> weights;
-
   /**
    * Deterministic ordering: score desc, then recency desc, then id asc.
    *
@@ -77,6 +74,8 @@ public final class ReciprocalRankFusion {
       .thenComparing(candidate -> MemoryTimes.knowledgeTime(candidate.memory()),
         Comparator.nullsLast(Comparator.reverseOrder()))
       .thenComparing(candidate -> candidate.memory().id(), Comparator.nullsLast(Comparator.naturalOrder()));
+  private final int k;
+  private final Map<RetrievalChannelType, Double> weights;
 
   /**
    * @param k       the RRF rank-smoothing constant (default approximately 60); must be {@code >= 1}
@@ -106,31 +105,6 @@ public final class ReciprocalRankFusion {
     return newWeights;
   }
 
-  /**
-   * Fuse per-channel hits into a ranked, synthesis-facing list.
-   *
-   * @param candidates per-channel pre-fusion hits (may be {@code null} or empty)
-   * @return fused candidates sorted by score descending with deterministic tie-breaking;
-   * empty if there is nothing to fuse
-   */
-  public List<RecallCandidate> fuse(List<RetrievalCandidate> candidates) {
-    if (candidates == null || candidates.isEmpty()) {
-      return List.of();
-    }
-
-    // memory id -> accumulator
-    Map<String, FusionAccumulator> byMemory = getAccumulatorMap(candidates);
-
-    List<RecallCandidate> fused = new ArrayList<>(byMemory.size());
-    for (FusionAccumulator acc : byMemory.values()) {
-      double score = acc.score(k, weights);
-      fused.add(new RecallCandidate(acc.memory, score, acc.source(k, weights)));
-    }
-
-    fused.sort(FUSED_ORDER);
-    return fused;
-  }
-
   private static @NonNull Map<String, FusionAccumulator> getAccumulatorMap(List<RetrievalCandidate> candidates) {
     Map<String, FusionAccumulator> byMemory = new LinkedHashMap<>();
 
@@ -157,6 +131,31 @@ public final class ReciprocalRankFusion {
   }
 
   /**
+   * Fuse per-channel hits into a ranked, synthesis-facing list.
+   *
+   * @param candidates per-channel pre-fusion hits (may be {@code null} or empty)
+   * @return fused candidates sorted by score descending with deterministic tie-breaking;
+   * empty if there is nothing to fuse
+   */
+  public List<RecallCandidate> fuse(List<RetrievalCandidate> candidates) {
+    if (candidates == null || candidates.isEmpty()) {
+      return List.of();
+    }
+
+    // memory id -> accumulator
+    Map<String, FusionAccumulator> byMemory = getAccumulatorMap(candidates);
+
+    List<RecallCandidate> fused = new ArrayList<>(byMemory.size());
+    for (FusionAccumulator acc : byMemory.values()) {
+      double score = acc.score(k, weights);
+      fused.add(new RecallCandidate(acc.memory, score, acc.source(k, weights)));
+    }
+
+    fused.sort(FUSED_ORDER);
+    return fused;
+  }
+
+  /**
    * Per-memory fusion accumulator: best rank seen per channel.
    */
   private static final class FusionAccumulator {
@@ -166,6 +165,11 @@ public final class ReciprocalRankFusion {
 
     FusionAccumulator(Memory memory) {
       this.memory = memory;
+    }
+
+    private static double contribution(RetrievalChannelType channel, int rank, int k,
+                                       Map<RetrievalChannelType, Double> weights) {
+      return weights.getOrDefault(channel, 0.0) / (k + rank);
     }
 
     void observe(RetrievalChannelType channel, int rank) {
@@ -190,11 +194,6 @@ public final class ReciprocalRankFusion {
         .collect(Collectors.joining("+"));
 
       return "rrf:" + channels;
-    }
-
-    private static double contribution(RetrievalChannelType channel, int rank, int k,
-                                       Map<RetrievalChannelType, Double> weights) {
-      return weights.getOrDefault(channel, 0.0) / (k + rank);
     }
   }
 }

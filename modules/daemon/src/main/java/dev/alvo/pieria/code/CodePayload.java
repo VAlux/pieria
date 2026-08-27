@@ -18,7 +18,9 @@ public final class CodePayload {
   private CodePayload() {
   }
 
-  /** The {@code payload.symbolIds} values, or an empty list when absent/non-code. */
+  /**
+   * The {@code payload.symbolIds} values, or an empty list when absent/non-code.
+   */
   public static List<String> symbolIds(String payload) {
     if (payload == null || payload.isEmpty()) {
       return List.of();

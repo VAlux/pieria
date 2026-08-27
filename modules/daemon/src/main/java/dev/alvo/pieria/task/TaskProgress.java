@@ -5,7 +5,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
-/** Mutable task-scoped owner of ordered, named progress lanes. */
+/**
+ * Mutable task-scoped owner of ordered, named progress lanes.
+ */
 public final class TaskProgress {
 
   private final AtomicReference<TaskSnapshot> snapshot;
@@ -17,7 +19,9 @@ public final class TaskProgress {
     this.cancelled = cancelled;
   }
 
-  /** Return the stable handle for {@code name}, creating a queued lane on first use. */
+  /**
+   * Return the stable handle for {@code name}, creating a queued lane on first use.
+   */
   public synchronized TaskLane lane(String name) {
     if (name == null || name.isBlank()) {
       throw new IllegalArgumentException("task lane name must not be blank");

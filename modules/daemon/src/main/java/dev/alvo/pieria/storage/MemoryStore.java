@@ -1,8 +1,8 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
-import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
@@ -11,11 +11,11 @@ import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
-import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -256,16 +256,6 @@ public interface MemoryStore {
   }
 
   /**
-   * Outcome of {@link #store(String, Memory)}: the stored memory, the id of any memory it
-   * superseded (or {@code null}), whether a vectorization outbox row was enqueued, and whether this
-   * call inserted the memory row rather than reusing an idempotent existing row.
-   */
-  record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector, boolean inserted) {
-  }
-
-  // ---- sqlite-vec index + FTS5 retrieval channels ----
-
-  /**
    * Whether embedded vector search is available: the native {@code sqlite-vec} extension loaded
    * AND {@code pieria.retrieval.vector-enabled} is true. When false, the vector channels are
    * no-ops and {@link #vectorSearch} returns an empty list so recall degrades to FTS + keyed.
@@ -273,6 +263,8 @@ public interface MemoryStore {
   default boolean isVectorSearchAvailable() {
     return false;
   }
+
+  // ---- sqlite-vec index + FTS5 retrieval channels ----
 
   /**
    * Upsert an embedding into the {@code memories_vec} index for {@code memoryId}. No-op when vector
@@ -583,12 +575,16 @@ public interface MemoryStore {
     throw new UnsupportedOperationException("countGraphOrphans(...) not implemented");
   }
 
-  /** Session-scoped orphan page used by automatic onboarding enrichment. */
+  /**
+   * Session-scoped orphan page used by automatic onboarding enrichment.
+   */
   default List<Memory> findGraphOrphans(String profileId, List<String> sessionIds, int limit) {
     throw new UnsupportedOperationException("findGraphOrphans(..., sessions, ...) not implemented");
   }
 
-  /** Count of session-scoped orphans used by automatic onboarding enrichment. */
+  /**
+   * Count of session-scoped orphans used by automatic onboarding enrichment.
+   */
   default long countGraphOrphans(String profileId, List<String> sessionIds) {
     throw new UnsupportedOperationException("countGraphOrphans(..., sessions) not implemented");
   }
@@ -621,5 +617,13 @@ public interface MemoryStore {
    */
   default boolean isGraphAdopted(String profileId, String memoryId) {
     throw new UnsupportedOperationException("isGraphAdopted(...) not implemented");
+  }
+
+  /**
+   * Outcome of {@link #store(String, Memory)}: the stored memory, the id of any memory it
+   * superseded (or {@code null}), whether a vectorization outbox row was enqueued, and whether this
+   * call inserted the memory row rather than reusing an idempotent existing row.
+   */
+  record StoreOutcome(Memory stored, String supersededId, boolean enqueuedVector, boolean inserted) {
   }
 }

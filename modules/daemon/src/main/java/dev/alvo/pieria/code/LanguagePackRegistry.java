@@ -7,7 +7,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** Built-in Tree-sitter language packs, in deterministic load order. */
+/**
+ * Built-in Tree-sitter language packs, in deterministic load order.
+ */
 public final class LanguagePackRegistry {
 
   private static final List<LanguagePack> PACKS = List.of(

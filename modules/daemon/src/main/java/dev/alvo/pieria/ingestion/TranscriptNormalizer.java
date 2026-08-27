@@ -3,6 +3,8 @@ package dev.alvo.pieria.ingestion;
 
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.tools.RelativeDates;
+import org.springframework.stereotype.Component;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -12,7 +14,6 @@ import java.util.List;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.springframework.stereotype.Component;
 
 /**
  * Normalizes and validates raw inbound conversation messages before chunking/extraction.
@@ -65,6 +66,18 @@ public class TranscriptNormalizer {
    * to the model as written.
    */
   private static final Pattern RELATIVE_PERIOD = RelativeDates.PERIOD;
+
+  /**
+   * The absolute period a relative one names, at the same granularity: {@code "next month"} spoken
+   * on 2023-05-25 becomes {@code "June 2023"}.
+   */
+  private static String resolvePeriod(MatchResult match, LocalDate spokenOn) {
+    return RelativeDates.period(match.group(1), match.group(2), spokenOn);
+  }
+
+  private static boolean isBlank(String s) {
+    return s == null || s.isBlank();
+  }
 
   /**
    * Validate, order-preserve, and date-normalize the given messages.
@@ -132,17 +145,5 @@ public class TranscriptNormalizer {
     result = RELATIVE_PERIOD.matcher(result)
       .replaceAll(match -> Matcher.quoteReplacement(resolvePeriod(match, today)));
     return result;
-  }
-
-  /**
-   * The absolute period a relative one names, at the same granularity: {@code "next month"} spoken
-   * on 2023-05-25 becomes {@code "June 2023"}.
-   */
-  private static String resolvePeriod(MatchResult match, LocalDate spokenOn) {
-    return RelativeDates.period(match.group(1), match.group(2), spokenOn);
-  }
-
-  private static boolean isBlank(String s) {
-    return s == null || s.isBlank();
   }
 }

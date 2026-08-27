@@ -1,7 +1,7 @@
 package dev.alvo.pieria.config;
 
-import dev.alvo.pieria.tools.os.OsFamily;
 import dev.alvo.pieria.tools.io.NativeResourceExtractor;
+import dev.alvo.pieria.tools.os.OsFamily;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -49,17 +49,6 @@ public class VecExtensionResolver {
     this.pathResolver = pathResolver;
   }
 
-  /** Resolve the extension path from config/env/install layout, then the embedded resource. */
-  public Optional<Path> resolve() {
-    String osName = OsFamily.osName();
-    return resolve(
-      properties.extensionPath(),
-      System.getenv("PIERIA_VEC_EXTENSION"),
-      NativeResourceExtractor.installCandidateDirectories(VecExtensionResolver.class),
-      osName)
-      .or(() -> extractEmbedded(osName, OsFamily.osArch()));
-  }
-
   /**
    * Pure file-search resolution. {@code candidateDirs} are searched for the platform extension file
    * only when neither explicit input points at an existing file.
@@ -76,6 +65,47 @@ public class VecExtensionResolver {
         .filter(Files::isRegularFile)
         .findFirst()
         .map(candidate -> candidate.toAbsolutePath().normalize()));
+  }
+
+  static Path extract(InputStream in, Path target) throws IOException {
+    return NativeResourceExtractor.extract(in, target);
+  }
+
+  /**
+   * Classpath resource path for the embedded platform extension, arch-scoped because Apple Silicon
+   * and Intel macs (and ARM vs x86 Linux) share a suffix but need different binaries — e.g.
+   * {@code native/macos-aarch64/vec0.dylib}.
+   */
+  static String embeddedResourcePath(String osName, String osArch) {
+    return "native/" + platformKey(osName, osArch) + "/" + platformExtensionFileName(osName);
+  }
+
+  /**
+   * Canonical {@code <os>-<arch>} key matching the embedded resource and packaging layout.
+   */
+  static String platformKey(String osName, String osArch) {
+    return NativeResourceExtractor.platformKey(osName, osArch);
+  }
+
+  /**
+   * Loadable-extension filename per OS. sqlite-vec releases ship {@code vec0} with the platform's
+   * native shared-library suffix.
+   */
+  static String platformExtensionFileName(String osName) {
+    return "vec0." + NativeResourceExtractor.librarySuffix(osName);
+  }
+
+  /**
+   * Resolve the extension path from config/env/install layout, then the embedded resource.
+   */
+  public Optional<Path> resolve() {
+    String osName = OsFamily.osName();
+    return resolve(
+      properties.extensionPath(),
+      System.getenv("PIERIA_VEC_EXTENSION"),
+      NativeResourceExtractor.installCandidateDirectories(VecExtensionResolver.class),
+      osName)
+      .or(() -> extractEmbedded(osName, OsFamily.osArch()));
   }
 
   /**
@@ -96,32 +126,6 @@ public class VecExtensionResolver {
         + "vector search may be disabled.", target, e.toString());
       return Optional.empty();
     }
-  }
-
-  static Path extract(InputStream in, Path target) throws IOException {
-    return NativeResourceExtractor.extract(in, target);
-  }
-
-  /**
-   * Classpath resource path for the embedded platform extension, arch-scoped because Apple Silicon
-   * and Intel macs (and ARM vs x86 Linux) share a suffix but need different binaries — e.g.
-   * {@code native/macos-aarch64/vec0.dylib}.
-   */
-  static String embeddedResourcePath(String osName, String osArch) {
-    return "native/" + platformKey(osName, osArch) + "/" + platformExtensionFileName(osName);
-  }
-
-  /** Canonical {@code <os>-<arch>} key matching the embedded resource and packaging layout. */
-  static String platformKey(String osName, String osArch) {
-    return NativeResourceExtractor.platformKey(osName, osArch);
-  }
-
-  /**
-   * Loadable-extension filename per OS. sqlite-vec releases ship {@code vec0} with the platform's
-   * native shared-library suffix.
-   */
-  static String platformExtensionFileName(String osName) {
-    return "vec0." + NativeResourceExtractor.librarySuffix(osName);
   }
 
 }

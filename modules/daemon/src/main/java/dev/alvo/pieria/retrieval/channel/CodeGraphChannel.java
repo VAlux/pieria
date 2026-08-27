@@ -42,6 +42,15 @@ public final class CodeGraphChannel implements RetrievalChannel {
     this.minConfidence = minConfidence;
   }
 
+  private static List<String> queryNames(RetrievalContext ctx) {
+    if (ctx.analysis() == null) {
+      return List.of();
+    }
+    List<String> names = new ArrayList<>(ctx.analysis().entities());
+    names.addAll(ctx.analysis().ftsTerms());
+    return names.stream().filter(n -> n != null && !n.isBlank()).distinct().toList();
+  }
+
   @Override
   public RetrievalChannelType type() {
     return RetrievalChannelType.CODE_GRAPH;
@@ -120,14 +129,5 @@ public final class CodeGraphChannel implements RetrievalChannel {
         e.dst() != null ? e.dst().path() : null,
         e.edge().confidence().wire()))
       .toList();
-  }
-
-  private static List<String> queryNames(RetrievalContext ctx) {
-    if (ctx.analysis() == null) {
-      return List.of();
-    }
-    List<String> names = new ArrayList<>(ctx.analysis().entities());
-    names.addAll(ctx.analysis().ftsTerms());
-    return names.stream().filter(n -> n != null && !n.isBlank()).distinct().toList();
   }
 }

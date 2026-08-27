@@ -16,16 +16,20 @@ public enum CodeRelation {
   TESTS,
   HANDLES_ROUTE;
 
-  /** Canonical wire/storage form, e.g. {@code "depends-on"}. */
-  public String wire() {
-    return name().toLowerCase(Locale.ROOT).replace('_', '-');
-  }
-
-  /** Parse a stored/wire value (case-insensitive, hyphen or underscore); throws if unknown. */
+  /**
+   * Parse a stored/wire value (case-insensitive, hyphen or underscore); throws if unknown.
+   */
   public static CodeRelation fromWire(String value) {
     if (value == null) {
       throw new IllegalArgumentException("relation must not be null");
     }
     return CodeRelation.valueOf(value.trim().toUpperCase(Locale.ROOT).replace('-', '_'));
+  }
+
+  /**
+   * Canonical wire/storage form, e.g. {@code "depends-on"}.
+   */
+  public String wire() {
+    return name().toLowerCase(Locale.ROOT).replace('_', '-');
   }
 }

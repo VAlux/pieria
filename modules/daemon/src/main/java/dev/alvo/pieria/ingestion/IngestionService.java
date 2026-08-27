@@ -3,14 +3,14 @@ package dev.alvo.pieria.ingestion;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.VerifyMode;
-import dev.alvo.pieria.ingestion.model.Chunk;
-import dev.alvo.pieria.ingestion.model.Classification;
-import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
@@ -62,53 +62,21 @@ import java.util.concurrent.Semaphore;
 @Service
 public class IngestionService {
 
-  private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
-
-  /** {@code ingest_ledger.scope} for conversation chunks, alongside the onboarding source types. */
+  /**
+   * {@code ingest_ledger.scope} for conversation chunks, alongside the onboarding source types.
+   */
   static final String CHUNK_LEDGER_SCOPE = "chunk";
-
   /**
    * Salt for the chunk ledger hashes; bump on prompt/pipeline changes that should force
    * re-extraction of already-processed chunks (same convention as {@code ContentIngestor}).
    */
   static final String CHUNK_PIPELINE_VERSION = "v1";
-
+  private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
   private final MemoryStore store;
   private final ModelGateway modelGateway;
   private final TranscriptNormalizer normalizer;
   private final Chunker chunker;
   private final EffectiveConfigResolver configResolver;
-
-  /**
-   * Merged extraction output: the raw candidate count (for logging) and the de-duplicated list.
-   */
-  private record Extraction(int rawCount, List<UnifiedCandidate> merged) {
-  }
-
-  /**
-   * Combined verify+store output: per-verdict counts (with {@code autoPassed} counting candidates
-   * the grounding filter cleared without a model call) plus the persisted memories and their
-   * supersession / vectorization-enqueue / graph tallies.
-   */
-  private record VerifyStoreResult(List<Memory> stored, int passed, int autoPassed, int corrected,
-                                   int dropped, int superseded, int enqueued,
-                                   int graphExtracted, int graphSkipped, int graphFailed,
-                                   int graphDeferred, long verificationWaitMs, long graphCallMs,
-                                   long reclassificationMs, long sqliteStoreMs) {
-  }
-
-  /** Outcome of persisting one verified candidate (classify + graph + store). */
-  private record StoredOne(Memory stored, boolean superseded, boolean enqueued, GraphOutcome graph) {
-  }
-
-  /** Whether graph extraction ran, was skipped (tasks), or failed (degraded, memory still stored). */
-  private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED, DEFERRED}
-
-  /**
-   * Result of one extraction model call, keeping chunk metadata for detailed logging.
-   */
-  private record ExtractionPassResult(int chunkIndex, List<UnifiedCandidate> candidates, long millis) {
-  }
 
   public IngestionService(MemoryStore store,
                           ModelGateway modelGateway,
@@ -120,6 +88,200 @@ public class IngestionService {
     this.normalizer = normalizer;
     this.chunker = chunker;
     this.configResolver = configResolver;
+  }
+
+  /**
+   * Wrap {@code task} so it binds {@code usage} to whatever (virtual) thread runs it before calling
+   * the gateway, then restores the prior binding. Required because the extraction/verify executors
+   * are virtual-thread-per-task and do not inherit thread-locals, so the binding must be established
+   * on the worker thread itself rather than propagated from the submitter.
+   */
+  private static <T> Callable<T> tracked(InferenceUsageAccumulator usage, Callable<T> task) {
+    return () -> {
+      try (InferenceUsageSink.Binding ignored = InferenceUsageSink.bind(usage)) {
+        return task.call();
+      }
+    };
+  }
+
+  /**
+   * When a chunk was spoken: the first turn in it that carries a timestamp, else {@code ingestTime}.
+   *
+   * <p>The first turn rather than the last because a chunk's relative references were normalized
+   * against the turn that contained them, and a chunk opens where the previous one left off. The
+   * fallback matches {@link TranscriptNormalizer}'s: a caller that supplies no timestamps is
+   * declaring the conversation is happening now.
+   */
+  private static Instant spokenAt(Chunk chunk, Instant ingestTime) {
+    for (Message message : chunk.messages()) {
+      if (message.createdAt() != null) {
+        return message.createdAt();
+      }
+    }
+    return ingestTime;
+  }
+
+  /**
+   * Ledger item key for one chunk. Scoped by session so two sessions that happen to contain
+   * identical text each get their own memories — {@code ContentId.forMemory} includes the session
+   * id, so deduping across sessions here would silently drop the second session's rows.
+   */
+  static String chunkLedgerKey(String sessionId, int chunkIndex) {
+    return StringKit.nullToEmpty(sessionId) + "#" + chunkIndex;
+  }
+
+  /**
+   * The ledger hash of one chunk: everything that determines what the pipeline would produce for it.
+   * The three tuning knobs all shape the extraction prompt (candidate cap, interrogative-query
+   * count, inline graph), so changing any of them must re-extract rather than silently reuse a
+   * result produced under the old instructions. {@code verifyMode} is deliberately absent: the
+   * ledger records that a chunk's memories are stored, not the level they were verified at.
+   */
+  static String chunkHash(Chunk chunk, int extractionSamples, PieriaProperties.Ingestion tuning) {
+    return Hash.hash128(
+      CHUNK_PIPELINE_VERSION,
+      String.valueOf(extractionSamples),
+      String.valueOf(tuning.maxExtractedCandidatesPerChunk()),
+      String.valueOf(tuning.interrogativeQueriesPerMemory()),
+      String.valueOf(tuning.graphFromExtraction()),
+      chunk.transcript() == null ? "" : chunk.transcript());
+  }
+
+  private static long nanosToMillis(long nanos) {
+    return nanos / 1_000_000L;
+  }
+
+  /**
+   * Split a chunk's candidates per {@code verifyMode}: {@code NEVER} auto-passes everything,
+   * {@code ALWAYS} sends everything to the model verifier, {@code GROUNDED} auto-passes only the
+   * candidates the {@link GroundingFilter} clears against the chunk transcript.
+   */
+  private static ChunkPartition partition(List<UnifiedCandidate> candidates, String transcript,
+                                          VerifyMode verifyMode) {
+    return switch (verifyMode) {
+      case NEVER -> new ChunkPartition(candidates, List.of());
+      case ALWAYS -> new ChunkPartition(List.of(), candidates);
+      case GROUNDED -> {
+        List<UnifiedCandidate> auto = new ArrayList<>();
+        List<UnifiedCandidate> suspects = new ArrayList<>();
+        for (UnifiedCandidate candidate : candidates) {
+          if (GroundingFilter.grounded(candidate.content(), transcript)) {
+            auto.add(candidate);
+          } else {
+            suspects.add(candidate);
+          }
+        }
+        yield new ChunkPartition(auto, suspects);
+      }
+    };
+  }
+
+  private static List<VerificationResult> awaitVerification(Future<List<VerificationResult>> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ModelUnavailableException("verification interrupted", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw new ModelUnavailableException("verification interrupted", cause);
+      }
+      if (cause instanceof ModelUnavailableException mue) {
+        throw mue;
+      }
+      throw new ModelUnavailableException("verification failed", cause);
+    }
+  }
+
+  private static ExtractionPassResult extractWithTiming(Semaphore gate, Chunk chunk,
+                                                        Callable<List<UnifiedCandidate>> task) throws Exception {
+    Timed<List<UnifiedCandidate>> timed = Timed.measure(() -> {
+      try {
+        return bounded(gate, task);
+      } catch (Exception e) {
+        throw new ExtractionCallException(e);
+      }
+    });
+    List<UnifiedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
+    return new ExtractionPassResult(chunk.index(), candidates, timed.millis());
+  }
+
+  private static <T> T bounded(Semaphore gate, Callable<T> task) throws Exception {
+    gate.acquire();
+    try {
+      return task.call();
+    } finally {
+      gate.release();
+    }
+  }
+
+  private static ExtractionPassResult awaitExtraction(Future<ExtractionPassResult> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ModelUnavailableException("extraction interrupted", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof ExtractionCallException && cause.getCause() != null) {
+        cause = cause.getCause();
+      }
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw new ModelUnavailableException("extraction interrupted", cause);
+      }
+      if (cause instanceof ModelUnavailableException mue) {
+        throw mue;
+      }
+      throw new ModelUnavailableException("extraction failed", cause);
+    }
+  }
+
+  /**
+   * Merge candidates across samples, de-duplicating by normalized content (case-insensitive,
+   * trimmed) while keeping the first occurrence with its classification and provenance.
+   */
+  private static List<UnifiedCandidate> mergeCandidates(List<UnifiedCandidate> candidates) {
+    Map<String, UnifiedCandidate> byContent = new LinkedHashMap<>();
+    for (UnifiedCandidate candidate : candidates) {
+      if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
+        continue;
+      }
+      String key = candidate.content().strip().toLowerCase(Locale.ROOT);
+      byContent.putIfAbsent(key, candidate);
+    }
+    return new ArrayList<>(byContent.values());
+  }
+
+  /**
+   * Build {@code embed_text}: interrogative queries prepended to the declarative content
+   * so the stored vector bridges declarative storage and interrogative recall queries.
+   */
+  private static String buildEmbedText(List<String> interrogativeQueries, String content) {
+    if (interrogativeQueries == null || interrogativeQueries.isEmpty()) {
+      return content;
+    }
+    StringBuilder sb = new StringBuilder();
+    for (String q : interrogativeQueries) {
+      if (q != null && !q.isBlank()) {
+        sb.append(q.strip()).append(' ');
+      }
+    }
+    sb.append(content);
+    return sb.toString();
+  }
+
+  /**
+   * Shorten candidate text for single-line diagnostic logs.
+   */
+  private static String abbreviate(String content) {
+    if (content == null) {
+      return "";
+    }
+    String oneLine = content.strip().replaceAll("\\s+", " ");
+    return oneLine.length() <= 120 ? oneLine : oneLine.substring(0, 117) + "…";
   }
 
   /**
@@ -174,7 +336,9 @@ public class IngestionService {
       GraphMode.SYNCHRONOUS, chunkLedgerMode, progress).memories();
   }
 
-  /** Internal detailed entry point used by bulk onboarding to defer graph enrichment. */
+  /**
+   * Internal detailed entry point used by bulk onboarding to defer graph enrichment.
+   */
   public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
                                         Integer extractionSamplesOverride, GraphMode graphMode,
                                         IngestProgressListener progress) {
@@ -257,7 +421,7 @@ public class IngestionService {
       Math.max(0, extraction.rawCount() - extraction.merged().size()), extract.millis());
     if (extraction.merged().isEmpty()) {
       log.warn("ingest extraction produced no candidates profile={} session={} — the model returned no parseable"
-        + " memories for any chunk (check for unparseable-output warnings above); nothing will be stored",
+          + " memories for any chunk (check for unparseable-output warnings above); nothing will be stored",
         profileName, sessionId);
     }
 
@@ -339,7 +503,9 @@ public class IngestionService {
     return new IngestionResult(result.stored(), result.graphDeferred());
   }
 
-  /** Normalize and persist a source's raw messages before its first extraction batch starts. */
+  /**
+   * Normalize and persist a source's raw messages before its first extraction batch starts.
+   */
   public int preStageMessages(String profileName, String sessionId, List<Message> messages) {
     Profile profile = store.getOrCreateProfile(profileName);
     List<Message> normalized = normalizeMessages(messages, sessionId);
@@ -361,20 +527,6 @@ public class IngestionService {
   }
 
   /**
-   * Wrap {@code task} so it binds {@code usage} to whatever (virtual) thread runs it before calling
-   * the gateway, then restores the prior binding. Required because the extraction/verify executors
-   * are virtual-thread-per-task and do not inherit thread-locals, so the binding must be established
-   * on the worker thread itself rather than propagated from the submitter.
-   */
-  private static <T> Callable<T> tracked(InferenceUsageAccumulator usage, Callable<T> task) {
-    return () -> {
-      try (InferenceUsageSink.Binding ignored = InferenceUsageSink.bind(usage)) {
-        return task.call();
-      }
-    };
-  }
-
-  /**
    * Accumulate this ingest into the profile's lifetime savings counters: the raw-message tokens fed
    * in versus the distilled-memory tokens produced (the compression story). Accounting-only and
    * best-effort — a failure here must never break ingest, and an ingest that stored nothing is not
@@ -391,23 +543,6 @@ public class IngestionService {
     } catch (RuntimeException e) {
       log.warn("recording ingest usage failed ({}); continuing", e.toString());
     }
-  }
-
-  /**
-   * When a chunk was spoken: the first turn in it that carries a timestamp, else {@code ingestTime}.
-   *
-   * <p>The first turn rather than the last because a chunk's relative references were normalized
-   * against the turn that contained them, and a chunk opens where the previous one left off. The
-   * fallback matches {@link TranscriptNormalizer}'s: a caller that supplies no timestamps is
-   * declaring the conversation is happening now.
-   */
-  private static Instant spokenAt(Chunk chunk, Instant ingestTime) {
-    for (Message message : chunk.messages()) {
-      if (message.createdAt() != null) {
-        return message.createdAt();
-      }
-    }
-    return ingestTime;
   }
 
   /**
@@ -436,19 +571,6 @@ public class IngestionService {
       runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress);
     List<UnifiedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
-  }
-
-  /**
-   * The chunk-level work this ingest will actually do, after the ledger has been consulted.
-   *
-   * @param pending          chunks that still need the model pipeline, in chunk order
-   * @param hashByChunkIndex ledger hash for every chunk (pending or not), by {@code Chunk.index()}
-   * @param skipped          chunks a previous ingest already processed
-   * @param deferred         chunks held back because they can still grow (trailing chunk)
-   * @param ledgerEnabled    whether results should be written back to the ledger at all
-   */
-  private record ChunkPlan(List<Chunk> pending, Map<Integer, String> hashByChunkIndex,
-                           int skipped, int deferred, boolean ledgerEnabled) {
   }
 
   /**
@@ -500,32 +622,6 @@ public class IngestionService {
   }
 
   /**
-   * Ledger item key for one chunk. Scoped by session so two sessions that happen to contain
-   * identical text each get their own memories — {@code ContentId.forMemory} includes the session
-   * id, so deduping across sessions here would silently drop the second session's rows.
-   */
-  static String chunkLedgerKey(String sessionId, int chunkIndex) {
-    return StringKit.nullToEmpty(sessionId) + "#" + chunkIndex;
-  }
-
-  /**
-   * The ledger hash of one chunk: everything that determines what the pipeline would produce for it.
-   * The three tuning knobs all shape the extraction prompt (candidate cap, interrogative-query
-   * count, inline graph), so changing any of them must re-extract rather than silently reuse a
-   * result produced under the old instructions. {@code verifyMode} is deliberately absent: the
-   * ledger records that a chunk's memories are stored, not the level they were verified at.
-   */
-  static String chunkHash(Chunk chunk, int extractionSamples, PieriaProperties.Ingestion tuning) {
-    return Hash.hash128(
-      CHUNK_PIPELINE_VERSION,
-      String.valueOf(extractionSamples),
-      String.valueOf(tuning.maxExtractedCandidatesPerChunk()),
-      String.valueOf(tuning.interrogativeQueriesPerMemory()),
-      String.valueOf(tuning.graphFromExtraction()),
-      chunk.transcript() == null ? "" : chunk.transcript());
-  }
-
-  /**
    * Checkpoint one chunk as fully processed. Called only after that chunk's memories are durably
    * stored — the ledger must never claim work that did not finish, or a crashed run would silently
    * lose those memories.
@@ -545,14 +641,6 @@ public class IngestionService {
       // A ledger write failure only costs a re-extraction next time; never fail the ingest for it.
       log.warn("recording chunk ledger for chunk={} failed ({}); it will be re-extracted", chunkIndex, e.toString());
     }
-  }
-
-  /** One verified survivor ready to store: resolved content plus its classification. */
-  private record Survivor(String content, Classification classification, GraphFragment extractionGraph) {
-  }
-
-  /** A chunk's candidates split by the grounding pre-filter (per {@link VerifyMode}). */
-  private record ChunkPartition(List<UnifiedCandidate> autoPassed, List<UnifiedCandidate> suspects) {
   }
 
   /**
@@ -824,35 +912,6 @@ public class IngestionService {
       nanosToMillis(reclassificationNanos), nanosToMillis(sqliteStoreNanos));
   }
 
-  private static long nanosToMillis(long nanos) {
-    return nanos / 1_000_000L;
-  }
-
-  /**
-   * Split a chunk's candidates per {@code verifyMode}: {@code NEVER} auto-passes everything,
-   * {@code ALWAYS} sends everything to the model verifier, {@code GROUNDED} auto-passes only the
-   * candidates the {@link GroundingFilter} clears against the chunk transcript.
-   */
-  private static ChunkPartition partition(List<UnifiedCandidate> candidates, String transcript,
-                                          VerifyMode verifyMode) {
-    return switch (verifyMode) {
-      case NEVER -> new ChunkPartition(candidates, List.of());
-      case ALWAYS -> new ChunkPartition(List.of(), candidates);
-      case GROUNDED -> {
-        List<UnifiedCandidate> auto = new ArrayList<>();
-        List<UnifiedCandidate> suspects = new ArrayList<>();
-        for (UnifiedCandidate candidate : candidates) {
-          if (GroundingFilter.grounded(candidate.content(), transcript)) {
-            auto.add(candidate);
-          } else {
-            suspects.add(candidate);
-          }
-        }
-        yield new ChunkPartition(auto, suspects);
-      }
-    };
-  }
-
   /**
    * Re-classify content the verifier corrected: the original enrichment (type, topic key,
    * interrogative queries) was computed for the uncorrected statement. Degradable — on a model
@@ -865,25 +924,6 @@ public class IngestionService {
     } catch (RuntimeException e) {
       log.warn("re-classify of corrected content failed ({}); keeping the original classification", e.toString());
       return stale;
-    }
-  }
-
-  private static List<VerificationResult> awaitVerification(Future<List<VerificationResult>> future) {
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ModelUnavailableException("verification interrupted", e);
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-        throw new ModelUnavailableException("verification interrupted", cause);
-      }
-      if (cause instanceof ModelUnavailableException mue) {
-        throw mue;
-      }
-      throw new ModelUnavailableException("verification failed", cause);
     }
   }
 
@@ -968,100 +1008,6 @@ public class IngestionService {
     return results;
   }
 
-  private static ExtractionPassResult extractWithTiming(Semaphore gate, Chunk chunk,
-                                                        Callable<List<UnifiedCandidate>> task) throws Exception {
-    Timed<List<UnifiedCandidate>> timed = Timed.measure(() -> {
-      try {
-        return bounded(gate, task);
-      } catch (Exception e) {
-        throw new ExtractionCallException(e);
-      }
-    });
-    List<UnifiedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
-    return new ExtractionPassResult(chunk.index(), candidates, timed.millis());
-  }
-
-  private static <T> T bounded(Semaphore gate, Callable<T> task) throws Exception {
-    gate.acquire();
-    try {
-      return task.call();
-    } finally {
-      gate.release();
-    }
-  }
-
-  private static ExtractionPassResult awaitExtraction(Future<ExtractionPassResult> future) {
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new ModelUnavailableException("extraction interrupted", e);
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof ExtractionCallException && cause.getCause() != null) {
-        cause = cause.getCause();
-      }
-      if (cause instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-        throw new ModelUnavailableException("extraction interrupted", cause);
-      }
-      if (cause instanceof ModelUnavailableException mue) {
-        throw mue;
-      }
-      throw new ModelUnavailableException("extraction failed", cause);
-    }
-  }
-
-  private static class ExtractionCallException extends RuntimeException {
-
-    private ExtractionCallException(Throwable cause) {
-      super(cause);
-    }
-  }
-
-  /**
-   * Merge candidates across samples, de-duplicating by normalized content (case-insensitive,
-   * trimmed) while keeping the first occurrence with its classification and provenance.
-   */
-  private static List<UnifiedCandidate> mergeCandidates(List<UnifiedCandidate> candidates) {
-    Map<String, UnifiedCandidate> byContent = new LinkedHashMap<>();
-    for (UnifiedCandidate candidate : candidates) {
-      if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
-        continue;
-      }
-      String key = candidate.content().strip().toLowerCase(Locale.ROOT);
-      byContent.putIfAbsent(key, candidate);
-    }
-    return new ArrayList<>(byContent.values());
-  }
-
-  /**
-   * Build {@code embed_text}: interrogative queries prepended to the declarative content
-   * so the stored vector bridges declarative storage and interrogative recall queries.
-   */
-  private static String buildEmbedText(List<String> interrogativeQueries, String content) {
-    if (interrogativeQueries == null || interrogativeQueries.isEmpty()) {
-      return content;
-    }
-    StringBuilder sb = new StringBuilder();
-    for (String q : interrogativeQueries) {
-      if (q != null && !q.isBlank()) {
-        sb.append(q.strip()).append(' ');
-      }
-    }
-    sb.append(content);
-    return sb.toString();
-  }
-
-  /** Shorten candidate text for single-line diagnostic logs. */
-  private static String abbreviate(String content) {
-    if (content == null) {
-      return "";
-    }
-    String oneLine = content.strip().replaceAll("\\s+", " ");
-    return oneLine.length() <= 120 ? oneLine : oneLine.substring(0, 117) + "…";
-  }
-
   /**
    * Explicit single-memory write (POST /memories). No model call: persist directly under the
    * resolved profile (with supersession + vectorization enqueue) and return the stored row.
@@ -1073,5 +1019,72 @@ public class IngestionService {
       profileName, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
       outcome.enqueuedVector());
     return outcome.stored();
+  }
+
+  /**
+   * Whether graph extraction ran, was skipped (tasks), or failed (degraded, memory still stored).
+   */
+  private enum GraphOutcome {EXTRACTED, SKIPPED, FAILED, DEFERRED}
+
+  /**
+   * Merged extraction output: the raw candidate count (for logging) and the de-duplicated list.
+   */
+  private record Extraction(int rawCount, List<UnifiedCandidate> merged) {
+  }
+
+  /**
+   * Combined verify+store output: per-verdict counts (with {@code autoPassed} counting candidates
+   * the grounding filter cleared without a model call) plus the persisted memories and their
+   * supersession / vectorization-enqueue / graph tallies.
+   */
+  private record VerifyStoreResult(List<Memory> stored, int passed, int autoPassed, int corrected,
+                                   int dropped, int superseded, int enqueued,
+                                   int graphExtracted, int graphSkipped, int graphFailed,
+                                   int graphDeferred, long verificationWaitMs, long graphCallMs,
+                                   long reclassificationMs, long sqliteStoreMs) {
+  }
+
+  /**
+   * Outcome of persisting one verified candidate (classify + graph + store).
+   */
+  private record StoredOne(Memory stored, boolean superseded, boolean enqueued, GraphOutcome graph) {
+  }
+
+  /**
+   * Result of one extraction model call, keeping chunk metadata for detailed logging.
+   */
+  private record ExtractionPassResult(int chunkIndex, List<UnifiedCandidate> candidates, long millis) {
+  }
+
+  /**
+   * The chunk-level work this ingest will actually do, after the ledger has been consulted.
+   *
+   * @param pending          chunks that still need the model pipeline, in chunk order
+   * @param hashByChunkIndex ledger hash for every chunk (pending or not), by {@code Chunk.index()}
+   * @param skipped          chunks a previous ingest already processed
+   * @param deferred         chunks held back because they can still grow (trailing chunk)
+   * @param ledgerEnabled    whether results should be written back to the ledger at all
+   */
+  private record ChunkPlan(List<Chunk> pending, Map<Integer, String> hashByChunkIndex,
+                           int skipped, int deferred, boolean ledgerEnabled) {
+  }
+
+  /**
+   * One verified survivor ready to store: resolved content plus its classification.
+   */
+  private record Survivor(String content, Classification classification, GraphFragment extractionGraph) {
+  }
+
+  /**
+   * A chunk's candidates split by the grounding pre-filter (per {@link VerifyMode}).
+   */
+  private record ChunkPartition(List<UnifiedCandidate> autoPassed, List<UnifiedCandidate> suspects) {
+  }
+
+  private static class ExtractionCallException extends RuntimeException {
+
+    private ExtractionCallException(Throwable cause) {
+      super(cause);
+    }
   }
 }

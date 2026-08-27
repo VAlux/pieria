@@ -44,42 +44,6 @@ public class EffectiveConfigResolver {
   }
 
   /**
-   * The effective configuration for the given profile id (cached).
-   */
-  public ResolvedConfig resolve(String profileId) {
-    return cache.computeIfAbsent(profileId, this::load);
-  }
-
-  /**
-   * The global configuration with no per-profile overrides applied.
-   */
-  public ResolvedConfig global() {
-    return new ResolvedConfig(properties.ingestion(), properties.retrieval());
-  }
-
-  /**
-   * Drop the cached resolution for a profile; the next {@link #resolve} re-reads the store.
-   */
-  public void invalidate(String profileId) {
-    cache.remove(profileId);
-  }
-
-  private ResolvedConfig load(String profileId) {
-    ResolvedConfig global = new ResolvedConfig(properties.ingestion(), properties.retrieval());
-    if (store == null) {
-      return global;
-    }
-    try {
-      return store.getProfileConfig(profileId)
-        .map(json -> overlay(global, ConfigCodec.bind(ConfigCodec.parseJson(json), DaemonOverrides.class)))
-        .orElse(global);
-    } catch (RuntimeException e) {
-      log.warn("could not resolve per-profile config for {} ({}); using global config", profileId, e.toString());
-      return global;
-    }
-  }
-
-  /**
    * Field-by-field overlay: a null override inherits the global value. The process-global
    * ingestion fields (outbox batching/retries, vectorization scheduler, near-duplicate threshold —
    * the store reads that one once at construction) are never overridden.
@@ -146,5 +110,41 @@ public class EffectiveConfigResolver {
 
   private static <T> T nvl(T override, T global) {
     return override != null ? override : global;
+  }
+
+  /**
+   * The effective configuration for the given profile id (cached).
+   */
+  public ResolvedConfig resolve(String profileId) {
+    return cache.computeIfAbsent(profileId, this::load);
+  }
+
+  /**
+   * The global configuration with no per-profile overrides applied.
+   */
+  public ResolvedConfig global() {
+    return new ResolvedConfig(properties.ingestion(), properties.retrieval());
+  }
+
+  /**
+   * Drop the cached resolution for a profile; the next {@link #resolve} re-reads the store.
+   */
+  public void invalidate(String profileId) {
+    cache.remove(profileId);
+  }
+
+  private ResolvedConfig load(String profileId) {
+    ResolvedConfig global = new ResolvedConfig(properties.ingestion(), properties.retrieval());
+    if (store == null) {
+      return global;
+    }
+    try {
+      return store.getProfileConfig(profileId)
+        .map(json -> overlay(global, ConfigCodec.bind(ConfigCodec.parseJson(json), DaemonOverrides.class)))
+        .orElse(global);
+    } catch (RuntimeException e) {
+      log.warn("could not resolve per-profile config for {} ({}); using global config", profileId, e.toString());
+      return global;
+    }
   }
 }

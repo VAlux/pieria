@@ -1,13 +1,14 @@
 package dev.alvo.pieria.ingestion.transcript;
 
 import dev.alvo.pieria.domain.memory.Message;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * {@link TranscriptParser} for Codex CLI rollout transcripts (JSONL — one event object per line).
@@ -33,7 +34,9 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class CodexTranscriptParser implements TranscriptParser {
 
-  /** Roles that carry actual dialogue. Everything else is harness scaffolding. */
+  /**
+   * Roles that carry actual dialogue. Everything else is harness scaffolding.
+   */
   private static final Set<String> CONVERSATION_ROLES = Set.of("user", "assistant");
 
   /**
@@ -57,6 +60,14 @@ public class CodexTranscriptParser implements TranscriptParser {
 
   public CodexTranscriptParser(ObjectMapper objectMapper) {
     this.objectMapper = objectMapper;
+  }
+
+  /**
+   * Whether a turn is one of the envelopes Codex injects rather than something a human wrote.
+   */
+  private static boolean isInjectedTurn(String text) {
+    String head = text.stripLeading();
+    return INJECTED_TURN_PREFIXES.stream().anyMatch(head::startsWith);
   }
 
   @Override
@@ -105,11 +116,5 @@ public class CodexTranscriptParser implements TranscriptParser {
       messages.add(Message.of(sessionId, role, text));
     }
     return messages;
-  }
-
-  /** Whether a turn is one of the envelopes Codex injects rather than something a human wrote. */
-  private static boolean isInjectedTurn(String text) {
-    String head = text.stripLeading();
-    return INJECTED_TURN_PREFIXES.stream().anyMatch(head::startsWith);
   }
 }

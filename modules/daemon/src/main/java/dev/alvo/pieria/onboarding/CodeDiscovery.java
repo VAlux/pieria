@@ -32,6 +32,10 @@ import java.util.stream.Stream;
  */
 public final class CodeDiscovery {
 
+  /**
+   * Scanned prefix for a NUL byte to detect (and skip) binary files.
+   */
+  private static final int BINARY_SNIFF_BYTES = 8000;
   private final Path projectDir;
   private final MarkdownDiscovery.GitLsFiles gitLsFiles;
   private final DiscoveryConfig config;
@@ -54,6 +58,18 @@ public final class CodeDiscovery {
    */
   public static CodeDiscovery create(Path projectDir, DiscoveryConfig config) {
     return new CodeDiscovery(projectDir, realGitReader(), config);
+  }
+
+  private static String fileName(String repoRelPath) {
+    int slash = Math.max(repoRelPath.lastIndexOf('/'), repoRelPath.lastIndexOf('\\'));
+    return slash < 0 ? repoRelPath : repoRelPath.substring(slash + 1);
+  }
+
+  /**
+   * Production reader: the shared {@link GitFiles} listing of all working-tree files.
+   */
+  private static MarkdownDiscovery.GitLsFiles realGitReader() {
+    return GitFiles::list;
   }
 
   /**
@@ -85,11 +101,6 @@ public final class CodeDiscovery {
     }
     return files;
   }
-
-  /**
-   * Scanned prefix for a NUL byte to detect (and skip) binary files.
-   */
-  private static final int BINARY_SNIFF_BYTES = 8000;
 
   /**
    * Read a file as UTF-8 text, skipping (empty) when missing, oversized, or binary.
@@ -131,17 +142,5 @@ public final class CodeDiscovery {
       }
     }
     return false;
-  }
-
-  private static String fileName(String repoRelPath) {
-    int slash = Math.max(repoRelPath.lastIndexOf('/'), repoRelPath.lastIndexOf('\\'));
-    return slash < 0 ? repoRelPath : repoRelPath.substring(slash + 1);
-  }
-
-  /**
-   * Production reader: the shared {@link GitFiles} listing of all working-tree files.
-   */
-  private static MarkdownDiscovery.GitLsFiles realGitReader() {
-    return GitFiles::list;
   }
 }

@@ -2,22 +2,22 @@ package dev.alvo.pieria.model;
 
 
 import dev.alvo.pieria.config.PieriaProperties;
-import dev.alvo.pieria.ingestion.model.Chunk;
-import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.EntityNormalizer;
-import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
-import dev.alvo.pieria.retrieval.model.GraphEvidence;
-import dev.alvo.pieria.retrieval.model.QueryAnalysis;
-import dev.alvo.pieria.retrieval.model.RecallCandidate;
-import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.ingestion.model.Chunk;
+import dev.alvo.pieria.ingestion.model.Classification;
+import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.provider.ModelProviderAdapter;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.tools.PromptTemplateLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,9 +25,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.EmbeddingResponseMetadata;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
@@ -58,16 +58,28 @@ public class OpenAiModelGateway implements ModelGateway {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(OpenAiModelGateway.class);
 
-  /** Per-memory graph caps used when no ingestion config is bound (tests, minimal setups). */
+  /**
+   * Per-memory graph caps used when no ingestion config is bound (tests, minimal setups).
+   */
   private static final int DEFAULT_MAX_GRAPH_ITEMS = 3;
   /**
    * Longest batch-graph reply still read as an honest "nothing to extract" when it contains no
    * parseable line. Anything longer is malformed and gets retried instead.
    */
   private static final int EMPTY_GRAPH_REPLY_MAX_CHARS = 24;
-  /** Batch-graph attempts at getting a parseable reply before dropping to per-memory calls. */
+  /**
+   * Batch-graph attempts at getting a parseable reply before dropping to per-memory calls.
+   */
   private static final int BATCH_GRAPH_FORMAT_ATTEMPTS = 2;
-
+  private static final ObjectMapper objectMapper = new ObjectMapper();
+  /**
+   * Parses unified-extraction output tolerating two shapes: the expected bare array {@code [...]}
+   * and a wrapped object {@code {"candidates":[...]}}. Strips markdown code fences that some models
+   * emit around JSON. When neither parses, salvages content lines from markdown-style output and
+   * enriches them through {@link #classifyAll} so a JSON-shy model still yields usable candidates.
+   */
+  private static final Pattern MD_CONTENT = Pattern.compile(
+    "(?im)^[-*\\d.]*\\s*\\*{0,2}(?:content)\\*{0,2}:?\\s*(.+)$");
   private final ChatClient extractionChatClient;
   private final ChatClient synthesisChatClient;
   private final EmbeddingModel embeddingModel;
@@ -90,8 +102,6 @@ public class OpenAiModelGateway implements ModelGateway {
     this.structuredCalls = new StructuredCallLimiter(
       properties.model().maxConcurrentStructuredCalls());
   }
-
-  private static final ObjectMapper objectMapper = new ObjectMapper();
 
   private static String blankToNull(String value) {
     return (value == null || value.isBlank()) ? null : value.strip();
@@ -117,6 +127,226 @@ public class OpenAiModelGateway implements ModelGateway {
     }
     LOGGER.warn("dropping non-object model payload ({} chars)", payload.length());
     return "{}";
+  }
+
+  /**
+   * Log prompt/completion/total token usage for a single model-call {@code stage}. Null-safe at
+   * every level: a missing {@link ChatResponse}, metadata, or {@link Usage} simply logs zeros.
+   */
+  private static void logTokenUsage(String stage, ChatResponse chatResponse) {
+    int prompt = 0;
+    int completion = 0;
+    int total = 0;
+    if (chatResponse != null) {
+      Usage usage = chatResponse.getMetadata().getUsage();
+      prompt = nullToZero(usage.getPromptTokens());
+      completion = nullToZero(usage.getCompletionTokens());
+      total = nullToZero(usage.getTotalTokens());
+    }
+    LOGGER.info("model stage={} promptTokens={} completionTokens={} totalTokens={}",
+      stage, prompt, completion, total);
+    InferenceUsageSink.current().add(InferenceTier.forStage(stage), prompt, completion, 1);
+  }
+
+  private static int nullToZero(Integer value) {
+    return value == null ? 0 : value;
+  }
+
+  private static List<String> scrapeMarkdownContents(String text) {
+    List<String> contents = new ArrayList<>();
+    for (String line : text.split("\n")) {
+      Matcher cm = MD_CONTENT.matcher(line);
+      if (cm.find()) {
+        String content = cm.group(1).strip().replaceAll("\\*+", "").strip();
+        if (!content.isBlank()) {
+          contents.add(content);
+        }
+      }
+    }
+    return contents;
+  }
+
+  private static String stripCodeFences(String text) {
+    String s = text.strip();
+    if (s.startsWith("```")) {
+      int newline = s.indexOf('\n');
+      if (newline >= 0) {
+        s = s.substring(newline + 1);
+      }
+      if (s.endsWith("```")) {
+        s = s.substring(0, s.length() - 3).stripTrailing();
+      }
+    }
+    return s;
+  }
+
+  // --- Pipeline stages: extraction, verification, classification ----
+  // All stages below run on the small/fast extraction client for structured output.
+  // The prompts (resources under prompts/) and the structured-output record shapes below are part
+  // of the stable contract the ingestion + test layers rely on; bump a version note here if the
+  // JSON shapes change. Prompt/shape version: v1 (unified extraction — one call emits candidates
+  // with their classification; there is no separate full/detail/classify cascade).
+
+  private static VerificationResult toVerificationResult(VerificationItemDto item, String content) {
+    if (item == null || item.verdict() == null) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "no verdict in batch result");
+    }
+    VerificationVerdict verdict;
+    try {
+      verdict = VerificationVerdict.fromWire(item.verdict());
+    } catch (IllegalArgumentException e) {
+      return new VerificationResult(VerificationVerdict.DROP, "", "unparseable verdict");
+    }
+    String resolved = switch (verdict) {
+      case PASS -> content;
+      case CORRECT -> blankToNull(item.content()) == null ? content : item.content().strip();
+      case DROP -> "";
+    };
+    return new VerificationResult(verdict, resolved, blankToNull(item.reason()));
+  }
+
+  private static <T> List<T> limit(List<T> values, int cap) {
+    if (values == null || values.isEmpty()) {
+      return List.of();
+    }
+    return values.size() <= cap ? values : values.subList(0, cap);
+  }
+
+  /**
+   * Give each {@code (source, relation, target)} its endpoint types from the same memory's declared
+   * entities, matched on the normalized name so lookup agrees with how {@link #toGraphFragment}
+   * dedupes. An endpoint the model never declared falls through with a null type, which normalizes
+   * to {@code concept}.
+   */
+  private static List<TripleDto> resolveTriples(List<String[]> triples, List<EntityDto> entities) {
+    if (triples.isEmpty()) {
+      return List.of();
+    }
+    Map<String, String> typeByName = new HashMap<>();
+    for (EntityDto entity : entities) {
+      typeByName.putIfAbsent(EntityNormalizer.normalizeName(entity.name()), entity.type());
+    }
+    List<TripleDto> resolved = new ArrayList<>(triples.size());
+    for (String[] triple : triples) {
+      resolved.add(new TripleDto(
+        triple[0], typeByName.get(EntityNormalizer.normalizeName(triple[0])),
+        triple[1],
+        triple[2], typeByName.get(EntityNormalizer.normalizeName(triple[2]))));
+    }
+    return resolved;
+  }
+
+  /**
+   * Parse one {@code type:name} entity token; {@code null} when there is no usable name.
+   */
+  private static EntityDto parseEntityToken(String token) {
+    String trimmed = token == null ? "" : token.strip();
+    if (trimmed.isEmpty()) {
+      return null;
+    }
+    int colon = trimmed.indexOf(':');
+    String type = colon < 0 ? null : trimmed.substring(0, colon).strip();
+    String name = colon < 0 ? trimmed : trimmed.substring(colon + 1).strip();
+    return name.isEmpty() ? null : new EntityDto(name, type);
+  }
+
+  private static Integer parseIndex(String raw) {
+    String trimmed = raw == null ? "" : raw.strip();
+    if (trimmed.isEmpty()) {
+      return null;
+    }
+    try {
+      return Integer.valueOf(trimmed);
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
+  private static List<GraphFragment> emptyFragments(int count) {
+    List<GraphFragment> results = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      results.add(GraphFragment.empty());
+    }
+    return results;
+  }
+
+  private static MemoryType parseTypeOrNull(String wire) {
+    if (wire == null || wire.isBlank()) {
+      return null;
+    }
+    try {
+      return MemoryType.fromWire(wire);
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Normalize a model-supplied topic key into a stable lowercase dot-joined key, or {@code null}.
+   */
+  static String normalizeTopicKey(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String normalized = raw.strip().toLowerCase(java.util.Locale.ROOT)
+      .replaceAll("[^a-z0-9]+", ".")
+      .replaceAll("^\\.+|\\.+$", "");
+    return normalized.isBlank() ? null : normalized;
+  }
+
+  private static String joinedOrNone(List<String> lines) {
+    return lines == null || lines.isEmpty()
+      ? "(none)"
+      : lines.stream().map(l -> "- " + l).collect(Collectors.joining("\n"));
+  }
+
+  /**
+   * Maps the judge's one-word reply to a verdict. An unparseable reply is not silently scored as a
+   * failure — it falls back to the deterministic comparison so a flaky judge cannot manufacture
+   * hallucinations that never happened.
+   */
+  private static AnswerVerdict parseVerdict(String response, String expectedAnswer, String actualAnswer) {
+    String reply = response == null ? "" : response.strip().toLowerCase(Locale.ROOT);
+    if (reply.startsWith("correct")) {
+      return AnswerVerdict.CORRECT;
+    }
+    if (reply.startsWith("abstain")) {
+      return AnswerVerdict.ABSTAINED;
+    }
+    if (reply.startsWith("wrong")) {
+      return AnswerVerdict.WRONG;
+    }
+    LOGGER.warn("unparseable judge verdict '{}'; falling back to exact match", truncate(response, 40));
+    if (actualAnswer == null || actualAnswer.isBlank()) {
+      return AnswerVerdict.ABSTAINED;
+    }
+    return expectedAnswer != null && expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip())
+      ? AnswerVerdict.CORRECT
+      : AnswerVerdict.WRONG;
+  }
+
+  private static String truncate(String s, int max) {
+    if (s == null) return "(null)";
+    String stripped = s.strip().replace('\n', ' ');
+    return stripped.length() <= max ? stripped : stripped.substring(0, max) + "…";
+  }
+
+  /**
+   * Log embedding token usage when the provider reports it; skip silently otherwise. Null-safe at
+   * every level. Some providers (Ollama included) do not surface embedding usage over the
+   * OpenAI-compatible API, so a zero/absent usage is expected and simply skipped.
+   */
+  private static void logEmbeddingUsage(EmbeddingResponse response) {
+    if (response == null) {
+      return;
+    }
+    EmbeddingResponseMetadata metadata = response.getMetadata();
+    Usage usage = metadata.getUsage();
+    int prompt = nullToZero(usage.getPromptTokens());
+    int completion = nullToZero(usage.getCompletionTokens());
+    LOGGER.info("model stage=embed promptTokens={} completionTokens={} totalTokens={}",
+      prompt, completion, nullToZero(usage.getTotalTokens()));
+    InferenceUsageSink.current().add(InferenceTier.EMBEDDING, prompt, completion, 1);
   }
 
   /**
@@ -168,29 +398,6 @@ public class OpenAiModelGateway implements ModelGateway {
   }
 
   /**
-   * Log prompt/completion/total token usage for a single model-call {@code stage}. Null-safe at
-   * every level: a missing {@link ChatResponse}, metadata, or {@link Usage} simply logs zeros.
-   */
-  private static void logTokenUsage(String stage, ChatResponse chatResponse) {
-    int prompt = 0;
-    int completion = 0;
-    int total = 0;
-    if (chatResponse != null) {
-      Usage usage = chatResponse.getMetadata().getUsage();
-      prompt = nullToZero(usage.getPromptTokens());
-      completion = nullToZero(usage.getCompletionTokens());
-      total = nullToZero(usage.getTotalTokens());
-    }
-    LOGGER.info("model stage={} promptTokens={} completionTokens={} totalTokens={}",
-      stage, prompt, completion, total);
-    InferenceUsageSink.current().add(InferenceTier.forStage(stage), prompt, completion, 1);
-  }
-
-  private static int nullToZero(Integer value) {
-    return value == null ? 0 : value;
-  }
-
-  /**
    * Build the chat options for {@code stage} on {@code modelName}, delegating to the configured
    * {@link ModelProviderAdapter} so whether/how {@code reasoning_effort} (see
    * {@link PieriaProperties.Model.Reasoning}) is applied stays dialect-specific — e.g. Ollama sends it
@@ -199,13 +406,6 @@ public class OpenAiModelGateway implements ModelGateway {
   private OpenAiChatOptions.Builder reasoningOptions(String stage, String modelName) {
     return providerAdapter.chatOptions(stage, modelName, properties.model().reasoning());
   }
-
-  // --- Pipeline stages: extraction, verification, classification ----
-  // All stages below run on the small/fast extraction client for structured output.
-  // The prompts (resources under prompts/) and the structured-output record shapes below are part
-  // of the stable contract the ingestion + test layers rely on; bump a version note here if the
-  // JSON shapes change. Prompt/shape version: v1 (unified extraction — one call emits candidates
-  // with their classification; there is no separate full/detail/classify cascade).
 
   @Override
   public List<UnifiedCandidate> extractUnified(Chunk chunk) {
@@ -258,15 +458,6 @@ public class OpenAiModelGateway implements ModelGateway {
     return candidates;
   }
 
-  /**
-   * Parses unified-extraction output tolerating two shapes: the expected bare array {@code [...]}
-   * and a wrapped object {@code {"candidates":[...]}}. Strips markdown code fences that some models
-   * emit around JSON. When neither parses, salvages content lines from markdown-style output and
-   * enriches them through {@link #classifyAll} so a JSON-shy model still yields usable candidates.
-   */
-  private static final Pattern MD_CONTENT = Pattern.compile(
-    "(?im)^[-*\\d.]*\\s*\\*{0,2}(?:content)\\*{0,2}:?\\s*(.+)$");
-
   private List<UnifiedCandidateDto> parseUnifiedResilient(String rawText, int chunkIndex) {
     if (rawText == null || rawText.isBlank()) {
       return List.of();
@@ -317,34 +508,6 @@ public class OpenAiModelGateway implements ModelGateway {
     LOGGER.warn("stage=extract chunk={} model returned unparseable candidates output; treating as empty. Raw response: {}",
       chunkIndex, rawText);
     return List.of();
-  }
-
-  private static List<String> scrapeMarkdownContents(String text) {
-    List<String> contents = new ArrayList<>();
-    for (String line : text.split("\n")) {
-      Matcher cm = MD_CONTENT.matcher(line);
-      if (cm.find()) {
-        String content = cm.group(1).strip().replaceAll("\\*+", "").strip();
-        if (!content.isBlank()) {
-          contents.add(content);
-        }
-      }
-    }
-    return contents;
-  }
-
-  private static String stripCodeFences(String text) {
-    String s = text.strip();
-    if (s.startsWith("```")) {
-      int newline = s.indexOf('\n');
-      if (newline >= 0) {
-        s = s.substring(newline + 1);
-      }
-      if (s.endsWith("```")) {
-        s = s.substring(0, s.length() - 3).stripTrailing();
-      }
-    }
-    return s;
   }
 
   @Override
@@ -459,24 +622,6 @@ public class OpenAiModelGateway implements ModelGateway {
     return results;
   }
 
-  private static VerificationResult toVerificationResult(VerificationItemDto item, String content) {
-    if (item == null || item.verdict() == null) {
-      return new VerificationResult(VerificationVerdict.DROP, "", "no verdict in batch result");
-    }
-    VerificationVerdict verdict;
-    try {
-      verdict = VerificationVerdict.fromWire(item.verdict());
-    } catch (IllegalArgumentException e) {
-      return new VerificationResult(VerificationVerdict.DROP, "", "unparseable verdict");
-    }
-    String resolved = switch (verdict) {
-      case PASS -> content;
-      case CORRECT -> blankToNull(item.content()) == null ? content : item.content().strip();
-      case DROP -> "";
-    };
-    return new VerificationResult(verdict, resolved, blankToNull(item.reason()));
-  }
-
   @Override
   public Classification classify(String content) {
     if (content == null || content.isBlank()) {
@@ -583,7 +728,7 @@ public class OpenAiModelGateway implements ModelGateway {
    * shapes.
    */
   private Classification buildClassification(String typeWire, String topicKeyRaw,
-                                               List<String> queriesRaw, String payloadRaw) {
+                                             List<String> queriesRaw, String payloadRaw) {
     MemoryType type = parseTypeOrNull(typeWire);
     if (type == null) {
       type = MemoryType.FACT;
@@ -648,15 +793,8 @@ public class OpenAiModelGateway implements ModelGateway {
   private String graphInstruction() {
     return graphFromExtraction()
       ? "- graphEntities / graphTriples: optional grounded graph fragments for this exact statement; "
-        + "at most 5 entities and 5 triples, using the same entity/triple fields as graph extraction"
+      + "at most 5 entities and 5 triples, using the same entity/triple fields as graph extraction"
       : "- omit graphEntities and graphTriples";
-  }
-
-  private static <T> List<T> limit(List<T> values, int cap) {
-    if (values == null || values.isEmpty()) {
-      return List.of();
-    }
-    return values.size() <= cap ? values : values.subList(0, cap);
   }
 
   @Override
@@ -793,7 +931,7 @@ public class OpenAiModelGateway implements ModelGateway {
         String target = parts[3].strip();
         if (!source.isEmpty() && !relation.isEmpty() && !target.isEmpty()) {
           triplesByIndex.computeIfAbsent(index, _ -> new ArrayList<>())
-            .add(new String[] {source, relation, target});
+            .add(new String[]{source, relation, target});
           recognized = true;
         }
       }
@@ -807,62 +945,6 @@ public class OpenAiModelGateway implements ModelGateway {
     for (int i = 1; i <= count; i++) {
       List<EntityDto> entities = entitiesByIndex.getOrDefault(i, List.of());
       results.add(cappedFragment(entities, resolveTriples(triplesByIndex.getOrDefault(i, List.of()), entities)));
-    }
-    return results;
-  }
-
-  /**
-   * Give each {@code (source, relation, target)} its endpoint types from the same memory's declared
-   * entities, matched on the normalized name so lookup agrees with how {@link #toGraphFragment}
-   * dedupes. An endpoint the model never declared falls through with a null type, which normalizes
-   * to {@code concept}.
-   */
-  private static List<TripleDto> resolveTriples(List<String[]> triples, List<EntityDto> entities) {
-    if (triples.isEmpty()) {
-      return List.of();
-    }
-    Map<String, String> typeByName = new HashMap<>();
-    for (EntityDto entity : entities) {
-      typeByName.putIfAbsent(EntityNormalizer.normalizeName(entity.name()), entity.type());
-    }
-    List<TripleDto> resolved = new ArrayList<>(triples.size());
-    for (String[] triple : triples) {
-      resolved.add(new TripleDto(
-        triple[0], typeByName.get(EntityNormalizer.normalizeName(triple[0])),
-        triple[1],
-        triple[2], typeByName.get(EntityNormalizer.normalizeName(triple[2]))));
-    }
-    return resolved;
-  }
-
-  /** Parse one {@code type:name} entity token; {@code null} when there is no usable name. */
-  private static EntityDto parseEntityToken(String token) {
-    String trimmed = token == null ? "" : token.strip();
-    if (trimmed.isEmpty()) {
-      return null;
-    }
-    int colon = trimmed.indexOf(':');
-    String type = colon < 0 ? null : trimmed.substring(0, colon).strip();
-    String name = colon < 0 ? trimmed : trimmed.substring(colon + 1).strip();
-    return name.isEmpty() ? null : new EntityDto(name, type);
-  }
-
-  private static Integer parseIndex(String raw) {
-    String trimmed = raw == null ? "" : raw.strip();
-    if (trimmed.isEmpty()) {
-      return null;
-    }
-    try {
-      return Integer.valueOf(trimmed);
-    } catch (NumberFormatException e) {
-      return null;
-    }
-  }
-
-  private static List<GraphFragment> emptyFragments(int count) {
-    List<GraphFragment> results = new ArrayList<>(count);
-    for (int i = 0; i < count; i++) {
-      results.add(GraphFragment.empty());
     }
     return results;
   }
@@ -924,30 +1006,6 @@ public class OpenAiModelGateway implements ModelGateway {
     }
 
     return new GraphFragment(entities, triples);
-  }
-
-  private static MemoryType parseTypeOrNull(String wire) {
-    if (wire == null || wire.isBlank()) {
-      return null;
-    }
-    try {
-      return MemoryType.fromWire(wire);
-    } catch (IllegalArgumentException e) {
-      return null;
-    }
-  }
-
-  /**
-   * Normalize a model-supplied topic key into a stable lowercase dot-joined key, or {@code null}.
-   */
-  static String normalizeTopicKey(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return null;
-    }
-    String normalized = raw.strip().toLowerCase(java.util.Locale.ROOT)
-      .replaceAll("[^a-z0-9]+", ".")
-      .replaceAll("^\\.+|\\.+$", "");
-    return normalized.isBlank() ? null : normalized;
   }
 
   @Override
@@ -1123,12 +1181,6 @@ public class OpenAiModelGateway implements ModelGateway {
     return text == null ? "" : text;
   }
 
-  private static String joinedOrNone(List<String> lines) {
-    return lines == null || lines.isEmpty()
-      ? "(none)"
-      : lines.stream().map(l -> "- " + l).collect(Collectors.joining("\n"));
-  }
-
   @Override
   public AnswerVerdict judgeAnswer(String question, String expectedAnswer, String actualAnswer) {
     String prompt = PromptTemplateLoader.render("judge-answer", Map.of(
@@ -1158,31 +1210,6 @@ public class OpenAiModelGateway implements ModelGateway {
     }
   }
 
-  /**
-   * Maps the judge's one-word reply to a verdict. An unparseable reply is not silently scored as a
-   * failure — it falls back to the deterministic comparison so a flaky judge cannot manufacture
-   * hallucinations that never happened.
-   */
-  private static AnswerVerdict parseVerdict(String response, String expectedAnswer, String actualAnswer) {
-    String reply = response == null ? "" : response.strip().toLowerCase(Locale.ROOT);
-    if (reply.startsWith("correct")) {
-      return AnswerVerdict.CORRECT;
-    }
-    if (reply.startsWith("abstain")) {
-      return AnswerVerdict.ABSTAINED;
-    }
-    if (reply.startsWith("wrong")) {
-      return AnswerVerdict.WRONG;
-    }
-    LOGGER.warn("unparseable judge verdict '{}'; falling back to exact match", truncate(response, 40));
-    if (actualAnswer == null || actualAnswer.isBlank()) {
-      return AnswerVerdict.ABSTAINED;
-    }
-    return expectedAnswer != null && expectedAnswer.strip().equalsIgnoreCase(actualAnswer.strip())
-      ? AnswerVerdict.CORRECT
-      : AnswerVerdict.WRONG;
-  }
-
   @Override
   public boolean judgeEvidenceSupport(String question, String expectedAnswer, List<String> evidence) {
     List<String> notes = evidence == null ? List.of() : evidence;
@@ -1209,12 +1236,6 @@ public class OpenAiModelGateway implements ModelGateway {
     }
   }
 
-  private static String truncate(String s, int max) {
-    if (s == null) return "(null)";
-    String stripped = s.strip().replace('\n', ' ');
-    return stripped.length() <= max ? stripped : stripped.substring(0, max) + "…";
-  }
-
   @Override
   public float[] embed(String text) {
     try {
@@ -1226,24 +1247,6 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("Model embedding failed: " + e.getMessage(), e);
     }
-  }
-
-  /**
-   * Log embedding token usage when the provider reports it; skip silently otherwise. Null-safe at
-   * every level. Some providers (Ollama included) do not surface embedding usage over the
-   * OpenAI-compatible API, so a zero/absent usage is expected and simply skipped.
-   */
-  private static void logEmbeddingUsage(EmbeddingResponse response) {
-    if (response == null) {
-      return;
-    }
-    EmbeddingResponseMetadata metadata = response.getMetadata();
-    Usage usage = metadata.getUsage();
-    int prompt = nullToZero(usage.getPromptTokens());
-    int completion = nullToZero(usage.getCompletionTokens());
-    LOGGER.info("model stage=embed promptTokens={} completionTokens={} totalTokens={}",
-      prompt, completion, nullToZero(usage.getTotalTokens()));
-    InferenceUsageSink.current().add(InferenceTier.EMBEDDING, prompt, completion, 1);
   }
 
   /**

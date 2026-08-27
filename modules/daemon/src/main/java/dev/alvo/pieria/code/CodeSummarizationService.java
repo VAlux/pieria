@@ -45,22 +45,18 @@ import java.util.TreeMap;
 @Service
 public class CodeSummarizationService {
 
-  private static final Logger log = LoggerFactory.getLogger(CodeSummarizationService.class);
-
+  public static final String TOPIC_FILE_PREFIX = "code:summary:file:";
+  public static final String TOPIC_MODULE_PREFIX = "code:summary:module:";
+  public static final String TOPIC_ARCHITECTURE = "code:summary:architecture";
   /**
    * Salt for all summary hashes; bump after prompt changes to regenerate every summary.
    */
   static final String PROMPT_VERSION = "v1";
-
   /**
    * Pseudo-module for files with no build-marker ancestor and no top-level directory.
    */
   static final String ROOT_MODULE = "(root)";
-
-  public static final String TOPIC_FILE_PREFIX = "code:summary:file:";
-  public static final String TOPIC_MODULE_PREFIX = "code:summary:module:";
-  public static final String TOPIC_ARCHITECTURE = "code:summary:architecture";
-
+  private static final Logger log = LoggerFactory.getLogger(CodeSummarizationService.class);
   private final MemoryStore store;
   private final ModelGateway gateway;
   private final CodeSummarizationProperties properties;
@@ -73,16 +69,13 @@ public class CodeSummarizationService {
     this.properties = properties;
   }
 
-  /**
-   * Per-run observability counts.
-   */
-  public record SummarizationResult(int stored, int skippedUnchanged, int failed) {
-    public static SummarizationResult empty() {
-      return new SummarizationResult(0, 0, 0);
+  private static @NonNull String getContentHash(SourceFile file) {
+    if (file.contentHash() == null || file.contentHash().isBlank()) {
+      return Hash.hash128(file.content() == null ? "" : file.content());
     }
-  }
 
-  private enum Outcome {STORED, SKIPPED, FAILED}
+    return file.contentHash();
+  }
 
   /**
    * Summarize the batch into the named profile per the configured granularity. Files must already
@@ -184,14 +177,6 @@ public class CodeSummarizationService {
     return new SummarizationResult(stored, skipped, failed);
   }
 
-  private static @NonNull String getContentHash(SourceFile file) {
-    if (file.contentHash() == null || file.contentHash().isBlank()) {
-      return Hash.hash128(file.content() == null ? "" : file.content());
-    }
-
-    return file.contentHash();
-  }
-
   /**
    * Summarize one target best-effort: skip when the active summary already covers this hash,
    * otherwise call the model and store the keyed fact (superseding the stale summary).
@@ -276,5 +261,16 @@ public class CodeSummarizationService {
   private java.util.Optional<String> activeContent(String profileId, String topicKey) {
     List<Memory> active = store.findActiveByTopicKey(profileId, MemoryType.FACT, topicKey);
     return active.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(active.getFirst().content());
+  }
+
+  private enum Outcome {STORED, SKIPPED, FAILED}
+
+  /**
+   * Per-run observability counts.
+   */
+  public record SummarizationResult(int stored, int skippedUnchanged, int failed) {
+    public static SummarizationResult empty() {
+      return new SummarizationResult(0, 0, 0);
+    }
   }
 }

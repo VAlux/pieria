@@ -47,19 +47,16 @@ public class GlobalConfigController {
   }
 
   /**
-   * Request body for a global write. A {@code null} value clears the key back to the shipped
-   * default. {@code acknowledgeDestructive} is required for locked-tier keys.
+   * Every editable key across both scopes, so one fetch drives both console pages.
    */
-  public record GlobalConfigUpdate(Map<String, String> values, boolean acknowledgeDestructive) {
-  }
-
-  /** Every editable key across both scopes, so one fetch drives both console pages. */
   @GetMapping("/schema")
   public JsonNode schema() {
     return ConfigCodec.toNode(schemaService.all());
   }
 
-  /** The effective global configuration, with provenance and pending-restart state per key. */
+  /**
+   * The effective global configuration, with provenance and pending-restart state per key.
+   */
   @GetMapping
   public JsonNode get() {
     Map<String, Object> body = new LinkedHashMap<>();
@@ -80,5 +77,12 @@ public class GlobalConfigController {
       body == null ? Map.of() : body.values(),
       body != null && body.acknowledgeDestructive());
     return ConfigCodec.toNode(result);
+  }
+
+  /**
+   * Request body for a global write. A {@code null} value clears the key back to the shipped
+   * default. {@code acknowledgeDestructive} is required for locked-tier keys.
+   */
+  public record GlobalConfigUpdate(Map<String, String> values, boolean acknowledgeDestructive) {
   }
 }

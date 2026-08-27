@@ -28,8 +28,6 @@ import java.util.List;
 @Service
 public class BootstrapService implements ApplicationRunner {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(BootstrapService.class);
-
   /**
    * Bundled template dumped to {@link AppDataPaths#configDir()} so users have a config to edit.
    */
@@ -46,7 +44,7 @@ public class BootstrapService implements ApplicationRunner {
    * Filename of the dumped TOML config; the CLI's ProjectConfigLoader reads it from the config dir.
    */
   static final String TOML_FILE_NAME = "config.toml";
-
+  private static final Logger LOGGER = LoggerFactory.getLogger(BootstrapService.class);
   private final AppDataPathResolver pathResolver;
   private final FirstRunProperties firstRun;
   private final StorageProperties storage;
@@ -54,15 +52,6 @@ public class BootstrapService implements ApplicationRunner {
   private final ModelGateway modelGateway;
 
   private volatile String lastModelStatus = "not_checked";
-
-  public record SetupState(
-    boolean enabled,
-    boolean directoriesReady,
-    boolean databaseParentReady,
-    String modelStatus,
-    String modelPullPolicy,
-    AppDataPaths paths) {
-  }
 
   public BootstrapService(AppDataPathResolver pathResolver,
                           FirstRunProperties firstRun,
@@ -74,6 +63,22 @@ public class BootstrapService implements ApplicationRunner {
     this.storage = storage;
     this.pieria = pieria;
     this.modelGateway = modelGateway;
+  }
+
+  private static void materializeTemplate(Path target, String resource) {
+    if (Files.exists(target)) {
+      return;
+    }
+    try (InputStream template = new ClassPathResource(resource).getInputStream()) {
+      Files.copy(template, target);
+      LOGGER.info("wrote default config to {}", target);
+    } catch (IOException e) {
+      LOGGER.warn("could not write default config to {}: {}", target, e.getMessage());
+    }
+  }
+
+  private static List<Path> directories(AppDataPaths paths) {
+    return List.of(paths.root(), paths.databaseDir(), paths.configDir(), paths.logsDir(), paths.runtimeDir());
   }
 
   @Override
@@ -113,18 +118,6 @@ public class BootstrapService implements ApplicationRunner {
   private void materializeDefaultConfig(Path configDir) {
     materializeTemplate(configDir.resolve(CONFIG_FILE_NAME), DEFAULT_CONFIG_RESOURCE);
     materializeTemplate(configDir.resolve(TOML_FILE_NAME), DEFAULT_TOML_RESOURCE);
-  }
-
-  private static void materializeTemplate(Path target, String resource) {
-    if (Files.exists(target)) {
-      return;
-    }
-    try (InputStream template = new ClassPathResource(resource).getInputStream()) {
-      Files.copy(template, target);
-      LOGGER.info("wrote default config to {}", target);
-    } catch (IOException e) {
-      LOGGER.warn("could not write default config to {}: {}", target, e.getMessage());
-    }
   }
 
   public SetupState setupState() {
@@ -191,8 +184,13 @@ public class BootstrapService implements ApplicationRunner {
       state.modelPullPolicy());
   }
 
-  private static List<Path> directories(AppDataPaths paths) {
-    return List.of(paths.root(), paths.databaseDir(), paths.configDir(), paths.logsDir(), paths.runtimeDir());
+  public record SetupState(
+    boolean enabled,
+    boolean directoriesReady,
+    boolean databaseParentReady,
+    String modelStatus,
+    String modelPullPolicy,
+    AppDataPaths paths) {
   }
 
 }

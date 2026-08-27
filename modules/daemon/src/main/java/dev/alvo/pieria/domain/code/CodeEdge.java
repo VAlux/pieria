@@ -24,7 +24,9 @@ public record CodeEdge(
   String dstRef,
   String fileId) {
 
-  /** A freshly extracted edge with no id yet (assigned at store time). */
+  /**
+   * A freshly extracted edge with no id yet (assigned at store time).
+   */
   public static CodeEdge of(String srcSymbolId,
                             CodeRelation relation,
                             EdgeConfidence confidence,

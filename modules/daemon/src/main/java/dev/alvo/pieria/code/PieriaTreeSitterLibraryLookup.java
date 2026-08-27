@@ -20,7 +20,9 @@ import java.util.Optional;
  */
 public final class PieriaTreeSitterLibraryLookup implements NativeLibraryLookup {
 
-  /** System property carrying the absolute path to the core {@code libtree-sitter} library. */
+  /**
+   * System property carrying the absolute path to the core {@code libtree-sitter} library.
+   */
   public static final String CORE_PATH_PROPERTY = "pieria.treesitter.core.path";
 
   @Override

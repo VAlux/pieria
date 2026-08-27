@@ -28,6 +28,15 @@ public class WebOnboardingSource implements OnboardingSource<SourceSpec.Web> {
     this.fetcher = fetcher;
   }
 
+  /**
+   * Provenance line for a fetched page: URL plus title when the page has one.
+   */
+  private static String provenance(String url, String title) {
+    return (title == null || title.isBlank())
+      ? "Web page — " + url
+      : "Web page — " + title + " (" + url + ")";
+  }
+
   @Override
   public Class<SourceSpec.Web> specType() {
     return SourceSpec.Web.class;
@@ -48,12 +57,5 @@ public class WebOnboardingSource implements OnboardingSource<SourceSpec.Web> {
     }
     return OnboardingWork.completed(ingestor.ingest(profile, "web", documents,
       spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
-  }
-
-  /** Provenance line for a fetched page: URL plus title when the page has one. */
-  private static String provenance(String url, String title) {
-    return (title == null || title.isBlank())
-      ? "Web page — " + url
-      : "Web page — " + title + " (" + url + ")";
   }
 }

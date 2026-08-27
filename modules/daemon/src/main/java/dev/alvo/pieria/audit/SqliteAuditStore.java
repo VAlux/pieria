@@ -13,7 +13,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-/** SQLite implementation of the append-only audit store. */
+/**
+ * SQLite implementation of the append-only audit store.
+ */
 @Repository
 public class SqliteAuditStore implements AuditStore {
 
@@ -22,6 +24,46 @@ public class SqliteAuditStore implements AuditStore {
 
   public SqliteAuditStore(JdbcClient jdbc) {
     this.jdbc = jdbc;
+  }
+
+  private static void add(StringBuilder sql, List<Object> params, Object value, String condition) {
+    if (value != null && (!(value instanceof String s) || !s.isBlank())) {
+      sql.append(" AND ").append(condition);
+      params.add(value);
+    }
+  }
+
+  private static String toFtsMatch(String query) {
+    List<String> terms = new ArrayList<>();
+    for (String token : query.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}_-]+")) {
+      if (!token.isBlank()) {
+        terms.add("\"" + token.replace("\"", "\"\"") + "\"*");
+      }
+    }
+    return terms.isEmpty() ? null : String.join(" AND ", terms);
+  }
+
+  private static AuditEvent map(ResultSet rs) throws SQLException {
+    Integer status = rs.getObject("http_status") == null ? null : rs.getInt("http_status");
+    return new AuditEvent(
+      rs.getString("id"), rs.getString("profile_id"), rs.getString("profile_name"),
+      rs.getString("event_type"), rs.getString("operation"), rs.getString("request_id"),
+      rs.getString("parent_request_id"), rs.getString("task_id"), rs.getString("session_id"),
+      rs.getString("resource_id"), rs.getString("client"), rs.getString("harness"),
+      rs.getString("channel"), rs.getString("client_version"), rs.getString("server_version"),
+      rs.getString("remote_address"), rs.getString("method"), rs.getString("path"),
+      rs.getString("query_string"), rs.getString("request_media_type"),
+      rs.getString("response_media_type"), Instant.parse(rs.getString("started_at")),
+      Instant.parse(rs.getString("completed_at")), rs.getLong("duration_ms"), status,
+      rs.getString("outcome"), rs.getString("error_kind"), rs.getString("error_message"),
+      rs.getString("metadata"), rs.getString("request_body"), rs.getLong("request_bytes"),
+      rs.getString("request_sha256"), rs.getInt("request_truncated") != 0,
+      rs.getString("response_body"), rs.getLong("response_bytes"),
+      rs.getString("response_sha256"), rs.getInt("response_truncated") != 0);
+  }
+
+  private static String value(String value, String fallback) {
+    return value == null ? fallback : value;
   }
 
   @Override
@@ -110,45 +152,5 @@ public class SqliteAuditStore implements AuditStore {
   public void deleteForProfile(String profileId, String profileName) {
     jdbc.sql("DELETE FROM profile_audit_events WHERE profile_id = ? OR profile_name = ?")
       .params(profileId, profileName).update();
-  }
-
-  private static void add(StringBuilder sql, List<Object> params, Object value, String condition) {
-    if (value != null && (!(value instanceof String s) || !s.isBlank())) {
-      sql.append(" AND ").append(condition);
-      params.add(value);
-    }
-  }
-
-  private static String toFtsMatch(String query) {
-    List<String> terms = new ArrayList<>();
-    for (String token : query.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}_-]+")) {
-      if (!token.isBlank()) {
-        terms.add("\"" + token.replace("\"", "\"\"") + "\"*");
-      }
-    }
-    return terms.isEmpty() ? null : String.join(" AND ", terms);
-  }
-
-  private static AuditEvent map(ResultSet rs) throws SQLException {
-    Integer status = rs.getObject("http_status") == null ? null : rs.getInt("http_status");
-    return new AuditEvent(
-      rs.getString("id"), rs.getString("profile_id"), rs.getString("profile_name"),
-      rs.getString("event_type"), rs.getString("operation"), rs.getString("request_id"),
-      rs.getString("parent_request_id"), rs.getString("task_id"), rs.getString("session_id"),
-      rs.getString("resource_id"), rs.getString("client"), rs.getString("harness"),
-      rs.getString("channel"), rs.getString("client_version"), rs.getString("server_version"),
-      rs.getString("remote_address"), rs.getString("method"), rs.getString("path"),
-      rs.getString("query_string"), rs.getString("request_media_type"),
-      rs.getString("response_media_type"), Instant.parse(rs.getString("started_at")),
-      Instant.parse(rs.getString("completed_at")), rs.getLong("duration_ms"), status,
-      rs.getString("outcome"), rs.getString("error_kind"), rs.getString("error_message"),
-      rs.getString("metadata"), rs.getString("request_body"), rs.getLong("request_bytes"),
-      rs.getString("request_sha256"), rs.getInt("request_truncated") != 0,
-      rs.getString("response_body"), rs.getLong("response_bytes"),
-      rs.getString("response_sha256"), rs.getInt("response_truncated") != 0);
-  }
-
-  private static String value(String value, String fallback) {
-    return value == null ? fallback : value;
   }
 }

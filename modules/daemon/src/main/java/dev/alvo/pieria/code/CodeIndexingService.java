@@ -47,25 +47,29 @@ import java.util.TreeSet;
 @Service
 public class CodeIndexingService {
 
-  private static final Logger log = LoggerFactory.getLogger(CodeIndexingService.class);
-
   /**
    * Stable session id so unchanged code yields identical, content-addressed derived memories. Also
    * the canonical marker that a memory was derived by the code indexer (vs. a conversational memory):
    * the fast/injection recall path filters these out (see {@code RetrievalService}).
    */
   public static final String CODE_SESSION = "pieria:code-index";
-
+  private static final Logger log = LoggerFactory.getLogger(CodeIndexingService.class);
   private static final int MAX_SYMBOLS_IN_FACT = 30;
   private static final int MAX_SYMBOL_IDS = 200;
   private static final Set<CodeRelation> CURATED_RELATIONS =
     Set.of(CodeRelation.DEPENDS_ON, CodeRelation.TESTS, CodeRelation.HANDLES_ROUTE);
 
-  /** Graph relation for the file → top-level-definition edges projected from the parse. */
+  /**
+   * Graph relation for the file → top-level-definition edges projected from the parse.
+   */
   private static final String DEFINES_RELATION = "defines";
-  /** Cap on projected {@code defines} edges per file, so a large file cannot flood the graph. */
+  /**
+   * Cap on projected {@code defines} edges per file, so a large file cannot flood the graph.
+   */
   private static final int MAX_DEFINES_EDGES = 8;
-  /** Symbol kinds worth a graph node of their own; members and locals are deliberately excluded. */
+  /**
+   * Symbol kinds worth a graph node of their own; members and locals are deliberately excluded.
+   */
   private static final Set<CodeSymbolKind> DEFINABLE_KINDS = Set.of(
     CodeSymbolKind.CLASS, CodeSymbolKind.INTERFACE, CodeSymbolKind.ENUM,
     CodeSymbolKind.TYPE_ALIAS, CodeSymbolKind.ENDPOINT, CodeSymbolKind.MIXIN);
@@ -86,25 +90,109 @@ public class CodeIndexingService {
   }
 
   /**
-   * One source file to index. {@code language}/{@code contentHash} may be blank (auto-derived).
+   * The file's top-level type definitions (no parent symbol, a type-like kind), capped at
+   * {@link #MAX_DEFINES_EDGES}. For most languages this is one or a few symbols per file.
    */
-  public record SourceFile(String repoRelPath, String language, String contentHash, String content) {
+  private static List<CodeSymbol> topLevelDefinitions(List<CodeSymbol> symbols) {
+    return symbols.stream()
+      .filter(s -> s.parentSymbolId() == null)
+      .filter(s -> DEFINABLE_KINDS.contains(s.kind()))
+      .limit(MAX_DEFINES_EDGES)
+      .toList();
+  }
+
+  private static String factContent(String path, String language, List<CodeSymbol> symbols, List<ParsedEdge> curated) {
+    if (!symbols.isEmpty()) {
+      List<String> parts = symbols.stream()
+        .sorted(Comparator.comparing((CodeSymbol s) -> s.kind().wire()).thenComparing(CodeSymbol::name))
+        .map(s -> s.kind().wire() + " " + s.name())
+        .distinct()
+        .limit(MAX_SYMBOLS_IN_FACT)
+        .toList();
+      return "Source file " + path + " (" + language + ") defines: " + String.join(", ", parts) + ".";
+    }
+    if (!curated.isEmpty()) {
+      Set<String> targets = new TreeSet<>();
+      for (ParsedEdge e : curated) {
+        String t = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : ModulePaths.lastSegment(e.dstQualifiedName());
+        if (t != null && !t.isBlank()) {
+          targets.add(t);
+        }
+      }
+      if (!targets.isEmpty()) {
+        return "Source file " + path + " (" + language + ") depends on: " + String.join(", ", targets) + ".";
+      }
+    }
+    return null;
+  }
+
+  private static String targetEntityType(CodeRelation relation) {
+    return switch (relation) {
+      case DEPENDS_ON -> "module";
+      case TESTS -> "class";
+      case HANDLES_ROUTE -> "endpoint";
+      default -> "concept";
+    };
   }
 
   /**
-   * Per-run observability counts.
+   * Stable, deterministic JSON payload (fixed key order helps content-addressing).
    */
-  public record CodeIndexSummary(
-    int filesReceived, int filesSkippedUnchanged, int filesParsed, int filesFailed,
-    int symbols, int resolvedEdges, int heuristicEdges,
-    int memoriesStored, int memoriesSuperseded, int graphEntities, int graphEdges) {
+  private static String codePayload(String language, String path, String fileId, String contentHash,
+                                    List<String> symbolIds) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("{\"source\":\"code\"");
+    sb.append(",\"language\":\"").append(esc(language)).append('"');
+    sb.append(",\"path\":\"").append(esc(path)).append('"');
+    sb.append(",\"fileId\":\"").append(esc(fileId)).append('"');
+    sb.append(",\"contentHash\":\"").append(esc(contentHash)).append('"');
+    sb.append(",\"symbolIds\":[");
+    for (int i = 0; i < symbolIds.size(); i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append('"').append(esc(symbolIds.get(i))).append('"');
+    }
+    sb.append("]}");
+    return sb.toString();
   }
 
-  /**
-   * Per-profile code-index status counts.
-   */
-  public record CodeIndexStatus(
-    boolean present, long files, long symbols, long resolvedEdges, long heuristicEdges, long edges) {
+  private static String esc(String s) {
+    if (s == null) {
+      return "";
+    }
+    StringBuilder b = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '"' -> b.append("\\\"");
+        case '\\' -> b.append("\\\\");
+        case '\n' -> b.append("\\n");
+        case '\r' -> b.append("\\r");
+        case '\t' -> b.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            b.append(String.format("\\u%04x", (int) c));
+          } else {
+            b.append(c);
+          }
+        }
+      }
+    }
+    return b.toString();
+  }
+
+  private static int lineCount(String content) {
+    if (content == null || content.isEmpty()) {
+      return 0;
+    }
+    int lines = 1;
+    for (int i = 0; i < content.length(); i++) {
+      if (content.charAt(i) == '\n') {
+        lines++;
+      }
+    }
+    return lines;
   }
 
   /**
@@ -330,18 +418,6 @@ public class CodeIndexingService {
     store.markGraphAdopted(profileId, memoryId);
   }
 
-  /**
-   * The file's top-level type definitions (no parent symbol, a type-like kind), capped at
-   * {@link #MAX_DEFINES_EDGES}. For most languages this is one or a few symbols per file.
-   */
-  private static List<CodeSymbol> topLevelDefinitions(List<CodeSymbol> symbols) {
-    return symbols.stream()
-      .filter(s -> s.parentSymbolId() == null)
-      .filter(s -> DEFINABLE_KINDS.contains(s.kind()))
-      .limit(MAX_DEFINES_EDGES)
-      .toList();
-  }
-
   private String resolveDst(String profileId, Map<String, CodeSymbol> byQname, String dstQname) {
     if (dstQname == null || dstQname.isBlank()) {
       return null;
@@ -353,6 +429,8 @@ public class CodeIndexingService {
     List<CodeSymbol> global = codeStore.findSymbolsByQualifiedName(profileId, List.of(dstQname), 1);
     return global.isEmpty() ? null : global.getFirst().id();
   }
+
+  // ---- deterministic helpers ----
 
   private String upsertModule(String profileId, String path, Set<String> markerDirs) {
     return ModulePaths.moduleDir(path, markerDirs)
@@ -378,100 +456,26 @@ public class CodeIndexingService {
     return ParseResult.empty();
   }
 
-  // ---- deterministic helpers ----
-
-  private static String factContent(String path, String language, List<CodeSymbol> symbols, List<ParsedEdge> curated) {
-    if (!symbols.isEmpty()) {
-      List<String> parts = symbols.stream()
-        .sorted(Comparator.comparing((CodeSymbol s) -> s.kind().wire()).thenComparing(CodeSymbol::name))
-        .map(s -> s.kind().wire() + " " + s.name())
-        .distinct()
-        .limit(MAX_SYMBOLS_IN_FACT)
-        .toList();
-      return "Source file " + path + " (" + language + ") defines: " + String.join(", ", parts) + ".";
-    }
-    if (!curated.isEmpty()) {
-      Set<String> targets = new TreeSet<>();
-      for (ParsedEdge e : curated) {
-        String t = (e.dstRef() != null && !e.dstRef().isBlank()) ? e.dstRef() : ModulePaths.lastSegment(e.dstQualifiedName());
-        if (t != null && !t.isBlank()) {
-          targets.add(t);
-        }
-      }
-      if (!targets.isEmpty()) {
-        return "Source file " + path + " (" + language + ") depends on: " + String.join(", ", targets) + ".";
-      }
-    }
-    return null;
-  }
-
-  private static String targetEntityType(CodeRelation relation) {
-    return switch (relation) {
-      case DEPENDS_ON -> "module";
-      case TESTS -> "class";
-      case HANDLES_ROUTE -> "endpoint";
-      default -> "concept";
-    };
+  /**
+   * One source file to index. {@code language}/{@code contentHash} may be blank (auto-derived).
+   */
+  public record SourceFile(String repoRelPath, String language, String contentHash, String content) {
   }
 
   /**
-   * Stable, deterministic JSON payload (fixed key order helps content-addressing).
+   * Per-run observability counts.
    */
-  private static String codePayload(String language, String path, String fileId, String contentHash,
-                                    List<String> symbolIds) {
-    StringBuilder sb = new StringBuilder();
-    sb.append("{\"source\":\"code\"");
-    sb.append(",\"language\":\"").append(esc(language)).append('"');
-    sb.append(",\"path\":\"").append(esc(path)).append('"');
-    sb.append(",\"fileId\":\"").append(esc(fileId)).append('"');
-    sb.append(",\"contentHash\":\"").append(esc(contentHash)).append('"');
-    sb.append(",\"symbolIds\":[");
-    for (int i = 0; i < symbolIds.size(); i++) {
-      if (i > 0) {
-        sb.append(',');
-      }
-      sb.append('"').append(esc(symbolIds.get(i))).append('"');
-    }
-    sb.append("]}");
-    return sb.toString();
+  public record CodeIndexSummary(
+    int filesReceived, int filesSkippedUnchanged, int filesParsed, int filesFailed,
+    int symbols, int resolvedEdges, int heuristicEdges,
+    int memoriesStored, int memoriesSuperseded, int graphEntities, int graphEdges) {
   }
 
-  private static String esc(String s) {
-    if (s == null) {
-      return "";
-    }
-    StringBuilder b = new StringBuilder(s.length());
-    for (int i = 0; i < s.length(); i++) {
-      char c = s.charAt(i);
-      switch (c) {
-        case '"' -> b.append("\\\"");
-        case '\\' -> b.append("\\\\");
-        case '\n' -> b.append("\\n");
-        case '\r' -> b.append("\\r");
-        case '\t' -> b.append("\\t");
-        default -> {
-          if (c < 0x20) {
-            b.append(String.format("\\u%04x", (int) c));
-          } else {
-            b.append(c);
-          }
-        }
-      }
-    }
-    return b.toString();
-  }
-
-  private static int lineCount(String content) {
-    if (content == null || content.isEmpty()) {
-      return 0;
-    }
-    int lines = 1;
-    for (int i = 0; i < content.length(); i++) {
-      if (content.charAt(i) == '\n') {
-        lines++;
-      }
-    }
-    return lines;
+  /**
+   * Per-profile code-index status counts.
+   */
+  public record CodeIndexStatus(
+    boolean present, long files, long symbols, long resolvedEdges, long heuristicEdges, long edges) {
   }
 
   // ---- mutable accumulators ----

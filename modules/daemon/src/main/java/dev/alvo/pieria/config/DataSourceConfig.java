@@ -34,65 +34,8 @@ public class DataSourceConfig {
 
   private static final Logger log = LoggerFactory.getLogger(DataSourceConfig.class);
 
-  /**
-   * Holds whether the {@code sqlite-vec} native extension successfully loaded on this process.
-   * Determined once on the first connection init and read by the vector startup component and
-   * the store's capability check.
-   */
-  public static final class VecCapability {
-    private volatile boolean loaded;
-
-    public boolean isLoaded() {
-      return loaded;
-    }
-
-    void markLoaded() {
-      this.loaded = true;
-    }
-  }
-
   private static void ensureParentDirectory(String dbPath) {
     FileOps.ensureParentDirectory(Path.of(dbPath).toAbsolutePath());
-  }
-
-  /**
-   * Shared capability flag describing whether {@code sqlite-vec} loaded. Exposed as a bean so the
-   * vector startup component and the store can read it.
-   */
-  @Bean
-  public VecCapability vecCapability() {
-    return new VecCapability();
-  }
-
-  @Bean
-  @Primary
-  public DataSource dataSource(AppDataPathResolver pathResolver,
-                               VecCapability vecCapability,
-                               VecExtensionResolver vecResolver) {
-    String path = pathResolver.resolve().databaseFile().toString();
-    ensureParentDirectory(path);
-
-    // enable_load_extension is a xerial connection property: without it load_extension() throws.
-    // busy_timeout makes a connection wait (up to N ms) for a held write lock instead of failing
-    // immediately with SQLITE_BUSY — SQLite is single-writer, so the vectorization worker would
-    // otherwise collide with concurrent ingestion / code-index write transactions. IMMEDIATE makes
-    // xerial start Spring-managed transactions with BEGIN IMMEDIATE, reserving the writer before a
-    // transaction's first read. Without it, a keyed-memory SELECT can open a deferred read snapshot,
-    // another connection can commit vectorization, and the later memory INSERT fails with
-    // SQLITE_BUSY_SNAPSHOT because the stale snapshot cannot be upgraded. Both settings apply to
-    // every pooled connection.
-    String url = "jdbc:sqlite:" + path
-      + "?enable_load_extension=true&busy_timeout=5000&transaction_mode=IMMEDIATE";
-    HikariDataSource dataSource = DataSourceBuilder.create()
-      .type(HikariDataSource.class)
-      .driverClassName("org.sqlite.JDBC")
-      .url(url)
-      .build();
-
-    // Decide the per-connection init SQL before the pool starts (Hikari seals its config on the
-    // first getConnection). SQLite is single-writer; WAL lets readers proceed during a write.
-    configureConnectionInit(dataSource, url, vecCapability, vecResolver.resolve().orElse(null));
-    return dataSource;
   }
 
   /**
@@ -213,12 +156,71 @@ public class DataSourceConfig {
     }
   }
 
-  /** Confirm the vec module is actually usable by reading its version function. */
+  /**
+   * Confirm the vec module is actually usable by reading its version function.
+   */
   private static boolean probeVec(Statement st) {
     try (var rs = st.executeQuery("SELECT vec_version()")) {
       return rs.next();
     } catch (Exception ignored) {
       return false;
+    }
+  }
+
+  /**
+   * Shared capability flag describing whether {@code sqlite-vec} loaded. Exposed as a bean so the
+   * vector startup component and the store can read it.
+   */
+  @Bean
+  public VecCapability vecCapability() {
+    return new VecCapability();
+  }
+
+  @Bean
+  @Primary
+  public DataSource dataSource(AppDataPathResolver pathResolver,
+                               VecCapability vecCapability,
+                               VecExtensionResolver vecResolver) {
+    String path = pathResolver.resolve().databaseFile().toString();
+    ensureParentDirectory(path);
+
+    // enable_load_extension is a xerial connection property: without it load_extension() throws.
+    // busy_timeout makes a connection wait (up to N ms) for a held write lock instead of failing
+    // immediately with SQLITE_BUSY — SQLite is single-writer, so the vectorization worker would
+    // otherwise collide with concurrent ingestion / code-index write transactions. IMMEDIATE makes
+    // xerial start Spring-managed transactions with BEGIN IMMEDIATE, reserving the writer before a
+    // transaction's first read. Without it, a keyed-memory SELECT can open a deferred read snapshot,
+    // another connection can commit vectorization, and the later memory INSERT fails with
+    // SQLITE_BUSY_SNAPSHOT because the stale snapshot cannot be upgraded. Both settings apply to
+    // every pooled connection.
+    String url = "jdbc:sqlite:" + path
+      + "?enable_load_extension=true&busy_timeout=5000&transaction_mode=IMMEDIATE";
+    HikariDataSource dataSource = DataSourceBuilder.create()
+      .type(HikariDataSource.class)
+      .driverClassName("org.sqlite.JDBC")
+      .url(url)
+      .build();
+
+    // Decide the per-connection init SQL before the pool starts (Hikari seals its config on the
+    // first getConnection). SQLite is single-writer; WAL lets readers proceed during a write.
+    configureConnectionInit(dataSource, url, vecCapability, vecResolver.resolve().orElse(null));
+    return dataSource;
+  }
+
+  /**
+   * Holds whether the {@code sqlite-vec} native extension successfully loaded on this process.
+   * Determined once on the first connection init and read by the vector startup component and
+   * the store's capability check.
+   */
+  public static final class VecCapability {
+    private volatile boolean loaded;
+
+    public boolean isLoaded() {
+      return loaded;
+    }
+
+    void markLoaded() {
+      this.loaded = true;
     }
   }
 }

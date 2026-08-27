@@ -1,12 +1,13 @@
 package dev.alvo.pieria.ingestion.transcript;
 
 import dev.alvo.pieria.domain.memory.Message;
-import java.util.ArrayList;
-import java.util.List;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * {@link TranscriptParser} for Claude Code session transcripts (JSONL — one event object per line).

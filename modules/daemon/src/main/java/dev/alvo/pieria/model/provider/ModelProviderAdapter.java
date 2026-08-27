@@ -19,10 +19,14 @@ import java.util.Set;
  */
 public interface ModelProviderAdapter {
 
-  /** Build the synchronous {@code com.openai} client for this dialect. */
+  /**
+   * Build the synchronous {@code com.openai} client for this dialect.
+   */
   OpenAIClient buildSyncClient(PieriaProperties.Provider provider);
 
-  /** Build the asynchronous {@code com.openai} client for this dialect. */
+  /**
+   * Build the asynchronous {@code com.openai} client for this dialect.
+   */
   OpenAIClientAsync buildAsyncClient(PieriaProperties.Provider provider);
 
   /**

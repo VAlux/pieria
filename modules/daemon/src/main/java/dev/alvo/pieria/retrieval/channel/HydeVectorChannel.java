@@ -1,9 +1,9 @@
 package dev.alvo.pieria.retrieval.channel;
 
-import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
-import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.retrieval.RetrievalChannel;
 import dev.alvo.pieria.retrieval.RetrievalContext;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.util.List;

@@ -5,7 +5,9 @@ import dev.alvo.pieria.ingestion.IngestProgressListener;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-/** Handle used by task producers to report and coordinate one named lane. */
+/**
+ * Handle used by task producers to report and coordinate one named lane.
+ */
 public final class TaskLane implements IngestProgressListener {
 
   private final String name;
@@ -51,7 +53,9 @@ public final class TaskLane implements IngestProgressListener {
     transition(TaskLaneState.CANCELLED, current.phase(), current.done(), current.total());
   }
 
-  /** Wait until this lane reaches a terminal state. */
+  /**
+   * Wait until this lane reaches a terminal state.
+   */
   public void awaitCompletion() {
     lock.lock();
     try {

@@ -2,7 +2,9 @@ package dev.alvo.pieria.task;
 
 import java.time.Instant;
 
-/** Immutable internal snapshot of one task lane. */
+/**
+ * Immutable internal snapshot of one task lane.
+ */
 public record TaskLaneSnapshot(
   String name,
   TaskLaneState state,

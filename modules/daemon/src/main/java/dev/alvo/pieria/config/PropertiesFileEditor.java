@@ -25,7 +25,9 @@ import java.util.regex.Pattern;
  */
 public final class PropertiesFileEditor {
 
-  /** Section the editor appends newly-introduced keys under, so hand edits stay separable. */
+  /**
+   * Section the editor appends newly-introduced keys under, so hand edits stay separable.
+   */
   public static final String MANAGED_HEADER = "# --- Written by the Pieria console ---";
 
   private final List<String> lines;
@@ -34,7 +36,9 @@ public final class PropertiesFileEditor {
     this.lines = lines;
   }
 
-  /** Read a properties file. A missing file reads as empty rather than failing. */
+  /**
+   * Read a properties file. A missing file reads as empty rather than failing.
+   */
   public static PropertiesFileEditor read(Path file) {
     if (file == null || !Files.isRegularFile(file)) {
       return new PropertiesFileEditor(new ArrayList<>());
@@ -44,6 +48,17 @@ public final class PropertiesFileEditor {
     } catch (IOException e) {
       throw new UncheckedIOException("Cannot read " + file, e);
     }
+  }
+
+  private static int separatorIndex(String line, String key) {
+    int from = line.indexOf(key) + key.length();
+    for (int i = from; i < line.length(); i++) {
+      char c = line.charAt(i);
+      if (c == '=' || c == ':') {
+        return i;
+      }
+    }
+    return line.length() - 1;
   }
 
   /**
@@ -139,16 +154,5 @@ public final class PropertiesFileEditor {
       }
     }
     return result;
-  }
-
-  private static int separatorIndex(String line, String key) {
-    int from = line.indexOf(key) + key.length();
-    for (int i = from; i < line.length(); i++) {
-      char c = line.charAt(i);
-      if (c == '=' || c == ':') {
-        return i;
-      }
-    }
-    return line.length() - 1;
   }
 }

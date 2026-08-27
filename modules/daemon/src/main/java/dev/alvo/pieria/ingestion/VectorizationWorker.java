@@ -39,13 +39,6 @@ public class VectorizationWorker {
   private final int batchSize;
   private final int maxAttempts;
 
-  private enum VectorizationOutcome {
-    SUCCEEDED,
-    FAILED,
-    ABANDONED,
-    ORPHANED
-  }
-
   public VectorizationWorker(MemoryStore store, ModelGateway modelGateway, PieriaProperties properties) {
     this.store = store;
     this.modelGateway = modelGateway;
@@ -170,6 +163,13 @@ public class VectorizationWorker {
       }
       return VectorizationOutcome.FAILED;
     }
+  }
+
+  private enum VectorizationOutcome {
+    SUCCEEDED,
+    FAILED,
+    ABANDONED,
+    ORPHANED
   }
 
   /**

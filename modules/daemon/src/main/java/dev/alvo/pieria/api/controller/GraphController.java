@@ -37,7 +37,9 @@ public class GraphController {
     this.graphExplorerService = graphExplorerService;
   }
 
-  /** Landing view: profile totals, entity-type facets, and the top-degree entities with their edges. */
+  /**
+   * Landing view: profile totals, entity-type facets, and the top-degree entities with their edges.
+   */
   @GetMapping("/overview")
   public GraphOverviewResponse overview(@PathVariable String name,
                                         @RequestParam(name = "types", required = false) List<String> types,
@@ -45,7 +47,9 @@ public class GraphController {
     return graphExplorerService.overview(name, types, limit);
   }
 
-  /** Entity name search, most-connected first, for picking a focus. */
+  /**
+   * Entity name search, most-connected first, for picking a focus.
+   */
   @GetMapping("/search")
   public GraphSearchResponse search(@PathVariable String name,
                                     @RequestParam(name = "q") String query,
@@ -54,7 +58,9 @@ public class GraphController {
     return graphExplorerService.search(name, query, types, limit);
   }
 
-  /** Focused view: a bounded walk out from one entity. */
+  /**
+   * Focused view: a bounded walk out from one entity.
+   */
   @GetMapping("/neighborhood")
   public GraphNeighborhoodResponse neighborhood(@PathVariable String name,
                                                 @RequestParam(name = "entity") String entityId,
@@ -64,7 +70,9 @@ public class GraphController {
     return graphExplorerService.neighborhood(name, entityId, depth, types, limit);
   }
 
-  /** Inspector detail for one entity: its relations and the memories they were extracted from. */
+  /**
+   * Inspector detail for one entity: its relations and the memories they were extracted from.
+   */
   @GetMapping("/entities/{id}")
   public GraphEntityResponse entity(@PathVariable String name, @PathVariable String id) {
     return graphExplorerService.entity(name, id);

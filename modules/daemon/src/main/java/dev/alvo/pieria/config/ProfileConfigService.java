@@ -31,6 +31,47 @@ public class ProfileConfigService {
   }
 
   /**
+   * Render a ResolvedConfig as a fully-populated DaemonOverrides view (every field set).
+   */
+  private static DaemonOverrides toFullOverrides(ResolvedConfig resolved) {
+    PieriaProperties.Ingestion ingestion = resolved.ingestion();
+    PieriaProperties.Retrieval retrieval = resolved.retrieval();
+
+    return new DaemonOverrides(
+      new Ingestion(
+        ingestion.chunkSizeChars(),
+        ingestion.chunkOverlapMessages(),
+        ingestion.maxExtractionConcurrency(),
+        ingestion.interrogativeQueriesPerMemory(),
+        ingestion.maxExtractedCandidatesPerChunk(),
+        ingestion.graphFromExtraction()),
+
+      new Retrieval(
+        retrieval.vectorEnabled(),
+        retrieval.rrfK(),
+        retrieval.weightExactKey(),
+        retrieval.weightFtsMemory(),
+        retrieval.weightHydeVector(),
+        retrieval.weightDirectVector(),
+        retrieval.weightFtsMessage(),
+        retrieval.weightGraph(),
+        retrieval.graphDepth(),
+        retrieval.graphFanout(),
+        retrieval.graphSeedLimit(),
+        retrieval.channelLimit(),
+        retrieval.channelTimeoutMs(),
+        retrieval.weightSymbolFts(),
+        retrieval.weightCodeGraph(),
+        retrieval.codeGraphDepth(),
+        retrieval.codeGraphFanout(),
+        retrieval.codeGraphSeedLimit(),
+        retrieval.codeGraphMinConfidence(),
+        retrieval.recallMode(),
+        retrieval.nearDuplicateThreshold(),
+        retrieval.semanticDuplicateThreshold()));
+  }
+
+  /**
    * Replace the profile's overrides wholesale (creating the profile if needed) and return the
    * resulting effective config. An empty {@code overrides} clears the stored overrides.
    */
@@ -104,46 +145,5 @@ public class ProfileConfigService {
 
   private DaemonOverrides effectiveFor(String profileId) {
     return toFullOverrides(configResolver.resolve(profileId));
-  }
-
-  /**
-   * Render a ResolvedConfig as a fully-populated DaemonOverrides view (every field set).
-   */
-  private static DaemonOverrides toFullOverrides(ResolvedConfig resolved) {
-    PieriaProperties.Ingestion ingestion = resolved.ingestion();
-    PieriaProperties.Retrieval retrieval = resolved.retrieval();
-
-    return new DaemonOverrides(
-      new Ingestion(
-        ingestion.chunkSizeChars(),
-        ingestion.chunkOverlapMessages(),
-        ingestion.maxExtractionConcurrency(),
-        ingestion.interrogativeQueriesPerMemory(),
-        ingestion.maxExtractedCandidatesPerChunk(),
-        ingestion.graphFromExtraction()),
-
-      new Retrieval(
-        retrieval.vectorEnabled(),
-        retrieval.rrfK(),
-        retrieval.weightExactKey(),
-        retrieval.weightFtsMemory(),
-        retrieval.weightHydeVector(),
-        retrieval.weightDirectVector(),
-        retrieval.weightFtsMessage(),
-        retrieval.weightGraph(),
-        retrieval.graphDepth(),
-        retrieval.graphFanout(),
-        retrieval.graphSeedLimit(),
-        retrieval.channelLimit(),
-        retrieval.channelTimeoutMs(),
-        retrieval.weightSymbolFts(),
-        retrieval.weightCodeGraph(),
-        retrieval.codeGraphDepth(),
-        retrieval.codeGraphFanout(),
-        retrieval.codeGraphSeedLimit(),
-        retrieval.codeGraphMinConfidence(),
-        retrieval.recallMode(),
-        retrieval.nearDuplicateThreshold(),
-        retrieval.semanticDuplicateThreshold()));
   }
 }

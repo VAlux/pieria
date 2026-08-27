@@ -14,15 +14,17 @@ package dev.alvo.pieria.ingestion;
 public interface IngestProgressListener {
 
   /**
+   * A listener that discards every update.
+   */
+  static IngestProgressListener noop() {
+    return (phase, done, total) -> {
+    };
+  }
+
+  /**
    * @param phase the current phase ({@code "documents"} | {@code "extract"} | {@code "verify"} | {@code "store"})
    * @param done  units completed so far in this phase
    * @param total total units in this phase
    */
   void onPhase(String phase, int done, int total);
-
-  /** A listener that discards every update. */
-  static IngestProgressListener noop() {
-    return (phase, done, total) -> {
-    };
-  }
 }

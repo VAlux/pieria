@@ -49,45 +49,6 @@ public class ProfileConfigController {
   }
 
   /**
-   * Replace the profile's overrides wholesale (creating the profile if needed) and return the
-   * resulting effective config. An empty body clears the overrides.
-   */
-  @PutMapping
-  public JsonNode put(@PathVariable String name, @RequestBody JsonNode body) {
-    validateWhitelist(body);
-    DaemonOverrides overrides = ConfigCodec.bind(body, DaemonOverrides.class);
-    return ConfigCodec.toNode(configService.put(name, overrides));
-  }
-
-  /**
-   * The effective config for the profile. An unknown profile resolves to the global config (no
-   * profile row is created by reading).
-   */
-  @GetMapping
-  public JsonNode get(@PathVariable String name) {
-    return ConfigCodec.toNode(configService.effective(name));
-  }
-
-  /**
-   * Remove the profile's overrides; reading falls back to the global config. Idempotent.
-   */
-  @DeleteMapping
-  @ResponseStatus(HttpStatus.NO_CONTENT)
-  public void delete(@PathVariable String name) {
-    configService.delete(name);
-  }
-
-  /**
-   * The three configuration layers for this profile: the global baseline, the profile's own
-   * (sparse) overrides, and the effective result. Additive — the plain GET keeps its shape, which
-   * the CLI depends on.
-   */
-  @GetMapping("/detail")
-  public JsonNode detail(@PathVariable String name) {
-    return ConfigCodec.toNode(configService.detail(name));
-  }
-
-  /**
    * Reject any key outside the {@link DaemonOverrides} shape. Mapped to 400 by the global handler.
    */
   private static void validateWhitelist(JsonNode body) {
@@ -141,5 +102,44 @@ public class ProfileConfigController {
     }
 
     return sb.toString().toLowerCase(Locale.ROOT);
+  }
+
+  /**
+   * Replace the profile's overrides wholesale (creating the profile if needed) and return the
+   * resulting effective config. An empty body clears the overrides.
+   */
+  @PutMapping
+  public JsonNode put(@PathVariable String name, @RequestBody JsonNode body) {
+    validateWhitelist(body);
+    DaemonOverrides overrides = ConfigCodec.bind(body, DaemonOverrides.class);
+    return ConfigCodec.toNode(configService.put(name, overrides));
+  }
+
+  /**
+   * The effective config for the profile. An unknown profile resolves to the global config (no
+   * profile row is created by reading).
+   */
+  @GetMapping
+  public JsonNode get(@PathVariable String name) {
+    return ConfigCodec.toNode(configService.effective(name));
+  }
+
+  /**
+   * Remove the profile's overrides; reading falls back to the global config. Idempotent.
+   */
+  @DeleteMapping
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void delete(@PathVariable String name) {
+    configService.delete(name);
+  }
+
+  /**
+   * The three configuration layers for this profile: the global baseline, the profile's own
+   * (sparse) overrides, and the effective result. Additive — the plain GET keeps its shape, which
+   * the CLI depends on.
+   */
+  @GetMapping("/detail")
+  public JsonNode detail(@PathVariable String name) {
+    return ConfigCodec.toNode(configService.detail(name));
   }
 }

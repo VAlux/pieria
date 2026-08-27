@@ -52,7 +52,9 @@ public class TaskRegistry {
   private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
   private final AuditRecorder auditRecorder;
 
-  /** Test/standalone constructor: task execution works without profile audit persistence. */
+  /**
+   * Test/standalone constructor: task execution works without profile audit persistence.
+   */
   public TaskRegistry() {
     this.auditRecorder = null;
   }
@@ -61,33 +63,6 @@ public class TaskRegistry {
   public TaskRegistry(AuditRecorder auditRecorder) {
     this.auditRecorder = auditRecorder;
   }
-
-  /**
-   * Per-task bookkeeping: the live snapshot, the worker {@link Future} (for interrupt-on-cancel),
-   * the immutable display metadata, and the cooperative cancel flag.
-   */
-  private static final class Entry {
-    final AtomicReference<TaskSnapshot> ref;
-    final String kind;
-    final String profile;
-    final AuditRequestContext auditContext;
-    volatile Future<?> future;
-    volatile boolean cancelRequested;
-    final AtomicBoolean auditRecorded = new AtomicBoolean();
-
-    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext) {
-      this.ref = ref;
-      this.kind = kind;
-      this.profile = profile;
-      this.auditContext = auditContext;
-    }
-  }
-
-  /** Immutable view of a task for listing: its id, display metadata, and current snapshot. */
-  public record TaskInfo(UUID id, String kind, String profile, TaskSnapshot snapshot) {}
-
-  /** Outcome of a {@link #cancel} request. */
-  public enum CancelOutcome { CANCELLED, ALREADY_TERMINAL, NOT_FOUND }
 
   /**
    * Register and start a task tagged with {@code kind} (e.g. {@code "ingest"}, {@code "code"}, or a
@@ -222,5 +197,37 @@ public class TaskRegistry {
   @PreDestroy
   public void shutdown() {
     executor.shutdownNow();
+  }
+
+  /**
+   * Outcome of a {@link #cancel} request.
+   */
+  public enum CancelOutcome {CANCELLED, ALREADY_TERMINAL, NOT_FOUND}
+
+  /**
+   * Per-task bookkeeping: the live snapshot, the worker {@link Future} (for interrupt-on-cancel),
+   * the immutable display metadata, and the cooperative cancel flag.
+   */
+  private static final class Entry {
+    final AtomicReference<TaskSnapshot> ref;
+    final String kind;
+    final String profile;
+    final AuditRequestContext auditContext;
+    final AtomicBoolean auditRecorded = new AtomicBoolean();
+    volatile Future<?> future;
+    volatile boolean cancelRequested;
+
+    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext) {
+      this.ref = ref;
+      this.kind = kind;
+      this.profile = profile;
+      this.auditContext = auditContext;
+    }
+  }
+
+  /**
+   * Immutable view of a task for listing: its id, display metadata, and current snapshot.
+   */
+  public record TaskInfo(UUID id, String kind, String profile, TaskSnapshot snapshot) {
   }
 }

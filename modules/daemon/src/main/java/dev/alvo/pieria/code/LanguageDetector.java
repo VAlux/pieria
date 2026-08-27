@@ -15,7 +15,9 @@ public final class LanguageDetector {
   private LanguageDetector() {
   }
 
-  /** Language-pack id for a repo-relative path, or {@code ""} when the extension is unknown. */
+  /**
+   * Language-pack id for a repo-relative path, or {@code ""} when the extension is unknown.
+   */
   public static String detect(String repoRelPath) {
     if (repoRelPath == null) {
       return "";

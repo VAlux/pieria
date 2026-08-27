@@ -107,6 +107,180 @@ public final class TemporalExtractor {
   private static final int MAX_RESIDUAL_FACTS = 6;
 
   /**
+   * Resolves — or, failing an anchor, flags — every relative reference still present in the
+   * candidate memories, so synthesis never has to decide for itself what "next month" meant.
+   */
+  private static void addResidualFacts(List<TemporalFact> facts, Set<String> seen, List<Memory> candidates) {
+    if (candidates == null) {
+      return;
+    }
+    int reported = 0;
+    for (Memory memory : candidates) {
+      if (memory == null || memory.content() == null || memory.content().isBlank()) {
+        continue;
+      }
+      LocalDate anchor = MemoryTimes.anchor(memory);
+      for (String reference : residualReferences(memory.content())) {
+        if (reported >= MAX_RESIDUAL_FACTS) {
+          return;
+        }
+        int before = facts.size();
+        add(facts, seen, residualFact(reference, anchor));
+        if (facts.size() > before) {
+          reported++;
+        }
+      }
+    }
+  }
+
+  // ---- residual references in memory content ----
+
+  /**
+   * Every relative reference in one memory's text, in the order they appear.
+   */
+  private static List<String> residualReferences(String content) {
+    List<String> references = new ArrayList<>();
+    collect(references, RelativeDates.PERIOD, content);
+    collect(references, RelativeDates.FUZZY, content);
+    collect(references, RESIDUAL_DAY, content);
+    collect(references, N_AGO, content);
+    collect(references, IN_N, content);
+    return references;
+  }
+
+  private static void collect(List<String> references, Pattern pattern, String content) {
+    Matcher matcher = pattern.matcher(content);
+    while (matcher.find()) {
+      references.add(matcher.group().trim());
+    }
+  }
+
+  /**
+   * A resolved fact when the memory records when its content was true, and an explicit
+   * leave-it-alone instruction when it does not.
+   */
+  private static TemporalFact residualFact(String reference, LocalDate anchor) {
+    String resolved = anchor == null ? null : resolveResidual(reference, anchor);
+    if (resolved == null) {
+      return new TemporalFact(
+        "\"" + reference + "\" in a memory has no recorded date to anchor it",
+        "leave it unresolved — do not infer a date");
+    }
+    return new TemporalFact(
+      "\"" + reference + "\" in the memory dated " + anchor + " resolves to", resolved);
+  }
+
+  /**
+   * The absolute date/period a reference names, or {@code null} when it has no calendar meaning.
+   */
+  private static String resolveResidual(String reference, LocalDate anchor) {
+    Matcher period = RelativeDates.PERIOD.matcher(reference);
+    if (period.matches()) {
+      return RelativeDates.period(period.group(1), period.group(2), anchor);
+    }
+    Matcher day = RESIDUAL_DAY.matcher(reference);
+    if (day.matches()) {
+      return switch (day.group(1).toLowerCase(Locale.ROOT)) {
+        case "yesterday" -> anchor.minusDays(1).toString();
+        case "tomorrow" -> anchor.plusDays(1).toString();
+        default -> anchor.toString();
+      };
+    }
+    Matcher ago = N_AGO.matcher(reference);
+    if (ago.matches()) {
+      long n = parseLong(ago.group(1));
+      return n < 0 ? null : minus(anchor, n, ago.group(2)).toString();
+    }
+    Matcher in = IN_N.matcher(reference);
+    if (in.matches()) {
+      long n = parseLong(in.group(1));
+      return n < 0 ? null : plus(anchor, n, in.group(2)).toString();
+    }
+    return null; // fuzzy: seasons, "a while back" — no calendar definition to resolve to
+  }
+
+  private static void add(List<TemporalFact> facts, Set<String> seen, TemporalFact fact) {
+    if (seen.add(fact.render())) {
+      facts.add(fact);
+    }
+  }
+
+  // ---- helpers ----
+
+  private static List<LocalDate> parseIsoDates(String q) {
+    List<LocalDate> dates = new ArrayList<>();
+    Matcher m = ISO_DATE.matcher(q);
+    while (m.find()) {
+      LocalDate d = safeDate(m.group(0));
+      if (d != null) {
+        dates.add(d);
+      }
+    }
+    return dates;
+  }
+
+  private static LocalDate parseOccurredAt(String payload) {
+    return MemoryTimes.dateField(payload, MemoryTimes.OCCURRED_AT);
+  }
+
+  private static LocalDate safeDate(String value) {
+    try {
+      return LocalDate.parse(value);
+    } catch (DateTimeParseException e) {
+      return null;
+    }
+  }
+
+  private static long parseLong(String s) {
+    try {
+      return Long.parseLong(s);
+    } catch (NumberFormatException e) {
+      return -1;
+    }
+  }
+
+  private static LocalDate minus(LocalDate base, long n, String unit) {
+    return switch (unit.toLowerCase(Locale.ROOT)) {
+      case "week", "weeks" -> base.minusWeeks(n);
+      case "month", "months" -> base.minusMonths(n);
+      case "year", "years" -> base.minusYears(n);
+      default -> base.minusDays(n);
+    };
+  }
+
+  private static LocalDate plus(LocalDate base, long n, String unit) {
+    return switch (unit.toLowerCase(Locale.ROOT)) {
+      case "week", "weeks" -> base.plusWeeks(n);
+      case "month", "months" -> base.plusMonths(n);
+      case "year", "years" -> base.plusYears(n);
+      default -> base.plusDays(n);
+    };
+  }
+
+  /**
+   * Signed span from {@code date} to {@code today}: "N days ago", "in N days", or "today".
+   */
+  private static String signedSpan(LocalDate date, LocalDate today) {
+    long days = ChronoUnit.DAYS.between(date, today);
+    if (days == 0) {
+      return "today";
+    }
+    if (days > 0) {
+      return plural(days) + " ago";
+    }
+    return "in " + plural(-days);
+  }
+
+  private static String plural(long days) {
+    return days == 1 ? "1 day" : days + " days";
+  }
+
+  private static boolean containsWord(String haystack, String word) {
+    return Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE)
+      .matcher(haystack).find();
+  }
+
+  /**
    * Extract deterministic temporal facts from a query.
    *
    * @param query       the recall query (may be {@code null} or non-temporal)
@@ -205,173 +379,5 @@ public final class TemporalExtractor {
     addResidualFacts(facts, seen, candidates);
 
     return facts;
-  }
-
-  // ---- residual references in memory content ----
-
-  /**
-   * Resolves — or, failing an anchor, flags — every relative reference still present in the
-   * candidate memories, so synthesis never has to decide for itself what "next month" meant.
-   */
-  private static void addResidualFacts(List<TemporalFact> facts, Set<String> seen, List<Memory> candidates) {
-    if (candidates == null) {
-      return;
-    }
-    int reported = 0;
-    for (Memory memory : candidates) {
-      if (memory == null || memory.content() == null || memory.content().isBlank()) {
-        continue;
-      }
-      LocalDate anchor = MemoryTimes.anchor(memory);
-      for (String reference : residualReferences(memory.content())) {
-        if (reported >= MAX_RESIDUAL_FACTS) {
-          return;
-        }
-        int before = facts.size();
-        add(facts, seen, residualFact(reference, anchor));
-        if (facts.size() > before) {
-          reported++;
-        }
-      }
-    }
-  }
-
-  /** Every relative reference in one memory's text, in the order they appear. */
-  private static List<String> residualReferences(String content) {
-    List<String> references = new ArrayList<>();
-    collect(references, RelativeDates.PERIOD, content);
-    collect(references, RelativeDates.FUZZY, content);
-    collect(references, RESIDUAL_DAY, content);
-    collect(references, N_AGO, content);
-    collect(references, IN_N, content);
-    return references;
-  }
-
-  private static void collect(List<String> references, Pattern pattern, String content) {
-    Matcher matcher = pattern.matcher(content);
-    while (matcher.find()) {
-      references.add(matcher.group().trim());
-    }
-  }
-
-  /**
-   * A resolved fact when the memory records when its content was true, and an explicit
-   * leave-it-alone instruction when it does not.
-   */
-  private static TemporalFact residualFact(String reference, LocalDate anchor) {
-    String resolved = anchor == null ? null : resolveResidual(reference, anchor);
-    if (resolved == null) {
-      return new TemporalFact(
-        "\"" + reference + "\" in a memory has no recorded date to anchor it",
-        "leave it unresolved — do not infer a date");
-    }
-    return new TemporalFact(
-      "\"" + reference + "\" in the memory dated " + anchor + " resolves to", resolved);
-  }
-
-  /** The absolute date/period a reference names, or {@code null} when it has no calendar meaning. */
-  private static String resolveResidual(String reference, LocalDate anchor) {
-    Matcher period = RelativeDates.PERIOD.matcher(reference);
-    if (period.matches()) {
-      return RelativeDates.period(period.group(1), period.group(2), anchor);
-    }
-    Matcher day = RESIDUAL_DAY.matcher(reference);
-    if (day.matches()) {
-      return switch (day.group(1).toLowerCase(Locale.ROOT)) {
-        case "yesterday" -> anchor.minusDays(1).toString();
-        case "tomorrow" -> anchor.plusDays(1).toString();
-        default -> anchor.toString();
-      };
-    }
-    Matcher ago = N_AGO.matcher(reference);
-    if (ago.matches()) {
-      long n = parseLong(ago.group(1));
-      return n < 0 ? null : minus(anchor, n, ago.group(2)).toString();
-    }
-    Matcher in = IN_N.matcher(reference);
-    if (in.matches()) {
-      long n = parseLong(in.group(1));
-      return n < 0 ? null : plus(anchor, n, in.group(2)).toString();
-    }
-    return null; // fuzzy: seasons, "a while back" — no calendar definition to resolve to
-  }
-
-  // ---- helpers ----
-
-  private static void add(List<TemporalFact> facts, Set<String> seen, TemporalFact fact) {
-    if (seen.add(fact.render())) {
-      facts.add(fact);
-    }
-  }
-
-  private static List<LocalDate> parseIsoDates(String q) {
-    List<LocalDate> dates = new ArrayList<>();
-    Matcher m = ISO_DATE.matcher(q);
-    while (m.find()) {
-      LocalDate d = safeDate(m.group(0));
-      if (d != null) {
-        dates.add(d);
-      }
-    }
-    return dates;
-  }
-
-  private static LocalDate parseOccurredAt(String payload) {
-    return MemoryTimes.dateField(payload, MemoryTimes.OCCURRED_AT);
-  }
-
-  private static LocalDate safeDate(String value) {
-    try {
-      return LocalDate.parse(value);
-    } catch (DateTimeParseException e) {
-      return null;
-    }
-  }
-
-  private static long parseLong(String s) {
-    try {
-      return Long.parseLong(s);
-    } catch (NumberFormatException e) {
-      return -1;
-    }
-  }
-
-  private static LocalDate minus(LocalDate base, long n, String unit) {
-    return switch (unit.toLowerCase(Locale.ROOT)) {
-      case "week", "weeks" -> base.minusWeeks(n);
-      case "month", "months" -> base.minusMonths(n);
-      case "year", "years" -> base.minusYears(n);
-      default -> base.minusDays(n);
-    };
-  }
-
-  private static LocalDate plus(LocalDate base, long n, String unit) {
-    return switch (unit.toLowerCase(Locale.ROOT)) {
-      case "week", "weeks" -> base.plusWeeks(n);
-      case "month", "months" -> base.plusMonths(n);
-      case "year", "years" -> base.plusYears(n);
-      default -> base.plusDays(n);
-    };
-  }
-
-  /** Signed span from {@code date} to {@code today}: "N days ago", "in N days", or "today". */
-  private static String signedSpan(LocalDate date, LocalDate today) {
-    long days = ChronoUnit.DAYS.between(date, today);
-    if (days == 0) {
-      return "today";
-    }
-    if (days > 0) {
-      return plural(days) + " ago";
-    }
-    return "in " + plural(-days);
-  }
-
-  private static String plural(long days) {
-    return days == 1 ? "1 day" : days + " days";
-  }
-
-  private static boolean containsWord(String haystack, String word) {
-    return Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE)
-      .matcher(haystack).find();
   }
 }

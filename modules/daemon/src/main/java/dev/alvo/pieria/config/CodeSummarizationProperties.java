@@ -29,12 +29,16 @@ public record CodeSummarizationProperties(
   @DefaultValue("80") int maxFilesPerModulePrompt,
   @DefaultValue("40") int maxModulesInArchitecturePrompt) {
 
-  /** Whether per-file summaries are generated. */
+  /**
+   * Whether per-file summaries are generated.
+   */
   public boolean fileLevel() {
     return "file".equalsIgnoreCase(granularity);
   }
 
-  /** Whether per-module summaries are generated (implied by file level). */
+  /**
+   * Whether per-module summaries are generated (implied by file level).
+   */
   public boolean moduleLevel() {
     return fileLevel() || "module".equalsIgnoreCase(granularity);
   }

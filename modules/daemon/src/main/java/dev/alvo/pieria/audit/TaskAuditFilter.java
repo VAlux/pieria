@@ -18,7 +18,9 @@ import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Audits task cancellation under the task's owning profile; task polling remains intentionally quiet. */
+/**
+ * Audits task cancellation under the task's owning profile; task polling remains intentionally quiet.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 21)
 public class TaskAuditFilter extends OncePerRequestFilter {
@@ -32,6 +34,30 @@ public class TaskAuditFilter extends OncePerRequestFilter {
     this.tasks = tasks.getIfAvailable();
     AuditProperties configured = properties.getIfAvailable();
     this.maxBodyBytes = configured == null ? 1_048_576 : configured.maxBodyBytes();
+  }
+
+  private static String header(HttpServletRequest request, String name, String fallback) {
+    String value = nullable(request, name);
+    return value == null ? fallback : value;
+  }
+
+  private static String nullable(HttpServletRequest request, String name) {
+    String value = request.getHeader(name);
+    if (value == null || value.isBlank()) return null;
+    String normalized = value.strip().toLowerCase(Locale.ROOT);
+    return normalized.substring(0, Math.min(128, normalized.length()));
+  }
+
+  private static String limited(HttpServletRequest request, String name) {
+    String value = request.getHeader(name);
+    if (value == null || value.isBlank()) return null;
+    String stripped = value.strip();
+    return stripped.substring(0, Math.min(128, stripped.length()));
+  }
+
+  private static String requestId(String supplied) {
+    return supplied != null && supplied.length() <= 128 && supplied.matches("[A-Za-z0-9._:-]+")
+      ? supplied : UUID.randomUUID().toString();
   }
 
   @Override
@@ -79,29 +105,5 @@ public class TaskAuditFilter extends OncePerRequestFilter {
     } catch (IllegalArgumentException ignored) {
       return null;
     }
-  }
-
-  private static String header(HttpServletRequest request, String name, String fallback) {
-    String value = nullable(request, name);
-    return value == null ? fallback : value;
-  }
-
-  private static String nullable(HttpServletRequest request, String name) {
-    String value = request.getHeader(name);
-    if (value == null || value.isBlank()) return null;
-    String normalized = value.strip().toLowerCase(Locale.ROOT);
-    return normalized.substring(0, Math.min(128, normalized.length()));
-  }
-
-  private static String limited(HttpServletRequest request, String name) {
-    String value = request.getHeader(name);
-    if (value == null || value.isBlank()) return null;
-    String stripped = value.strip();
-    return stripped.substring(0, Math.min(128, stripped.length()));
-  }
-
-  private static String requestId(String supplied) {
-    return supplied != null && supplied.length() <= 128 && supplied.matches("[A-Za-z0-9._:-]+")
-      ? supplied : UUID.randomUUID().toString();
   }
 }

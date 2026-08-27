@@ -21,13 +21,17 @@ import java.util.concurrent.TimeoutException;
  */
 public final class ModelFailures {
 
-  /** Max length of the provider's echoed message, collapsed to a single line. */
+  /**
+   * Max length of the provider's echoed message, collapsed to a single line.
+   */
   private static final int MAX_DETAIL = 200;
 
   private ModelFailures() {
   }
 
-  /** A short sanitized reason for {@code t} (or its cause chain). */
+  /**
+   * A short sanitized reason for {@code t} (or its cause chain).
+   */
   public static String describe(Throwable t) {
     OpenAIServiceException http = find(t, OpenAIServiceException.class);
     if (http != null) {
@@ -74,7 +78,9 @@ public final class ModelFailures {
       || find(t, TimeoutException.class) != null;
   }
 
-  /** First throwable of {@code type} in the cause chain, or {@code null}. */
+  /**
+   * First throwable of {@code type} in the cause chain, or {@code null}.
+   */
   private static <T extends Throwable> T find(Throwable t, Class<T> type) {
     for (Throwable c = t; c != null && c != c.getCause(); c = c.getCause()) {
       if (type.isInstance(c)) {

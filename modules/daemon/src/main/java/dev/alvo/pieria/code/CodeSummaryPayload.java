@@ -33,7 +33,9 @@ public final class CodeSummaryPayload {
     return sb.toString();
   }
 
-  /** The {@code payload.hash} value, or empty when absent. */
+  /**
+   * The {@code payload.hash} value, or empty when absent.
+   */
   public static Optional<String> hash(String payload) {
     if (payload == null || payload.isEmpty()) {
       return Optional.empty();

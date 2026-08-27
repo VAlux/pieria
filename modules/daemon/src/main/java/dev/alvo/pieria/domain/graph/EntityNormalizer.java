@@ -15,37 +15,14 @@ import java.util.Map;
  */
 public final class EntityNormalizer {
 
-  private EntityNormalizer() {
-  }
-
-  /** A few high-frequency aliases collapsed to a canonical form. Extend deliberately. */
+  /**
+   * A few high-frequency aliases collapsed to a canonical form. Extend deliberately.
+   */
   private static final Map<String, String> NAME_ALIASES = Map.of(
     "postgres", "postgresql",
     "pg", "postgresql",
     "js", "javascript",
     "ts", "typescript");
-
-  /**
-   * Normalize an entity name: trim, collapse internal whitespace, lowercase, then apply the alias
-   * map. Returns {@code ""} for null/blank input (callers should drop empty names).
-   */
-  public static String normalizeName(String raw) {
-    String base = collapse(raw);
-    if (base.isEmpty()) {
-      return "";
-    }
-    return NAME_ALIASES.getOrDefault(base, base);
-  }
-
-  /**
-   * Normalize an entity type to a lowercase token. Falls back to {@code "concept"} when null/blank
-   * so every node has a stable type for id computation.
-   */
-  public static String normalizeType(String raw) {
-    String base = collapse(raw);
-    return base.isEmpty() ? "concept" : base;
-  }
-
   /**
    * Verb-form variants collapsed to the dominant stored form. The model returns the same relation in
    * both base and third-person form across calls, which splits one relation into two nodes' worth of
@@ -68,6 +45,30 @@ public final class EntityNormalizer {
     Map.entry("implement", "implements"),
     Map.entry("depend on", "depends on"),
     Map.entry("depends_on", "depends on"));
+
+  private EntityNormalizer() {
+  }
+
+  /**
+   * Normalize an entity name: trim, collapse internal whitespace, lowercase, then apply the alias
+   * map. Returns {@code ""} for null/blank input (callers should drop empty names).
+   */
+  public static String normalizeName(String raw) {
+    String base = collapse(raw);
+    if (base.isEmpty()) {
+      return "";
+    }
+    return NAME_ALIASES.getOrDefault(base, base);
+  }
+
+  /**
+   * Normalize an entity type to a lowercase token. Falls back to {@code "concept"} when null/blank
+   * so every node has a stable type for id computation.
+   */
+  public static String normalizeType(String raw) {
+    String base = collapse(raw);
+    return base.isEmpty() ? "concept" : base;
+  }
 
   /**
    * Normalize a relation label: trim, collapse whitespace, lowercase, then apply the alias map.

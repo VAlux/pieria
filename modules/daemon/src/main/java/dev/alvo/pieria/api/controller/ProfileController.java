@@ -10,9 +10,9 @@ import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
-import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend.TierSpend;
+import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.RecallResponse;
 import dev.alvo.pieria.api.response.RecallResponse.CodeEvidence;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
@@ -96,6 +96,76 @@ public class ProfileController {
     this.memoryResponseConverter = memoryResponseConverter;
     this.exportLineConverter = exportLineConverter;
     this.transcriptParsers = transcriptParsers;
+  }
+
+  /**
+   * Map inbound DTOs onto domain messages, stamping each with when it was spoken: the message's own
+   * {@code timestamp} if present, else the request's {@code occurredAt}, else {@code null} (the
+   * daemon's clock). This is what lets a replayed or back-filled transcript resolve its relative
+   * dates against the conversation rather than the ingest.
+   */
+  private static List<Message> toMessages(IngestRequest request) {
+    return request.messages().stream()
+      .map(m -> new Message(null, request.sessionId(), m.role(), m.content(),
+        m.timestamp() == null ? request.occurredAt() : m.timestamp()))
+      .toList();
+  }
+
+  /**
+   * Render fused recall candidates as a compact, injection-ready text block; empty string when none.
+   */
+  private static String renderContextBlock(String profile, List<RecallCandidate> candidates) {
+    if (candidates == null || candidates.isEmpty()) {
+      return "";
+    }
+    StringBuilder block = new StringBuilder()
+      .append("[pieria] Relevant prior context for profile \"").append(profile).append("\"\n")
+      .append("(recalled memories — verify against current code before relying on them):\n");
+    for (RecallCandidate candidate : candidates) {
+      Memory memory = candidate.memory();
+      block.append("- (").append(memory.type().wire()).append(") ")
+        .append(oneLine(memory.content(), 200)).append('\n');
+    }
+    return block.toString();
+  }
+
+  /**
+   * Collapse whitespace to single spaces and truncate to {@code max} chars with an ellipsis.
+   */
+  private static String oneLine(String text, int max) {
+    if (text == null) {
+      return "";
+    }
+    String collapsed = text.strip().replaceAll("\\s+", " ");
+    return collapsed.length() <= max ? collapsed : collapsed.substring(0, max - 1) + "…";
+  }
+
+  /**
+   * The code-graph evidence lines as DTOs, or {@code null} (omitted from JSON) when there are none.
+   */
+  private static List<CodeEvidence> codeEvidence(RecallResult result) {
+    if (result.graphEvidence().isEmpty()) {
+      return null;
+    }
+    return result.graphEvidence().stream()
+      .map(e -> new CodeEvidence(e.src(), e.srcPath(), e.relation(), e.dst(), e.dstPath(), e.confidence()))
+      .toList();
+  }
+
+  private static RecallDebug debugBlock(RecallResult result) {
+    List<Provenance> candidates = result.candidates().stream()
+      .map(candidate -> new Provenance(candidate.memory().id(), candidate.score(), candidate.source()))
+      .toList();
+
+    List<String> temporalFacts = result.temporalFacts().stream()
+      .map(TemporalFact::render)
+      .toList();
+
+    List<ChannelDiagnostic> channels = result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
+      .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
+      .toList();
+
+    return new RecallDebug(candidates, temporalFacts, channels);
   }
 
   /**
@@ -216,28 +286,12 @@ public class ProfileController {
     return new TaskSubmitResponse(taskId.toString());
   }
 
-  /**
-   * Map inbound DTOs onto domain messages, stamping each with when it was spoken: the message's own
-   * {@code timestamp} if present, else the request's {@code occurredAt}, else {@code null} (the
-   * daemon's clock). This is what lets a replayed or back-filled transcript resolve its relative
-   * dates against the conversation rather than the ingest.
-   */
-  private static List<Message> toMessages(IngestRequest request) {
-    return request.messages().stream()
-      .map(m -> new Message(null, request.sessionId(), m.role(), m.content(),
-        m.timestamp() == null ? request.occurredAt() : m.timestamp()))
-      .toList();
-  }
-
   private ParsedTranscript parseTranscript(String sessionId, String harness, String transcript) {
     String resolvedSessionId = (sessionId == null || sessionId.isBlank())
       ? "session-" + UUID.randomUUID()
       : sessionId;
     List<Message> messages = transcriptParsers.forHarness(harness).parse(transcript, resolvedSessionId);
     return new ParsedTranscript(resolvedSessionId, messages);
-  }
-
-  private record ParsedTranscript(String sessionId, List<Message> messages) {
   }
 
   @PostMapping("/memories")
@@ -279,63 +333,6 @@ public class ProfileController {
 
     String block = renderContextBlock(name, result.candidates());
     return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);
-  }
-
-  /**
-   * Render fused recall candidates as a compact, injection-ready text block; empty string when none.
-   */
-  private static String renderContextBlock(String profile, List<RecallCandidate> candidates) {
-    if (candidates == null || candidates.isEmpty()) {
-      return "";
-    }
-    StringBuilder block = new StringBuilder()
-      .append("[pieria] Relevant prior context for profile \"").append(profile).append("\"\n")
-      .append("(recalled memories — verify against current code before relying on them):\n");
-    for (RecallCandidate candidate : candidates) {
-      Memory memory = candidate.memory();
-      block.append("- (").append(memory.type().wire()).append(") ")
-        .append(oneLine(memory.content(), 200)).append('\n');
-    }
-    return block.toString();
-  }
-
-  /**
-   * Collapse whitespace to single spaces and truncate to {@code max} chars with an ellipsis.
-   */
-  private static String oneLine(String text, int max) {
-    if (text == null) {
-      return "";
-    }
-    String collapsed = text.strip().replaceAll("\\s+", " ");
-    return collapsed.length() <= max ? collapsed : collapsed.substring(0, max - 1) + "…";
-  }
-
-  /**
-   * The code-graph evidence lines as DTOs, or {@code null} (omitted from JSON) when there are none.
-   */
-  private static List<CodeEvidence> codeEvidence(RecallResult result) {
-    if (result.graphEvidence().isEmpty()) {
-      return null;
-    }
-    return result.graphEvidence().stream()
-      .map(e -> new CodeEvidence(e.src(), e.srcPath(), e.relation(), e.dst(), e.dstPath(), e.confidence()))
-      .toList();
-  }
-
-  private static RecallDebug debugBlock(RecallResult result) {
-    List<Provenance> candidates = result.candidates().stream()
-      .map(candidate -> new Provenance(candidate.memory().id(), candidate.score(), candidate.source()))
-      .toList();
-
-    List<String> temporalFacts = result.temporalFacts().stream()
-      .map(TemporalFact::render)
-      .toList();
-
-    List<ChannelDiagnostic> channels = result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
-      .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
-      .toList();
-
-    return new RecallDebug(candidates, temporalFacts, channels);
   }
 
   @GetMapping("/stats")
@@ -398,5 +395,8 @@ public class ProfileController {
     } catch (tools.jackson.core.JacksonException e) {
       throw new IllegalStateException("failed to serialize export row", e);
     }
+  }
+
+  private record ParsedTranscript(String sessionId, List<Message> messages) {
   }
 }

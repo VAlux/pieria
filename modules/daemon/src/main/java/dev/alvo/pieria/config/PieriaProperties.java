@@ -26,8 +26,7 @@ public record PieriaProperties(
    */
   public static final String NEAR_DUPLICATE_THRESHOLD_DEFAULT = "0.70";
 
-  public record Daemon(@DefaultValue("127.0.0.1") String host,
-                       @DefaultValue("8077") int port) {
+  public record Daemon(@DefaultValue("127.0.0.1") String host, @DefaultValue("8077") int port) {
   }
 
   /**
@@ -132,8 +131,8 @@ public record PieriaProperties(
         maxAttempts = Math.max(1, maxAttempts);
         initialBackoffMs = Math.max(0, initialBackoffMs);
         maxBackoffMs = Math.max(initialBackoffMs, maxBackoffMs);
-        multiplier = multiplier < 1.0 ? 1.0 : multiplier;
-        jitter = Math.min(1.0, Math.max(0.0, jitter));
+        multiplier = Math.max(multiplier, 1.0);
+        jitter = Math.clamp(jitter, 0.0, 1.0);
       }
     }
 
@@ -270,47 +269,47 @@ public record PieriaProperties(
    * degrades gracefully to FTS + keyed lookup. RRF {@code k} and the per-channel weights are
    * configurable; channel limit/timeout bound each parallel channel.
    *
-   * @param vectorEnabled          master switch for the two vector channels (off ⇒ FTS + keyed only)
-   * @param rrfK                   RRF rank constant {@code k} (default 60)
-   * @param weightExactKey         fusion weight for the exact topic-key channel (highest signal)
-   * @param weightFtsMemory        fusion weight for the memory FTS channel
-   * @param weightHydeVector       fusion weight for the HyDE vector channel
-   * @param weightDirectVector     fusion weight for the direct vector channel
-   * @param weightFtsMessage       fusion weight for the raw-message FTS safety-net channel (lowest)
-   * @param weightGraph            fusion weight for the graph channel (0 disables it); a primary-tier
-   *                               signal below exact-key, comparable to FTS/vector, tunable in eval
-   * @param graphDepth             graph neighborhood expansion depth in hops (second wave)
-   * @param graphFanout            max newly-discovered entities per hop during graph expansion
-   * @param graphSeedLimit         max seed entities taken from query entities and from wave-1 candidates
-   * @param channelLimit           max hits each channel returns before fusion
-   * @param channelTimeoutMs       per-channel timeout in milliseconds for the parallel fan-out
-   * @param weightSymbolFts        fusion weight for the code symbol-FTS channel (0 disables it)
-   * @param weightCodeGraph        fusion weight for the precise code-graph channel (0 disables it); a
-   *                               primary-tier signal comparable to {@code weightGraph}, tunable in eval
-   * @param codeGraphDepth         code-graph neighborhood expansion depth in hops (second wave)
-   * @param codeGraphFanout        max newly-discovered symbols per hop during code-graph expansion
-   * @param codeGraphSeedLimit     max seed symbols taken from query terms and wave-1 candidates
-   * @param codeGraphMinConfidence minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
-   * @param recallMode             default inference tier for recall (see {@link RecallMode}); a request may
-   *                               override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
-   * @param nearDuplicateThreshold shingle-Jaccard at or above which a lower-ranked result is dropped as
-   *                               a restatement of one already in the list, applied after fusion and
-   *                               before the limit so collapsed slots go to distinct memories.
-   *                               {@code 0} disables it. Deliberately lower than
-   *                               {@link Ingestion#nearDuplicateThreshold()}: dropping a redundant line
-   *                               from a ranked list is reversible where superseding a stored row is
-   *                               not, and this is also the only thing that helps profiles whose
-   *                               duplicates were written before ingest-time suppression existed.
+   * @param vectorEnabled              master switch for the two vector channels (off ⇒ FTS + keyed only)
+   * @param rrfK                       RRF rank constant {@code k} (default 60)
+   * @param weightExactKey             fusion weight for the exact topic-key channel (highest signal)
+   * @param weightFtsMemory            fusion weight for the memory FTS channel
+   * @param weightHydeVector           fusion weight for the HyDE vector channel
+   * @param weightDirectVector         fusion weight for the direct vector channel
+   * @param weightFtsMessage           fusion weight for the raw-message FTS safety-net channel (lowest)
+   * @param weightGraph                fusion weight for the graph channel (0 disables it); a primary-tier
+   *                                   signal below exact-key, comparable to FTS/vector, tunable in eval
+   * @param graphDepth                 graph neighborhood expansion depth in hops (second wave)
+   * @param graphFanout                max newly-discovered entities per hop during graph expansion
+   * @param graphSeedLimit             max seed entities taken from query entities and from wave-1 candidates
+   * @param channelLimit               max hits each channel returns before fusion
+   * @param channelTimeoutMs           per-channel timeout in milliseconds for the parallel fan-out
+   * @param weightSymbolFts            fusion weight for the code symbol-FTS channel (0 disables it)
+   * @param weightCodeGraph            fusion weight for the precise code-graph channel (0 disables it); a
+   *                                   primary-tier signal comparable to {@code weightGraph}, tunable in eval
+   * @param codeGraphDepth             code-graph neighborhood expansion depth in hops (second wave)
+   * @param codeGraphFanout            max newly-discovered symbols per hop during code-graph expansion
+   * @param codeGraphSeedLimit         max seed symbols taken from query terms and wave-1 candidates
+   * @param codeGraphMinConfidence     minimum edge confidence to traverse ({@code resolved}|{@code heuristic})
+   * @param recallMode                 default inference tier for recall (see {@link RecallMode}); a request may
+   *                                   override it per call. Defaults to {@code SYNTHESIZED} (full pipeline).
+   * @param nearDuplicateThreshold     shingle-Jaccard at or above which a lower-ranked result is dropped as
+   *                                   a restatement of one already in the list, applied after fusion and
+   *                                   before the limit so collapsed slots go to distinct memories.
+   *                                   {@code 0} disables it. Deliberately lower than
+   *                                   {@link Ingestion#nearDuplicateThreshold()}: dropping a redundant line
+   *                                   from a ranked list is reversible where superseding a stored row is
+   *                                   not, and this is also the only thing that helps profiles whose
+   *                                   duplicates were written before ingest-time suppression existed.
    * @param semanticDuplicateThreshold cosine similarity between stored embeddings at or above which a
-   *                               lower-ranked result is dropped, applied alongside
-   *                               {@code nearDuplicateThreshold} in the same pass — either measure
-   *                               firing is enough to collapse. Catches what shingles structurally
-   *                               cannot: one fact written twice in different words scores near zero
-   *                               on word trigrams (measured at 0.03-0.08 for three real
-   *                               restatements of this repository's module layout) while sitting at
-   *                               0.76-0.83 in embedding space. {@code 0} disables it. Candidates
-   *                               with no stored embedding (never vectorized, still queued, or
-   *                               {@code task} type) fall back to the lexical check alone.
+   *                                   lower-ranked result is dropped, applied alongside
+   *                                   {@code nearDuplicateThreshold} in the same pass — either measure
+   *                                   firing is enough to collapse. Catches what shingles structurally
+   *                                   cannot: one fact written twice in different words scores near zero
+   *                                   on word trigrams (measured at 0.03-0.08 for three real
+   *                                   restatements of this repository's module layout) while sitting at
+   *                                   0.76-0.83 in embedding space. {@code 0} disables it. Candidates
+   *                                   with no stored embedding (never vectorized, still queued, or
+   *                                   {@code task} type) fall back to the lexical check alone.
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,

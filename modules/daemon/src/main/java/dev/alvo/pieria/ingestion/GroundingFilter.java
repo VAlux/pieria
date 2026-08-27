@@ -73,7 +73,9 @@ public final class GroundingFilter {
     return (double) wordsFound / words >= MIN_WORD_OVERLAP;
   }
 
-  /** Tokens carrying concrete values: anything with a digit or a path separator. */
+  /**
+   * Tokens carrying concrete values: anything with a digit or a path separator.
+   */
   private static boolean isCritical(String token) {
     if (token.indexOf('/') >= 0) {
       return true;

@@ -15,7 +15,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- *  step 2/3: programmatically creates the {@code memories_vec} (sqlite-vec {@code vec0})
+ * step 2/3: programmatically creates the {@code memories_vec} (sqlite-vec {@code vec0})
  * virtual table at startup and backfills it from existing embedding BLOBs.
  *
  * <p>The table is created here, not in Flyway, because a {@code vec0} table requires the native

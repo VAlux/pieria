@@ -22,7 +22,9 @@ public record ProfileUsage(long recallCount,
 
   private static final ProfileUsage EMPTY = new ProfileUsage(0, 0, 0, 0, 0, 0);
 
-  /** The zero-usage record, returned when a profile has no {@code profile_usage} row yet. */
+  /**
+   * The zero-usage record, returned when a profile has no {@code profile_usage} row yet.
+   */
   public static ProfileUsage empty() {
     return EMPTY;
   }

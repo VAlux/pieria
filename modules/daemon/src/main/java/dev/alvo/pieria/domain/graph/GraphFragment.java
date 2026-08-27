@@ -18,26 +18,19 @@ import java.util.Map;
  */
 public record GraphFragment(List<Entity> entities, List<EdgeTriple> triples) {
 
-  /**
-   * A directed relationship between two entities, referenced by normalized name + type.
-   */
-  public record EdgeTriple(
-    String sourceName,
-    String sourceType,
-    String relation,
-    String targetName,
-    String targetType) {
-  }
+  private static final GraphFragment EMPTY = new GraphFragment(List.of(), List.of());
 
   public GraphFragment {
     entities = entities == null ? List.of() : List.copyOf(entities);
     triples = triples == null ? List.of() : List.copyOf(triples);
   }
 
-  private static final GraphFragment EMPTY = new GraphFragment(List.of(), List.of());
-
   public static GraphFragment empty() {
     return EMPTY;
+  }
+
+  private static String key(String type, String name) {
+    return (type == null ? "" : type) + "\u001f" + (name == null ? "" : name);
   }
 
   public boolean isEmpty() {
@@ -69,7 +62,14 @@ public record GraphFragment(List<Entity> entities, List<EdgeTriple> triples) {
     return new ArrayList<>(byKey.values());
   }
 
-  private static String key(String type, String name) {
-    return (type == null ? "" : type) + "\u001f" + (name == null ? "" : name);
+  /**
+   * A directed relationship between two entities, referenced by normalized name + type.
+   */
+  public record EdgeTriple(
+    String sourceName,
+    String sourceType,
+    String relation,
+    String targetName,
+    String targetType) {
   }
 }

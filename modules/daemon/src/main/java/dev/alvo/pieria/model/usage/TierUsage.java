@@ -10,7 +10,9 @@ package dev.alvo.pieria.model.usage;
  */
 public record TierUsage(long calls, long promptTokens, long completionTokens) {
 
-  /** Total tokens (prompt + completion); not stored, derived on demand. */
+  /**
+   * Total tokens (prompt + completion); not stored, derived on demand.
+   */
   public long totalTokens() {
     return promptTokens + completionTokens;
   }

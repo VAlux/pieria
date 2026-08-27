@@ -6,7 +6,9 @@ package dev.alvo.pieria.config;
  */
 public enum VerifyMode {
 
-  /** Every candidate goes to the model verifier (most model calls, strongest guard). */
+  /**
+   * Every candidate goes to the model verifier (most model calls, strongest guard).
+   */
   ALWAYS,
 
   /**
@@ -15,6 +17,8 @@ public enum VerifyMode {
    */
   GROUNDED,
 
-  /** No verification at all: trust extraction (cheapest; loses the hallucination guard). */
+  /**
+   * No verification at all: trust extraction (cheapest; loses the hallucination guard).
+   */
   NEVER
 }

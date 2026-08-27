@@ -21,7 +21,9 @@ public record GraphEvidence(
   String dstPath,
   String confidence) {
 
-  /** e.g. {@code "JGPT#main (app/src/main/java/dev/alvo/JGPT.java) calls Model#gpt (app/src/main/java/dev/alvo/model/Model.java) [resolved]"}. */
+  /**
+   * e.g. {@code "JGPT#main (app/src/main/java/dev/alvo/JGPT.java) calls Model#gpt (app/src/main/java/dev/alvo/model/Model.java) [resolved]"}.
+   */
   public String render() {
     String verb = relation == null ? "relates to" : relation.replace('-', ' ');
     String target = dstPath == null ? dst : dst + " (" + dstPath + ")";

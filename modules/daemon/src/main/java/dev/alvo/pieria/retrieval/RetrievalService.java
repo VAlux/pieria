@@ -7,16 +7,11 @@ import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
-import dev.alvo.pieria.retrieval.model.GraphEvidence;
-import dev.alvo.pieria.retrieval.model.QueryAnalysis;
-import dev.alvo.pieria.retrieval.model.RecallCandidate;
-import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
-import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
-import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.ChannelDiagnostics;
+import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
 import dev.alvo.pieria.retrieval.channel.DirectVectorChannel;
 import dev.alvo.pieria.retrieval.channel.ExactKeyChannel;
 import dev.alvo.pieria.retrieval.channel.GraphChannel;
@@ -24,7 +19,12 @@ import dev.alvo.pieria.retrieval.channel.HydeVectorChannel;
 import dev.alvo.pieria.retrieval.channel.MemoryFtsChannel;
 import dev.alvo.pieria.retrieval.channel.MessageFtsChannel;
 import dev.alvo.pieria.retrieval.channel.SymbolFtsChannel;
-import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.TextSimilarity;
@@ -86,18 +86,44 @@ public class RetrievalService {
     this.configResolver = configResolver;
   }
 
+  private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
+    Map<RetrievalChannelType, Double> weights = new EnumMap<>(RetrievalChannelType.class);
+
+    weights.put(RetrievalChannelType.EXACT_KEY, config.weightExactKey());
+    weights.put(RetrievalChannelType.FTS_MEMORY, config.weightFtsMemory());
+    weights.put(RetrievalChannelType.HYDE_VECTOR, config.weightHydeVector());
+    weights.put(RetrievalChannelType.DIRECT_VECTOR, config.weightDirectVector());
+    weights.put(RetrievalChannelType.FTS_MESSAGE, config.weightFtsMessage());
+    weights.put(RetrievalChannelType.GRAPH, config.weightGraph());
+    weights.put(RetrievalChannelType.SYMBOL_FTS, config.weightSymbolFts());
+    weights.put(RetrievalChannelType.CODE_GRAPH, config.weightCodeGraph());
+
+    return weights;
+  }
+
   /**
-   * The retrieval machinery for one recall, built from the profile's effective config. Channels
-   * are cheap stateless wrappers over the stores, so per-recall construction lets each profile
-   * tune weights, waves, and limits independently.
+   * Whether {@code memory} was derived by the code indexer (vs. a conversational memory), keyed off
+   * the stable {@link CodeIndexingService#CODE_SESSION} session id every code-index memory carries.
+   * Such memories are valuable for the code-graph channels but noise for prompt-context injection.
    */
-  private record Pipeline(ReciprocalRankFusion fusion,
-                          List<RetrievalChannel> channels,
-                          List<RetrievalChannel> secondWaveChannels,
-                          int channelLimit,
-                          long channelTimeoutMs,
-                          double nearDuplicateThreshold,
-                          double semanticDuplicateThreshold) {
+  private static boolean isCodeDerived(Memory memory) {
+    return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
+  }
+
+  private static int embeddingDimensions(float[] embedding) {
+    return embedding == null ? 0 : embedding.length;
+  }
+
+  private static List<RetrievalChannelType> channelTypes(List<RetrievalChannel> channels) {
+    return channels.stream().map(RetrievalChannel::type).toList();
+  }
+
+  private static Map<String, Long> sourceCounts(List<RecallCandidate> candidates) {
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (RecallCandidate candidate : candidates) {
+      counts.merge(candidate.source(), 1L, Long::sum);
+    }
+    return counts;
   }
 
   private Pipeline buildPipeline(Retrieval cfg) {
@@ -129,21 +155,6 @@ public class RetrievalService {
     return new Pipeline(fusion, List.copyOf(wave1), List.copyOf(wave2),
       cfg.channelLimit(), cfg.channelTimeoutMs(), cfg.nearDuplicateThreshold(),
       cfg.semanticDuplicateThreshold());
-  }
-
-  private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
-    Map<RetrievalChannelType, Double> weights = new EnumMap<>(RetrievalChannelType.class);
-
-    weights.put(RetrievalChannelType.EXACT_KEY, config.weightExactKey());
-    weights.put(RetrievalChannelType.FTS_MEMORY, config.weightFtsMemory());
-    weights.put(RetrievalChannelType.HYDE_VECTOR, config.weightHydeVector());
-    weights.put(RetrievalChannelType.DIRECT_VECTOR, config.weightDirectVector());
-    weights.put(RetrievalChannelType.FTS_MESSAGE, config.weightFtsMessage());
-    weights.put(RetrievalChannelType.GRAPH, config.weightGraph());
-    weights.put(RetrievalChannelType.SYMBOL_FTS, config.weightSymbolFts());
-    weights.put(RetrievalChannelType.CODE_GRAPH, config.weightCodeGraph());
-
-    return weights;
   }
 
   /**
@@ -217,60 +228,60 @@ public class RetrievalService {
     InferenceUsageSink.Binding usageBinding = InferenceUsageSink.bind(inferenceUsage);
     try {
 
-    // Tiers below ANALYZED force the deterministic analyzer (no analyzeQuery model call); the HyDE
-    // channel then drops out on its own since deterministic analysis produces no hyde statement.
-    Timed<QueryAnalysis> analysis = Timed.measure(
-      () -> mode.usesModelAnalysis() ? analyze(query) : fallbackAnalyzer.analyze(query));
-    LOGGER.debug("recall analysis profile={} topicKeys={} ftsTerms={} entities={} hasHyde={} analysisMs={}",
-      profileName, analysis.value().topicKeys().size(), analysis.value().ftsTerms().size(),
-      analysis.value().entities().size(), analysis.value().hydeStatement() != null, analysis.millis());
+      // Tiers below ANALYZED force the deterministic analyzer (no analyzeQuery model call); the HyDE
+      // channel then drops out on its own since deterministic analysis produces no hyde statement.
+      Timed<QueryAnalysis> analysis = Timed.measure(
+        () -> mode.usesModelAnalysis() ? analyze(query) : fallbackAnalyzer.analyze(query));
+      LOGGER.debug("recall analysis profile={} topicKeys={} ftsTerms={} entities={} hasHyde={} analysisMs={}",
+        profileName, analysis.value().topicKeys().size(), analysis.value().ftsTerms().size(),
+        analysis.value().entities().size(), analysis.value().hydeStatement() != null, analysis.millis());
 
-    Timed<Embeddings> embeddings = Timed.measure(() -> embed(query, analysis.value()));
-    LOGGER.debug("recall embeddings profile={} queryEmbedding={} hydeEmbedding={} embeddingMs={}",
-      profileName, embeddingDimensions(embeddings.value().query()), embeddingDimensions(embeddings.value().hyde()),
-      embeddings.millis());
+      Timed<Embeddings> embeddings = Timed.measure(() -> embed(query, analysis.value()));
+      LOGGER.debug("recall embeddings profile={} queryEmbedding={} hydeEmbedding={} embeddingMs={}",
+        profileName, embeddingDimensions(embeddings.value().query()), embeddingDimensions(embeddings.value().hyde()),
+        embeddings.millis());
 
-    RetrievalContext context = new RetrievalContext(
-      profile.id(), query, analysis.value(),
-      embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit());
+      RetrievalContext context = new RetrievalContext(
+        profile.id(), query, analysis.value(),
+        embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit());
 
-    List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
-    List<GraphEvidence> graphEvidence = new ArrayList<>();
-    Timed<List<RetrievalCandidate>> hits =
-      Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics, graphEvidence));
-    // Injection path drops code-indexer-derived memories (one-line symbol summaries the agent can grep
-    // for itself) so the limited slots go to the decisions/conventions it can't cheaply re-derive.
-    // Filtered before fusion so the limit still yields that many real hits.
-    Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
-      List<RetrievalCandidate> forFusion = excludeCodeDerived
-        ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
-        : hits.value();
-      return fuse(pipeline, forFusion, limit, profile.id());
-    });
-    LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
-      profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
+      List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
+      List<GraphEvidence> graphEvidence = new ArrayList<>();
+      Timed<List<RetrievalCandidate>> hits =
+        Timed.measure(() -> runWaves(pipeline, context, channelDiagnostics, graphEvidence));
+      // Injection path drops code-indexer-derived memories (one-line symbol summaries the agent can grep
+      // for itself) so the limited slots go to the decisions/conventions it can't cheaply re-derive.
+      // Filtered before fusion so the limit still yields that many real hits.
+      Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
+        List<RetrievalCandidate> forFusion = excludeCodeDerived
+          ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
+          : hits.value();
+        return fuse(pipeline, forFusion, limit, profile.id());
+      });
+      LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
+        profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
 
-    // Non-synthesizing tiers skip temporal facts + synthesis entirely: the answer is null and callers
-    // (e.g. the injection hooks) consume the raw memories directly.
-    Timed<List<TemporalFact>> temporal = Timed.measure(
-      () -> mode.synthesizes() ? extractTemporalFacts(query, fused.value()) : List.<TemporalFact>of());
-    LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
-      profileName, temporal.value().size(), temporal.millis());
+      // Non-synthesizing tiers skip temporal facts + synthesis entirely: the answer is null and callers
+      // (e.g. the injection hooks) consume the raw memories directly.
+      Timed<List<TemporalFact>> temporal = Timed.measure(
+        () -> mode.synthesizes() ? extractTemporalFacts(query, fused.value()) : List.<TemporalFact>of());
+      LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
+        profileName, temporal.value().size(), temporal.millis());
 
-    List<GraphEvidence> evidence = graphEvidence.stream().distinct().toList();
-    Timed<String> answer = Timed.measure(
-      () -> mode.synthesizes() ? synthesize(query, fused.value(), temporal.value(), evidence) : null);
-    LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
-      profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
+      List<GraphEvidence> evidence = graphEvidence.stream().distinct().toList();
+      Timed<String> answer = Timed.measure(
+        () -> mode.synthesizes() ? synthesize(query, fused.value(), temporal.value(), evidence) : null);
+      LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
+        profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
-    recordUsage(profile.id(), fused.value(), answer.value());
+      recordUsage(profile.id(), fused.value(), answer.value());
 
-    RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
-    LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
-      profileName, hits.value().size(), fused.value().size(),
-      analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
-      temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
-    return new RecallResult(answer.value(), fused.value(), temporal.value(), evidence, diagnostics);
+      RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
+      LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
+        profileName, hits.value().size(), fused.value().size(),
+        analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
+        temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
+      return new RecallResult(answer.value(), fused.value(), temporal.value(), evidence, diagnostics);
 
     } finally {
       usageBinding.close();
@@ -316,10 +327,8 @@ public class RetrievalService {
   }
 
   /**
-   * Embeddings for the vector channels: the raw query and the HyDE statement (either may be null).
+   * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
    */
-  private record Embeddings(float[] query, float[] hyde) {
-  }
 
   /**
    * Embed stage: embed the raw query and, when present, the HyDE statement. Best-effort — a null
@@ -359,18 +368,6 @@ public class RetrievalService {
       LOGGER.debug("recall wave=2 completed hits={} totalHits={}", secondWaveHits.size(), hits.size());
     }
     return hits;
-  }
-
-  /**
-   * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
-   */
-  /**
-   * Whether {@code memory} was derived by the code indexer (vs. a conversational memory), keyed off
-   * the stable {@link CodeIndexingService#CODE_SESSION} session id every code-index memory carries.
-   * Such memories are valuable for the code-graph channels but noise for prompt-context injection.
-   */
-  private static boolean isCodeDerived(Memory memory) {
-    return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
   }
 
   private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit,
@@ -427,7 +424,7 @@ public class RetrievalService {
       for (int i = 0; i < kept.size() && !duplicate; i++) {
         duplicate = (threshold > 0.0 && TextSimilarity.jaccard(shingles, keptShingles.get(i)) >= threshold)
           || (semanticThreshold > 0.0 && vector != null && keptVectors.get(i) != null
-              && Vectors.cosine(vector, keptVectors.get(i)) >= semanticThreshold);
+          && Vectors.cosine(vector, keptVectors.get(i)) >= semanticThreshold);
       }
       if (!duplicate) {
         kept.add(candidate);
@@ -574,19 +571,23 @@ public class RetrievalService {
     diags.add(new ChannelDiagnostics(channel.type(), channelTimeoutMs, 0, true));
   }
 
-  private static int embeddingDimensions(float[] embedding) {
-    return embedding == null ? 0 : embedding.length;
+  /**
+   * The retrieval machinery for one recall, built from the profile's effective config. Channels
+   * are cheap stateless wrappers over the stores, so per-recall construction lets each profile
+   * tune weights, waves, and limits independently.
+   */
+  private record Pipeline(ReciprocalRankFusion fusion,
+                          List<RetrievalChannel> channels,
+                          List<RetrievalChannel> secondWaveChannels,
+                          int channelLimit,
+                          long channelTimeoutMs,
+                          double nearDuplicateThreshold,
+                          double semanticDuplicateThreshold) {
   }
 
-  private static List<RetrievalChannelType> channelTypes(List<RetrievalChannel> channels) {
-    return channels.stream().map(RetrievalChannel::type).toList();
-  }
-
-  private static Map<String, Long> sourceCounts(List<RecallCandidate> candidates) {
-    Map<String, Long> counts = new LinkedHashMap<>();
-    for (RecallCandidate candidate : candidates) {
-      counts.merge(candidate.source(), 1L, Long::sum);
-    }
-    return counts;
+  /**
+   * Embeddings for the vector channels: the raw query and the HyDE statement (either may be null).
+   */
+  private record Embeddings(float[] query, float[] hyde) {
   }
 }

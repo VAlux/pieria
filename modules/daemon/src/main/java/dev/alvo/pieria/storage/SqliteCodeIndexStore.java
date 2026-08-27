@@ -36,7 +36,9 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     "id, profile_id, file_id, kind, name, qualified_name, signature, visibility, "
       + "start_line, end_line, language, parent_symbol_id, path";
 
-  /** Identifier-ish tokens for FTS; anything else is dropped so user text can't break FTS5 syntax. */
+  /**
+   * Identifier-ish tokens for FTS; anything else is dropped so user text can't break FTS5 syntax.
+   */
   private static final Pattern FTS_TOKEN = Pattern.compile("[\\p{Alnum}_]+");
 
   private final JdbcClient jdbc;
@@ -49,7 +51,9 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     return mapSymbol(rs, "");
   }
 
-  /** Map a symbol whose columns were selected under {@code prefix}-ed aliases (e.g. {@code s_id}). */
+  /**
+   * Map a symbol whose columns were selected under {@code prefix}-ed aliases (e.g. {@code s_id}).
+   */
   private static CodeSymbol mapSymbol(ResultSet rs, String prefix) throws SQLException {
     return new CodeSymbol(
       rs.getString(prefix + "id"),
@@ -67,7 +71,9 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
       rs.getString(prefix + "path"));
   }
 
-  /** Build a safe FTS5 MATCH string: identifier tokens, each quoted, OR-joined. Empty ⇒ no match. */
+  /**
+   * Build a safe FTS5 MATCH string: identifier tokens, each quoted, OR-joined. Empty ⇒ no match.
+   */
   private static String toFtsMatch(String raw) {
     if (raw == null || raw.isBlank()) {
       return "";
@@ -82,6 +88,68 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
 
   private static String placeholders(int n) {
     return String.join(", ", java.util.Collections.nCopies(n, "?"));
+  }
+
+  private static CodeSymbol withFile(CodeSymbol s, String fileId, String path) {
+    return new CodeSymbol(s.id(), s.profileId(), s.fileId() == null ? fileId : s.fileId(), s.kind(),
+      s.name(), s.qualifiedName(), s.signature(), s.visibility(), s.startLine(), s.endLine(),
+      s.language(), s.parentSymbolId(), s.path() == null ? path : s.path());
+  }
+
+  private static CodeEdge withFile(CodeEdge e, String fileId) {
+    return new CodeEdge(e.id(), e.profileId(), e.srcSymbolId(), e.relation(), e.confidence(),
+      e.dstSymbolId(), e.dstRef(), e.fileId() == null ? fileId : e.fileId());
+  }
+
+  private static EdgeEvidence mapEdgeEvidence(ResultSet rs) throws SQLException {
+    CodeEdge edge = new CodeEdge(
+      rs.getString("e_id"),
+      rs.getString("e_profile_id"),
+      rs.getString("e_src_symbol_id"),
+      CodeRelation.fromWire(rs.getString("e_relation")),
+      EdgeConfidence.fromWire(rs.getString("e_confidence")),
+      rs.getString("e_dst_symbol_id"),
+      rs.getString("e_dst_ref"),
+      rs.getString("e_file_id"));
+    CodeSymbol src = mapSymbol(rs, "s_");
+    CodeSymbol dst = rs.getString("d_id") == null ? null : mapSymbol(rs, "d_");
+    return new EdgeEvidence(edge, src, dst);
+  }
+
+  /**
+   * Symbol columns of {@code alias} selected under {@code alias_}-prefixed names.
+   */
+  private static String prefixed(String alias) {
+    StringBuilder sb = new StringBuilder();
+    for (String col : SYMBOL_COLUMNS.split(", ")) {
+      if (!sb.isEmpty()) {
+        sb.append(", ");
+      }
+      sb.append(alias).append('.').append(col).append(" AS ").append(alias).append('_').append(col);
+    }
+    return sb.toString();
+  }
+
+  private static List<String> allowedConfidences(EdgeConfidence minConfidence) {
+    EdgeConfidence min = minConfidence == null ? EdgeConfidence.HEURISTIC : minConfidence;
+    List<String> allowed = new ArrayList<>();
+    for (EdgeConfidence c : EdgeConfidence.values()) {
+      if (c.rank() >= min.rank()) {
+        allowed.add(c.wire());
+      }
+    }
+    return allowed;
+  }
+
+  private static String qualified(String alias) {
+    StringBuilder sb = new StringBuilder();
+    for (String col : SYMBOL_COLUMNS.split(", ")) {
+      if (!sb.isEmpty()) {
+        sb.append(", ");
+      }
+      sb.append(alias).append('.').append(col);
+    }
+    return sb.toString();
   }
 
   @Override
@@ -122,7 +190,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     String id = symbol.id() != null
       ? symbol.id()
       : ContentId.forCodeSymbol(profileId, symbol.fileId(), symbol.kind().wire(),
-          symbol.qualifiedName(), symbol.signature());
+      symbol.qualifiedName(), symbol.signature());
     jdbc.sql("""
         INSERT OR IGNORE INTO code_symbols \
           (id, profile_id, file_id, kind, name, qualified_name, signature, visibility, \
@@ -143,7 +211,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     String id = edge.id() != null
       ? edge.id()
       : ContentId.forCodeEdge(profileId, edge.srcSymbolId(), edge.relation().wire(),
-          edge.dstRef(), edge.confidence().wire());
+      edge.dstRef(), edge.confidence().wire());
     jdbc.sql("""
         INSERT OR IGNORE INTO code_edges \
           (id, profile_id, src_symbol_id, relation, confidence, dst_symbol_id, dst_ref, file_id) \
@@ -197,17 +265,6 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     for (CodeEdge e : edges == null ? List.<CodeEdge>of() : edges) {
       upsertCodeEdge(profileId, withFile(e, fileId));
     }
-  }
-
-  private static CodeSymbol withFile(CodeSymbol s, String fileId, String path) {
-    return new CodeSymbol(s.id(), s.profileId(), s.fileId() == null ? fileId : s.fileId(), s.kind(),
-      s.name(), s.qualifiedName(), s.signature(), s.visibility(), s.startLine(), s.endLine(),
-      s.language(), s.parentSymbolId(), s.path() == null ? path : s.path());
-  }
-
-  private static CodeEdge withFile(CodeEdge e, String fileId) {
-    return new CodeEdge(e.id(), e.profileId(), e.srcSymbolId(), e.relation(), e.confidence(),
-      e.dstSymbolId(), e.dstRef(), e.fileId() == null ? fileId : e.fileId());
   }
 
   @Override
@@ -305,7 +362,9 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     return List.copyOf(visited);
   }
 
-  /** One hop over resolvable code edges (both directions), bounded by fanout, deterministic order. */
+  /**
+   * One hop over resolvable code edges (both directions), bounded by fanout, deterministic order.
+   */
   private List<String> neighbors(String profileId, List<String> frontier, int fanout, List<String> allowed) {
     if (frontier.isEmpty() || fanout <= 0 || allowed.isEmpty()) {
       return List.of();
@@ -375,44 +434,6 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
       .list();
   }
 
-  private static EdgeEvidence mapEdgeEvidence(ResultSet rs) throws SQLException {
-    CodeEdge edge = new CodeEdge(
-      rs.getString("e_id"),
-      rs.getString("e_profile_id"),
-      rs.getString("e_src_symbol_id"),
-      CodeRelation.fromWire(rs.getString("e_relation")),
-      EdgeConfidence.fromWire(rs.getString("e_confidence")),
-      rs.getString("e_dst_symbol_id"),
-      rs.getString("e_dst_ref"),
-      rs.getString("e_file_id"));
-    CodeSymbol src = mapSymbol(rs, "s_");
-    CodeSymbol dst = rs.getString("d_id") == null ? null : mapSymbol(rs, "d_");
-    return new EdgeEvidence(edge, src, dst);
-  }
-
-  /** Symbol columns of {@code alias} selected under {@code alias_}-prefixed names. */
-  private static String prefixed(String alias) {
-    StringBuilder sb = new StringBuilder();
-    for (String col : SYMBOL_COLUMNS.split(", ")) {
-      if (!sb.isEmpty()) {
-        sb.append(", ");
-      }
-      sb.append(alias).append('.').append(col).append(" AS ").append(alias).append('_').append(col);
-    }
-    return sb.toString();
-  }
-
-  private static List<String> allowedConfidences(EdgeConfidence minConfidence) {
-    EdgeConfidence min = minConfidence == null ? EdgeConfidence.HEURISTIC : minConfidence;
-    List<String> allowed = new ArrayList<>();
-    for (EdgeConfidence c : EdgeConfidence.values()) {
-      if (c.rank() >= min.rank()) {
-        allowed.add(c.wire());
-      }
-    }
-    return allowed;
-  }
-
   @Override
   public boolean isCodeIndexPresent(String profileId) {
     Long n = jdbc.sql("SELECT COUNT(*) FROM code_files WHERE profile_id = ?")
@@ -438,16 +459,5 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
   private long count(String sql, String profileId) {
     Long n = jdbc.sql(sql).param(profileId).query(Long.class).single();
     return n == null ? 0 : n;
-  }
-
-  private static String qualified(String alias) {
-    StringBuilder sb = new StringBuilder();
-    for (String col : SYMBOL_COLUMNS.split(", ")) {
-      if (!sb.isEmpty()) {
-        sb.append(", ");
-      }
-      sb.append(alias).append('.').append(col);
-    }
-    return sb.toString();
   }
 }

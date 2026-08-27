@@ -43,28 +43,34 @@ public class TreeSitterEngine implements AutoCloseable {
   private static final Logger log = LoggerFactory.getLogger(TreeSitterEngine.class);
 
   private static final int MAX_PARSER_THREADS = 4;
-
-  private record LoadedLanguage(Language language, Query query) {
-  }
-
   private final TreeSitterLibraryResolver resolver;
   private final TreeSitterProperties properties;
   private final Map<String, LoadedLanguage> languages = new HashMap<>();
   private final List<Parser> parsers = new ArrayList<>();
-
   private Arena languageArena;
   private BlockingQueue<Parser> parserPool;
   private ExecutorService executor;
   private volatile boolean closing;
-
   public TreeSitterEngine(TreeSitterLibraryResolver resolver, TreeSitterProperties properties) {
     this.resolver = resolver;
     this.properties = properties;
   }
 
-  @FunctionalInterface
-  public interface ParseHandler<R> {
-    R handle(Node root, Query tags, String source);
+  private static String loadResource(String path) {
+    try (InputStream in = TreeSitterEngine.class.getClassLoader().getResourceAsStream(path)) {
+      if (in == null) throw new IllegalStateException("missing classpath resource: " + path);
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    } catch (Exception e) {
+      throw new IllegalStateException("could not read " + path, e);
+    }
+  }
+
+  private static void closeQuery(Query query) {
+    try {
+      query.close();
+    } catch (RuntimeException ignored) {
+      // best effort during shutdown or partial pack initialization
+    }
   }
 
   @PostConstruct
@@ -169,15 +175,6 @@ public class TreeSitterEngine implements AutoCloseable {
     }
   }
 
-  private static String loadResource(String path) {
-    try (InputStream in = TreeSitterEngine.class.getClassLoader().getResourceAsStream(path)) {
-      if (in == null) throw new IllegalStateException("missing classpath resource: " + path);
-      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-    } catch (Exception e) {
-      throw new IllegalStateException("could not read " + path, e);
-    }
-  }
-
   @PreDestroy
   @Override
   public void close() {
@@ -219,11 +216,11 @@ public class TreeSitterEngine implements AutoCloseable {
     }
   }
 
-  private static void closeQuery(Query query) {
-    try {
-      query.close();
-    } catch (RuntimeException ignored) {
-      // best effort during shutdown or partial pack initialization
-    }
+  @FunctionalInterface
+  public interface ParseHandler<R> {
+    R handle(Node root, Query tags, String source);
+  }
+
+  private record LoadedLanguage(Language language, Query query) {
   }
 }

@@ -11,7 +11,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-/** Request wrapper that tees consumed bytes into a bounded audit capture. */
+/**
+ * Request wrapper that tees consumed bytes into a bounded audit capture.
+ */
 final class AuditRequestWrapper extends HttpServletRequestWrapper {
   private final BoundedCapture capture;
   private ServletInputStream stream;
@@ -30,15 +32,30 @@ final class AuditRequestWrapper extends HttpServletRequestWrapper {
     if (stream == null) {
       ServletInputStream delegate = super.getInputStream();
       stream = new ServletInputStream() {
-        @Override public boolean isFinished() { return delegate.isFinished(); }
-        @Override public boolean isReady() { return delegate.isReady(); }
-        @Override public void setReadListener(ReadListener listener) { delegate.setReadListener(listener); }
-        @Override public int read() throws IOException {
+        @Override
+        public boolean isFinished() {
+          return delegate.isFinished();
+        }
+
+        @Override
+        public boolean isReady() {
+          return delegate.isReady();
+        }
+
+        @Override
+        public void setReadListener(ReadListener listener) {
+          delegate.setReadListener(listener);
+        }
+
+        @Override
+        public int read() throws IOException {
           int value = delegate.read();
           if (value >= 0) capture.accept(value);
           return value;
         }
-        @Override public int read(byte[] bytes, int offset, int length) throws IOException {
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
           int read = delegate.read(bytes, offset, length);
           if (read > 0) capture.accept(bytes, offset, read);
           return read;
@@ -60,19 +77,34 @@ final class AuditRequestWrapper extends HttpServletRequestWrapper {
     Charset charset = encoding == null ? StandardCharsets.UTF_8 : Charset.forName(encoding);
     ServletInputStream delegate = super.getInputStream();
     stream = new ServletInputStream() {
-        @Override public boolean isFinished() { return delegate.isFinished(); }
-        @Override public boolean isReady() { return delegate.isReady(); }
-        @Override public void setReadListener(ReadListener listener) { delegate.setReadListener(listener); }
-        @Override public int read() throws IOException {
-          int value = delegate.read();
-          if (value >= 0) capture.accept(value);
-          return value;
-        }
-        @Override public int read(byte[] bytes, int offset, int length) throws IOException {
-          int read = delegate.read(bytes, offset, length);
-          if (read > 0) capture.accept(bytes, offset, read);
-          return read;
-        }
+      @Override
+      public boolean isFinished() {
+        return delegate.isFinished();
+      }
+
+      @Override
+      public boolean isReady() {
+        return delegate.isReady();
+      }
+
+      @Override
+      public void setReadListener(ReadListener listener) {
+        delegate.setReadListener(listener);
+      }
+
+      @Override
+      public int read() throws IOException {
+        int value = delegate.read();
+        if (value >= 0) capture.accept(value);
+        return value;
+      }
+
+      @Override
+      public int read(byte[] bytes, int offset, int length) throws IOException {
+        int read = delegate.read(bytes, offset, length);
+        if (read > 0) capture.accept(bytes, offset, read);
+        return read;
+      }
     };
     reader = new BufferedReader(new InputStreamReader(stream, charset));
     return reader;

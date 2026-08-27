@@ -28,6 +28,11 @@ public class OllamaModelProviderAdapter implements ModelProviderAdapter {
 
   private final ObjectMapper objectMapper = new ObjectMapper();
 
+  private static String baseUrl(PieriaProperties.Provider provider) {
+    String base = provider.baseUrl() == null ? "" : provider.baseUrl().strip().replaceAll("/+$", "");
+    return base.isEmpty() || base.endsWith("/v1") ? base : base + "/v1";
+  }
+
   @Override
   public OpenAIClient buildSyncClient(PieriaProperties.Provider provider) {
     return OpenAIOkHttpClient.builder()
@@ -42,11 +47,6 @@ public class OllamaModelProviderAdapter implements ModelProviderAdapter {
       .baseUrl(baseUrl(provider))
       .credential(BearerTokenCredential.create(provider.apiKey()))
       .build();
-  }
-
-  private static String baseUrl(PieriaProperties.Provider provider) {
-    String base = provider.baseUrl() == null ? "" : provider.baseUrl().strip().replaceAll("/+$", "");
-    return base.isEmpty() || base.endsWith("/v1") ? base : base + "/v1";
   }
 
   @Override

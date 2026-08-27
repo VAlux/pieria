@@ -15,124 +15,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Shared deterministic extractor for JavaScript, TypeScript, and TSX. */
+/**
+ * Shared deterministic extractor for JavaScript, TypeScript, and TSX.
+ */
 final class JavaScriptCodeExtractor implements LanguagePack.Extractor {
 
   private final boolean typed;
 
   JavaScriptCodeExtractor(boolean typed) {
     this.typed = typed;
-  }
-
-  private record Definition(Node node, Node name, CodeSymbolKind kind) {
-  }
-
-  @Override
-  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
-    try (QueryCursor cursor = new QueryCursor(query)) {
-      return extractMatches(input, root, cursor.findMatches(root).toList());
-    }
-  }
-
-  private CodeParser.ParseResult extractMatches(CodeParser.ParseInput input, Node root,
-                                                List<QueryMatch> matches) {
-    String module = ExtractionSupport.fileModule(input.repoRelPath());
-    Map<String, Definition> definitionsByNode = new HashMap<>();
-    matches.stream().map(this::definition).flatMap(Optional::stream)
-      .forEach(definition -> definitionsByNode.merge(nodeKey(definition.node()), definition,
-        (left, right) -> callable(right.kind()) ? right : left));
-    List<Definition> definitions = definitionsByNode.values().stream()
-      .sorted(Comparator.comparingInt((Definition d) -> d.node().getStartByte())
-        .thenComparing(Comparator.comparingInt((Definition d) -> d.node().getEndByte()).reversed()))
-      .toList();
-
-    List<CodeParser.ParsedSymbol> symbols = new ArrayList<>();
-    symbols.add(new CodeParser.ParsedSymbol(CodeSymbolKind.MODULE, moduleName(module), module,
-      input.repoRelPath(), "module", 1, Math.max(1, root.getEndPoint().row() + 1), null));
-
-    Map<String, CodeParser.ParsedSymbol> symbolsByNode = new HashMap<>();
-    Map<String, Integer> qualifiedNameOccurrences = new HashMap<>();
-    for (Definition definition : definitions) {
-      String name = definition.name().getText();
-      if (name == null || name.isBlank()) continue;
-      CodeParser.ParsedSymbol parent = nearestDefinition(definition.node(), symbolsByNode).orElse(symbols.getFirst());
-      int arity = callable(definition.kind()) ? countParameters(definition.node()) : -1;
-      String qualifiedName = ExtractionSupport.nextQualifiedName(qualifiedNameOccurrences,
-        qualified(parent.qualifiedName(), name, definition.kind(), arity));
-      CodeParser.ParsedSymbol symbol = new CodeParser.ParsedSymbol(definition.kind(), name,
-        qualifiedName, ExtractionSupport.signature(definition.node()), visibility(definition.node()),
-        definition.node().getStartPoint().row() + 1, definition.node().getEndPoint().row() + 1,
-        parent.qualifiedName());
-      symbols.add(symbol);
-      symbolsByNode.put(nodeKey(definition.node()), symbol);
-    }
-
-    Map<String, List<CodeParser.ParsedSymbol>> targetsByName = new HashMap<>();
-    for (CodeParser.ParsedSymbol symbol : symbols) {
-      targetsByName.computeIfAbsent(symbol.name(), _ -> new ArrayList<>()).add(symbol);
-    }
-    List<CodeParser.ParsedEdge> edges = new ArrayList<>();
-    for (QueryMatch match : matches) {
-      addEdge(match, module, symbolsByNode, targetsByName, edges);
-    }
-    return new CodeParser.ParseResult(symbols, edges);
-  }
-
-  private Optional<Definition> definition(QueryMatch match) {
-    Node name = first(match, "def.name").orElse(null);
-    if (name == null) return Optional.empty();
-    List<Map.Entry<String, CodeSymbolKind>> captures = new ArrayList<>();
-    captures.add(Map.entry("def.class", CodeSymbolKind.CLASS));
-    if (typed) {
-      captures.add(Map.entry("def.interface", CodeSymbolKind.INTERFACE));
-      captures.add(Map.entry("def.enum", CodeSymbolKind.ENUM));
-      captures.add(Map.entry("def.type_alias", CodeSymbolKind.TYPE_ALIAS));
-    }
-    captures.add(Map.entry("def.function", CodeSymbolKind.FUNCTION));
-    captures.add(Map.entry("def.method", CodeSymbolKind.METHOD));
-    captures.add(Map.entry("def.field", CodeSymbolKind.FIELD));
-    captures.add(Map.entry("def.variable", CodeSymbolKind.VARIABLE));
-    for (Map.Entry<String, CodeSymbolKind> entry : captures) {
-      Node node = first(match, entry.getKey()).orElse(null);
-      if (node != null) return Optional.of(new Definition(node, name, entry.getValue()));
-    }
-    return Optional.empty();
-  }
-
-  private void addEdge(QueryMatch match, String module,
-                              Map<String, CodeParser.ParsedSymbol> symbolsByNode,
-                              Map<String, List<CodeParser.ParsedSymbol>> targetsByName,
-                              List<CodeParser.ParsedEdge> edges) {
-    String capture;
-    CodeRelation relation;
-    if (has(match, "ref.import") || has(match, "ref.export")) {
-      capture = has(match, "ref.import") ? "ref.import" : "ref.export";
-      relation = CodeRelation.IMPORTS;
-    } else if (has(match, "ref.call")) {
-      capture = "ref.call";
-      relation = CodeRelation.CALLS;
-    } else if (has(match, "ref.extends")) {
-      capture = "ref.extends";
-      relation = CodeRelation.EXTENDS;
-    } else if (typed && has(match, "ref.implements")) {
-      capture = "ref.implements";
-      relation = CodeRelation.IMPLEMENTS;
-    } else {
-      return;
-    }
-
-    Node reference = first(match, capture).orElse(null);
-    String targetName = first(match, "ref.name").map(Node::getText).orElse(null);
-    if (reference == null || targetName == null || targetName.isBlank()) return;
-    targetName = unquote(targetName);
-    String source = relation == CodeRelation.IMPORTS ? module
-      : nearestDefinition(reference, symbolsByNode).map(CodeParser.ParsedSymbol::qualifiedName).orElse(module);
-    List<CodeParser.ParsedSymbol> candidates = targetsByName.getOrDefault(simpleName(targetName), List.of())
-      .stream().filter(symbol -> validTarget(relation, symbol.kind())).toList();
-    String resolved = candidates.size() == 1 ? candidates.getFirst().qualifiedName() : null;
-    edges.add(new CodeParser.ParsedEdge(source, relation,
-      resolved == null ? EdgeConfidence.HEURISTIC : EdgeConfidence.RESOLVED,
-      resolved, targetName));
   }
 
   private static boolean validTarget(CodeRelation relation, CodeSymbolKind kind) {
@@ -233,5 +124,116 @@ final class JavaScriptCodeExtractor implements LanguagePack.Extractor {
   private static Optional<Node> first(QueryMatch match, String capture) {
     List<Node> nodes = match.findNodes(capture);
     return nodes.isEmpty() ? Optional.empty() : Optional.of(nodes.getFirst());
+  }
+
+  @Override
+  public CodeParser.ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
+    try (QueryCursor cursor = new QueryCursor(query)) {
+      return extractMatches(input, root, cursor.findMatches(root).toList());
+    }
+  }
+
+  private CodeParser.ParseResult extractMatches(CodeParser.ParseInput input, Node root,
+                                                List<QueryMatch> matches) {
+    String module = ExtractionSupport.fileModule(input.repoRelPath());
+    Map<String, Definition> definitionsByNode = new HashMap<>();
+    matches.stream().map(this::definition).flatMap(Optional::stream)
+      .forEach(definition -> definitionsByNode.merge(nodeKey(definition.node()), definition,
+        (left, right) -> callable(right.kind()) ? right : left));
+    List<Definition> definitions = definitionsByNode.values().stream()
+      .sorted(Comparator.comparingInt((Definition d) -> d.node().getStartByte())
+        .thenComparing(Comparator.comparingInt((Definition d) -> d.node().getEndByte()).reversed()))
+      .toList();
+
+    List<CodeParser.ParsedSymbol> symbols = new ArrayList<>();
+    symbols.add(new CodeParser.ParsedSymbol(CodeSymbolKind.MODULE, moduleName(module), module,
+      input.repoRelPath(), "module", 1, Math.max(1, root.getEndPoint().row() + 1), null));
+
+    Map<String, CodeParser.ParsedSymbol> symbolsByNode = new HashMap<>();
+    Map<String, Integer> qualifiedNameOccurrences = new HashMap<>();
+    for (Definition definition : definitions) {
+      String name = definition.name().getText();
+      if (name == null || name.isBlank()) continue;
+      CodeParser.ParsedSymbol parent = nearestDefinition(definition.node(), symbolsByNode).orElse(symbols.getFirst());
+      int arity = callable(definition.kind()) ? countParameters(definition.node()) : -1;
+      String qualifiedName = ExtractionSupport.nextQualifiedName(qualifiedNameOccurrences,
+        qualified(parent.qualifiedName(), name, definition.kind(), arity));
+      CodeParser.ParsedSymbol symbol = new CodeParser.ParsedSymbol(definition.kind(), name,
+        qualifiedName, ExtractionSupport.signature(definition.node()), visibility(definition.node()),
+        definition.node().getStartPoint().row() + 1, definition.node().getEndPoint().row() + 1,
+        parent.qualifiedName());
+      symbols.add(symbol);
+      symbolsByNode.put(nodeKey(definition.node()), symbol);
+    }
+
+    Map<String, List<CodeParser.ParsedSymbol>> targetsByName = new HashMap<>();
+    for (CodeParser.ParsedSymbol symbol : symbols) {
+      targetsByName.computeIfAbsent(symbol.name(), _ -> new ArrayList<>()).add(symbol);
+    }
+    List<CodeParser.ParsedEdge> edges = new ArrayList<>();
+    for (QueryMatch match : matches) {
+      addEdge(match, module, symbolsByNode, targetsByName, edges);
+    }
+    return new CodeParser.ParseResult(symbols, edges);
+  }
+
+  private Optional<Definition> definition(QueryMatch match) {
+    Node name = first(match, "def.name").orElse(null);
+    if (name == null) return Optional.empty();
+    List<Map.Entry<String, CodeSymbolKind>> captures = new ArrayList<>();
+    captures.add(Map.entry("def.class", CodeSymbolKind.CLASS));
+    if (typed) {
+      captures.add(Map.entry("def.interface", CodeSymbolKind.INTERFACE));
+      captures.add(Map.entry("def.enum", CodeSymbolKind.ENUM));
+      captures.add(Map.entry("def.type_alias", CodeSymbolKind.TYPE_ALIAS));
+    }
+    captures.add(Map.entry("def.function", CodeSymbolKind.FUNCTION));
+    captures.add(Map.entry("def.method", CodeSymbolKind.METHOD));
+    captures.add(Map.entry("def.field", CodeSymbolKind.FIELD));
+    captures.add(Map.entry("def.variable", CodeSymbolKind.VARIABLE));
+    for (Map.Entry<String, CodeSymbolKind> entry : captures) {
+      Node node = first(match, entry.getKey()).orElse(null);
+      if (node != null) return Optional.of(new Definition(node, name, entry.getValue()));
+    }
+    return Optional.empty();
+  }
+
+  private void addEdge(QueryMatch match, String module,
+                       Map<String, CodeParser.ParsedSymbol> symbolsByNode,
+                       Map<String, List<CodeParser.ParsedSymbol>> targetsByName,
+                       List<CodeParser.ParsedEdge> edges) {
+    String capture;
+    CodeRelation relation;
+    if (has(match, "ref.import") || has(match, "ref.export")) {
+      capture = has(match, "ref.import") ? "ref.import" : "ref.export";
+      relation = CodeRelation.IMPORTS;
+    } else if (has(match, "ref.call")) {
+      capture = "ref.call";
+      relation = CodeRelation.CALLS;
+    } else if (has(match, "ref.extends")) {
+      capture = "ref.extends";
+      relation = CodeRelation.EXTENDS;
+    } else if (typed && has(match, "ref.implements")) {
+      capture = "ref.implements";
+      relation = CodeRelation.IMPLEMENTS;
+    } else {
+      return;
+    }
+
+    Node reference = first(match, capture).orElse(null);
+    String targetName = first(match, "ref.name").map(Node::getText).orElse(null);
+    if (reference == null || targetName == null || targetName.isBlank()) return;
+    targetName = unquote(targetName);
+    String source = relation == CodeRelation.IMPORTS ? module
+      : nearestDefinition(reference, symbolsByNode).map(CodeParser.ParsedSymbol::qualifiedName).orElse(module);
+    List<CodeParser.ParsedSymbol> candidates = targetsByName.getOrDefault(simpleName(targetName), List.of())
+      .stream().filter(symbol -> validTarget(relation, symbol.kind())).toList();
+    String resolved = candidates.size() == 1 ? candidates.getFirst().qualifiedName() : null;
+    edges.add(new CodeParser.ParsedEdge(source, relation,
+      resolved == null ? EdgeConfidence.HEURISTIC : EdgeConfidence.RESOLVED,
+      resolved, targetName));
+  }
+
+  private record Definition(Node node, Node name, CodeSymbolKind kind) {
   }
 }

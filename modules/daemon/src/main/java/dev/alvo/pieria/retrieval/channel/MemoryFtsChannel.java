@@ -1,14 +1,16 @@
 package dev.alvo.pieria.retrieval.channel;
 
-import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
-import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.retrieval.RetrievalChannel;
 import dev.alvo.pieria.retrieval.RetrievalContext;
+import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
+import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.storage.MemoryStore;
 
 import java.util.List;
 
-/** Porter-stemmed FTS over active memory content. Primary lexical channel. */
+/**
+ * Porter-stemmed FTS over active memory content. Primary lexical channel.
+ */
 public final class MemoryFtsChannel implements RetrievalChannel {
 
   private final MemoryStore store;

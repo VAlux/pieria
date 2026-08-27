@@ -34,19 +34,6 @@ public class StatusService {
     this.store = store;
   }
 
-  public record StatusView(
-    String status,
-    String databaseFile,
-    String backend,
-    boolean vectorSearch,
-    String provider,
-    String extractionModel,
-    String synthesisModel,
-    String embedding,
-    Long outboxDepth,
-    SetupState setup) {
-  }
-
   public StatusView status() {
     SetupState state = setupService.setupState();
     PieriaProperties.Model model = pieria.model();
@@ -71,5 +58,18 @@ public class StatusService {
     } catch (RuntimeException e) {
       return OptionalLong.empty();
     }
+  }
+
+  public record StatusView(
+    String status,
+    String databaseFile,
+    String backend,
+    boolean vectorSearch,
+    String provider,
+    String extractionModel,
+    String synthesisModel,
+    String embedding,
+    Long outboxDepth,
+    SetupState setup) {
   }
 }

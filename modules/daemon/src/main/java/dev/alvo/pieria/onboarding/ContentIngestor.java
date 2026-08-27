@@ -3,8 +3,8 @@ package dev.alvo.pieria.onboarding;
 import dev.alvo.pieria.api.response.OnboardResult;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.ChunkLedgerMode;
-import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.GraphMode;
+import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.IngestionResult;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -41,30 +41,25 @@ import java.util.regex.Pattern;
 @Component
 public class ContentIngestor {
 
-  private static final Logger log = LoggerFactory.getLogger(ContentIngestor.class);
-
   /**
    * Stable session id so re-ingesting unchanged content is idempotent (content-addressed).
    */
   public static final String SESSION_ID = "pieria-init";
-
   /**
    * Salt for the ledger content hashes; bump on prompt/pipeline changes that should force
    * re-extraction of already-onboarded documents (same convention as the code-summary hashes).
    */
   static final String PIPELINE_VERSION = "v1";
-
   /**
    * Per-message ceiling, under the pipeline's ~10K chunk boundary so it never re-splits a message.
    */
   static final int MAX_MESSAGE_CHARS = 8_000;
-
   /**
    * Target total text per ingest batch (~4 chunks): big enough to keep cross-document chunk
    * packing for corpora of tiny files, small enough that an interrupted run loses little work.
    */
   static final int BATCH_CHAR_BUDGET = 40_000;
-
+  private static final Logger log = LoggerFactory.getLogger(ContentIngestor.class);
   /**
    * Start of a top-level or second-level ATX heading line.
    */
@@ -76,92 +71,6 @@ public class ContentIngestor {
   public ContentIngestor(IngestionService ingestionService, MemoryStore store) {
     this.ingestionService = ingestionService;
     this.store = store;
-  }
-
-  /**
-   * Ingest the given documents into {@code profile}, skipping documents whose ledger hash is
-   * unchanged (unless {@code refresh}). Documents that yield no non-blank content contribute no
-   * messages but are still ledgered as processed; when nothing is extractable the run stores
-   * nothing and reports zero.
-   *
-   * @param sourceType        label for the result and the ledger scope (e.g. {@code "markdown"})
-   * @param documents         the discovered content units
-   * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
-   * @param refresh           re-ingest every document even when its ledger hash is unchanged
-   */
-  public OnboardResult ingest(String profile,
-                              String sourceType,
-                              List<ContentDocument> documents,
-                              Integer extractionSamples,
-                              boolean refresh,
-                              IngestProgressListener progress) {
-
-    String profileId = store.getOrCreateProfile(profile).id();
-    Map<String, String> ledger = refresh ? Map.of() : store.ingestLedger(profileId, sourceType);
-
-    Map<String, String> hashByProvenance = new LinkedHashMap<>();
-    List<ContentDocument> pending = new ArrayList<>();
-    for (ContentDocument doc : documents) {
-      String hash = contentHash(doc, extractionSamples);
-      hashByProvenance.put(doc.provenance(), hash);
-      if (hash.equals(ledger.get(doc.provenance()))) {
-        log.debug("onboard {}: unchanged, skipping ({})", sourceType, doc.provenance());
-      } else {
-        pending.add(doc);
-      }
-    }
-    int skipped = documents.size() - pending.size();
-    if (skipped > 0) {
-      log.info("onboard {}: {} of {} documents unchanged since the last onboard; skipping them",
-        sourceType, skipped, documents.size());
-    }
-    if (pending.isEmpty()) {
-      return OnboardResult.content(sourceType, documents.size(), 0, skipped, 0);
-    }
-
-    List<List<ContentDocument>> batches = batchByBudget(pending);
-    // Make message FTS useful immediately for the whole source, even while later extraction batches
-    // are still running. The normal ingest path repeats these idempotent inserts per batch.
-    List<Message> stagedMessages = new ArrayList<>();
-    for (ContentDocument doc : pending) {
-      for (String content : toMessageContents(doc)) {
-        stagedMessages.add(Message.of(SESSION_ID, "user", content));
-      }
-    }
-    int staged = ingestionService.preStageMessages(profile, SESSION_ID, stagedMessages);
-    log.info("onboard {}: pre-staged {} raw messages for FTS", sourceType, staged);
-
-    int stored = 0;
-    int graphDeferred = 0;
-    int batchesDone = 0;
-    progress.onPhase("documents", 0, batches.size());
-    for (List<ContentDocument> batch : batches) {
-      List<Message> messages = new ArrayList<>();
-      for (ContentDocument doc : batch) {
-        for (String content : toMessageContents(doc)) {
-          messages.add(Message.of(SESSION_ID, "user", content));
-        }
-      }
-      if (!messages.isEmpty()) {
-        // ChunkLedgerMode.DISABLED: onboarding already skips unchanged documents through the ledger
-        // below, and every batch re-chunks from index 0 under the one fixed SESSION_ID, so
-        // chunk-level ledger keys would collide across batches.
-        IngestionResult result = ingestionService.ingestDetailed(profile, SESSION_ID, messages,
-          extractionSamples, GraphMode.DEFERRED, ChunkLedgerMode.DISABLED, progress);
-        stored += result.memories().size();
-        graphDeferred += result.graphDeferred();
-      }
-      // Checkpoint only now, after the batch's memories are durably stored: the ledger must never
-      // claim work that did not finish, or a crashed run would silently lose those documents.
-      Map<String, String> batchHashes = new LinkedHashMap<>();
-      for (ContentDocument doc : batch) {
-        batchHashes.put(doc.provenance(), hashByProvenance.get(doc.provenance()));
-      }
-      store.recordIngestLedger(profileId, sourceType, batchHashes);
-      progress.onPhase("documents", ++batchesDone, batches.size());
-    }
-    log.info("onboard {}: core ready stored={} graphDeferred={}", sourceType, stored, graphDeferred);
-    return OnboardResult.content(sourceType, documents.size(), stored, skipped, graphDeferred);
   }
 
   /**
@@ -280,5 +189,91 @@ public class ContentIngestor {
       pieces.add(current.toString());
     }
     return pieces;
+  }
+
+  /**
+   * Ingest the given documents into {@code profile}, skipping documents whose ledger hash is
+   * unchanged (unless {@code refresh}). Documents that yield no non-blank content contribute no
+   * messages but are still ledgered as processed; when nothing is extractable the run stores
+   * nothing and reports zero.
+   *
+   * @param sourceType        label for the result and the ledger scope (e.g. {@code "markdown"})
+   * @param documents         the discovered content units
+   * @param extractionSamples independent extract passes per chunk (null ⇒ profile default)
+   * @param refresh           re-ingest every document even when its ledger hash is unchanged
+   */
+  public OnboardResult ingest(String profile,
+                              String sourceType,
+                              List<ContentDocument> documents,
+                              Integer extractionSamples,
+                              boolean refresh,
+                              IngestProgressListener progress) {
+
+    String profileId = store.getOrCreateProfile(profile).id();
+    Map<String, String> ledger = refresh ? Map.of() : store.ingestLedger(profileId, sourceType);
+
+    Map<String, String> hashByProvenance = new LinkedHashMap<>();
+    List<ContentDocument> pending = new ArrayList<>();
+    for (ContentDocument doc : documents) {
+      String hash = contentHash(doc, extractionSamples);
+      hashByProvenance.put(doc.provenance(), hash);
+      if (hash.equals(ledger.get(doc.provenance()))) {
+        log.debug("onboard {}: unchanged, skipping ({})", sourceType, doc.provenance());
+      } else {
+        pending.add(doc);
+      }
+    }
+    int skipped = documents.size() - pending.size();
+    if (skipped > 0) {
+      log.info("onboard {}: {} of {} documents unchanged since the last onboard; skipping them",
+        sourceType, skipped, documents.size());
+    }
+    if (pending.isEmpty()) {
+      return OnboardResult.content(sourceType, documents.size(), 0, skipped, 0);
+    }
+
+    List<List<ContentDocument>> batches = batchByBudget(pending);
+    // Make message FTS useful immediately for the whole source, even while later extraction batches
+    // are still running. The normal ingest path repeats these idempotent inserts per batch.
+    List<Message> stagedMessages = new ArrayList<>();
+    for (ContentDocument doc : pending) {
+      for (String content : toMessageContents(doc)) {
+        stagedMessages.add(Message.of(SESSION_ID, "user", content));
+      }
+    }
+    int staged = ingestionService.preStageMessages(profile, SESSION_ID, stagedMessages);
+    log.info("onboard {}: pre-staged {} raw messages for FTS", sourceType, staged);
+
+    int stored = 0;
+    int graphDeferred = 0;
+    int batchesDone = 0;
+    progress.onPhase("documents", 0, batches.size());
+    for (List<ContentDocument> batch : batches) {
+      List<Message> messages = new ArrayList<>();
+      for (ContentDocument doc : batch) {
+        for (String content : toMessageContents(doc)) {
+          messages.add(Message.of(SESSION_ID, "user", content));
+        }
+      }
+      if (!messages.isEmpty()) {
+        // ChunkLedgerMode.DISABLED: onboarding already skips unchanged documents through the ledger
+        // below, and every batch re-chunks from index 0 under the one fixed SESSION_ID, so
+        // chunk-level ledger keys would collide across batches.
+        IngestionResult result = ingestionService.ingestDetailed(profile, SESSION_ID, messages,
+          extractionSamples, GraphMode.DEFERRED, ChunkLedgerMode.DISABLED, progress);
+        stored += result.memories().size();
+        graphDeferred += result.graphDeferred();
+      }
+      // Checkpoint only now, after the batch's memories are durably stored: the ledger must never
+      // claim work that did not finish, or a crashed run would silently lose those documents.
+      Map<String, String> batchHashes = new LinkedHashMap<>();
+      for (ContentDocument doc : batch) {
+        batchHashes.put(doc.provenance(), hashByProvenance.get(doc.provenance()));
+      }
+      store.recordIngestLedger(profileId, sourceType, batchHashes);
+      progress.onPhase("documents", ++batchesDone, batches.size());
+    }
+    log.info("onboard {}: core ready stored={} graphDeferred={}", sourceType, stored, graphDeferred);
+    return OnboardResult.content(sourceType, documents.size(), stored, skipped, graphDeferred);
   }
 }

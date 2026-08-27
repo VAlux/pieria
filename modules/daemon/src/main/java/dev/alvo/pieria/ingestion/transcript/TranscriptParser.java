@@ -1,6 +1,7 @@
 package dev.alvo.pieria.ingestion.transcript;
 
 import dev.alvo.pieria.domain.memory.Message;
+
 import java.util.List;
 
 /**
@@ -19,7 +20,9 @@ import java.util.List;
  */
 public interface TranscriptParser {
 
-  /** Stable harness identifier this parser handles, e.g. {@code "claude-code"} or {@code "codex"}. */
+  /**
+   * Stable harness identifier this parser handles, e.g. {@code "claude-code"} or {@code "codex"}.
+   */
   String harness();
 
   /**

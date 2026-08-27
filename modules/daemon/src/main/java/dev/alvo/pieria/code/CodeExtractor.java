@@ -26,17 +26,6 @@ import java.util.Optional;
  */
 final class CodeExtractor implements Extractor {
 
-  private record Definition(Node node, Node name, CodeSymbolKind kind) {
-  }
-
-  @Override
-  public ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
-    try (QueryCursor cursor = new QueryCursor(query)) {
-      List<QueryMatch> matches = cursor.findMatches(root).toList();
-      return extractMatches(input, root, matches);
-    }
-  }
-
   private static ParseResult extractMatches(CodeParser.ParseInput input, Node root, List<QueryMatch> matches) {
     String fileModule = ExtractionSupport.fileModule(input.repoRelPath());
     Map<String, Definition> definitionsByNode = new HashMap<>();
@@ -255,5 +244,16 @@ final class CodeExtractor implements Extractor {
   private static Optional<Node> first(QueryMatch match, String capture) {
     List<Node> nodes = match.findNodes(capture);
     return nodes.isEmpty() ? Optional.empty() : Optional.of(nodes.getFirst());
+  }
+
+  @Override
+  public ParseResult extract(CodeParser.ParseInput input, Node root, Query query) {
+    try (QueryCursor cursor = new QueryCursor(query)) {
+      List<QueryMatch> matches = cursor.findMatches(root).toList();
+      return extractMatches(input, root, matches);
+    }
+  }
+
+  private record Definition(Node node, Node name, CodeSymbolKind kind) {
   }
 }

@@ -12,7 +12,9 @@ public interface WebFetcher {
    */
   FetchedPage fetch(String url);
 
-  /** A fetched page: its {@code <title>} (may be blank) and extracted main text. */
+  /**
+   * A fetched page: its {@code <title>} (may be blank) and extracted main text.
+   */
   record FetchedPage(String title, String text) {
   }
 }

@@ -18,16 +18,24 @@ import java.util.Optional;
  */
 public interface CodeIndexStore {
 
-  /** Upsert a module (insert-or-ignore on its content-addressed id). */
+  /**
+   * Upsert a module (insert-or-ignore on its content-addressed id).
+   */
   CodeModule upsertCodeModule(String profileId, CodeModule module);
 
-  /** Upsert a file row (insert-or-replace so content_hash/loc/indexedAt refresh in place). */
+  /**
+   * Upsert a file row (insert-or-replace so content_hash/loc/indexedAt refresh in place).
+   */
   CodeFile upsertCodeFile(String profileId, CodeFile file);
 
-  /** Upsert a symbol (insert-or-ignore on its content-addressed id). */
+  /**
+   * Upsert a symbol (insert-or-ignore on its content-addressed id).
+   */
   CodeSymbol upsertCodeSymbol(String profileId, CodeSymbol symbol);
 
-  /** Upsert an edge (insert-or-ignore on its content-addressed id). */
+  /**
+   * Upsert an edge (insert-or-ignore on its content-addressed id).
+   */
   CodeEdge upsertCodeEdge(String profileId, CodeEdge edge);
 
   /**
@@ -52,16 +60,24 @@ public interface CodeIndexStore {
    */
   void replaceFileIndex(String profileId, CodeFile file, List<CodeSymbol> symbols, List<CodeEdge> edges);
 
-  /** FTS over {@code code_symbols_fts}; matched query is sanitized so it cannot raise an FTS error. */
+  /**
+   * FTS over {@code code_symbols_fts}; matched query is sanitized so it cannot raise an FTS error.
+   */
   List<CodeSymbol> searchSymbolsFts(String profileId, String matchQuery, int limit);
 
-  /** Symbols whose {@code name} is in {@code names} (used to seed the code-graph channel). */
+  /**
+   * Symbols whose {@code name} is in {@code names} (used to seed the code-graph channel).
+   */
   List<CodeSymbol> findSymbolsByName(String profileId, List<String> names, int limit);
 
-  /** Symbols whose {@code qualified_name} is in {@code qualifiedNames}. */
+  /**
+   * Symbols whose {@code qualified_name} is in {@code qualifiedNames}.
+   */
   List<CodeSymbol> findSymbolsByQualifiedName(String profileId, List<String> qualifiedNames, int limit);
 
-  /** Symbols by id, preserving the input order (used to resolve a traversal back to symbols). */
+  /**
+   * Symbols by id, preserving the input order (used to resolve a traversal back to symbols).
+   */
   List<CodeSymbol> findSymbolsByIds(String profileId, List<String> ids, int limit);
 
   /**
@@ -82,17 +98,25 @@ public interface CodeIndexStore {
   List<EdgeEvidence> findEdgesTouching(
     String profileId, List<String> symbolIds, EdgeConfidence minConfidence, int limit);
 
-  /** A code edge with its hydrated endpoints; {@code dst} is null when the target is unresolved. */
+  /**
+   * Whether any file has been indexed for this profile.
+   */
+  boolean isCodeIndexPresent(String profileId);
+
+  /**
+   * Aggregate counts for the status surface.
+   */
+  CodeIndexCounts counts(String profileId);
+
+  /**
+   * A code edge with its hydrated endpoints; {@code dst} is null when the target is unresolved.
+   */
   record EdgeEvidence(CodeEdge edge, CodeSymbol src, CodeSymbol dst) {
   }
 
-  /** Whether any file has been indexed for this profile. */
-  boolean isCodeIndexPresent(String profileId);
-
-  /** Aggregate counts for the status surface. */
-  CodeIndexCounts counts(String profileId);
-
-  /** Code-index size for {@code GET /code/status}. */
+  /**
+   * Code-index size for {@code GET /code/status}.
+   */
   record CodeIndexCounts(long files, long symbols, long resolvedEdges, long heuristicEdges) {
     public long edges() {
       return resolvedEdges + heuristicEdges;

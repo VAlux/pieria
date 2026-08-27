@@ -12,9 +12,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * the native image), so the distribution bundles them under {@code native/<os>-<arch>/}. Language
  * grammars are always loaded from those embedded resources; only the core runtime can be overridden.
  *
- * @param enabled          master switch; {@code false} disables Tree-sitter parsing entirely (the
- *                         code index then degrades to file/module/dependency facts, as before).
- * @param corePath         absolute path to {@code libtree-sitter.*}; blank ⇒ auto-resolve.
+ * @param enabled  master switch; {@code false} disables Tree-sitter parsing entirely (the
+ *                 code index then degrades to file/module/dependency facts, as before).
+ * @param corePath absolute path to {@code libtree-sitter.*}; blank ⇒ auto-resolve.
  */
 @ConfigurationProperties(prefix = "pieria.treesitter")
 public record TreeSitterProperties(@DefaultValue("true") boolean enabled,

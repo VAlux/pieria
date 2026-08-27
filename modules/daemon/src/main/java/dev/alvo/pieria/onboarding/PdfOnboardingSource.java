@@ -31,6 +31,15 @@ public class PdfOnboardingSource implements OnboardingSource<SourceSpec.Pdf> {
     this.extractor = extractor;
   }
 
+  /**
+   * Provenance line for a PDF: relative path plus title when the document has one.
+   */
+  private static String provenance(String relative, String title) {
+    return (title == null || title.isBlank())
+      ? "PDF document — " + relative
+      : "PDF document — " + title + " (" + relative + ")";
+  }
+
   @Override
   public Class<SourceSpec.Pdf> specType() {
     return SourceSpec.Pdf.class;
@@ -54,12 +63,5 @@ public class PdfOnboardingSource implements OnboardingSource<SourceSpec.Pdf> {
     }
     return OnboardingWork.completed(ingestor.ingest(profile, "pdf", documents,
       spec.extractionSamples(), Boolean.TRUE.equals(spec.refresh()), progress));
-  }
-
-  /** Provenance line for a PDF: relative path plus title when the document has one. */
-  private static String provenance(String relative, String title) {
-    return (title == null || title.isBlank())
-      ? "PDF document — " + relative
-      : "PDF document — " + title + " (" + relative + ")";
   }
 }

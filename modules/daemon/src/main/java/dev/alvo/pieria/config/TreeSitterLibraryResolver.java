@@ -1,7 +1,7 @@
 package dev.alvo.pieria.config;
 
-import dev.alvo.pieria.tools.os.OsFamily;
 import dev.alvo.pieria.tools.io.NativeResourceExtractor;
+import dev.alvo.pieria.tools.os.OsFamily;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

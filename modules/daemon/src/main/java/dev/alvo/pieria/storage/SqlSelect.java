@@ -31,7 +31,9 @@ final class SqlSelect {
     return new SqlSelect(jdbc, columns, table);
   }
 
-  /** Add a condition, joined with {@code AND} if a previous condition exists. */
+  /**
+   * Add a condition, joined with {@code AND} if a previous condition exists.
+   */
   SqlSelect where(String condition, Object... args) {
     sql.append(whereStarted ? " AND " : " WHERE ").append(condition);
     whereStarted = true;
@@ -41,12 +43,16 @@ final class SqlSelect {
     return this;
   }
 
-  /** Alias for {@link #where} that reads naturally after the first condition. */
+  /**
+   * Alias for {@link #where} that reads naturally after the first condition.
+   */
   SqlSelect and(String condition, Object... args) {
     return where(condition, args);
   }
 
-  /** Add a condition only when {@code include} is true (args are ignored otherwise). */
+  /**
+   * Add a condition only when {@code include} is true (args are ignored otherwise).
+   */
   SqlSelect andIf(boolean include, String condition, Object... args) {
     return include ? where(condition, args) : this;
   }

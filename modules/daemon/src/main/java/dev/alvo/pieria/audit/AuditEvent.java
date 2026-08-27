@@ -2,7 +2,9 @@ package dev.alvo.pieria.audit;
 
 import java.time.Instant;
 
-/** One immutable profile audit event. */
+/**
+ * One immutable profile audit event.
+ */
 public record AuditEvent(
   String id,
   String profileId,

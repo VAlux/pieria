@@ -2,7 +2,9 @@ package dev.alvo.pieria.audit;
 
 import java.time.Instant;
 
-/** Validated server-side filters for a profile's audit history. */
+/**
+ * Validated server-side filters for a profile's audit history.
+ */
 public record AuditQuery(
   String text,
   String operation,

@@ -22,12 +22,6 @@ public class HealthService {
     this.modelGateway = modelGateway;
   }
 
-  /**
-   * db/model probe result. {@code dbOk} is {@code true} only when {@code dbStatus} is {@code "ok"}.
-   */
-  public record HealthCheck(boolean dbOk, String dbStatus, String modelStatus) {
-  }
-
   public HealthCheck check() {
     String dbStatus = probeDb();
     String modelStatus = probeModel();
@@ -54,5 +48,11 @@ public class HealthService {
     } catch (Exception e) {
       return "unknown";
     }
+  }
+
+  /**
+   * db/model probe result. {@code dbOk} is {@code true} only when {@code dbStatus} is {@code "ok"}.
+   */
+  public record HealthCheck(boolean dbOk, String dbStatus, String modelStatus) {
   }
 }

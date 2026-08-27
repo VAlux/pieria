@@ -35,18 +35,24 @@ public record RetrievalContext(
     seedCandidates = seedCandidates == null ? List.of() : List.copyOf(seedCandidates);
   }
 
-  /** Primary-wave context: no graph seeds yet. */
+  /**
+   * Primary-wave context: no graph seeds yet.
+   */
   public RetrievalContext(String profileId, String query, QueryAnalysis analysis,
                           float[] queryEmbedding, float[] hydeEmbedding, int limit) {
     this(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, List.of());
   }
 
-  /** A copy of this context carrying the given first-wave hits as graph seeds. */
+  /**
+   * A copy of this context carrying the given first-wave hits as graph seeds.
+   */
   public RetrievalContext withSeedCandidates(List<RetrievalCandidate> seeds) {
     return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds);
   }
 
-  /** FTS match text: the analyzed terms when present, else the raw query (the store re-tokenizes). */
+  /**
+   * FTS match text: the analyzed terms when present, else the raw query (the store re-tokenizes).
+   */
   public String ftsText() {
     if (analysis != null && !analysis.ftsTerms().isEmpty()) {
       return String.join(" ", analysis.ftsTerms());

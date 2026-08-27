@@ -8,13 +8,19 @@ package dev.alvo.pieria.model.usage;
  */
 public enum InferenceTier {
 
-  /** Small/fast structured stages: extract (unified), verify, classify, extractGraph, analyzeQuery. */
+  /**
+   * Small/fast structured stages: extract (unified), verify, classify, extractGraph, analyzeQuery.
+   */
   EXTRACTION,
 
-  /** Large model: synthesizeRecall (and the eval-only judgeAnswer / judgeEvidenceSupport). */
+  /**
+   * Large model: synthesizeRecall (and the eval-only judgeAnswer / judgeEvidenceSupport).
+   */
   SYNTHESIS,
 
-  /** Embedding model. Note: some providers (Ollama) do not report embedding token usage. */
+  /**
+   * Embedding model. Note: some providers (Ollama) do not report embedding token usage.
+   */
   EMBEDDING;
 
   /**

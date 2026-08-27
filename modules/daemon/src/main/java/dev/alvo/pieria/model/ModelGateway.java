@@ -1,14 +1,14 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
-import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
-import dev.alvo.pieria.ingestion.model.VerificationResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -163,21 +163,6 @@ public interface ModelGateway {
   }
 
   /**
-   * How a synthesized answer compares to the expected one. Declining to answer is deliberately kept
-   * distinct from answering wrongly: for a memory layer, refusing to assert a fact that was never
-   * stored is correct behaviour, while asserting a wrong one is a hallucination. Collapsing the two
-   * hides which of the two a regression actually is.
-   */
-  enum AnswerVerdict {
-    /** Conveys the expected answer. */
-    CORRECT,
-    /** Asserts something, but not the expected answer. */
-    WRONG,
-    /** Declines to answer / reports insufficient memory evidence. */
-    ABSTAINED
-  }
-
-  /**
    * Judge {@code actualAnswer} against {@code expectedAnswer} for the given {@code question}. The
    * default falls back to case-insensitive exact match so test stubs and CI gateways that don't
    * implement this keep working without a live model.
@@ -206,37 +191,6 @@ public interface ModelGateway {
     return evidence.stream()
       .filter(Objects::nonNull)
       .anyMatch(item -> item.toLowerCase(Locale.ROOT).contains(needle));
-  }
-
-  /**
-   * The three cumulative levels of the code narrative layer (see {@code CodeSummarizationService}).
-   */
-  enum CodeSummaryLevel { FILE, MODULE, ARCHITECTURE }
-
-  /**
-   * Level-discriminated input for {@link #summarizeCode}; fields not meaningful for a level are
-   * null/empty.
-   *
-   * @param level          which summary to write
-   * @param subjectPath    file path (FILE), module path (MODULE), or repo/profile name (ARCHITECTURE)
-   * @param language       source language (FILE only)
-   * @param outlines       symbol-outline evidence: the file's outline (FILE), member-file outlines
-   *                       (MODULE), or module member listings (ARCHITECTURE fallback)
-   * @param childSummaries lower-level summaries feeding this one: file summaries (MODULE) or module
-   *                       summaries (ARCHITECTURE); empty when the lower level is not generated
-   * @param source         truncated file source text (FILE only)
-   */
-  record CodeSummaryInput(CodeSummaryLevel level,
-                          String subjectPath,
-                          String language,
-                          List<String> outlines,
-                          List<String> childSummaries,
-                          String source) {
-
-    public CodeSummaryInput {
-      outlines = outlines == null ? List.of() : List.copyOf(outlines);
-      childSummaries = childSummaries == null ? List.of() : List.copyOf(childSummaries);
-    }
   }
 
   /**
@@ -273,5 +227,57 @@ public interface ModelGateway {
    */
   default java.util.Set<String> availableModels() {
     return java.util.Set.of();
+  }
+
+  /**
+   * How a synthesized answer compares to the expected one. Declining to answer is deliberately kept
+   * distinct from answering wrongly: for a memory layer, refusing to assert a fact that was never
+   * stored is correct behaviour, while asserting a wrong one is a hallucination. Collapsing the two
+   * hides which of the two a regression actually is.
+   */
+  enum AnswerVerdict {
+    /**
+     * Conveys the expected answer.
+     */
+    CORRECT,
+    /**
+     * Asserts something, but not the expected answer.
+     */
+    WRONG,
+    /**
+     * Declines to answer / reports insufficient memory evidence.
+     */
+    ABSTAINED
+  }
+
+  /**
+   * The three cumulative levels of the code narrative layer (see {@code CodeSummarizationService}).
+   */
+  enum CodeSummaryLevel {FILE, MODULE, ARCHITECTURE}
+
+  /**
+   * Level-discriminated input for {@link #summarizeCode}; fields not meaningful for a level are
+   * null/empty.
+   *
+   * @param level          which summary to write
+   * @param subjectPath    file path (FILE), module path (MODULE), or repo/profile name (ARCHITECTURE)
+   * @param language       source language (FILE only)
+   * @param outlines       symbol-outline evidence: the file's outline (FILE), member-file outlines
+   *                       (MODULE), or module member listings (ARCHITECTURE fallback)
+   * @param childSummaries lower-level summaries feeding this one: file summaries (MODULE) or module
+   *                       summaries (ARCHITECTURE); empty when the lower level is not generated
+   * @param source         truncated file source text (FILE only)
+   */
+  record CodeSummaryInput(CodeSummaryLevel level,
+                          String subjectPath,
+                          String language,
+                          List<String> outlines,
+                          List<String> childSummaries,
+                          String source) {
+
+    public CodeSummaryInput {
+      outlines = outlines == null ? List.of() : List.copyOf(outlines);
+      childSummaries = childSummaries == null ? List.of() : List.copyOf(childSummaries);
+    }
   }
 }

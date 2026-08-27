@@ -1,8 +1,8 @@
 package dev.alvo.pieria.reminiscence;
 
 import dev.alvo.pieria.api.response.ReminiscenceResult;
-import dev.alvo.pieria.config.ReminiscenceProperties;
 import dev.alvo.pieria.code.CodeIndexingService;
+import dev.alvo.pieria.config.ReminiscenceProperties;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -49,18 +49,43 @@ import java.util.function.Supplier;
 public class ReminiscenceService {
 
   private static final Logger log = LoggerFactory.getLogger(ReminiscenceService.class);
-
-  private final MemoryStore store;
-  private final ModelGateway modelGateway;
-  private final ReminiscenceProperties properties;
   private static final List<String> ONBOARDING_SESSIONS =
     List.of(dev.alvo.pieria.onboarding.ContentIngestor.SESSION_ID,
       CodeIndexingService.CODE_SESSION, "pieria-code");
+  private final MemoryStore store;
+  private final ModelGateway modelGateway;
+  private final ReminiscenceProperties properties;
 
   public ReminiscenceService(MemoryStore store, ModelGateway modelGateway, ReminiscenceProperties properties) {
     this.store = store;
     this.modelGateway = modelGateway;
     this.properties = properties;
+  }
+
+  private static <T> T bounded(Semaphore gate, Supplier<T> call) throws InterruptedException {
+    gate.acquire();
+    try {
+      return call.get();
+    } finally {
+      gate.release();
+    }
+  }
+
+  private static List<GraphFragment> await(Future<List<GraphFragment>> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new TaskCancelledException();
+    } catch (ExecutionException e) {
+      if (e.getCause() instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (e.getCause() instanceof Error error) {
+        throw error;
+      }
+      throw new IllegalStateException("graph extraction failed", e.getCause());
+    }
   }
 
   /**
@@ -73,12 +98,16 @@ public class ReminiscenceService {
     return adoptOrphans(profileName, null, "reminisce", progress);
   }
 
-  /** Adopt only memories produced by automatic onboarding sessions. */
+  /**
+   * Adopt only memories produced by automatic onboarding sessions.
+   */
   public ReminiscenceResult adoptOnboardingOrphans(String profileName, IngestProgressListener progress) {
     return adoptOrphans(profileName, ONBOARDING_SESSIONS, "onboard-graph", progress);
   }
 
-  /** Cheap candidate count for the automatic onboarding child task. */
+  /**
+   * Cheap candidate count for the automatic onboarding child task.
+   */
   public long countOnboardingOrphans(String profileName) {
     String profileId = store.getOrCreateProfile(profileName).id();
     return store.countGraphOrphans(profileId, ONBOARDING_SESSIONS);
@@ -176,40 +205,6 @@ public class ReminiscenceService {
     }
   }
 
-  private static <T> T bounded(Semaphore gate, Supplier<T> call) throws InterruptedException {
-    gate.acquire();
-    try {
-      return call.get();
-    } finally {
-      gate.release();
-    }
-  }
-
-  private static List<GraphFragment> await(Future<List<GraphFragment>> future) {
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new TaskCancelledException();
-    } catch (ExecutionException e) {
-      if (e.getCause() instanceof RuntimeException runtime) {
-        throw runtime;
-      }
-      if (e.getCause() instanceof Error error) {
-        throw error;
-      }
-      throw new IllegalStateException("graph extraction failed", e.getCause());
-    }
-  }
-
-  /** Mutable tallies threaded through the page loop. */
-  private static final class Counts {
-    int scanned;
-    int adopted;
-    int entities;
-    int edges;
-  }
-
   /**
    * Split a page of orphans into sub-batches capped by {@link ReminiscenceProperties#batchSize()} and
    * {@link ReminiscenceProperties#batchCharBudget()} — whichever bound is hit first, but always at
@@ -236,5 +231,15 @@ public class ReminiscenceService {
       batches.add(current);
     }
     return batches;
+  }
+
+  /**
+   * Mutable tallies threaded through the page loop.
+   */
+  private static final class Counts {
+    int scanned;
+    int adopted;
+    int entities;
+    int edges;
   }
 }
