@@ -4,6 +4,7 @@ import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
 import dev.alvo.pieria.config.model.PieriaConfigFile;
+import dev.alvo.pieria.config.schema.ConfigField;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
@@ -107,7 +108,15 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       DaemonOverrides.Ingestion.class,
       DaemonOverrides.Retrieval.class,
       PieriaConfigFile.class,
-      DiscoveryConfig.class
+      DiscoveryConfig.class,
+      // Every config controller method below declares a plain JsonNode return type and serializes
+      // through ConfigCodec.toNode(...) — invisible to Spring's ControllerMappingReflectiveProcessor,
+      // which reads declared method signatures, not what a method actually returns at runtime. These
+      // four are reached only by this hand-maintained list.
+      ConfigField.class,
+      GlobalConfigEntry.class,
+      GlobalConfigService.ApplyResult.class,
+      ProfileConfigDetail.class
     };
   }
 }

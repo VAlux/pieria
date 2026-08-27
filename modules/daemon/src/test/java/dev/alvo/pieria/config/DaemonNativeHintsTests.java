@@ -42,6 +42,31 @@ class DaemonNativeHintsTests {
   }
 
   /**
+   * The four config-page response types are only ever returned as {@code JsonNode} (via {@code
+   * ConfigCodec.toNode(...)}), so Spring's {@code ControllerMappingReflectiveProcessor} — which
+   * reads a controller method's declared return type — never sees them. Without an explicit hint
+   * here, each endpoint throws {@code MissingReflectionRegistrationError} on first call in native.
+   */
+  @Test
+  void everyConfigResponseTypeIsRegisteredForNativeReflection() {
+    RuntimeHints hints = new RuntimeHints();
+    new DaemonNativeHints().registerHints(hints, getClass().getClassLoader());
+
+    Class<?>[] configResponseTypes = {
+      dev.alvo.pieria.config.schema.ConfigField.class,
+      GlobalConfigEntry.class,
+      GlobalConfigService.ApplyResult.class,
+      ProfileConfigDetail.class
+    };
+    for (Class<?> type : configResponseTypes) {
+      assertThat(RuntimeHintsPredicates.reflection().onType(type).test(hints))
+        .as("missing native reflection hint for %s — add it to "
+          + "DaemonNativeHints.configModelTypes()", type.getName())
+        .isTrue();
+    }
+  }
+
+  /**
    * The OpenAI SDK deserializes non-2xx provider bodies into {@code com.openai.models.ErrorObject}
    * via a non-public {@code @JsonCreator} and a private {@code @JsonAnySetter}. Without declared-member
    * hints the native daemon throws {@code MissingReflectionRegistrationError} (an {@code Error}, so the
