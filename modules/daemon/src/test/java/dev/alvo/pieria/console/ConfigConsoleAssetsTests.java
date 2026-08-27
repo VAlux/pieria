@@ -128,7 +128,11 @@ class ConfigConsoleAssetsTests {
 
     assertThat(global)
       .contains("export function loadGlobalConfig", "export function unloadGlobalConfig")
-      .contains("\"/v1/config\"", "\"live\"", "\"restart\"", "\"locked\"");
+      .contains("\"/v1/config\"", "\"restart\"", "\"locked\"");
+    // There is deliberately no "applies immediately" tier: the daemon binds pieria.properties once
+    // at startup and never re-reads it, so no global key takes effect without a restart. Asserting
+    // the absence keeps a later edit from quietly reintroducing the claim.
+    assertThat(global).doesNotContain("\"live\"");
     // The browser cannot restart the daemon; the page hands over the command the daemon serves
     // rather than offering a button that would not do what it says.
     assertThat(global).contains("restartCommand").doesNotContain("/v1/daemon/restart");

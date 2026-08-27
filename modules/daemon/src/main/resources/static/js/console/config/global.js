@@ -1,9 +1,9 @@
 // Process-global configuration: what every profile inherits and no profile can override.
 //
 // Grouped by what applying a change costs, not by topic. The daemon binds most of these once at
-// startup, so a save does not change the running process outside the "live" tier — the page says
-// which keys that applies to, and hands over `pieria daemon restart` rather than offering a button
-// the browser cannot honour.
+// startup, so a save never changes the running process the way a live-reloaded setting would — the
+// page says as much and hands over `pieria daemon restart` rather than offering a button the
+// browser cannot honour.
 import { $, el, apiFetch } from "../../util/dom.js";
 import { renderFieldRow } from "./field.js";
 import { createForm } from "./form.js";
