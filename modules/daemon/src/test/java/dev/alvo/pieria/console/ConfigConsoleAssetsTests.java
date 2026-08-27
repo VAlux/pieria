@@ -122,6 +122,41 @@ class ConfigConsoleAssetsTests {
     assertThat(html.select("main > section.view#view-profile-config")).hasSize(1);
   }
 
+  @Test
+  void globalViewGroupsByTierAndHandsOverTheRestartCommand() throws IOException {
+    String global = resource("static/js/console/config/global.js");
+
+    assertThat(global)
+      .contains("export function loadGlobalConfig", "export function unloadGlobalConfig")
+      .contains("\"/v1/config\"", "\"live\"", "\"restart\"", "\"locked\"");
+    // The browser cannot restart the daemon; the page hands over the command the daemon serves
+    // rather than offering a button that would not do what it says.
+    assertThat(global).contains("restartCommand").doesNotContain("/v1/daemon/restart");
+  }
+
+  @Test
+  void lockedTierRequiresAnExplicitAcknowledgementOnTheWire() throws IOException {
+    String global = resource("static/js/console/config/global.js");
+
+    assertThat(global).contains("acknowledgeDestructive");
+    assertThat(global).contains("memories_vec");
+  }
+
+  @Test
+  void pendingRestartIsReadFromTheServerNotInferredFromLocalEdits() throws IOException {
+    String global = resource("static/js/console/config/global.js");
+
+    // The daemon reports file-vs-running divergence, so the banner survives a page reload.
+    assertThat(global).contains("restart-pending");
+  }
+
+  @Test
+  void globalConfigViewSectionExistsInTheShell() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+
+    assertThat(html.select("main > section.view#view-global-config")).hasSize(1);
+  }
+
   static String resource(String path) throws IOException {
     try (InputStream in = ConfigConsoleAssetsTests.class.getClassLoader().getResourceAsStream(path)) {
       assertThat(in).as("resource %s", path).isNotNull();
