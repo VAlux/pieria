@@ -49,7 +49,8 @@ packaging/native/*/*.dll
 ### Local-only daemon rebuild helper (not for commit) ###
 .mcp.json
 .claude
-.codex.superpowers/
+.codex/
+.superpowers/
 
 # Seeded design-canvas outputs are regenerable from their .dc.html sources.
 docs/design/**/*.html
