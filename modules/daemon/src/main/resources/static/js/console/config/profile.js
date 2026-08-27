@@ -26,6 +26,9 @@ let layers = null;
 let openSections = Object.assign({}, OPEN_BY_DEFAULT);
 let focusedChannel = null;
 let currentProfile = "";
+let mixHost = null;
+let channelFields = null;
+let saveBarHost = null;
 
 function at(tree, key) {
   const parts = key.split(".");
@@ -91,6 +94,9 @@ export function unloadProfileConfig() {
   layers = null;
   focusedChannel = null;
   openSections = Object.assign({}, OPEN_BY_DEFAULT);
+  mixHost = null;
+  channelFields = null;
+  saveBarHost = null;
 }
 
 function fetchDetail(profile) {
@@ -103,6 +109,33 @@ function fetchDetail(profile) {
 
 function valueOf(key) {
   return form.isSet(key) ? form.values[key] : at(layers.global, key);
+}
+
+// Repainting the mix and the save bar in place is what lets a slider drag survive: neither of
+// these lives inside the field row that owns the slider.
+function paintMix() {
+  if (!mixHost || !channelFields) return;
+  const weights = channelFields.map(function (f) {
+    return { key: f.key, label: f.key.replace("retrieval.weight-", ""), value: valueOf(f.key) };
+  });
+  renderChannelMix(mixHost, weights, {
+    focused: focusedChannel,
+    disabledNote: "A weight of 0 disables the channel; its traversal settings below are inactive.",
+    onFocus: function (key) {
+      focusedChannel = focusedChannel === key ? null : key;
+      render();
+    }
+  });
+}
+
+function paintSaveBar() {
+  if (!saveBarHost) return;
+  form.renderSaveBar(saveBarHost, {
+    endpoint: "PUT /v1/profiles/" + currentProfile + "/config",
+    saveLabel: "Save overrides",
+    onDiscard: function () { form.discard(); render(); },
+    onSave: save
+  });
 }
 
 function render() {
@@ -141,12 +174,8 @@ function render() {
 
   const bar = el("div", "cfg-savebar");
   root.appendChild(bar);
-  form.renderSaveBar(bar, {
-    endpoint: "PUT /v1/profiles/" + currentProfile + "/config",
-    saveLabel: "Save overrides",
-    onDiscard: function () { form.discard(); render(); },
-    onSave: save
-  });
+  saveBarHost = bar;
+  paintSaveBar();
 }
 
 function renderSection(group, errors, graphOff) {
@@ -175,25 +204,10 @@ function renderSection(group, errors, graphOff) {
   body.hidden = !open;
 
   if (group.section === "channels") {
-    const mixHost = el("div");
+    mixHost = el("div");
     body.appendChild(mixHost);
-    const weights = group.fields
-      .filter(function (f) { return f.kind === "weight"; })
-      .map(function (f) {
-        return {
-          key: f.key,
-          label: f.key.replace("retrieval.weight-", ""),
-          value: valueOf(f.key)
-        };
-      });
-    renderChannelMix(mixHost, weights, {
-      focused: focusedChannel,
-      disabledNote: "A weight of 0 disables the channel; its traversal settings below are inactive.",
-      onFocus: function (key) {
-        focusedChannel = focusedChannel === key ? null : key;
-        render();
-      }
-    });
+    channelFields = group.fields.filter(function (f) { return f.kind === "weight"; });
+    paintMix();
   }
 
   group.fields.forEach(function (field) {
@@ -206,6 +220,11 @@ function renderSection(group, errors, graphOff) {
       error: errors[field.key],
       disabled: inactive,
       onChange: function (next) { form.set(field.key, next); render(); },
+      onLiveChange: function (next) {
+        form.set(field.key, next);
+        paintMix();
+        paintSaveBar();
+      },
       onReset: function () { form.clear(field.key); render(); }
     }));
   });
@@ -242,13 +261,18 @@ function save() {
   request
     .then(function (r) {
       if (!r.ok) return r.text().then(function (text) { throw new Error(text || ("Save failed (" + r.status + ").")); });
+      // The write succeeded, so the form is clean regardless of whether the refetch below does.
       form.commit();
       toast("Overrides saved for " + currentProfile, "ok");
+      render();
       return fetchDetail(currentProfile);
     })
     .then(function (fresh) {
-      if (fresh) layers = fresh;
+      layers = fresh;
       render();
     })
-    .catch(function (e) { toast(e.message, "err"); });
+    .catch(function (e) {
+      toast(e.message, "err");
+      render();
+    });
 }

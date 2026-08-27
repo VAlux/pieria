@@ -33,21 +33,6 @@ function control(field, view) {
     return wrap;
   }
 
-  // A weight is a number you compare to its siblings, so it gets a slider as well as the number.
-  if (field.kind === "weight") {
-    const slider = el("input");
-    slider.type = "range";
-    slider.min = "0";
-    slider.max = "5";
-    slider.step = "0.1";
-    slider.value = String(view.value);
-    slider.disabled = !!view.disabled;
-    slider.addEventListener("input", function () {
-      view.onChange(parseFloat(slider.value).toFixed(1));
-    });
-    wrap.appendChild(slider);
-  }
-
   // Every kind that isn't handled above (int, double, string, secret) shares this one text
   // input; the only distinction between them is width and, for secret, the masked placeholder.
   const input = el("input", "mono num" + (WIDE_KINDS[field.kind] ? " wide" : "")
@@ -57,6 +42,31 @@ function control(field, view) {
   input.disabled = !!view.disabled;
   if (field.kind === "secret" && view.source !== "set") input.placeholder = "••••••••";
   input.addEventListener("change", function () { view.onChange(input.value); });
+
+  // A weight is a number you compare to its siblings, so it gets a slider as well as the number.
+  if (field.kind === "weight") {
+    const slider = el("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "5";
+    slider.step = "0.1";
+    slider.value = String(view.value);
+    slider.disabled = !!view.disabled;
+    // Dragging must not rebuild this row: the browser tracks a drag against the node that received
+    // the mousedown, so replacing the slider mid-drag drops the capture and it stops moving after
+    // one tick. While dragging we only push the value outward — the caller repaints the mix bar and
+    // the save bar, both of which live outside this row. The full re-render waits for `change`.
+    slider.addEventListener("input", function () {
+      const next = parseFloat(slider.value).toFixed(1);
+      input.value = next;
+      if (view.onLiveChange) view.onLiveChange(next);
+    });
+    slider.addEventListener("change", function () {
+      view.onChange(parseFloat(slider.value).toFixed(1));
+    });
+    wrap.appendChild(slider);
+  }
+
   wrap.appendChild(input);
   return wrap;
 }
