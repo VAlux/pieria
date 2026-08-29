@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  * <p>Rules, in order, first match wins:
  * <ol>
  *   <li><b>keep</b> any failure, whatever the tool — a failing read is signal;</li>
- *   <li><b>drop</b> a successful call to a denylisted read-only tool;</li>
+ *   <li><b>drop</b> a non-failing call to a denylisted read-only tool;</li>
  *   <li><b>drop</b> all but the last occurrence of a {@code (signature, status)} in the batch;</li>
  *   <li><b>drop</b> a trace whose active outcome already records the same status and error
  *       digest.</li>
@@ -78,19 +78,30 @@ public class TraceRelevanceFilter {
       }
     }
 
-    // Rule 3: keep only the last occurrence of each (signature, status) in the batch.
-    Map<String, TraceEvent> lastPerKey = new LinkedHashMap<>();
-    for (TraceEvent event : admitted) {
-      lastPerKey.put(event.signature() + KEY_SEPARATOR + event.status().wire(), event);
+    // Rule 3: keep only the last occurrence of each (signature, status) in the batch, preserving
+    // arrival order. Track the index of each (signature, status) key's last occurrence, then walk
+    // the admitted list in order and keep only matching events.
+    Map<String, Integer> lastIndexPerKey = new LinkedHashMap<>();
+    for (int i = 0; i < admitted.size(); i++) {
+      TraceEvent event = admitted.get(i);
+      lastIndexPerKey.put(event.signature() + KEY_SEPARATOR + event.status().wire(), i);
     }
-    int collapsed = admitted.size() - lastPerKey.size();
+    int collapsed = admitted.size() - lastIndexPerKey.size();
     if (collapsed > 0) {
       dropped.merge("in-batch-repeat", collapsed, Integer::sum);
+    }
+    List<TraceEvent> deduped = new ArrayList<>();
+    for (int i = 0; i < admitted.size(); i++) {
+      TraceEvent event = admitted.get(i);
+      String key = event.signature() + KEY_SEPARATOR + event.status().wire();
+      if (lastIndexPerKey.get(key) == i) {
+        deduped.add(event);
+      }
     }
 
     // Rule 4: skip an outcome the store already records unchanged.
     List<TraceEvent> kept = new ArrayList<>();
-    for (TraceEvent event : lastPerKey.values()) {
+    for (TraceEvent event : deduped) {
       if (properties.skipUnchangedOutcomes() && isUnchanged(event, activeOutcomeLookup)) {
         dropped.merge("unchanged-outcome", 1, Integer::sum);
       } else {

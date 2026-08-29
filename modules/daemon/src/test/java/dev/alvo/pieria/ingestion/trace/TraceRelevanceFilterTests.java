@@ -53,7 +53,16 @@ class TraceRelevanceFilterTests {
 
   @Test
   void bashAndEditsAreAlwaysKept() {
-    TraceRelevanceFilter.Result result = run(filter,
+    // Bash/Edit/Write are not on the default denylist, so test with a filter that has them
+    // explicitly denylisted to verify the ALWAYS_KEPT override
+    TraceProperties d = TraceProperties.defaults();
+    TraceRelevanceFilter override = new TraceRelevanceFilter(new TraceProperties(
+      d.enabled(), d.maxOutputChars(), d.spoolMaxBytes(), d.spoolRetentionDays(),
+      d.stopDrainThresholdBytes(), d.stopDrainThresholdEvents(),
+      List.of("bash", "edit", "write"), d.skipUnchangedOutcomes(), d.recipeExtractionEnabled(),
+      d.maxRecipesPerBatch(), d.maxLinkedSymbols(), d.recallBoost()));
+
+    TraceRelevanceFilter.Result result = run(override,
       event("Bash", "./gradlew test", TraceStatus.SUCCESS, null),
       event("Edit", "src/Foo.java", TraceStatus.SUCCESS, null),
       event("Write", "src/Bar.java", TraceStatus.SUCCESS, null));
@@ -71,6 +80,20 @@ class TraceRelevanceFilterTests {
     TraceRelevanceFilter.Result result = run(filter, first, second);
 
     assertThat(result.kept()).containsExactly(second);
+    assertThat(result.droppedByRule()).containsEntry("in-batch-repeat", 1);
+  }
+
+  @Test
+  void repeatedSignaturesPreserveArrivalOrder() {
+    // Regression: a repeated signature separated by a different command must not reorder. The
+    // batch [test(pass), lint(pass), test(pass)] should emit [lint, test] not [test, lint].
+    TraceEvent test1 = event("Bash", "./gradlew test", TraceStatus.SUCCESS, null);
+    TraceEvent lint = event("Bash", "./gradlew lint", TraceStatus.SUCCESS, null);
+    TraceEvent test2 = event("Bash", "./gradlew test", TraceStatus.SUCCESS, null);
+
+    TraceRelevanceFilter.Result result = run(filter, test1, lint, test2);
+
+    assertThat(result.kept()).containsExactly(lint, test2);
     assertThat(result.droppedByRule()).containsEntry("in-batch-repeat", 1);
   }
 
@@ -133,6 +156,27 @@ class TraceRelevanceFilterTests {
 
     assertThat(lenient.filter(List.of(passed), s -> Optional.of(activeOutcome("success", "none")))
       .kept()).hasSize(1);
+  }
+
+  @Test
+  void unknownStatusIsDroppedFromDenylistedTools() {
+    // UNKNOWN status (from non-process tools like Read) is treated as non-failing and dropped
+    // from denylisted tools, just like SUCCESS.
+    TraceRelevanceFilter.Result result = run(filter,
+      event("Read", "src/Foo.java", TraceStatus.UNKNOWN, null),
+      event("Grep", "pattern", TraceStatus.UNKNOWN, null));
+
+    assertThat(result.kept()).isEmpty();
+    assertThat(result.droppedByRule()).containsEntry("denylisted-tool", 2);
+  }
+
+  @Test
+  void unknownStatusSurvivesFromNonDenylistedTools() {
+    // UNKNOWN status from a non-denylisted tool survives
+    TraceRelevanceFilter.Result result = run(filter,
+      event("Bash", "ls /tmp", TraceStatus.UNKNOWN, null));
+
+    assertThat(result.kept()).hasSize(1);
   }
 
   @Test
