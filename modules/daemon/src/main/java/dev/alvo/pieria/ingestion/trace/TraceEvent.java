@@ -104,6 +104,16 @@ public record TraceEvent(
     return lastOutput != null ? lastOutput : NO_OUTPUT;
   }
 
+  /**
+   * The text an error digest is taken from: stderr when present, else whatever stdout carried.
+   * Shared by {@code TraceMemoryFactory.outcome} (what {@code error_digest} is computed from) and
+   * {@code TraceRelevanceFilter.isUnchanged} (what an incoming trace's digest is compared against) —
+   * both need the same input for "is this outcome unchanged" and "what gets stored" to stay in sync.
+   */
+  public String errorOrOutput() {
+    return error != null && !error.isBlank() ? error : output;
+  }
+
   private static String firstNonBlankLine(String text) {
     if (text == null) {
       return null;

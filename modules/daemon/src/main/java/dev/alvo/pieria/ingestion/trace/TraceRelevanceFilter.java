@@ -138,8 +138,7 @@ public class TraceRelevanceFilter {
     if (storedStatus == null || storedDigest == null) {
       return false;
     }
-    String incomingDigest = CommandSignature.errorDigest(
-      event.error() != null && !event.error().isBlank() ? event.error() : event.output());
+    String incomingDigest = CommandSignature.errorDigest(event.errorOrOutput());
     return storedStatus.equals(event.status().wire()) && storedDigest.equals(incomingDigest);
   }
 

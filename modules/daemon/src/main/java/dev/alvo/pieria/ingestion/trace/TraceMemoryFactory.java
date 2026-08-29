@@ -54,7 +54,7 @@ public final class TraceMemoryFactory {
     if (event.exitCode() != null) {
       payload.put("exit_code", event.exitCode());
     }
-    payload.put("error_digest", CommandSignature.errorDigest(digestSource(event)));
+    payload.put("error_digest", CommandSignature.errorDigest(event.errorOrOutput()));
 
     Memory memory = Memory.of(
       MemoryType.EVENT, content, event.sessionId(),
@@ -101,11 +101,6 @@ public final class TraceMemoryFactory {
       case SUCCESS -> invocation + " succeeded" + exitPart;
       case UNKNOWN -> invocation + " ran; outcome unknown";
     };
-  }
-
-  /** The text the error digest is taken from: stderr when present, else whatever stdout carried. */
-  private static String digestSource(TraceEvent event) {
-    return event.error() != null && !event.error().isBlank() ? event.error() : event.output();
   }
 
   /**

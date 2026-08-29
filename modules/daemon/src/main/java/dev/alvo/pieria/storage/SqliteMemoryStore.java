@@ -70,6 +70,15 @@ public class SqliteMemoryStore implements MemoryStore {
    */
   private static final String CODE_TOPIC_NAMESPACE = "code:";
 
+  /**
+   * Topic-key namespace owned by execution-trace outcome events
+   * ({@code dev.alvo.pieria.ingestion.trace.TraceMemoryFactory.OUTCOME_KEY_PREFIX}). EVENT is
+   * otherwise append-only (see {@link #store}); a trace outcome is the one EVENT population keyed
+   * so that the latest run of a command supersedes the previous one instead of accumulating one row
+   * per run (execution-trace-memory design D5).
+   */
+  private static final String TRACE_OUTCOME_TOPIC_NAMESPACE = "trace:outcome:";
+
   private static final double DEFAULT_NEAR_DUPLICATE_THRESHOLD =
     Double.parseDouble(PieriaProperties.NEAR_DUPLICATE_THRESHOLD_DEFAULT);
 
@@ -205,6 +214,10 @@ public class SqliteMemoryStore implements MemoryStore {
 
   private static boolean isCodeDerived(String topicKey) {
     return topicKey != null && topicKey.startsWith(CODE_TOPIC_NAMESPACE);
+  }
+
+  private static boolean isTraceOutcome(String topicKey) {
+    return topicKey != null && topicKey.startsWith(TRACE_OUTCOME_TOPIC_NAMESPACE);
   }
 
   private static List<Scored> getScoredList(List<Memory> active, List<String> terms, List<String> matchedSessions) {
@@ -706,15 +719,24 @@ public class SqliteMemoryStore implements MemoryStore {
   public StoreOutcome store(String profileId, Memory memory, GraphFragment graph, long sourceTokens) {
     String id = resolveMemoryId(profileId, memory);
 
-    // EVENT and TASK are append-only; only FACT/INSTRUCTION supersede a predecessor.
-    boolean supersedable =
+    // TASK is always append-only, and so is EVENT — EXCEPT for the one keyed EVENT population:
+    // trace outcomes (`trace:outcome:<signature>`), keyed so the latest run of a command supersedes
+    // the previous one (execution-trace-memory design D5) instead of accumulating one row per run.
+    // A conversational EVENT never uses this topic-key namespace, so it stays append-only.
+    boolean keyedSupersedable = memory.type() == MemoryType.FACT
+      || memory.type() == MemoryType.INSTRUCTION
+      || (memory.type() == MemoryType.EVENT && isTraceOutcome(memory.topicKey()));
+    // Near-duplicate-content supersession stays FACT/INSTRUCTION-only: it exists to catch a
+    // restated fact under a drifted topic key, which is a conversational-extraction problem that
+    // does not apply to deterministic, exactly-keyed trace outcomes.
+    boolean nearDuplicateSupersedable =
       memory.type() == MemoryType.FACT || memory.type() == MemoryType.INSTRUCTION;
 
     String supersededId = null;
-    if (supersedable && memory.topicKey() != null) {
+    if (keyedSupersedable && memory.topicKey() != null) {
       supersededId = activeIdByTopicKey(profileId, memory, id);
     }
-    if (supersededId == null && supersedable) {
+    if (supersededId == null && nearDuplicateSupersedable) {
       supersededId = activeIdByNearDuplicateContent(profileId, memory, id);
     }
 
