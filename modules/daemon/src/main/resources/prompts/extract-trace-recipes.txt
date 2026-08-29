@@ -1,0 +1,18 @@
+You are reading an ordered log of tool calls a coding agent ran in one working session, with the
+outcome of each. Derive the durable procedural knowledge a future session would want to know.
+
+Log:
+{{traceLog}}
+
+Emit a JSON array. Each element is an object with exactly two string fields:
+  "command"   - the invocation the statement is about, copied verbatim from the log
+  "statement" - one declarative sentence stating the durable knowledge
+
+Rules:
+- Only state what the log shows. Never infer a cause the log does not contain.
+- Prefer knowledge that stays true: how something is run, what a failure means, what fixed it.
+- Skip one-off results. "The build failed at 10:04" is not durable; "the build fails when the
+  sqlite-vec extension is missing, and installing it fixes the failure" is.
+- When the log shows a failure followed by a fix, state both in one sentence.
+- Emit an empty array if the log contains nothing durable. An empty array is a correct answer.
+- Emit only the JSON array, with no prose before or after it.
