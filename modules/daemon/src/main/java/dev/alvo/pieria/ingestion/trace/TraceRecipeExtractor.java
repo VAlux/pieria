@@ -149,8 +149,11 @@ public class TraceRecipeExtractor {
           dropped++;
           continue;
         }
-        String content = verdict.verdict() == VerificationVerdict.CORRECT
-          ? verdict.content() : suspects.get(i).statement();
+        // Mirrors the conversational path (IngestionService): a CORRECT verdict with blank
+        // corrected content falls back to the original rather than storing an empty statement.
+        boolean useCorrection = verdict.verdict() == VerificationVerdict.CORRECT
+          && verdict.content() != null && !verdict.content().isBlank();
+        String content = useCorrection ? verdict.content() : suspects.get(i).statement();
         accepted.add(new TraceRecipe(suspects.get(i).command(), content));
       }
     }

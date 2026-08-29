@@ -36,7 +36,7 @@ class TraceRecipeExtractorTests {
     public List<VerificationResult> verifyAll(List<String> contents, String transcript) {
       verifyCalls.addAll(contents);
       return contents.stream()
-        .map(content -> new VerificationResult(verdict, content, "scripted"))
+        .map(content -> new VerificationResult(verdict, "corrected: " + content, "scripted"))
         .toList();
     }
 
@@ -159,7 +159,8 @@ class TraceRecipeExtractorTests {
         .extract(List.of(event("./gradlew test", TraceStatus.FAILURE, "boom")), Set.of());
 
     assertThat(result.recipes()).hasSize(1);
-    assertThat(result.recipes().getFirst().statement()).isEqualTo("Something loosely related here.");
+    assertThat(result.recipes().getFirst().statement())
+      .isEqualTo("corrected: Something loosely related here.");
   }
 
   @Test
@@ -222,6 +223,79 @@ class TraceRecipeExtractorTests {
         .extract(List.of(event("./gradlew test", TraceStatus.FAILURE, "boom")), Set.of());
 
     assertThat(result.recipes()).isEmpty();
+  }
+
+  // Recipe derivation is additive at the verify stage too: a verifyAll failure must drop only
+  // the suspects sent to it, not the grounded recipes accepted earlier in the same batch.
+  @Test
+  void aVerifyAllFailureDropsOnlyTheSuspectsButKeepsGroundedRecipes() {
+    ModelGateway gateway = new ModelGateway() {
+      @Override
+      public List<TraceRecipe> extractTraceRecipes(String traceLog) {
+        return List.of(
+          new TraceRecipe("./gradlew test", "./gradlew test failed with exit 1 and boom"),
+          new TraceRecipe("./gradlew test", "Something entirely unrelated to the log."));
+      }
+
+      @Override
+      public List<VerificationResult> verifyAll(List<String> contents, String transcript) {
+        throw new IllegalStateException("provider down");
+      }
+
+      @Override
+      public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
+        return "";
+      }
+
+      @Override
+      public float[] embed(String text) {
+        return new float[0];
+      }
+    };
+
+    TraceRecipeExtractor.Result result =
+      new TraceRecipeExtractor(gateway, TraceProperties.defaults())
+        .extract(List.of(event("./gradlew test", TraceStatus.FAILURE, "boom")), Set.of());
+
+    assertThat(result.recipes()).hasSize(1);
+    assertThat(result.recipes().getFirst().statement())
+      .isEqualTo("./gradlew test failed with exit 1 and boom");
+  }
+
+  // The fallback mirrors the conversational path (IngestionService): a CORRECT verdict with
+  // blank corrected content must not produce a recipe with an empty statement.
+  @Test
+  void aCorrectVerdictWithBlankContentFallsBackToTheOriginalStatement() {
+    ModelGateway gateway = new ModelGateway() {
+      @Override
+      public List<TraceRecipe> extractTraceRecipes(String traceLog) {
+        return List.of(new TraceRecipe("./gradlew test", "Something loosely related here."));
+      }
+
+      @Override
+      public List<VerificationResult> verifyAll(List<String> contents, String transcript) {
+        return contents.stream()
+          .map(content -> new VerificationResult(VerificationVerdict.CORRECT, "  ", "scripted"))
+          .toList();
+      }
+
+      @Override
+      public String synthesizeRecall(String query, List<RecallCandidate> candidates) {
+        return "";
+      }
+
+      @Override
+      public float[] embed(String text) {
+        return new float[0];
+      }
+    };
+
+    TraceRecipeExtractor.Result result =
+      new TraceRecipeExtractor(gateway, TraceProperties.defaults())
+        .extract(List.of(event("./gradlew test", TraceStatus.FAILURE, "boom")), Set.of());
+
+    assertThat(result.recipes()).hasSize(1);
+    assertThat(result.recipes().getFirst().statement()).isEqualTo("Something loosely related here.");
   }
 
   @Test
