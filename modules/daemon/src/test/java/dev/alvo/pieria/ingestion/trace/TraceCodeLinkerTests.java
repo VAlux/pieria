@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.code.CodeSymbolKind;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.NoOpCodeIndexStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,17 +22,21 @@ class TraceCodeLinkerTests {
   private static final class RecordingStore extends NoOpCodeIndexStore {
     final List<String> qualifiedQueries = new ArrayList<>();
     final List<String> nameQueries = new ArrayList<>();
+    int qualifiedInvocations = 0;
+    int nameInvocations = 0;
     List<CodeSymbol> qualifiedHits = List.of();
     List<CodeSymbol> nameHits = List.of();
 
     @Override
     public List<CodeSymbol> findSymbolsByQualifiedName(String profileId, List<String> names, int limit) {
+      qualifiedInvocations++;
       qualifiedQueries.addAll(names);
       return qualifiedHits;
     }
 
     @Override
     public List<CodeSymbol> findSymbolsByName(String profileId, List<String> names, int limit) {
+      nameInvocations++;
       nameQueries.addAll(names);
       return nameHits;
     }
@@ -112,8 +117,8 @@ class TraceCodeLinkerTests {
     List<String> ids = new TraceCodeLinker(store, 10).link("p1", event("connection refused"));
 
     assertThat(ids).isEmpty();
-    assertThat(store.qualifiedQueries).isEmpty();
-    assertThat(store.nameQueries).isEmpty();
+    assertThat(store.qualifiedInvocations).isZero();
+    assertThat(store.nameInvocations).isZero();
   }
 
   @Test
@@ -123,5 +128,34 @@ class TraceCodeLinkerTests {
 
     assertThat(new TraceCodeLinker(store, 0).link("p1", event("at dev.alvo.Foo.bar(Foo.java:1)")))
       .isEmpty();
+  }
+
+  @Test
+  void qualifiedNamesArePrioritizedOverBareNames() {
+    RecordingStore store = new RecordingStore();
+    store.qualifiedHits = List.of(symbol("qualified1", "dev.alvo.Foo.bar"));
+    store.nameHits = List.of(symbol("bare1", "SomeBareName"));
+
+    List<String> ids = new TraceCodeLinker(store, 1)
+      .link("p1", event("at dev.alvo.Foo.bar(Foo.java:1) and SomeBareName > test FAILED"));
+
+    assertThat(ids).containsExactly("qualified1");
+    assertThat(store.qualifiedInvocations).isEqualTo(1);
+    assertThat(store.nameInvocations).isZero();
+  }
+
+  @Test
+  @Timeout(5)
+  void performanceRegressionOnLongWordCharacterSequence() {
+    RecordingStore store = new RecordingStore();
+    String longWordChars = "a".repeat(4000);
+    TraceEvent event = new TraceEvent("tid", "s1", "Bash", longWordChars, "", TraceStatus.FAILURE, 1,
+      "", AT, false, 0);
+
+    List<String> ids = new TraceCodeLinker(store, 10).link("p1", event);
+
+    assertThat(ids).isEmpty();
+    assertThat(store.qualifiedInvocations).isZero();
+    assertThat(store.nameInvocations).isZero();
   }
 }

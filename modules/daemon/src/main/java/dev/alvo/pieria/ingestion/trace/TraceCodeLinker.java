@@ -34,7 +34,7 @@ public class TraceCodeLinker {
 
   /** A source path; the file's base name is the symbol candidate. */
   private static final Pattern SOURCE_PATH =
-    Pattern.compile("[\\w./-]*?([A-Za-z_][A-Za-z0-9_]*)\\.(?:java|kt|scala|js|ts|tsx|scss|py|go|rs)\\b");
+    Pattern.compile("\\b([A-Za-z_][A-Za-z0-9_]*+)\\.(?:java|kt|scala|js|ts|tsx|scss|py|go|rs)\\b");
 
   private final CodeIndexStore store;
   private final int maxLinkedSymbols;
