@@ -26,7 +26,7 @@ public final class CommandSignature {
   private static final int DIGEST_TAIL_CHARS = 512;
 
   private static final Pattern NUMERIC = Pattern.compile("\\d+");
-  private static final Pattern NON_SLUG = Pattern.compile("[^a-z0-9]+");
+  private static final Pattern NON_SLUG = Pattern.compile("[^a-z0-9_]+");
   private static final Pattern LINE_COLUMN = Pattern.compile(":\\d+(?::\\d+)?\\b");
   private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
@@ -68,7 +68,7 @@ public final class CommandSignature {
   }
 
   /**
-   * Lowercase args, drop the leading {@code ./}, discard flags and their values and bare numbers,
+   * Lowercase args, drop the leading {@code ./}, discard flag tokens and bare numbers,
    * then keep the first {@value #MAX_TOKENS} tokens.
    */
   private static List<String> meaningfulTokens(String args) {
@@ -77,18 +77,12 @@ public final class CommandSignature {
     }
     String[] raw = WHITESPACE.split(args.strip().toLowerCase(Locale.ROOT));
     List<String> tokens = new ArrayList<>();
-    boolean skipNextAsFlagValue = false;
     for (String token : raw) {
       if (token.isEmpty()) {
         continue;
       }
       if (token.startsWith("-")) {
-        // A flag; its following token is presumed to be its value unless the flag is `--key=value`.
-        skipNextAsFlagValue = !token.contains("=");
-        continue;
-      }
-      if (skipNextAsFlagValue) {
-        skipNextAsFlagValue = false;
+        // Skip the flag token itself, but keep its value.
         continue;
       }
       if (NUMERIC.matcher(token).matches()) {

@@ -77,4 +77,20 @@ class CommandSignatureTests {
     assertThat(CommandSignature.errorDigest("PREFIX-A" + shared))
       .isEqualTo(CommandSignature.errorDigest("PREFIX-B" + shared));
   }
+
+  // Regression: flag values carry identifying information (what file, what name), not tuning noise.
+  // kubectl apply -f service.yaml and kubectl apply -f deployment.yaml are different commands.
+  @Test
+  void flagValuesWithIdentifyingContentProduceDifferentSignatures() {
+    assertThat(CommandSignature.of("Bash", "kubectl apply -f service.yaml"))
+      .isNotEqualTo(CommandSignature.of("Bash", "kubectl apply -f deployment.yaml"));
+  }
+
+  // Regression: underscore is a semantic separator in identifiers (test_unit vs test-unit).
+  // npm run test-unit and npm run test_unit are different scripts.
+  @Test
+  void underscoresArePreservedAsPartOfIdentifiers() {
+    assertThat(CommandSignature.of("Bash", "npm run test-unit"))
+      .isNotEqualTo(CommandSignature.of("Bash", "npm run test_unit"));
+  }
 }
