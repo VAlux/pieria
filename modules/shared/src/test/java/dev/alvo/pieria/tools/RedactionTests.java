@@ -163,4 +163,21 @@ class RedactionTests {
     assertThat(result.text()).containsPattern("api_key: '\\[redacted\\]'");
     assertThat(result.hits()).isEqualTo(2);
   }
+
+  // C1: Long non-terminating credential names must not cause StackOverflowError.
+  // Regression test for catastrophic backtracking in the possessive suffix group.
+  // The suffix group (?:[_-][a-zA-Z0-9]+)*+ must not attempt unbounded backtracking when
+  // no terminating : or = is found. Input of 5000 _a repetitions would overflow stack without
+  // the possessive quantifier fix.
+  @Test
+  void longNonTerminatingCredentialNameDoesNotCauseStackOverflow() {
+    String text = "secret" + "_a".repeat(5000);  // No terminating : or =
+
+    // Should complete without StackOverflowError
+    Redaction.Redacted result = Redaction.redactSecrets(text);
+
+    // No secrets detected because there's no terminating : or =
+    assertThat(result.hits()).isZero();
+    assertThat(result.text()).isEqualTo(text);
+  }
 }

@@ -40,8 +40,9 @@ public final class Redaction {
     // key=value / key: value assignments whose key names a credential.
     // I1: Allow snake_case/kebab-case (SECRET_KEY, my_password) and JSON quoted keys ("password").
     // I3: Prevent Bearer pattern from being matched as a credential value.
+    // C1: Possessive quantifier *+ prevents catastrophic backtracking on long non-terminating suffixes.
     // Negative lookahead prevents re-matching [redacted] to ensure idempotence.
-    Pattern.compile("(?i)(?<![a-zA-Z0-9])(?:api[_-]?key|secret|token|password|passwd|pwd|auth|credential)(?:[_-][a-zA-Z0-9]+)*[\"']?"
+    Pattern.compile("(?i)(?<![a-zA-Z0-9])(?:api[_-]?key|secret|token|password|passwd|pwd|auth|credential)(?:[_-][a-zA-Z0-9]+)*+[\"']?"
       + "\\s*[:=]\\s*[\"']?(?!\\[redacted\\]|Bearer )([^\\s\"']{6,})[\"']?"));
 
   private Redaction() {
