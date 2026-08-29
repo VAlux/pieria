@@ -1,7 +1,7 @@
 import { $ } from "../util/dom.js";
 import { state } from "./state.js";
 import { setView } from "./router.js";
-import { loadProfiles, selectProfile } from "./profiles.js";
+import { loadProfiles, selectProfile, deleteProfile } from "./profiles.js";
 import { resetPageAndRender, loadMemories } from "./memories.js";
 import { closeDrawer, forgetDrawerMemory } from "./drawer.js";
 import { submitAdd } from "./add.js";
@@ -24,6 +24,10 @@ function applyAuditFiltersNow() {
 
 function wireUp() {
   $("profileList").addEventListener("click", function (e) {
+    // The delete control is a sibling of the profile entry, so it needs its own branch — and it
+    // has to come first, or a stray match would select the profile it is about to remove.
+    const del = e.target.closest("button[data-delete-profile]");
+    if (del) { deleteProfile(del.dataset.deleteProfile, Number(del.dataset.memoryCount)); return; }
     const link = e.target.closest("button[data-view]");
     if (link) { setView(link.dataset.view); return; }
     const button = e.target.closest("button[data-profile]");

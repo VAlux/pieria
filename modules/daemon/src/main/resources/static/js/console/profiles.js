@@ -1,6 +1,8 @@
-import { $, el, apiFetch } from "../util/dom.js";
+import { $, el, apiFetch, icon } from "../util/dom.js";
 import { state } from "./state.js";
 import { renderBanner, loadActiveView, syncUrl } from "./router.js";
+import { unloadProfileConfig } from "./config/profile.js";
+import { toast } from "./toast.js";
 
 const profileList = () => $("profileList");
 
@@ -47,6 +49,22 @@ function renderSubList(row) {
   row.appendChild(sub);
 }
 
+// The profile's own delete affordance. Reuses the memory list's trash icon so the two
+// destructive controls read as the same gesture; it stays hidden until the row is hovered or
+// focused, because a profile delete is rarer than a profile switch and should not compete with it.
+function renderDeleteButton(profile) {
+  const del = el("button", "icon-btn side-panel-delete");
+  del.type = "button";
+  del.dataset.deleteProfile = profile.name;
+  // The count travels on the element so the confirmation can name what is about to be destroyed
+  // without a second round trip.
+  del.dataset.memoryCount = String(profile.memoryCount);
+  del.title = "Delete profile";
+  del.setAttribute("aria-label", "Delete profile " + profile.name);
+  del.appendChild(icon("trash", 14));
+  return del;
+}
+
 function renderProfiles(profiles) {
   const list = profileList();
   list.innerHTML = "";
@@ -65,7 +83,12 @@ function renderProfiles(profiles) {
       button.classList.add("active");
       button.setAttribute("aria-current", "page");
     }
-    row.appendChild(button);
+    // The entry and its delete control are siblings: a button cannot nest inside a button, and the
+    // sublist below has to stay a child of the <li> rather than of the row.
+    const line = el("div", "side-panel-row");
+    line.appendChild(button);
+    line.appendChild(renderDeleteButton(profile));
+    row.appendChild(line);
 
     // The selected profile reveals its own sections. Configuration is per-profile, so its entry
     // belongs under the profile rather than in the global nav.
@@ -97,6 +120,7 @@ export function loadProfiles(preferred) {
     .then(function (data) {
       const profiles = sortedProfiles(data);
       if (!profiles.length) {
+        clearProfileSelection();
         renderProfileState("No profiles");
         renderBanner($("memList"), "No profiles found. Ingest or store a memory first.");
         // A non-profile-scoped view still has to load here. loadActiveView dispatches
@@ -135,4 +159,43 @@ export function selectProfile(profile) {
   $("profileLabel").textContent = "· " + profile;
   syncUrl();
   loadActiveView(true);   // reload whatever view is active
+}
+
+// Drop the selection when the profile it names is gone. Leaving state.profile pointing at a
+// deleted profile would send the next fetch of every view to a 404.
+function clearProfileSelection() {
+  if (!state.profile) return;
+  state.profile = "";
+  $("profileLabel").textContent = "";
+  // profile-config is scoped to the profile that just disappeared; without this its form stays on
+  // screen offering to save overrides to a profile the daemon no longer has.
+  if (state.view === "profile-config") {
+    unloadProfileConfig();
+    renderBanner($("view-profile-config"), "No profile selected.");
+  }
+  syncUrl();
+}
+
+/**
+ * Delete a profile and every memory it owns. Unlike forget, which supersedes, the endpoint is a
+ * hard physical delete with no undo — so the dialog names both the profile and the size of what is
+ * about to go, and the panel is re-resolved from the daemon rather than patched locally.
+ */
+export function deleteProfile(name, memoryCount) {
+  const count = Number.isFinite(memoryCount) ? memoryCount : 0;
+  const memories = count === 1 ? "1 memory" : count + " memories";
+  if (!window.confirm('Delete profile "' + name + '" and all ' + memories + " it owns?\n\n"
+    + "This cannot be undone.")) return;
+  apiFetch("/v1/profiles/" + encodeURIComponent(name), { method: "DELETE" })
+    .then(function (r) {
+      if (r.status === 204) toast("Profile deleted", "ok");
+      else if (r.status === 404) toast("Profile not found", "err");     // already gone; still resync
+      else { toast("Delete failed (" + r.status + ")", "err"); return; }
+      // Deleting the selected profile leaves every view pointing at a name that no longer resolves,
+      // so clear it first and let loadProfiles pick whatever is left.
+      const preferred = state.profile === name ? "" : state.profile;
+      if (state.profile === name) clearProfileSelection();
+      loadProfiles(preferred);
+    })
+    .catch(function (e) { toast(e.message, "err"); });
 }

@@ -114,6 +114,16 @@ body.view-graph main { padding: 0; overflow: hidden; }
 .side-panel-item.active .side-panel-rail { background: var(--accent); }
 .side-panel-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel-count { flex: none; font-size: 11px; color: var(--dim); }
+/* A profile row is the entry plus its own delete control. The column is reserved permanently so
+   revealing the trash cannot reflow the name beside it; `visibility` rather than `opacity` keeps
+   the hidden button out of the hit area and out of the tab order until the row is engaged. */
+.side-panel-row { display: flex; align-items: center; gap: 2px; }
+.side-panel-row .side-panel-item { flex: 1 1 auto; min-width: 0; padding-right: 4px; }
+.side-panel-delete { width: 24px; height: 24px; margin-top: 0; visibility: hidden; }
+.side-panel-row:hover .side-panel-delete,
+.side-panel-row:focus-within .side-panel-delete { visibility: visible; }
+/* Without hover there is no other way to reach it. */
+@media (hover: none) { .side-panel-delete { visibility: visible; } }
 .side-panel-status { padding: 7px 9px; color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
 .side-panel-status.err { color: var(--danger); }
 /* A profile's own sections, revealed when it is selected. Indented and a step quieter than the

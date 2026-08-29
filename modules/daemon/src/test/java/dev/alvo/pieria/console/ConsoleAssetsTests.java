@@ -221,6 +221,62 @@ class ConsoleAssetsTests {
     assertThat(d3).contains("forceSimulation", "forceManyBody", "forceLink");
   }
 
+  @Test
+  void profileRowsCarryAHoverRevealedDeleteThatReusesTheForgetIcon() throws IOException {
+    String profiles = resource("static/js/console/profiles.js");
+    String main = resource("static/js/console/main.js");
+    String css = resource("static/css/console.css");
+
+    // Same trash the memory list uses, not a second glyph for the same gesture.
+    assertThat(profiles).contains("icon(\"trash\"", "del.dataset.deleteProfile = profile.name;");
+    // A button cannot nest inside a button, so the control is a sibling of the profile entry —
+    // which is exactly why the panel's click delegation needs its own branch for it, ahead of the
+    // profile-selection branch.
+    assertThat(profiles).contains("side-panel-row");
+    int deleteBranch = main.indexOf("button[data-delete-profile]");
+    int selectBranch = main.indexOf("button[data-profile]");
+    assertThat(deleteBranch).as("delete branch must exist in the panel delegation").isNotNegative();
+    assertThat(deleteBranch).isLessThan(selectBranch);
+    // `visibility`, not `opacity`: a transparent button still swallows clicks aimed at the count
+    // column it sits in, and still answers Tab.
+    assertThat(css).contains(
+      ".side-panel-delete { width: 24px; height: 24px; margin-top: 0; visibility: hidden; }",
+      ".side-panel-row:hover .side-panel-delete",
+      ".side-panel-row:focus-within .side-panel-delete");
+    // Hover-only would leave the control unreachable on a touch device.
+    assertThat(css).contains("@media (hover: none) { .side-panel-delete { visibility: visible; } }");
+  }
+
+  @Test
+  void deletingAProfileConfirmsFirstAndThenResyncsTheSelection() throws IOException {
+    String profiles = resource("static/js/console/profiles.js");
+
+    // The endpoint is a hard physical delete with no undo, so the dialog must run before the call
+    // and declining must abort it outright.
+    int confirmIndex = profiles.indexOf("window.confirm(");
+    int requestIndex = profiles.indexOf("{ method: \"DELETE\" }");
+    assertThat(confirmIndex).as("delete must be confirmed").isNotNegative();
+    assertThat(requestIndex).as("delete must call the profile endpoint").isGreaterThan(confirmIndex);
+    assertThat(profiles).contains("export function deleteProfile", "This cannot be undone.");
+    assertThat(profiles).contains("\"/v1/profiles/\" + encodeURIComponent(name)");
+
+    // A selection left pointing at a deleted profile sends every view's next fetch to a 404, so it
+    // is dropped and the panel re-resolved from the daemon rather than patched locally.
+    assertThat(profiles).contains("clearProfileSelection();", "state.profile = \"\";", "loadProfiles(preferred)");
+  }
+
+  @Test
+  void tearingDownTheProfileConfigViewDropsItsMarkupNotJustItsState() throws IOException {
+    String config = resource("static/js/console/config/profile.js");
+
+    // Deleting the last profile leaves nothing to reload this view with; a form left in the DOM
+    // would go on offering to save overrides to a profile the daemon no longer has.
+    int start = config.indexOf("export function unloadProfileConfig");
+    assertThat(start).as("unloadProfileConfig must exist").isNotNegative();
+    String body = config.substring(start, config.indexOf("export function pendingChangeCount"));
+    assertThat(body).contains("$(\"view-profile-config\")", "innerHTML = \"\"", "currentProfile = \"\"");
+  }
+
   private static String resource(String path) throws IOException {
     try (InputStream stream = ConsoleAssetsTests.class.getClassLoader().getResourceAsStream(path)) {
       assertThat(stream).as("classpath resource %s", path).isNotNull();

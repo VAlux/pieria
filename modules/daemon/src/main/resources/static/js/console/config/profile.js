@@ -90,6 +90,11 @@ export function loadProfileConfig(profile) {
 }
 
 export function unloadProfileConfig() {
+  // The markup goes with the state: a form left in the DOM outlives the profile it was loaded for,
+  // and the next reader cannot tell a stale form from a current one.
+  const root = $("view-profile-config");
+  if (root) root.innerHTML = "";
+  currentProfile = "";
   form = null;
   layers = null;
   focusedChannel = null;
