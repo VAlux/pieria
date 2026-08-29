@@ -112,4 +112,55 @@ class RedactionTests {
     assertThat(result.text().length()).isLessThanOrEqualTo(260);
     assertThat(result.text()).doesNotContain("abcd1234efgh5678");
   }
+
+  // I1: snake_case and kebab-case credential names must be recognized.
+  @Test
+  void snakeCaseCredentialNamesAreRedacted() {
+    Redaction.Redacted result = Redaction.redactSecrets(
+      "SECRET_KEY=abcd1234efgh\nDATABASE_PASSWORD=hunter2pass\nGITHUB_TOKEN=ghp_abc123456789\nmy_password_field=secret123456");
+
+    assertThat(result.text()).doesNotContain("abcd1234efgh");
+    assertThat(result.text()).doesNotContain("hunter2pass");
+    assertThat(result.text()).doesNotContain("ghp_abc123456789");
+    assertThat(result.text()).doesNotContain("secret123456");
+    assertThat(result.hits()).isEqualTo(4);
+  }
+
+  // I2: Quoted JSON keys must match the credential pattern.
+  @Test
+  void quotedJsonKeysAreRedacted() {
+    String jsonLine = "{\"password\": \"hunter2trombone\"}";
+
+    Redaction.Redacted result = Redaction.redactSecrets(jsonLine);
+
+    assertThat(result.text()).doesNotContain("hunter2trombone");
+    assertThat(result.text()).contains("[redacted]");
+    assertThat(result.hits()).isEqualTo(1);
+  }
+
+  // I3: Bearer pattern must not cause the assignment pattern to double-count or duplicate the mask.
+  @Test
+  void bearerTokenIsNotDoubleRedacted() {
+    String text = "token: Bearer " + "c".repeat(24);
+
+    Redaction.Redacted result = Redaction.redactSecrets(text);
+
+    // Should be redacted once by Bearer pattern, not again by assignment pattern
+    assertThat(result.text()).contains("[redacted]");
+    assertThat(result.hits()).isEqualTo(1);
+    // Verify no duplicate mask
+    assertThat(result.text()).doesNotContain("[redacted] [redacted]");
+  }
+
+  // I4: Quoted secret values must keep their closing quote.
+  @Test
+  void quotedSecretValuesPreserveClosingQuote() {
+    String text = "password: \"hunter2trombone\"\napi_key: 'abcd1234efgh5678'";
+
+    Redaction.Redacted result = Redaction.redactSecrets(text);
+
+    assertThat(result.text()).containsPattern("password: \"\\[redacted\\]\"");
+    assertThat(result.text()).containsPattern("api_key: '\\[redacted\\]'");
+    assertThat(result.hits()).isEqualTo(2);
+  }
 }

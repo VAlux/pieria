@@ -38,9 +38,11 @@ public final class Redaction {
     // Authorization headers.
     Pattern.compile("(?i)\\bBearer\\s+([A-Za-z0-9._~+/=-]{12,})"),
     // key=value / key: value assignments whose key names a credential.
+    // I1: Allow snake_case/kebab-case (SECRET_KEY, my_password) and JSON quoted keys ("password").
+    // I3: Prevent Bearer pattern from being matched as a credential value.
     // Negative lookahead prevents re-matching [redacted] to ensure idempotence.
-    Pattern.compile("(?i)\\b(?:api[_-]?key|secret|token|password|passwd|pwd|auth|credential)\\b"
-      + "\\s*[:=]\\s*[\"']?(?!\\[redacted\\])([^\\s\"']{6,})[\"']?"));
+    Pattern.compile("(?i)(?<![a-zA-Z0-9])(?:api[_-]?key|secret|token|password|passwd|pwd|auth|credential)(?:[_-][a-zA-Z0-9]+)*[\"']?"
+      + "\\s*[:=]\\s*[\"']?(?!\\[redacted\\]|Bearer )([^\\s\"']{6,})[\"']?"));
 
   private Redaction() {
   }
@@ -85,7 +87,11 @@ public final class Redaction {
         // reads as "API_KEY=[redacted]" rather than vanishing entirely.
         String whole = matcher.group();
         String value = matcher.group(1);
-        String masked = whole.substring(0, whole.lastIndexOf(value)) + MASK;
+        int valueStart = whole.lastIndexOf(value);
+        // I4: Preserve any trailing quotes or characters matched after the value.
+        String beforeValue = whole.substring(0, valueStart);
+        String afterValue = whole.substring(valueStart + value.length());
+        String masked = beforeValue + MASK + afterValue;
         matcher.appendReplacement(out, Matcher.quoteReplacement(masked));
       }
       matcher.appendTail(out);
