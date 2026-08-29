@@ -222,29 +222,33 @@ class ConsoleAssetsTests {
   }
 
   @Test
-  void profileRowsCarryAHoverRevealedDeleteThatReusesTheForgetIcon() throws IOException {
+  void deleteSitsUnderConfigurationInTheSelectedProfilesSublist() throws IOException {
     String profiles = resource("static/js/console/profiles.js");
     String main = resource("static/js/console/main.js");
     String css = resource("static/css/console.css");
 
     // Same trash the memory list uses, not a second glyph for the same gesture.
-    assertThat(profiles).contains("icon(\"trash\"", "del.dataset.deleteProfile = profile.name;");
-    // A button cannot nest inside a button, so the control is a sibling of the profile entry —
-    // which is exactly why the panel's click delegation needs its own branch for it, ahead of the
-    // profile-selection branch.
-    assertThat(profiles).contains("side-panel-row");
+    assertThat(profiles).contains("icon(\"trash\"", "button.dataset.deleteProfile = name;");
+
+    // A sublist entry, so it exists only for the profile that is actually selected — that is what
+    // makes it unambiguous which profile it deletes, and keeps a destructive control off every row.
+    int subList = profiles.indexOf("function renderSubList");
+    int configEntry = profiles.indexOf("sub.appendChild(configItem());");
+    int deleteEntry = profiles.indexOf("sub.appendChild(deleteItem(");
+    assertThat(subList).as("renderSubList must exist").isNotNegative();
+    assertThat(configEntry).as("Configuration entry belongs to the sublist").isGreaterThan(subList);
+    assertThat(deleteEntry).as("delete goes under Configuration, not above it").isGreaterThan(configEntry);
+    assertThat(profiles).doesNotContain("side-panel-row");
+
+    // The panel delegates clicks, so delete needs its own branch — ahead of the profile-selection
+    // one, or a stray match would select a profile instead of deleting it.
     int deleteBranch = main.indexOf("button[data-delete-profile]");
     int selectBranch = main.indexOf("button[data-profile]");
     assertThat(deleteBranch).as("delete branch must exist in the panel delegation").isNotNegative();
     assertThat(deleteBranch).isLessThan(selectBranch);
-    // `visibility`, not `opacity`: a transparent button still swallows clicks aimed at the count
-    // column it sits in, and still answers Tab.
-    assertThat(css).contains(
-      ".side-panel-delete { width: 24px; height: 24px; margin-top: 0; visibility: hidden; }",
-      ".side-panel-row:hover .side-panel-delete",
-      ".side-panel-row:focus-within .side-panel-delete");
-    // Hover-only would leave the control unreachable on a touch device.
-    assertThat(css).contains("@media (hover: none) { .side-panel-delete { visibility: visible; } }");
+
+    // Red under the pointer only: a permanently red row shouts on every glance at the panel.
+    assertThat(css).contains(".side-panel-danger:hover { color: var(--danger);");
   }
 
   @Test

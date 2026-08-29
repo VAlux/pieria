@@ -19,10 +19,8 @@ function renderProfileState(message, isError) {
   list.appendChild(row);
 }
 
-// Build the profile's Configuration sub-entry. Extracted so renderProfiles (initial paint) and
-// markSelected (profile switch) share one definition rather than each building the markup inline.
-function renderSubList(row) {
-  const sub = el("ul", "side-panel-sublist");
+// The profile's Configuration entry.
+function configItem() {
   const item = el("li");
   const link = el("button", "side-panel-item side-panel-subitem");
   link.type = "button";
@@ -45,24 +43,43 @@ function renderSubList(row) {
     link.setAttribute("aria-current", "page");
   }
   item.appendChild(link);
-  sub.appendChild(item);
-  row.appendChild(sub);
+  return item;
 }
 
-// The profile's own delete affordance. Reuses the memory list's trash icon so the two
-// destructive controls read as the same gesture; it stays hidden until the row is hovered or
-// focused, because a profile delete is rarer than a profile switch and should not compete with it.
-function renderDeleteButton(profile) {
-  const del = el("button", "icon-btn side-panel-delete");
-  del.type = "button";
-  del.dataset.deleteProfile = profile.name;
+/**
+ * The profile's delete entry. It lives here rather than on the profile row itself so a destructive
+ * control is never the neighbour of the click that merely switches profiles: reaching it takes
+ * selecting the profile first, which is also what makes it unambiguous *which* profile it deletes.
+ * Quiet like its sibling until hovered — the red belongs to the gesture, not to the resting panel.
+ */
+function deleteItem(name, memoryCount) {
+  const item = el("li");
+  const button = el("button", "side-panel-item side-panel-subitem side-panel-danger");
+  button.type = "button";
+  button.dataset.deleteProfile = name;
   // The count travels on the element so the confirmation can name what is about to be destroyed
   // without a second round trip.
-  del.dataset.memoryCount = String(profile.memoryCount);
-  del.title = "Delete profile";
-  del.setAttribute("aria-label", "Delete profile " + profile.name);
-  del.appendChild(icon("trash", 14));
-  return del;
+  button.dataset.memoryCount = memoryCount || "0";
+  button.setAttribute("aria-label", "Delete profile " + name);
+  button.appendChild(el("span", "side-panel-rail"));
+  const trash = icon("trash", 15);
+  trash.classList.add("side-panel-icon");   // sit in the same column as Configuration's gear
+  button.appendChild(trash);
+  button.appendChild(el("span", "side-panel-name", "Delete profile"));
+  item.appendChild(button);
+  return item;
+}
+
+// Build the selected profile's sub-entries. Extracted so renderProfiles (initial paint) and
+// markSelected (profile switch) share one definition rather than each building the markup inline.
+function renderSubList(row) {
+  const sub = el("ul", "side-panel-sublist");
+  sub.appendChild(configItem());
+  // Name and count come off the row's own entry, so markSelected — which only knows the name —
+  // does not need a second source for them.
+  const owner = row.querySelector("button[data-profile]");
+  if (owner) sub.appendChild(deleteItem(owner.dataset.profile, owner.dataset.memoryCount));
+  row.appendChild(sub);
 }
 
 function renderProfiles(profiles) {
@@ -73,6 +90,7 @@ function renderProfiles(profiles) {
     const button = el("button", "side-panel-item");
     button.type = "button";
     button.dataset.profile = profile.name;
+    button.dataset.memoryCount = String(profile.memoryCount);
     button.title = profile.name + " (" + profile.memoryCount + ")";
     // Rail marks the active profile; the count is a tabular column rather than part of the label,
     // so a scan down the list reads as names on the left and magnitudes on the right.
@@ -83,12 +101,7 @@ function renderProfiles(profiles) {
       button.classList.add("active");
       button.setAttribute("aria-current", "page");
     }
-    // The entry and its delete control are siblings: a button cannot nest inside a button, and the
-    // sublist below has to stay a child of the <li> rather than of the row.
-    const line = el("div", "side-panel-row");
-    line.appendChild(button);
-    line.appendChild(renderDeleteButton(profile));
-    row.appendChild(line);
+    row.appendChild(button);
 
     // The selected profile reveals its own sections. Configuration is per-profile, so its entry
     // belongs under the profile rather than in the global nav.
