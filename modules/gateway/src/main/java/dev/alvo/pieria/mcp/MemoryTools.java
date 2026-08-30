@@ -22,6 +22,18 @@ import org.springframework.ai.tool.annotation.ToolParam;
  */
 public class MemoryTools {
 
+  /**
+   * The tier this tool asks for when the model names none, or names one that does not parse.
+   *
+   * <p>Deliberately not {@code null}: a {@code null} mode would defer to the profile's configured
+   * {@code retrieval.recall-mode}, which ships as {@code SYNTHESIZED}. That default is right for a
+   * human who typed a recall and is waiting for prose, and wrong here — a model weighs a tool's
+   * advertised cost against calling it at all, and a tool that opens with "tens of seconds" loses
+   * that weighing. The tiers have different economics per caller, so the caller picks, not the
+   * profile.
+   */
+  private static final RecallMode DEFAULT_TIER = RecallMode.EVIDENCE;
+
   private final ProfileClient client;
   private final String defaultProfile;
 
@@ -32,31 +44,34 @@ public class MemoryTools {
 
   @Tool(name = "recall", description = """
     Recall relevant memories — prior decisions, conventions, rejected approaches, and gotchas — \
-    for a query. Call this BEFORE planning a non-trivial task, or when you hit a choice that earlier \
-    context might already settle, so you don't relitigate or contradict what was decided. Call it \
-    deliberately at task boundaries, not on every turn. The 'mode' parameter trades latency/cost for \
-    answer richness — the default synthesizes a written answer and can take tens of seconds; the \
-    cheaper tiers return the raw memories with no synthesized answer in a few seconds.""")
+    for a query. Fast by default (~1-3s, no model call), so call it whenever earlier context might \
+    settle what you are about to decide: before planning a task, when you hit a choice, when you \
+    are about to re-read files to rebuild context you may already have. Cheaper than being wrong \
+    about a decision that was already made. Raise 'mode' only when you want a composed answer \
+    rather than the memories themselves.""")
   public String recall(
     @ToolParam(description = "Natural-language query describing what you need context on") String query,
     @ToolParam(required = false, description = "Max memories to consider") Integer limit,
     @ToolParam(required = false, description = """
-      Inference tier (default 'synthesized'): 'synthesized' runs the full pipeline and returns a \
-      written answer synthesized from the memories (tens of seconds); 'analyzed' runs model-driven \
-      retrieval but returns only the raw memories, no answer (a few seconds); 'evidence' is the \
-      fastest — deterministic retrieval, raw memories, no answer (~1-3s). Use a cheaper tier when \
-      you just want the underlying memories rather than a composed answer.""") String mode,
+      Inference tier (default 'evidence'): 'evidence' is deterministic retrieval returning the raw \
+      memories with no written answer (~1-3s) and is the right choice for nearly every call — you \
+      can read the memories yourself; 'analyzed' adds model-driven query analysis and HyDE for \
+      sharper retrieval, still raw memories (a few seconds), worth it when an evidence call missed \
+      or the query is vague; 'synthesized' runs the full pipeline and composes a written answer \
+      (tens of seconds), for questions that genuinely need one answer reconciled across many \
+      memories.""") String mode,
     @ToolParam(required = false, description = "Profile name override") String profile) {
     return guarded(() -> client.toJson(client.recall(profile(profile),
       new RecallRequest(query, limit, null, parseMode(mode)))));
   }
 
-  /** Lenient tier parse for the model-facing tool: blank or unrecognized values defer to the default. */
+  /** Lenient tier parse for the model-facing tool: blank or unrecognized values take the default. */
   private static RecallMode parseMode(String mode) {
     try {
-      return RecallMode.fromWire(mode);
+      RecallMode parsed = RecallMode.fromWire(mode);
+      return parsed == null ? DEFAULT_TIER : parsed;
     } catch (IllegalArgumentException unrecognized) {
-      return null;
+      return DEFAULT_TIER;
     }
   }
 

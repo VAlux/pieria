@@ -191,9 +191,12 @@ inference cost against answer richness:
 | `analyzed` | Model-driven, plus HyDE | No — `null` answer | seconds |
 | `synthesized` (default) | Model-driven, plus HyDE | Yes — large model | tens of seconds |
 
-The auto-recall injection hooks use `evidence`. Set a profile-wide default with
-`pieria.retrieval.recall-mode` in `.pieria/config.toml`, or override per call via the
-`mode` field on `POST /recall` and the `recall` MCP tool.
+`synthesized` is the default for `POST /recall`, where a caller has asked for an answer and is
+waiting for it. The `recall` **MCP tool defaults to `evidence`** instead and lets the model opt up
+via `mode`: an agent weighs a tool's advertised cost against calling it at all, so the surface it
+sees has to be the cheap one. The auto-recall injection hooks use `evidence` too. Set a
+profile-wide default with `pieria.retrieval.recall-mode` in `.pieria/config.toml`, or override per
+call via the `mode` field.
 
 > **Channel failure is graceful:** a critical local-storage channel (FTS / exact-key) failing
 > aborts the recall, while a best-effort vector or graph channel that fails or exceeds

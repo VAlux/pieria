@@ -17,8 +17,9 @@ import java.util.Locale;
  *       still no synthesis ({@code null} answer). A middle tier: sharper retrieval without paying for
  *       the large synthesis model.</li>
  *   <li>{@link #SYNTHESIZED} — the full pipeline: model analysis, deterministic temporal facts, and
- *       large-model synthesis of a written answer. The default, and what the {@code recall} MCP tool
- *       promises when it returns an answer.</li>
+ *       large-model synthesis of a written answer. The configured default for {@code POST /recall},
+ *       where a caller asked for an answer and is waiting on it. The {@code recall} MCP tool pins
+ *       {@link #EVIDENCE} instead and lets the model opt up — see {@code MemoryTools}.</li>
  * </ul>
  *
  * <p>Wire form is the (case-insensitive) constant name; blank binds to {@code null} so an absent

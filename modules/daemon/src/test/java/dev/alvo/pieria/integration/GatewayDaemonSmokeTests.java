@@ -81,11 +81,18 @@ class GatewayDaemonSmokeTests {
       .contains(id)
       .contains("Pieria runs as a local daemon");
 
-    // recall -> retrieval runs end-to-end; the fake model's synthesized answer comes back.
+    // recall -> retrieval runs end-to-end and returns the memory itself. The tool pins the EVIDENCE
+    // tier, so there is deliberately no synthesized answer to assert on; that the stored memory
+    // comes back is the stronger claim anyway.
     String recalled = tools.recall("how does Pieria run?", 5, null, null);
     assertThat(recalled)
-      .contains("\"answer\":")
-      .contains("\"memories\":");
+      .contains("\"memories\":")
+      .contains(id)
+      .contains("Pieria runs as a local daemon");
+
+    // ...and opting up to the full tier still produces a synthesized answer.
+    assertThat(tools.recall("how does Pieria run?", 5, "synthesized", null))
+      .contains("\"answer\":");
 
     // forget -> deletes; subsequent list no longer shows it.
     String forgotten = tools.forget(id, null);

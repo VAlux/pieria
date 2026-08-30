@@ -74,12 +74,23 @@ class MemoryToolsTests {
     assertThat(json.readTree(out)).isEqualTo(json.readTree(responseBody));
   }
 
+  // The tool pins its own tier rather than sending null and inheriting the profile's configured
+  // default. A model reads the latency in the description and weighs it against calling at all, so
+  // the agent-facing surface must be the cheap one; a human running `pieria profile recall` still
+  // gets the profile default, because they asked for an answer and are waiting for it.
   @Test
-  void recallOmitsLimitAndModeWhenNull() {
+  void recallDefaultsToTheEvidenceTierWhenTheModelPicksNoMode() {
     String out = tools.recall("q", null, null, null);
 
-    assertThat(lastBody.get()).contains("\"query\":\"q\"").doesNotContain("limit").doesNotContain("mode");
+    assertThat(lastBody.get()).contains("\"query\":\"q\"").contains("\"mode\":\"EVIDENCE\"");
     assertThat(out).isNotNull();
+  }
+
+  @Test
+  void recallOmitsLimitWhenNull() {
+    tools.recall("q", null, null, null);
+
+    assertThat(lastBody.get()).doesNotContain("limit");
   }
 
   @Test
@@ -89,11 +100,20 @@ class MemoryToolsTests {
     assertThat(lastBody.get()).contains("\"mode\":\"EVIDENCE\"");
   }
 
+  // A typo must not silently buy the expensive tier.
   @Test
-  void recallOmitsModeWhenUnrecognized() {
+  void recallFallsBackToEvidenceWhenTheModeIsUnrecognized() {
     tools.recall("q", null, "nonsense", null);
 
-    assertThat(lastBody.get()).doesNotContain("mode");
+    assertThat(lastBody.get()).contains("\"mode\":\"EVIDENCE\"");
+  }
+
+  // Opting up still works — that is the whole point of leaving the parameter exposed.
+  @Test
+  void recallForwardsAnExplicitlyRequestedRicherTier() {
+    tools.recall("q", null, "synthesized", null);
+
+    assertThat(lastBody.get()).contains("\"mode\":\"SYNTHESIZED\"");
   }
 
   @Test
