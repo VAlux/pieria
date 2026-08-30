@@ -1,8 +1,8 @@
 package dev.alvo.pieria.api.request;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Positive;
 
 import java.time.Instant;
@@ -21,21 +21,48 @@ import java.util.List;
  * it, so a transcript captured live can be replayed or back-filled later without its dates drifting
  * to the ingest wall clock. {@code null} ⇒ the daemon uses its own clock, which is right for the
  * common case of ingesting a conversation as it happens.
+ *
+ * <p>{@code traces} carries structured tool calls — commands run, edits made, tests executed —
+ * shipped by a harness {@code PostToolUse} hook rather than typed by anyone. It is independent of
+ * {@code messages}: a request may carry either, or both. Trace ingest runs its own deterministic
+ * path and does not go through chunked extraction.
  */
 public record IngestRequest(
   @NotBlank String sessionId,
-  @NotEmpty @Valid List<MessageDto> messages,
+  @Valid List<MessageDto> messages,
   @Positive Integer extractionSamples,
-  Instant occurredAt) {
+  Instant occurredAt,
+  @Valid List<TraceEventDto> traces) {
+
+  public IngestRequest {
+    messages = messages == null ? List.of() : List.copyOf(messages);
+    traces = traces == null ? List.of() : List.copyOf(traces);
+  }
 
   /** Convenience for callers that don't override sampling or supply an occurrence time. */
   public IngestRequest(String sessionId, List<MessageDto> messages) {
-    this(sessionId, messages, null, null);
+    this(sessionId, messages, null, null, null);
   }
 
   /** Convenience for callers that override sampling but not the occurrence time. */
   public IngestRequest(String sessionId, List<MessageDto> messages, Integer extractionSamples) {
-    this(sessionId, messages, extractionSamples, null);
+    this(sessionId, messages, extractionSamples, null, null);
+  }
+
+  /** Convenience for the four-argument shape that predates trace ingest. */
+  public IngestRequest(String sessionId, List<MessageDto> messages, Integer extractionSamples,
+                       Instant occurredAt) {
+    this(sessionId, messages, extractionSamples, occurredAt, null);
+  }
+
+  /**
+   * At least one of {@code messages} / {@code traces} must carry something. Replaces the
+   * {@code @NotEmpty} that used to sit on {@code messages}: a traces-only ingest is now valid, but
+   * an ingest carrying neither is still a 400 rather than a silent no-op.
+   */
+  @AssertTrue(message = "at least one of 'messages' or 'traces' must be non-empty")
+  public boolean hasIngestibleContent() {
+    return !messages.isEmpty() || !traces.isEmpty();
   }
 
   /**

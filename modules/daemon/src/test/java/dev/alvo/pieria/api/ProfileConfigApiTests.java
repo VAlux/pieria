@@ -1,5 +1,6 @@
 package dev.alvo.pieria.api;
 
+import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.config.VerifyMode;
 
 import com.zaxxer.hikari.HikariDataSource;
@@ -68,7 +69,7 @@ class ProfileConfigApiTests {
     resolver = new EffectiveConfigResolver(globalProps(), store);
     controller = new ProfileConfigController(new ProfileConfigService(store, resolver));
     retrieval = new RetrievalService(store, new FakeModelGateway(), new DeterministicQueryAnalyzer(),
-      new NoOpCodeIndexStore(), resolver);
+      new NoOpCodeIndexStore(), resolver, TraceProperties.defaults());
   }
 
   @AfterEach

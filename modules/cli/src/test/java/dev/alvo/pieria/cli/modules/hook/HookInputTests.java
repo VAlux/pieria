@@ -66,7 +66,34 @@ class HookInputTests {
     assertThat(HookInput.readLenient(stream("[]"))).isEqualTo(HookInput.EMPTY);
     assertThat(HookInput.readLenient(stream(""))).isEqualTo(HookInput.EMPTY);
     assertThat(HookInput.readLenient(stream("{\"session_id\":\"s1\"}")))
-      .isEqualTo(new HookInput("s1", null));
+      .isEqualTo(new HookInput("s1", null, null, null, null, null));
+  }
+
+  @Test
+  void postToolUseFieldsAreParsed() {
+    HookInput input = HookInput.readLenient(new java.io.ByteArrayInputStream("""
+      {"session_id":"s1","tool_name":"Bash",
+       "tool_input":{"command":"./gradlew test"},
+       "tool_response":{"stdout":"BUILD FAILED","exitCode":1}}
+      """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    assertThat(input.sessionId()).isEqualTo("s1");
+    assertThat(input.toolName()).isEqualTo("Bash");
+    assertThat(input.toolInput()).contains("./gradlew test");
+    assertThat(input.toolResponse()).contains("BUILD FAILED");
+    assertThat(input.exitCode()).isEqualTo(1);
+  }
+
+  // The lifecycle hooks must keep working: their payload has none of these fields.
+  @Test
+  void lifecyclePayloadsLeavePostToolUseFieldsUnset() {
+    HookInput input = HookInput.readLenient(new java.io.ByteArrayInputStream("""
+      {"session_id":"s1","transcript_path":"/tmp/t.jsonl"}
+      """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    assertThat(input.toolName()).isNull();
+    assertThat(input.toolInput()).isNull();
+    assertThat(input.exitCode()).isNull();
   }
 
   private HookInput read(String json) throws IOException {

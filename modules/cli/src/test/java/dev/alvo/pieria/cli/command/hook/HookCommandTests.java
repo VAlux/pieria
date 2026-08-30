@@ -5,11 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,7 +45,7 @@ class HookCommandTests {
   @Test
   void ingestHookExitsZeroAndReportsNoPayloadWhenStdinIsUnusable() {
     for (String stdin : new String[] {"", "not-json", "[]"}) {
-      Run run = runWithStdin(stdin, "hook", "claude-code", "stop");
+      HookTestSupport.Run run = HookTestSupport.runWithStdin(stdin, "hook", "claude-code", "stop");
 
       assertThat(run.exitCode()).isZero();
       assertThat(run.stderr()).contains("no transcript_path in the hook stdin payload");
@@ -65,31 +60,13 @@ class HookCommandTests {
       + tmp.resolve("gone.jsonl").toString().replace("\\", "\\\\") + "\"}";
 
     for (String harness : new String[] {"claude-code", "codex"}) {
-      Run run = runWithStdin(payload, "hook", harness, "stop");
+      HookTestSupport.Run run = HookTestSupport.runWithStdin(payload, "hook", harness, "stop");
 
       assertThat(run.exitCode()).isZero();
       assertThat(run.stderr())
         .contains("transcript not found")
         .contains("gone.jsonl")
         .doesNotContain("no transcript_path in the hook stdin payload");
-    }
-  }
-
-  private record Run(int exitCode, String stderr) {
-  }
-
-  private Run runWithStdin(String stdin, String... args) {
-    InputStream originalIn = System.in;
-    PrintStream originalErr = System.err;
-    ByteArrayOutputStream captured = new ByteArrayOutputStream();
-    try {
-      System.setIn(new ByteArrayInputStream(stdin.getBytes(StandardCharsets.UTF_8)));
-      System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
-      int exitCode = run(args);
-      return new Run(exitCode, captured.toString(StandardCharsets.UTF_8));
-    } finally {
-      System.setIn(originalIn);
-      System.setErr(originalErr);
     }
   }
 

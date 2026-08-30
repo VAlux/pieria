@@ -1,6 +1,9 @@
 package dev.alvo.pieria.domain;
 
+import dev.alvo.pieria.api.request.TraceStatus;
 import dev.alvo.pieria.domain.memory.MemoryType;
+
+import java.time.Instant;
 
 import static dev.alvo.pieria.tools.Hash.hash128;
 import static dev.alvo.pieria.tools.StringKit.nullToEmpty;
@@ -72,6 +75,31 @@ public final class ContentId {
       nullToEmpty(content),
       nullToEmpty(topicKey),
       nullToEmpty(payload));
+  }
+
+  /**
+   * Id for a raw trace event: hashes profile, session, tool, canonical args, status, and the
+   * resolved event time. Re-shipping the same trace within a profile collapses to one row, while
+   * identical traces in different profiles stay distinct — the same rule messages and memories use.
+   *
+   * <p>{@code canonicalArgs} is the <em>redacted, path-normalized, full</em> argument string,
+   * deliberately not the {@code CommandSignature}. The signature strips flags so that repeated runs
+   * of one command share a topic key; using it here would make {@code ./gradlew test} and
+   * {@code ./gradlew test --rerun-tasks} the same trace and drop the second.
+   */
+  public static String forTrace(String profileId,
+                                String sessionId,
+                                String tool,
+                                String canonicalArgs,
+                                TraceStatus status,
+                                Instant occurredAt) {
+    return hash128(
+      nullToEmpty(profileId),
+      nullToEmpty(sessionId),
+      nullToEmpty(tool),
+      nullToEmpty(canonicalArgs),
+      status == null ? "" : status.wire(),
+      occurredAt == null ? "" : occurredAt.toString());
   }
 
   /**

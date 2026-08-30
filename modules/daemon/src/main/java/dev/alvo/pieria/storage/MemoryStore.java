@@ -148,11 +148,16 @@ public interface MemoryStore {
    * <ol>
    *   <li>For keyed types ({@code fact}/{@code instruction}) with a {@code topic_key}, find the
    *       active memory sharing {@code (profileId, type, topic_key)}; if present, mark it
-   *       superseded and point the new row's {@code supersedes} at it, and delete its embedding.</li>
+   *       superseded and point the new row's {@code supersedes} at it, and delete its embedding.
+   *       An {@code event} memory is keyed-supersedable too, but only under the
+   *       {@code trace:outcome:} topic-key namespace — this is how a later run of a command
+   *       replaces the recorded outcome of an earlier run of the same command. {@code task} is
+   *       never supersedable, and an ordinary (non-trace) {@code event} stays append-only.</li>
    *   <li>Failing that, find an active {@code fact}/{@code instruction} whose content is a near
    *       duplicate of the incoming one and supersede that instead — the extractor invents a fresh
    *       {@code topic_key} per run, so the same fact restated next session would otherwise
-   *       accumulate rather than supersede.</li>
+   *       accumulate rather than supersede. This near-duplicate fallback never applies to
+   *       {@code event}/{@code task}.</li>
    *   <li>Insert the new memory (insert-or-ignore on content-addressed id).</li>
    *   <li>Enqueue a vectorization outbox row unless the type is {@code task} (tasks are not embedded).</li>
    * </ol>

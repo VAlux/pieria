@@ -5,6 +5,7 @@ import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.trace.TraceRecipe;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -120,6 +121,23 @@ public interface ModelGateway {
       }
     }
     return results;
+  }
+
+  /**
+   * Trace recipe extraction: from an ordered log of tool calls and their outcomes, derive durable
+   * procedural statements — "tests here are run with X", "Y fails with Z; the fix is W". Runs on
+   * the small/fast model.
+   *
+   * <p>This is the only stage of the trace path that consults a model. Outcome events are built
+   * deterministically in Java, because a trace already states the command and the exit code and
+   * there is nothing to infer.
+   *
+   * <p>Additive and degradable, like {@link #extractGraph}: the default returns an empty list so
+   * stubs and gateways without trace support keep working, and callers must treat any failure as
+   * "store the events without recipes".
+   */
+  default List<TraceRecipe> extractTraceRecipes(String traceLog) {
+    return List.of();
   }
 
   /**

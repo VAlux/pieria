@@ -14,7 +14,7 @@ import java.util.Optional;
  * source-code indexing is not wired (the evaluation harness, retrieval unit tests) so the code
  * retrieval channels degrade cleanly to "no results" rather than requiring the SQLite substrate.
  */
-public final class NoOpCodeIndexStore implements CodeIndexStore {
+public class NoOpCodeIndexStore implements CodeIndexStore {
 
   @Override
   public CodeModule upsertCodeModule(String profileId, CodeModule module) {

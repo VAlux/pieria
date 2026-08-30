@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.config.VerifyMode;
 
 import dev.alvo.pieria.api.request.RecallMode;
@@ -65,7 +66,7 @@ class RetrievalServiceTests {
 
   private RetrievalService service(MemoryStore store, FakeModelGateway model) {
     return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(),
-      EffectiveConfigResolver.withoutOverrides(props()));
+      EffectiveConfigResolver.withoutOverrides(props()), TraceProperties.defaults());
   }
 
   /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
@@ -76,7 +77,7 @@ class RetrievalServiceTests {
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);
     return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), codeStore,
-      EffectiveConfigResolver.withoutOverrides(props));
+      EffectiveConfigResolver.withoutOverrides(props), TraceProperties.defaults());
   }
 
   @Test

@@ -9,6 +9,7 @@ import picocli.CommandLine.Command;
   description = "Claude Code lifecycle hooks.",
   subcommands = {
     CcSessionStartCommand.class,
+    CcPostToolUseCommand.class,
     CcPreCompactCommand.class,
     CcStopCommand.class,
     CcSessionEndCommand.class

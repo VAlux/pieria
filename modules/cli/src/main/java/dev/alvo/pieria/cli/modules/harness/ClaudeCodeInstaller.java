@@ -13,8 +13,8 @@ import java.util.Map;
 
 /**
  * Wires Claude Code: an MCP server in {@code .mcp.json}, the {@code SessionStart}/
- * {@code PreCompact}/{@code Stop}/{@code SessionEnd} hooks in {@code settings.json}, and the
- * {@code /pieria-remember} slash command in {@code .claude/commands/}.
+ * {@code PostToolUse}/{@code PreCompact}/{@code Stop}/{@code SessionEnd} hooks in
+ * {@code settings.json}, and the {@code /pieria-remember} slash command in {@code .claude/commands/}.
  * Project scope writes to the repo; {@code --user} writes under {@code ~/.claude/}.
  *
  * <p>VERIFY against current Claude Code docs (as of 2026-05): hook event names, the {@code .mcp.json}
@@ -24,10 +24,12 @@ public final class ClaudeCodeInstaller implements HarnessInstaller {
 
   /**
    * Claude Code hook event → {@code pieria hook claude-code} subcommand. SessionStart primes context
-   * with prior memories; PreCompact/Stop/SessionEnd capture the transcript.
+   * with prior memories; PostToolUse spools tool calls locally; PreCompact/Stop/SessionEnd capture
+   * the transcript and ship whatever PostToolUse spooled.
    */
   private static final Map<String, String> HOOK_EVENTS = new LinkedHashMap<>() {{
     put("SessionStart", "session-start");
+    put("PostToolUse", "post-tool-use");
     put("PreCompact", "pre-compact");
     put("Stop", "stop");
     put("SessionEnd", "session-end");

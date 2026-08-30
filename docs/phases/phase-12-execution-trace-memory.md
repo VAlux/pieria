@@ -1,5 +1,10 @@
 # Phase 12 - Execution-Trace Memory
 
+> **Status: implemented (2026-08-29).** The design that was actually built is
+> `docs/superpowers/specs/2026-08-26-execution-trace-memory-design.md`, which supersedes the
+> Implementation Sequence below where the two disagree — this document predates the graph layer,
+> the code index, and the CLI hook subsystem.
+
 ## Objective
 
 Add tool calls, their outputs, and their outcomes as a first-class ingestion source alongside chat messages. Capture
