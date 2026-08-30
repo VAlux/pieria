@@ -34,20 +34,26 @@ import java.util.stream.Stream;
  *
  * <h2>Locking</h2>
  *
- * <p>Every mutation of a session's file (append, and the optional trim it can trigger, plus
- * drain) is performed under a <em>single</em> {@link FileLock} acquisition for the whole
- * operation — the size check and the trim run inside the same critical section as the write, so a
- * concurrent append can never land in the gap between "trim read the file" and "trim rewrote it".
- * There is exactly one {@code FileChannel}/{@code FileLock} pair open at any point in a call; nothing
- * here re-acquires or nests a second lock while the first is still held.
+ * <p>Every touch of a session's file — {@code append} (and the trim it can trigger), {@code
+ * drain}, and the delete {@code sweepStale} performs — takes the same JVM-local
+ * {@link ReentrantLock} for that file (see {@link #lockFor}) first, so none of the three can
+ * interleave with another on the same file within this process. {@code append} and {@code drain}
+ * additionally hold a {@link FileLock} on the {@code FileChannel} for their whole critical
+ * section: the write, size check, and trim all happen under that one acquisition, so a concurrent
+ * writer can never land in the gap between "trim read the file" and "trim rewrote it". At most one
+ * {@code FileChannel}/{@code FileLock} pair is ever open per call; nothing here re-acquires or
+ * nests a second lock while the first is held.
  *
- * <p>{@link FileChannel} locks are held on behalf of the whole JVM: if this JVM already holds a
- * lock overlapping a region, a second overlapping {@code lock()} call from another thread does not
- * queue — it throws {@link java.nio.channels.OverlappingFileLockException} immediately. A harness
- * that runs tool calls in parallel triggers exactly that from multiple threads in the same
- * process, so a JVM-local {@link ReentrantLock} per spool file serializes same-process contenders
- * before any thread attempts the OS-level lock; the OS-level lock alone still guards against a
- * concurrent {@code pieria hook} process (a separate JVM) touching the same file.
+ * <p>The two tiers guard different things. {@link FileChannel} locks are held on behalf of the
+ * whole JVM: if this JVM already holds a lock overlapping a region, a second overlapping
+ * {@code lock()} call from another thread does not queue — it throws
+ * {@link java.nio.channels.OverlappingFileLockException} immediately. A harness that runs tool
+ * calls in parallel triggers exactly that from multiple threads in one process, so the
+ * {@code ReentrantLock} serializes same-process contenders before any thread attempts the
+ * OS-level lock, which is what then covers a concurrent {@code pieria hook} process (a separate
+ * JVM). That coverage is {@code append}/{@code drain} only: {@code sweepStale}'s delete holds the
+ * {@code ReentrantLock} but not a {@code FileLock}, so it is ordered against a same-process
+ * append or drain, not against one running in a different process.
  */
 public final class TraceSpool {
 
@@ -160,18 +166,39 @@ public final class TraceSpool {
       return 0;
     }
     Instant cutoff = Instant.now().minusSeconds(Math.max(1, retentionDays) * 86_400L);
-    int swept = 0;
+    List<Path> candidates;
     try (Stream<Path> files = Files.list(root)) {
-      for (Path file : files.filter(Files::isRegularFile).toList()) {
-        FileTime modified = Files.getLastModifiedTime(file);
-        if (modified.toInstant().isBefore(cutoff) && Files.deleteIfExists(file)) {
-          swept++;
-        }
-      }
+      candidates = files.filter(Files::isRegularFile).toList();
     } catch (IOException | RuntimeException e) {
-      return swept;
+      return 0;
+    }
+    int swept = 0;
+    for (Path file : candidates) {
+      if (deleteIfStale(file, cutoff)) {
+        swept++;
+      }
     }
     return swept;
+  }
+
+  /**
+   * Delete one spool file if it is older than {@code cutoff}, under the same per-file
+   * {@link ReentrantLock} that guards {@link #append} and {@link #drain} for this file — a
+   * concurrent append or drain on this file within this process cannot interleave with the
+   * delete. Never throws: a failure to stat or delete one file must not abort the rest of the
+   * sweep.
+   */
+  private static boolean deleteIfStale(Path file, Instant cutoff) {
+    ReentrantLock guard = lockFor(file);
+    guard.lock();
+    try {
+      FileTime modified = Files.getLastModifiedTime(file);
+      return modified.toInstant().isBefore(cutoff) && Files.deleteIfExists(file);
+    } catch (IOException | RuntimeException e) {
+      return false;
+    } finally {
+      guard.unlock();
+    }
   }
 
   /**
