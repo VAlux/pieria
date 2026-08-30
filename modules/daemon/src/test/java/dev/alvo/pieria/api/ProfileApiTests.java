@@ -7,9 +7,11 @@ import dev.alvo.pieria.api.controller.ProfilesController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.ingestion.Chunker;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
+import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.usage.InferenceTier;
@@ -43,7 +45,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
   TranscriptNormalizer.class, Chunker.class,
   dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry.class,
   dev.alvo.pieria.ingestion.transcript.ClaudeCodeTranscriptParser.class,
-  dev.alvo.pieria.ingestion.transcript.CodexTranscriptParser.class})
+  dev.alvo.pieria.ingestion.transcript.CodexTranscriptParser.class,
+  TraceIngestionService.class})
 class ProfileApiTests {
 
   @Autowired
@@ -409,6 +412,11 @@ class ProfileApiTests {
     @Bean("profileApiCodeIndexStore")
     CodeIndexStore codeIndexStore() {
       return new NoOpCodeIndexStore();
+    }
+
+    @Bean("profileApiTraceProperties")
+    TraceProperties traceProperties() {
+      return TraceProperties.defaults();
     }
 
     @Bean("profileApiPieriaProperties")

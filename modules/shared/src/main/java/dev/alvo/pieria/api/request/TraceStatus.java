@@ -1,5 +1,7 @@
 package dev.alvo.pieria.api.request;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+
 import java.util.Locale;
 
 /**
@@ -16,6 +18,7 @@ public enum TraceStatus {
   UNKNOWN;
 
   /** Parse a wire value case-insensitively; unknown, blank, and null all yield {@link #UNKNOWN}. */
+  @JsonCreator
   public static TraceStatus fromWire(String value) {
     if (value == null || value.isBlank()) {
       return UNKNOWN;

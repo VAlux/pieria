@@ -8,6 +8,7 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.ChunkLedgerMode;
 import dev.alvo.pieria.ingestion.IngestionService;
+import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParser;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.profile.ProfileService;
@@ -101,7 +102,8 @@ class ProfileControllerTranscriptAsyncTests {
   private ProfileController controller(IngestionService ingestion, TranscriptParserRegistry parsers) {
     Converter<Memory, MemoryResponse> memoryConverter = mock(Converter.class);
     Converter<ExportRow, ExportLineResponse> exportConverter = mock(Converter.class);
-    return new ProfileController(ingestion, mock(RetrievalService.class), mock(ProfileService.class),
+    return new ProfileController(ingestion, mock(TraceIngestionService.class),
+      mock(RetrievalService.class), mock(ProfileService.class),
       mock(ProfileStatsService.class), JsonMapper.builder().build(), tasks, memoryConverter,
       exportConverter, parsers);
   }

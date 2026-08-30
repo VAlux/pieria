@@ -27,6 +27,7 @@ import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.ingestion.ChunkLedgerMode;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.IngestionService;
+import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.profile.ProfileService;
 import dev.alvo.pieria.profile.ProfileStatsService;
@@ -53,6 +54,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -69,6 +71,7 @@ public class ProfileController {
   private static final String NDJSON = "application/x-ndjson";
 
   private final IngestionService ingestionService;
+  private final TraceIngestionService traceIngestionService;
   private final RetrievalService retrievalService;
   private final ProfileService profileService;
   private final ProfileStatsService profileStatsService;
@@ -79,6 +82,7 @@ public class ProfileController {
   private final TranscriptParserRegistry transcriptParsers;
 
   public ProfileController(IngestionService ingestionService,
+                           TraceIngestionService traceIngestionService,
                            RetrievalService retrievalService,
                            ProfileService profileService,
                            ProfileStatsService profileStatsService,
@@ -88,6 +92,7 @@ public class ProfileController {
                            Converter<ExportRow, ExportLineResponse> exportLineConverter,
                            TranscriptParserRegistry transcriptParsers) {
     this.ingestionService = ingestionService;
+    this.traceIngestionService = traceIngestionService;
     this.retrievalService = retrievalService;
     this.profileService = profileService;
     this.profileStatsService = profileStatsService;
@@ -193,10 +198,16 @@ public class ProfileController {
   @PostMapping("/ingest")
   public IngestResponse ingest(@PathVariable String name,
                                @Valid @RequestBody IngestRequest request) {
-    List<Message> messages = toMessages(request);
+    List<Memory> stored = new ArrayList<>();
 
-    List<Memory> stored =
-      ingestionService.ingest(name, request.sessionId(), messages, request.extractionSamples());
+    if (!request.messages().isEmpty()) {
+      stored.addAll(ingestionService.ingest(
+        name, request.sessionId(), toMessages(request), request.extractionSamples()));
+    }
+    // Traces run their own deterministic path; a request may carry either list, or both.
+    if (!request.traces().isEmpty()) {
+      stored.addAll(traceIngestionService.ingest(name, request.sessionId(), request.traces()));
+    }
 
     return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
   }

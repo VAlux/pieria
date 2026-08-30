@@ -8,6 +8,7 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.IngestionService;
+import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.profile.ProfileService;
 import dev.alvo.pieria.profile.ProfileStatsService;
@@ -89,7 +90,8 @@ class ProfileControllerIngestTimestampTests {
 
   @SuppressWarnings("unchecked")
   private ProfileController controller() {
-    return new ProfileController(ingestion, mock(RetrievalService.class), mock(ProfileService.class),
+    return new ProfileController(ingestion, mock(TraceIngestionService.class),
+      mock(RetrievalService.class), mock(ProfileService.class),
       mock(ProfileStatsService.class), JsonMapper.builder().build(), tasks,
       mock(Converter.class), mock(Converter.class), new TranscriptParserRegistry(List.of()));
   }
