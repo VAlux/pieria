@@ -52,13 +52,19 @@ class ProfileTraceApiTests {
   MockMvc mockMvc;
 
   // The compatibility guarantee: the payload every existing caller sends must keep working.
+  // The compatibility guarantee: a body that predates trace ingest still extracts. Status alone
+  // would not pin it — a controller that broke the messages branch and returned an empty response
+  // is still a 200 — so assert the memory comes back, exactly as the traces cases do.
   @Test
   void messagesOnlyIngestStillWorks() throws Exception {
     mockMvc.perform(post("/v1/profiles/p/ingest")
         .contentType(MediaType.APPLICATION_JSON)
         .content("""
           {"sessionId":"s1","messages":[{"role":"user","content":"hello"}]}"""))
-      .andExpect(status().isOk());
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.count", is(1)))
+      .andExpect(jsonPath("$.memories", hasSize(1)))
+      .andExpect(jsonPath("$.memories[0].type", is("fact")));
   }
 
   // Asserting only status().isOk() here would also pass for a controller that silently drops
