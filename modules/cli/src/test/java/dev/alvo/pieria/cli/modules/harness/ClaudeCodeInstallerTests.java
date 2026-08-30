@@ -144,6 +144,19 @@ class ClaudeCodeInstallerTests {
   }
 
   @Test
+  void postToolUseHookIsInstalledAndRemoved(@TempDir Path tmp) throws IOException {
+    WiringContext ctx = ctx(tmp, "myproj");
+    installer.install(ctx);
+
+    ObjectNode settings = json.load(installer.settingsFile(ctx));
+    assertThat(hookCommand(settings, "PostToolUse"))
+      .isEqualTo("/opt/pieria/bin/pieria hook claude-code post-tool-use");
+
+    installer.uninstall(ctx);
+    assertThat(json.load(installer.settingsFile(ctx)).path("hooks").has("PostToolUse")).isFalse();
+  }
+
+  @Test
   void installsSlashCommandsWithCliBinarySubstituted(@TempDir Path tmp) throws IOException {
     WiringContext ctx = ctx(tmp, "myproj");
     installer.install(ctx);

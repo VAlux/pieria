@@ -1,5 +1,6 @@
 package dev.alvo.pieria.client;
 
+import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.AuditListRequest;
 import dev.alvo.pieria.api.response.AuditEventDetail;
@@ -114,6 +115,16 @@ public final class ProfileClient {
       "sessionId", sessionId, "harness", harness, "partial", partial ? "true" : null);
     return transport.parse(
       transport.postRaw(path, ndjson, "application/x-ndjson", null, timeout), TaskSubmitResponse.class);
+  }
+
+  /**
+   * Ship captured tool calls to the same {@code /ingest} endpoint conversations use, with no
+   * messages. The turn-end hooks POST raw NDJSON to {@code /ingest/transcript}, which cannot carry
+   * a JSON field, so traces travel as their own request rather than riding along.
+   */
+  public IngestResponse ingestTraces(String name, IngestRequest request, Duration timeout) {
+    return transport.parse(
+      transport.post(profile(name) + "/ingest", request, timeout), IngestResponse.class);
   }
 
   /**
