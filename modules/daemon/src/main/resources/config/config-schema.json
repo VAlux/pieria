@@ -403,5 +403,113 @@
       "postgres"
     ],
     "label": "Storage backend"
+  },
+  {
+    "key": "pieria.ingestion.trace.enabled",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Capture execution traces",
+    "hint": "Off makes the daemon accept and discard traces, so the feature stops without uninstalling the PostToolUse hook."
+  },
+  {
+    "key": "pieria.ingestion.trace.max-output-chars",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Per-field capture budget",
+    "hint": "Truncation budget for a trace's output and error, head+tail so the error line that carries the signal is never clipped."
+  },
+  {
+    "key": "pieria.ingestion.trace.spool-max-bytes",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Spool size cap (bytes)",
+    "hint": "The oldest half of a session's spool is dropped past this, so a runaway session cannot fill the disk."
+  },
+  {
+    "key": "pieria.ingestion.trace.spool-retention-days",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Spool retention (days)",
+    "hint": "Age at which an abandoned spool file is swept by the next turn-end hook."
+  },
+  {
+    "key": "pieria.ingestion.trace.stop-drain-threshold-bytes",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "End-of-turn drain size (bytes)",
+    "hint": "Spool size at which the Stop hook ships early. Lower drains sooner but cuts batches down toward one turn."
+  },
+  {
+    "key": "pieria.ingestion.trace.stop-drain-threshold-events",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "End-of-turn drain count",
+    "hint": "Event count at which the Stop hook ships early. A failure and its fix usually span turns, and only a batch covering both yields a recipe."
+  },
+  {
+    "key": "pieria.ingestion.trace.tool-denylist",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "string",
+    "label": "Tools worth no memory",
+    "hint": "Comma-separated. Successful calls to these are dropped as noise; a failure is still captured."
+  },
+  {
+    "key": "pieria.ingestion.trace.skip-unchanged-outcomes",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Skip unchanged outcomes",
+    "hint": "Drops a trace whose active outcome already records the same status and error digest, which is the dominant source of repeat rows."
+  },
+  {
+    "key": "pieria.ingestion.trace.recipe-extraction-enabled",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Derive procedural recipes",
+    "hint": "The one model call on the trace path. Off keeps the deterministic outcome events and stops generalizing reusable instructions."
+  },
+  {
+    "key": "pieria.ingestion.trace.max-recipes-per-batch",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Max recipes per batch",
+    "hint": "Cap on instructions derived from one ingest."
+  },
+  {
+    "key": "pieria.ingestion.trace.max-linked-symbols",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Max linked code symbols",
+    "hint": "Cap on code-index symbols linked into one trace memory through payload.symbolIds."
+  },
+  {
+    "key": "pieria.ingestion.trace.recall-boost",
+    "scope": "global",
+    "section": "traces",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Trace recall boost",
+    "hint": "Post-fusion multiplier for trace-sourced candidates. 1.0 is off; raise it only against eval evidence. Clamped to 0-10."
   }
 ]

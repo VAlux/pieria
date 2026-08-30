@@ -88,6 +88,36 @@ class GlobalConfigApiTests {
       "pieria.reminiscence.parallelism", "pieria.daemon.port");
   }
 
+  // The execution-trace properties are the console's only handle on that feature: TraceProperties
+  // sits outside PieriaProperties, so EffectiveConfigResolver's per-profile overlay never sees it
+  // and the global page is where it is tuned or turned off.
+  @Test
+  void putAcceptsExecutionTraceKeys() {
+    Map<String, String> values = new HashMap<>();
+    values.put("pieria.ingestion.trace.enabled", "false");
+    values.put("pieria.ingestion.trace.recall-boost", "2.5");
+    values.put("pieria.ingestion.trace.tool-denylist", "Read,Grep,Glob");
+
+    JsonNode result = controller.put(new GlobalConfigController.GlobalConfigUpdate(values, false));
+
+    assertThat(result.get("written").size()).isEqualTo(3);
+    List<String> restartRequired = new ArrayList<>();
+    result.get("restart-required").forEach(key -> restartRequired.add(key.asString()));
+    assertThat(restartRequired).contains("pieria.ingestion.trace.enabled");
+  }
+
+  // The declared kind is what stops a bad value reaching the file the daemon boots from.
+  @Test
+  void putRejectsANonNumericTraceBudget() {
+    Map<String, String> values = new HashMap<>();
+    values.put("pieria.ingestion.trace.max-output-chars", "banana");
+
+    assertThatThrownBy(() ->
+      controller.put(new GlobalConfigController.GlobalConfigUpdate(values, false)))
+      .isInstanceOf(IllegalArgumentException.class)
+      .hasMessageContaining("must be a number");
+  }
+
   @Test
   void putRefusesALockedKeyUntilItIsAcknowledged() {
     Map<String, String> values = new HashMap<>();

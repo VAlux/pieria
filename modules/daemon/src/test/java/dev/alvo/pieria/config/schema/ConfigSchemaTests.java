@@ -3,11 +3,14 @@ package dev.alvo.pieria.config.schema;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.RecordComponent;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * console would offer a field the daemon rejects (or silently hide one it accepts).
  */
 class ConfigSchemaTests {
+
+  private static final String TRACE_PREFIX = "pieria.ingestion.trace.";
 
   private final ConfigSchemaService schema = new ConfigSchemaService();
 
@@ -33,6 +38,54 @@ class ConfigSchemaTests {
       .collect(Collectors.toCollection(LinkedHashSet::new));
 
     assertThat(fromSchema).containsExactlyInAnyOrderElementsOf(fromCode);
+  }
+
+  // The global scope has no DaemonOverrides to check against, so a mistyped global key would write
+  // to pieria.properties and bind to nothing — silently. TraceProperties is a record with the same
+  // kebab-case binding rule, so its components can be checked the same way the profile keys are.
+  @Test
+  void traceKeysMatchTracePropertiesExactly() {
+    Set<String> fromCode = kebabComponentNames(TraceProperties.class).stream()
+      .map(name -> TRACE_PREFIX + name)
+      .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    Set<String> fromSchema = schema.forScope("global").stream()
+      .map(ConfigField::key)
+      .filter(key -> key.startsWith(TRACE_PREFIX))
+      .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    assertThat(fromSchema).containsExactlyInAnyOrderElementsOf(fromCode);
+  }
+
+  // The kinds drive both GlobalConfigService's validation and the control the console renders, so a
+  // numeric property declared "string" would accept "banana" and write it to the file the daemon
+  // boots from.
+  @Test
+  void traceKeyKindsMatchTheirDeclaredJavaTypes() {
+    Map<String, String> expected = new LinkedHashMap<>();
+    for (RecordComponent component : TraceProperties.class.getRecordComponents()) {
+      expected.put(TRACE_PREFIX + toKebab(component.getName()), kindFor(component.getType()));
+    }
+
+    assertThat(schema.forScope("global"))
+      .filteredOn(field -> field.key().startsWith(TRACE_PREFIX))
+      .allSatisfy(field ->
+        assertThat(field.kind()).as(field.key()).isEqualTo(expected.get(field.key())));
+  }
+
+  /** The console kind each Java type must be declared as. */
+  private static String kindFor(Class<?> type) {
+    if (type == boolean.class) {
+      return "bool";
+    }
+    if (type == int.class || type == long.class) {
+      return "int";
+    }
+    if (type == double.class) {
+      return "double";
+    }
+    // A List<String> binds from the comma-separated form a properties file can hold.
+    return "string";
   }
 
   @Test

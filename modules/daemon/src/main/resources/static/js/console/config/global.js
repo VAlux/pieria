@@ -73,9 +73,9 @@ function valueOf(entry) {
 }
 
 // Group one tier's entries by section, preserving the order sections first appear. A flat list of
-// all 15 restart-tier keys reads as noise; the schema's section already says which of six
-// functional groups (observability, throughput, provider, models, daemon, storage) a key belongs
-// to, so the page should say so too rather than dropping that structure on the floor.
+// all 27 restart-tier keys reads as noise; the schema's section already says which of seven
+// functional groups (observability, throughput, provider, models, daemon, storage, traces) a key
+// belongs to, so the page should say so too rather than dropping that structure on the floor.
 function groupEntriesBySection(entries) {
   const order = [];
   const groups = {};
