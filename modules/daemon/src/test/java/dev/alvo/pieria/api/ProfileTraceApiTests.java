@@ -26,7 +26,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -58,6 +61,10 @@ class ProfileTraceApiTests {
       .andExpect(status().isOk());
   }
 
+  // Asserting only status().isOk() here would also pass for a controller that silently drops
+  // traces: IngestionService.ingest tolerates an empty messages list and returns 0 memories
+  // without throwing. Pin the routing itself: a stored count of 1, and that the stored memory is
+  // the TraceIngestionService-derived event, not something IngestionService produced.
   @Test
   void tracesOnlyIngestIsAccepted() throws Exception {
     mockMvc.perform(post("/v1/profiles/p/ingest")
@@ -66,9 +73,15 @@ class ProfileTraceApiTests {
           {"sessionId":"s1","traces":[
             {"tool":"Bash","args":"./gradlew test","status":"failure","exitCode":1,
              "output":"BUILD FAILED","endedAt":"2026-08-29T10:00:00Z"}]}"""))
-      .andExpect(status().isOk());
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.count", is(1)))
+      .andExpect(jsonPath("$.memories", hasSize(1)))
+      .andExpect(jsonPath("$.memories[0].type", is("event")));
   }
 
+  // Same rationale as tracesOnlyIngestIsAccepted: pin that BOTH paths ran, not merely that the
+  // response was 200. The messages branch alone (StubModelGateway extracts exactly one FACT per
+  // chunk) would satisfy a bare isOk() even if the traces branch were dropped entirely.
   @Test
   void mixedIngestIsAccepted() throws Exception {
     mockMvc.perform(post("/v1/profiles/p/ingest")
@@ -77,7 +90,11 @@ class ProfileTraceApiTests {
           {"sessionId":"s1",
            "messages":[{"role":"user","content":"run the tests"}],
            "traces":[{"tool":"Bash","args":"./gradlew test","status":"success","exitCode":0}]}"""))
-      .andExpect(status().isOk());
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.count", is(2)))
+      .andExpect(jsonPath("$.memories", hasSize(2)))
+      .andExpect(jsonPath("$.memories[0].type", is("fact")))
+      .andExpect(jsonPath("$.memories[1].type", is("event")));
   }
 
   // The @AssertTrue guard that replaced @NotEmpty on messages.
