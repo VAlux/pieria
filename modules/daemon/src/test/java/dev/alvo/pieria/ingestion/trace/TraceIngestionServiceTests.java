@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.request.TraceStatus;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -78,6 +79,41 @@ class TraceIngestionServiceTests {
 
     assertThat(active).hasSize(1);
     assertThat(active.getFirst().content()).contains("succeeded");
+  }
+
+  // D5's other half: a spool drained late must not let a stale outcome overwrite a current one.
+  // The two outcomes differ in status/error on purpose — an identical late arrival would be dropped
+  // by TraceRelevanceFilter's skipUnchangedOutcomes rule before it ever reached the store, which
+  // would make this test pass without ever exercising the stale-on-arrival path it targets.
+  @Test
+  void aLateOlderOutcomeNeverSupersedesTheAlreadyActiveNewerOne() {
+    // Newer outcome first.
+    service.ingest("p", "s1", List.of(trace("./gradlew test", TraceStatus.SUCCESS, 0, null, T2)));
+    // Then an older, genuinely different outcome for the same command arrives late.
+    List<Memory> late = service.ingest("p", "s2",
+      List.of(trace("./gradlew test", TraceStatus.FAILURE, 1, "boom", T1)));
+
+    String profileId = store.getOrCreateProfile("p").id();
+
+    // The active row is still the newer outcome, untouched.
+    List<Memory> active =
+      store.findActiveByTopicKey(profileId, MemoryType.EVENT, "trace:outcome:gradlew-test");
+    assertThat(active).hasSize(1);
+    assertThat(active.getFirst().content()).contains("succeeded");
+
+    // The late row was stored as inert history: present, and marked superseded on arrival.
+    assertThat(late).hasSize(1);
+    Memory lateOutcome = late.getFirst();
+    assertThat(lateOutcome.content()).contains("failed");
+    assertThat(lateOutcome.superseded()).isTrue();
+    assertThat(store.listMemories(profileId, MemoryType.EVENT, null, true))
+      .extracting(Memory::id)
+      .contains(lateOutcome.id());
+
+    // And never embedded: a stale-on-arrival row is never enqueued for vectorization at all.
+    assertThat(store.drainOutbox(50))
+      .extracting(OutboxEntry::memoryId)
+      .doesNotContain(lateOutcome.id());
   }
 
   @Test
