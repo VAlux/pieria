@@ -35,10 +35,11 @@ What: A background worker merges/strengthens related memories and derives higher
 Fit: The transactional-outbox + virtual-thread worker pattern (VectorizationWorker/VectorizationScheduler) is exactly the host for a ConsolidationWorker. Architecturally pre-paved. Once source-code indexing exists, consolidation should also derive/update high-level project observations from code facts (module responsibilities, entry points, service boundaries, test strategy) rather than relying only on docs and conversations. The code-facing half landed as Phase 14 (code narrative summaries: per-file/module/architecture memories, hash-keyed); conversational consolidation remains.
 
 6. Execution-trace / tool-output memory
-Phase: 12 | Status: pending
+Phase: 12 | Status: done
 Who has it: Memori (its core differentiator).
 What: Ingest tool calls, outputs, and failures — not just chat messages. For coding agents this is often the most valuable signal (what commands worked, what errored).
 Fit: New ingestion source feeding IngestionService; possibly a new memory type or payload shape. The content-addressed ID scheme already handles dedup. Medium effort, high relevance to your coding-agent target. Link traces to code graph entities (`test`, `command`, `file`, `class`, `method`, `build tool`) so "why did this test fail" or "what command validates this module" can retrieve both the trace and the affected code.
+Shipped: `ingestion.trace` (`TraceEvent`/`CommandSignature`/`TraceRelevanceFilter`/`TraceMemoryFactory`/`TraceGraphBuilder`/`TraceCodeLinker`/`TraceRecipeExtractor`/`TraceIngestionService`) behind an optional `traces` list on `POST /v1/profiles/{name}/ingest`; captured by `pieria hook claude-code post-tool-use` into a local spool that the turn-end hooks drain. Outcome `event`s are derived deterministically in Java and keyed `trace:outcome:<signature>` so the latest supersedes; procedural `instruction`s are model-derived once per batch and keyed `trace:recipe:<signature>`. Traces ride the existing channels — no new channel — and reach the code channels through `payload.symbolIds`. Codex/OpenCode capture is not implemented: each needs a per-tool hook event that has not been verified to exist.
 
 ---
 # Tier 2 — Capabilities (new things agents can do)

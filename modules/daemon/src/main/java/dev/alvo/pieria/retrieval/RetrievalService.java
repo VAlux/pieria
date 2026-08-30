@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
+import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.model.ModelGateway;
@@ -72,18 +73,21 @@ public class RetrievalService {
   private final DeterministicQueryAnalyzer fallbackAnalyzer;
   private final TemporalExtractor temporalExtractor;
   private final EffectiveConfigResolver configResolver;
+  private final TraceProperties traceProperties;
 
   public RetrievalService(MemoryStore store,
                           ModelGateway modelGateway,
                           DeterministicQueryAnalyzer fallbackAnalyzer,
                           CodeIndexStore codeStore,
-                          EffectiveConfigResolver configResolver) {
+                          EffectiveConfigResolver configResolver,
+                          TraceProperties traceProperties) {
     this.store = store;
     this.codeStore = codeStore;
     this.modelGateway = modelGateway;
     this.fallbackAnalyzer = fallbackAnalyzer;
     this.temporalExtractor = new TemporalExtractor();
     this.configResolver = configResolver;
+    this.traceProperties = traceProperties;
   }
 
   private static Map<RetrievalChannelType, Double> getWeightsForRetrievalChannels(Retrieval config) {
@@ -127,7 +131,9 @@ public class RetrievalService {
   }
 
   private Pipeline buildPipeline(Retrieval cfg) {
-    ReciprocalRankFusion fusion = new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg));
+    ReciprocalRankFusion fusion =
+      new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg),
+        traceProperties.recallBoost());
 
     // Wave 1: the primary channels run in a fixed fan-out order; fusion + tie-breaking make results
     // deterministic. The code SymbolFtsChannel joins wave 1 when enabled (weight > 0).

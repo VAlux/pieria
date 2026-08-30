@@ -76,6 +76,7 @@ public final class ReciprocalRankFusion {
       .thenComparing(candidate -> candidate.memory().id(), Comparator.nullsLast(Comparator.naturalOrder()));
   private final int k;
   private final Map<RetrievalChannelType, Double> weights;
+  private final double traceBoost;
 
   /**
    * @param k       the RRF rank-smoothing constant (default approximately 60); must be {@code >= 1}
@@ -83,12 +84,23 @@ public final class ReciprocalRankFusion {
    * @throws IllegalArgumentException if {@code k < 1}
    */
   public ReciprocalRankFusion(int k, Map<RetrievalChannelType, Double> weights) {
+    this(k, weights, 1.0);
+  }
+
+  /**
+   * @param traceBoost multiplier applied to candidates whose payload carries
+   *                   {@code "source":"trace"}; {@code 1.0} disables it. Exists so procedural
+   *                   recall can be tuned against the eval harness without a code change, and so
+   *                   the default provably changes nothing.
+   * @throws IllegalArgumentException if {@code k < 1}
+   */
+  public ReciprocalRankFusion(int k, Map<RetrievalChannelType, Double> weights, double traceBoost) {
     if (k < 1) {
       throw new IllegalArgumentException("RRF k must be >= 1, was " + k);
     }
     this.k = k;
-
     this.weights = getWeights(weights);
+    this.traceBoost = traceBoost <= 0 ? 1.0 : traceBoost;
   }
 
   private static Map<RetrievalChannelType, Double> getWeights(Map<RetrievalChannelType, Double> weights) {
@@ -147,12 +159,24 @@ public final class ReciprocalRankFusion {
 
     List<RecallCandidate> fused = new ArrayList<>(byMemory.size());
     for (FusionAccumulator acc : byMemory.values()) {
-      double score = acc.score(k, weights);
+      double score = acc.score(k, weights) * boostFor(acc.memory);
       fused.add(new RecallCandidate(acc.memory, score, acc.source(k, weights)));
     }
 
     fused.sort(FUSED_ORDER);
     return fused;
+  }
+
+  /**
+   * Whether this memory came from an execution trace. Matched on the payload marker rather than on
+   * the memory type, because traces land on {@code event} and {@code instruction} alongside
+   * conversational memories. A payload that is not JSON simply does not match.
+   */
+  private double boostFor(Memory memory) {
+    if (traceBoost == 1.0 || memory == null || memory.payload() == null) {
+      return 1.0;
+    }
+    return memory.payload().contains("\"source\":\"trace\"") ? traceBoost : 1.0;
   }
 
   /**
