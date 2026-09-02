@@ -1,5 +1,23 @@
 # Phase 9 - Retrieval Reranking Stage
 
+> **Superseded in part (2026-09-02).** The design of record is
+> [`docs/superpowers/specs/2026-09-02-retrieval-reranking-design.md`](../superpowers/specs/2026-09-02-retrieval-reranking-design.md).
+> This document remains the phase charter — its Objective, Scope, and Acceptance Criteria still
+> hold. **Implementation Sequence steps 3, 4, and 8, and the Tests bullets that reference the
+> superseded combination modes, are superseded**, because this was written
+> on 2026-06-02 against a codebase that had no `RecallMode` tiers, no near-duplicate collapse pass,
+> no code-derived memories, and no console configuration UI. Specifically:
+>
+> - **Step 3/4 (pointwise scores, `replace`/`blend` combination modes)** — superseded by a coarse
+>   three-way relevance label (`essential`/`related`/`irrelevant`) with RRF order preserved inside
+>   each bucket. The small tier is a local ~4-8B model, which does not calibrate numeric relevance
+>   scores well enough for `replace` to be anything but noise. See design D2.
+> - **Step 8 (`combinationMode`, `blendWeight`, `scoreThreshold`, `model` selector)** — superseded by
+>   six flat `rerank*` properties. See design D7.
+> - **Not in the original sequence:** the stage is split by recall tier — a deterministic
+>   cosine-blend re-scorer in every tier (no model call, preserving the `EVIDENCE` latency contract)
+>   and the model reranker only at `ANALYZED`+. See design D1 and D5.
+
 ## Objective
 
 Insert a reranking stage between weighted Reciprocal Rank Fusion and synthesis in the read pipeline. RRF produces a
