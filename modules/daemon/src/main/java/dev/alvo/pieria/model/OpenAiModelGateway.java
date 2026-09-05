@@ -17,6 +17,7 @@ import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.tools.PromptTemplateLoader;
 import org.slf4j.Logger;
@@ -80,6 +81,8 @@ public class OpenAiModelGateway implements ModelGateway {
    */
   private static final Pattern MD_CONTENT = Pattern.compile(
     "(?im)^[-*\\d.]*\\s*\\*{0,2}(?:content)\\*{0,2}:?\\s*(.+)$");
+  /** {@code <index><separator><label>} — the rerank reply's line protocol. */
+  private static final Pattern RERANK_LINE = Pattern.compile("^(\\d+)\\s*[.:\\-)]?\\s+([A-Za-z]+)\\s*$");
   private final ChatClient extractionChatClient;
   private final ChatClient synthesisChatClient;
   private final EmbeddingModel embeddingModel;
@@ -1063,6 +1066,77 @@ public class OpenAiModelGateway implements ModelGateway {
     }
 
     return new QueryAnalysis(topicKeys, ftsTerms, entities, blankToNull(dto.hydeStatement()));
+  }
+
+  @Override
+  public List<RerankLabel> rerankCandidates(String query, List<String> contents) {
+    if (query == null || query.isBlank() || contents == null || contents.isEmpty()) {
+      return List.of();
+    }
+
+    StringBuilder rendered = new StringBuilder();
+    for (int i = 0; i < contents.size(); i++) {
+      String content = contents.get(i) == null ? "" : contents.get(i).replace('\n', ' ').strip();
+      rendered.append(i + 1).append(". ").append(content).append('\n');
+    }
+
+    String prompt = PromptTemplateLoader.render("rerank-candidates",
+      Map.of("query", query, "candidates", rendered.toString()));
+
+    try {
+      return parseRerankLabels(callExtractionText(prompt, "rerank"), contents.size());
+    } catch (RuntimeException e) {
+      // Reranking is a precision improvement, never a requirement. Report "no signal" and let the
+      // caller keep the fused order rather than turning a model hiccup into a failed recall.
+      LOGGER.warn("rerank model call failed ({}); reporting no signal", e.toString());
+      return List.of();
+    }
+  }
+
+  /**
+   * Parse the rerank reply's line protocol into labels aligned 1:1 with the candidates.
+   *
+   * <p>Index-addressed, not positional: a small model reorders lines, omits some, and sometimes
+   * wraps the list in prose. Every index the reply does not mention keeps {@link RerankLabel#RELATED},
+   * the label that reorders nothing and drops nothing, and a reply with no parseable line at all
+   * returns an empty list — "no signal" — so a refusal or a wall of prose cannot be mistaken for a
+   * considered verdict that everything is merely related.
+   */
+  static List<RerankLabel> parseRerankLabels(String raw, int expected) {
+    if (raw == null || raw.isBlank() || expected <= 0) {
+      return List.of();
+    }
+
+    RerankLabel[] labels = new RerankLabel[expected];
+    boolean parsedAny = false;
+
+    for (String line : raw.split("\\R")) {
+      var matcher = RERANK_LINE.matcher(line.strip());
+      if (!matcher.matches()) {
+        continue;
+      }
+      int index;
+      try {
+        index = Integer.parseInt(matcher.group(1));
+      } catch (NumberFormatException e) {
+        continue;
+      }
+      if (index < 1 || index > expected || labels[index - 1] != null) {
+        continue;
+      }
+      labels[index - 1] = RerankLabel.fromWire(matcher.group(2));
+      parsedAny = true;
+    }
+
+    if (!parsedAny) {
+      return List.of();
+    }
+
+    List<RerankLabel> out = new ArrayList<>(expected);
+    for (RerankLabel label : labels) {
+      out.add(label == null ? RerankLabel.RELATED : label);
+    }
+    return List.copyOf(out);
   }
 
   @Override

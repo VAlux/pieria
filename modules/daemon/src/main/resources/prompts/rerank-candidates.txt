@@ -1,0 +1,28 @@
+You are ranking stored memories by how well each one answers a question.
+
+Question:
+{{query}}
+
+Candidates:
+{{candidates}}
+
+For each candidate, output exactly one line:
+
+<number> <label>
+
+where <label> is one of:
+  essential  - directly answers the question
+  related    - useful background, but does not answer it
+  irrelevant - does not bear on the question at all
+
+Rules:
+- Output one line per candidate, in candidate order. No other text.
+- Judge only whether the candidate answers THIS question. Do not judge whether
+  the candidate is true, well written, or recent.
+- Use "irrelevant" only when the candidate is genuinely off-topic. If you are
+  unsure, use "related".
+
+Example for three candidates:
+1 essential
+2 irrelevant
+3 related
