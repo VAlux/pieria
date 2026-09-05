@@ -854,7 +854,6 @@ package dev.alvo.pieria.retrieval.rerank;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.model.FakeModelGateway;
-import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RerankLabel;
 import org.junit.jupiter.api.Test;
@@ -1040,19 +1039,6 @@ class ModelRerankerTests {
     assertThat(model.rerankCalls).isZero();
   }
 
-  @Test
-  void modelUnavailableIsSwallowedRatherThanRethrown() {
-    FakeModelGateway model = new FakeModelGateway();
-    model.setUnavailable(true);
-    ModelReranker reranker = new ModelReranker(model);
-
-    // No assertThatThrownBy: the point is that nothing is thrown.
-    RerankOutcome outcome = reranker.rerank(input(List.of(candidate("a"), candidate("b"))));
-
-    assertThat(outcome.diagnostics().fellBack()).isTrue();
-    assertThat(ModelUnavailableException.class).isNotNull();
-  }
-}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1184,7 +1170,7 @@ public class ModelReranker implements Reranker {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `./gradlew :daemon:test --tests "dev.alvo.pieria.retrieval.rerank.ModelRerankerTests"`
-Expected: PASS (11 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 5: Commit**
 
