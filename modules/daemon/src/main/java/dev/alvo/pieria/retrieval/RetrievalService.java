@@ -12,6 +12,7 @@ import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.ChannelDiagnostics;
+import dev.alvo.pieria.retrieval.RetrievalDiagnostics.RerankDiagnostics;
 import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
 import dev.alvo.pieria.retrieval.channel.DirectVectorChannel;
 import dev.alvo.pieria.retrieval.channel.ExactKeyChannel;
@@ -26,6 +27,11 @@ import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
+import dev.alvo.pieria.retrieval.rerank.ModelReranker;
+import dev.alvo.pieria.retrieval.rerank.RerankInput;
+import dev.alvo.pieria.retrieval.rerank.RerankOutcome;
+import dev.alvo.pieria.retrieval.rerank.RerankSettings;
+import dev.alvo.pieria.retrieval.rerank.SemanticRescorer;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.TextSimilarity;
@@ -74,6 +80,8 @@ public class RetrievalService {
   private final TemporalExtractor temporalExtractor;
   private final EffectiveConfigResolver configResolver;
   private final TraceProperties traceProperties;
+  private final SemanticRescorer semanticRescorer = new SemanticRescorer();
+  private final ModelReranker modelReranker;
 
   public RetrievalService(MemoryStore store,
                           ModelGateway modelGateway,
@@ -84,6 +92,7 @@ public class RetrievalService {
     this.store = store;
     this.codeStore = codeStore;
     this.modelGateway = modelGateway;
+    this.modelReranker = new ModelReranker(modelGateway);
     this.fallbackAnalyzer = fallbackAnalyzer;
     this.temporalExtractor = new TemporalExtractor();
     this.configResolver = configResolver;
@@ -160,7 +169,9 @@ public class RetrievalService {
 
     return new Pipeline(fusion, List.copyOf(wave1), List.copyOf(wave2),
       cfg.channelLimit(), cfg.channelTimeoutMs(), cfg.nearDuplicateThreshold(),
-      cfg.semanticDuplicateThreshold());
+      cfg.semanticDuplicateThreshold(),
+      new RerankSettings(cfg.rerankEnabled(), cfg.rerankSemanticWeight(), cfg.rerankModelEnabled(),
+        cfg.rerankWindow(), cfg.rerankSnippetChars(), cfg.rerankTimeoutMs()));
   }
 
   /**
@@ -258,11 +269,13 @@ public class RetrievalService {
       // Injection path drops code-indexer-derived memories (one-line symbol summaries the agent can grep
       // for itself) so the limited slots go to the decisions/conventions it can't cheaply re-derive.
       // Filtered before fusion so the limit still yields that many real hits.
+      List<RerankDiagnostics> rerankDiagnostics = new ArrayList<>();
       Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
         List<RetrievalCandidate> forFusion = excludeCodeDerived
           ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
           : hits.value();
-        return fuse(pipeline, forFusion, limit, profile.id());
+        return fuse(pipeline, forFusion, limit, profile.id(), context, mode, inferenceUsage,
+          rerankDiagnostics);
       });
       LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
         profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
@@ -283,11 +296,13 @@ public class RetrievalService {
       recordUsage(profile.id(), fused.value(), answer.value());
 
       RetrievalDiagnostics diagnostics = debug
-        ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, List.of())
+        ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, rerankDiagnostics)
         : null;
-      LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
+      long rerankMs = rerankDiagnostics.stream()
+        .mapToLong(RerankDiagnostics::latencyMs).sum();
+      LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} rerankMs={} temporalMs={} synthesisMs={} totalMs={}",
         profileName, hits.value().size(), fused.value().size(),
-        analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
+        analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(), rerankMs,
         temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
       return new RecallResult(answer.value(), fused.value(), temporal.value(), evidence, diagnostics);
 
@@ -335,10 +350,6 @@ public class RetrievalService {
   }
 
   /**
-   * Fusion stage: weighted RRF over all channel hits, truncated to {@code limit}.
-   */
-
-  /**
    * Embed stage: embed the raw query and, when present, the HyDE statement. Best-effort — a null
    * embedding simply disables the corresponding vector channel.
    */
@@ -378,12 +389,106 @@ public class RetrievalService {
     return hits;
   }
 
+  /**
+   * Fusion stage: weighted RRF, near-duplicate collapse, rerank, then the caller's {@code limit}.
+   *
+   * <p>The truncation is deliberately last. Applying it before the rerank would make a candidate
+   * that RRF ranked below {@code limit} unreachable no matter how relevant it is, which is the
+   * promotion the rerank stage exists to perform.
+   */
   private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit,
-                                     String profileId) {
+                                     String profileId, RetrievalContext context, RecallMode mode,
+                                     InferenceUsageAccumulator usage,
+                                     List<RerankDiagnostics> rerankDiagnostics) {
     List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
+
+    // One store read serves both consumers: the collapse pass's semantic half and the rerank
+    // stage's cosine term score the same candidates against the same vectors.
+    boolean wantVectors = pipeline.semanticDuplicateThreshold() > 0.0
+      || (pipeline.rerank().enabled() && pipeline.rerank().semanticWeight() > 0.0);
+    Map<String, float[]> vectors = wantVectors ? embeddingsForCollapse(profileId, fused) : Map.of();
+
     List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold(),
-      pipeline.semanticDuplicateThreshold(), profileId);
-    return distinct.size() > limit ? List.copyOf(distinct.subList(0, limit)) : distinct;
+      pipeline.semanticDuplicateThreshold(), vectors);
+
+    List<RecallCandidate> reranked = rerank(pipeline, distinct, vectors, context, mode, usage,
+      rerankDiagnostics);
+
+    return reranked.size() > limit ? List.copyOf(reranked.subList(0, limit)) : reranked;
+  }
+
+  /**
+   * Rerank stage: the deterministic re-scorer in every tier, the model reranker only where the tier
+   * already pays for model analysis. Bounded, best-effort, and incapable of failing the recall —
+   * every path out of here either improves the order or returns it untouched.
+   */
+  private List<RecallCandidate> rerank(Pipeline pipeline, List<RecallCandidate> candidates,
+                                       Map<String, float[]> vectors, RetrievalContext context,
+                                       RecallMode mode, InferenceUsageAccumulator usage,
+                                       List<RerankDiagnostics> diagnosticsOut) {
+    RerankSettings settings = pipeline.rerank();
+    if (!settings.enabled() || candidates.size() < 2) {
+      return candidates;
+    }
+
+    int windowSize = Math.min(settings.window(), candidates.size());
+    List<RecallCandidate> window = List.copyOf(candidates.subList(0, windowSize));
+    List<RecallCandidate> tail = List.copyOf(candidates.subList(windowSize, candidates.size()));
+
+    RerankInput input = new RerankInput(context.query(), context.queryEmbedding(), window,
+      vectors, settings);
+
+    RerankOutcome rescored = semanticRescorer.rerank(input);
+    diagnosticsOut.add(rescored.diagnostics());
+
+    List<RecallCandidate> ordered = rescored.candidates();
+    if (settings.modelEnabled() && mode.usesModelAnalysis()) {
+      RerankOutcome modelOutcome = runModelRerank(
+        new RerankInput(context.query(), context.queryEmbedding(), ordered, vectors, settings),
+        settings, usage);
+      diagnosticsOut.add(modelOutcome.diagnostics());
+      ordered = modelOutcome.candidates();
+    }
+
+    if (tail.isEmpty()) {
+      return ordered;
+    }
+    List<RecallCandidate> combined = new ArrayList<>(ordered.size() + tail.size());
+    combined.addAll(ordered);
+    combined.addAll(tail);
+    return List.copyOf(combined);
+  }
+
+  /**
+   * Run the model reranker on a virtual thread, bounded by the configured timeout — the same
+   * best-effort posture {@link #runChannels} gives a non-critical channel.
+   *
+   * <p>The usage accumulator is re-bound <em>inside</em> the worker because
+   * {@link InferenceUsageSink} is thread-bound and virtual threads do not inherit thread-locals.
+   * A rerank that times out may still land its tokens after this recall's usage has been recorded;
+   * the accumulator is LongAdder-striped so that is safe, it just means a timed-out rerank's tokens
+   * can go unbilled for that recall. Losing an accounting line is the right trade against blocking
+   * a recall on a slow model.
+   */
+  private RerankOutcome runModelRerank(RerankInput input, RerankSettings settings,
+                                       InferenceUsageAccumulator usage) {
+    try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
+      Future<RerankOutcome> future = exec.submit(() -> {
+        try (InferenceUsageSink.Binding binding = InferenceUsageSink.bind(usage)) {
+          return modelReranker.rerank(input);
+        }
+      });
+      try {
+        return future.get(settings.timeoutMs(), TimeUnit.MILLISECONDS);
+      } catch (TimeoutException | ExecutionException | InterruptedException e) {
+        if (e instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
+        future.cancel(true);
+        LOGGER.warn("rerank stage failed/timed out ({}); keeping fused order", e.toString());
+        return RerankOutcome.passThrough(input.candidates(), "model", settings.timeoutMs());
+      }
+    }
   }
 
   /**
@@ -411,13 +516,12 @@ public class RetrievalService {
    * genuine duplicate — and collapsing them would hide a real result.
    */
   private List<RecallCandidate> collapseNearDuplicates(
-    List<RecallCandidate> ranked, double threshold, double semanticThreshold, String profileId) {
+    List<RecallCandidate> ranked, double threshold, double semanticThreshold,
+    Map<String, float[]> embeddings) {
     if ((threshold <= 0.0 && semanticThreshold <= 0.0) || ranked.size() < 2) {
       return ranked;
     }
-    Map<String, float[]> embeddings = semanticThreshold <= 0.0
-      ? Map.of()
-      : embeddingsForCollapse(profileId, ranked);
+    Map<String, float[]> vectors = semanticThreshold <= 0.0 ? Map.of() : embeddings;
 
     List<RecallCandidate> kept = new ArrayList<>(ranked.size());
     List<Set<String>> keptShingles = new ArrayList<>(ranked.size());
@@ -426,7 +530,7 @@ public class RetrievalService {
       boolean exempt = isCodeDerived(candidate.memory());
       // An empty shingle set and a null vector never match, which is how the exemption is expressed.
       Set<String> shingles = exempt ? Set.of() : TextSimilarity.shingles(candidate.memory().content());
-      float[] vector = exempt ? null : embeddings.get(candidate.memory().id());
+      float[] vector = exempt ? null : vectors.get(candidate.memory().id());
 
       boolean duplicate = false;
       for (int i = 0; i < kept.size() && !duplicate; i++) {
@@ -590,7 +694,8 @@ public class RetrievalService {
                           int channelLimit,
                           long channelTimeoutMs,
                           double nearDuplicateThreshold,
-                          double semanticDuplicateThreshold) {
+                          double semanticDuplicateThreshold,
+                          RerankSettings rerank) {
   }
 
   /**

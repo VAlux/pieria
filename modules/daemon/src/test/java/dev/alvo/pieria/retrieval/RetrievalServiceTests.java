@@ -17,6 +17,7 @@ import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.model.FakeModelGateway;
@@ -57,6 +58,22 @@ class RetrievalServiceTests {
   private static PieriaProperties.Retrieval retrievalCfg() {
     return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
       false, 0.4, true, 30, 400, 4000L);
+  }
+
+  /** As {@link #retrievalCfg()} but with the rerank stage on and the given semantic weight. */
+  private static PieriaProperties.Retrieval rerankCfg(double semanticWeight, boolean modelEnabled) {
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
+      0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.0, 0.0,
+      true, semanticWeight, modelEnabled, 30, 400, 4000L);
+  }
+
+  private RetrievalService serviceWithRerank(MemoryStore store, FakeModelGateway model,
+                                             PieriaProperties.Retrieval cfg) {
+    PieriaProperties props = new PieriaProperties(null, null, null, null,
+      new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
+        1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);
+    return new RetrievalService(store, model, new DeterministicQueryAnalyzer(), new NoOpCodeIndexStore(),
+      EffectiveConfigResolver.withoutOverrides(props), TraceProperties.defaults());
   }
 
   private static PieriaProperties props() {
@@ -549,6 +566,124 @@ class RetrievalServiceTests {
 
     assertThat(result.answer()).isNull();
     assertThat(model.synthesizeCalled).isFalse();
+  }
+
+  @Test
+  void evidenceTierRerankMakesNoModelCall() {
+    // The EVIDENCE tier's contract is the query embedding and nothing else. The deterministic
+    // re-scorer must run there; the model reranker must not.
+    FakeModelGateway model = new FakeModelGateway();
+    model.setRerankLabels(List.of(RerankLabel.IRRELEVANT, RerankLabel.ESSENTIAL));
+    FakeStore store = storeWithTwoMemories();
+
+    RetrievalService service = serviceWithRerank(store, model, rerankCfg(0.6, true));
+    RecallResult result = service.recall("p", "vector search", 10, false, RecallMode.EVIDENCE);
+
+    assertThat(model.rerankCalls).isZero();
+    assertThat(result.candidates()).isNotEmpty();
+  }
+
+  @Test
+  void synthesizedTierConsultsTheModelExactlyOnce() {
+    FakeModelGateway model = new FakeModelGateway();
+    model.setRerankLabels(List.of(RerankLabel.RELATED, RerankLabel.ESSENTIAL));
+    FakeStore store = storeWithTwoMemories();
+
+    RetrievalService service = serviceWithRerank(store, model, rerankCfg(0.0, true));
+    service.recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+
+    assertThat(model.rerankCalls).isEqualTo(1);
+  }
+
+  @Test
+  void modelLabelsReorderTheReturnedEvidence() {
+    FakeModelGateway model = new FakeModelGateway();
+    // Label the SECOND fused candidate essential, so it must come back first.
+    model.setRerankLabels(List.of(RerankLabel.RELATED, RerankLabel.ESSENTIAL));
+    FakeStore store = storeWithTwoMemories();
+
+    RetrievalService service = serviceWithRerank(store, model, rerankCfg(0.0, true));
+    RecallResult beforeRerank = serviceWithRerank(store, new FakeModelGateway(), rerankCfg(0.0, false))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+    RecallResult afterRerank = service.recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+
+    assertThat(afterRerank.memories().getFirst().id())
+      .isEqualTo(beforeRerank.memories().get(1).id());
+  }
+
+  @Test
+  void aCandidateRankedBelowTheLimitCanBePromotedIntoTheResult() {
+    // The point of moving truncation after the rerank: with limit=1 the second-ranked candidate is
+    // unreachable today, and reachable once the model calls it essential.
+    FakeModelGateway model = new FakeModelGateway();
+    model.setRerankLabels(List.of(RerankLabel.RELATED, RerankLabel.ESSENTIAL));
+    FakeStore store = storeWithTwoMemories();
+
+    RecallResult baseline = serviceWithRerank(store, new FakeModelGateway(), rerankCfg(0.0, false))
+      .recall("p", "vector search", 1, false, RecallMode.SYNTHESIZED);
+    RecallResult promoted = serviceWithRerank(store, model, rerankCfg(0.0, true))
+      .recall("p", "vector search", 1, false, RecallMode.SYNTHESIZED);
+
+    assertThat(baseline.memories()).hasSize(1);
+    assertThat(promoted.memories()).hasSize(1);
+    assertThat(promoted.memories().getFirst().id()).isNotEqualTo(baseline.memories().getFirst().id());
+  }
+
+  @Test
+  void aFailingRerankModelStillReturnsTheFusedResult() {
+    FakeModelGateway model = new FakeModelGateway() {
+      @Override
+      public List<RerankLabel> rerankCandidates(String query, List<String> contents) {
+        throw new IllegalStateException("provider exploded");
+      }
+    };
+    FakeStore store = storeWithTwoMemories();
+
+    RecallResult baseline = serviceWithRerank(store, new FakeModelGateway(), rerankCfg(0.0, false))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+    RecallResult withFailure = serviceWithRerank(store, model, rerankCfg(0.0, true))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+
+    assertThat(withFailure.memories().stream().map(Memory::id).toList())
+      .isEqualTo(baseline.memories().stream().map(Memory::id).toList());
+  }
+
+  @Test
+  void rerankDiagnosticsAppearOnlyUnderTheDebugFlag() {
+    FakeModelGateway model = new FakeModelGateway();
+    model.setRerankLabels(List.of(RerankLabel.ESSENTIAL, RerankLabel.RELATED));
+    FakeStore store = storeWithTwoMemories();
+    RetrievalService service = serviceWithRerank(store, model, rerankCfg(0.6, true));
+
+    RecallResult quiet = service.recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+    RecallResult loud = service.recall("p", "vector search", 10, true, RecallMode.SYNTHESIZED);
+
+    assertThat(quiet.diagnostics()).isNull();
+    assertThat(loud.diagnostics().rerank()).extracting(
+        dev.alvo.pieria.retrieval.RetrievalDiagnostics.RerankDiagnostics::stage)
+      .containsExactly("semantic", "model");
+  }
+
+  @Test
+  void channelProvenanceSurvivesTheRerankStage() {
+    FakeModelGateway model = new FakeModelGateway();
+    model.setRerankLabels(List.of(RerankLabel.ESSENTIAL, RerankLabel.RELATED));
+    FakeStore store = storeWithTwoMemories();
+
+    RecallResult result = serviceWithRerank(store, model, rerankCfg(0.6, true))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+
+    assertThat(result.candidates()).allSatisfy(candidate ->
+      assertThat(candidate.source()).isNotBlank());
+  }
+
+  /** Two distinct FTS hits, so fusion produces a two-candidate list the rerank stage can reorder. */
+  private static FakeStore storeWithTwoMemories() {
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(
+      mem("m1", "vector search uses sqlite-vec", MemoryType.FACT, "topic.vector", T0),
+      mem("m2", "vector search is disabled by default", MemoryType.FACT, "topic.default", T0));
+    return store;
   }
 
   /** Records whether the model-driven analysis/synthesis stages were invoked, delegating otherwise. */
