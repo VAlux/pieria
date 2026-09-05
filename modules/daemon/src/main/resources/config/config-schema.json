@@ -189,6 +189,57 @@
     "hint": "Cosine over stored embeddings. 0 disables."
   },
   {
+    "key": "retrieval.rerank-enabled",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Reranking enabled",
+    "hint": "Off restores the plain fusion ordering."
+  },
+  {
+    "key": "retrieval.rerank-semantic-weight",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "double",
+    "label": "Semantic blend weight",
+    "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
+  },
+  {
+    "key": "retrieval.rerank-model-enabled",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Model reranking",
+    "hint": "Adds one small-model call. Only runs at the analyzed and synthesized tiers."
+  },
+  {
+    "key": "retrieval.rerank-window",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Candidate window"
+  },
+  {
+    "key": "retrieval.rerank-snippet-chars",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Candidate text limit (chars)"
+  },
+  {
+    "key": "retrieval.rerank-timeout-ms",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Rerank timeout (ms)"
+  },
+  {
     "key": "ingestion.chunk-size-chars",
     "scope": "profile",
     "section": "ingestion",
@@ -511,5 +562,56 @@
     "kind": "double",
     "label": "Trace recall boost",
     "hint": "Post-fusion multiplier for trace-sourced candidates. 1.0 is off; raise it only against eval evidence. Clamped to 0-10."
+  },
+  {
+    "key": "pieria.retrieval.rerank-enabled",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Reranking enabled",
+    "hint": "Off restores the plain fusion ordering."
+  },
+  {
+    "key": "pieria.retrieval.rerank-semantic-weight",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Semantic blend weight",
+    "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
+  },
+  {
+    "key": "pieria.retrieval.rerank-model-enabled",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Model reranking",
+    "hint": "Adds one small-model call. Only runs at the analyzed and synthesized tiers."
+  },
+  {
+    "key": "pieria.retrieval.rerank-window",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Candidate window"
+  },
+  {
+    "key": "pieria.retrieval.rerank-snippet-chars",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Candidate text limit (chars)"
+  },
+  {
+    "key": "pieria.retrieval.rerank-timeout-ms",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Rerank timeout (ms)"
   }
 ]
