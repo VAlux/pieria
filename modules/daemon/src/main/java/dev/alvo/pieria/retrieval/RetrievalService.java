@@ -282,7 +282,9 @@ public class RetrievalService {
 
       recordUsage(profile.id(), fused.value(), answer.value());
 
-      RetrievalDiagnostics diagnostics = debug ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics) : null;
+      RetrievalDiagnostics diagnostics = debug
+        ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, List.of())
+        : null;
       LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} temporalMs={} synthesisMs={} totalMs={}",
         profileName, hits.value().size(), fused.value().size(),
         analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
