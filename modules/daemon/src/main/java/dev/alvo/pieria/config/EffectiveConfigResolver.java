@@ -105,7 +105,13 @@ public class EffectiveConfigResolver {
       nvl(o.codeGraphMinConfidence(), g.codeGraphMinConfidence()),
       nvl(o.recallMode(), g.recallMode()),
       nvl(o.nearDuplicateThreshold(), g.nearDuplicateThreshold()),
-      nvl(o.semanticDuplicateThreshold(), g.semanticDuplicateThreshold()));
+      nvl(o.semanticDuplicateThreshold(), g.semanticDuplicateThreshold()),
+      nvl(o.rerankEnabled(), g.rerankEnabled()),
+      nvl(o.rerankSemanticWeight(), g.rerankSemanticWeight()),
+      nvl(o.rerankModelEnabled(), g.rerankModelEnabled()),
+      nvl(o.rerankWindow(), g.rerankWindow()),
+      nvl(o.rerankSnippetChars(), g.rerankSnippetChars()),
+      nvl(o.rerankTimeoutMs(), g.rerankTimeoutMs()));
   }
 
   private static <T> T nvl(T override, T global) {

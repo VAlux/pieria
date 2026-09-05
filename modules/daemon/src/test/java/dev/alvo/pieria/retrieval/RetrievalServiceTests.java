@@ -55,7 +55,8 @@ class RetrievalServiceTests {
   }
 
   private static PieriaProperties.Retrieval retrievalCfg() {
-    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78);
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
+      false, 0.4, true, 30, 400, 4000L);
   }
 
   private static PieriaProperties props() {
@@ -72,7 +73,8 @@ class RetrievalServiceTests {
   /** As {@link #service}, but with the code-graph wave enabled over the given code-index store. */
   private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
-      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78);
+      true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
+      false, 0.4, true, 30, 400, 4000L);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);

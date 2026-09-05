@@ -68,7 +68,13 @@ public class ProfileConfigService {
         retrieval.codeGraphMinConfidence(),
         retrieval.recallMode(),
         retrieval.nearDuplicateThreshold(),
-        retrieval.semanticDuplicateThreshold()));
+        retrieval.semanticDuplicateThreshold(),
+        retrieval.rerankEnabled(),
+        retrieval.rerankSemanticWeight(),
+        retrieval.rerankModelEnabled(),
+        retrieval.rerankWindow(),
+        retrieval.rerankSnippetChars(),
+        retrieval.rerankTimeoutMs()));
   }
 
   /**

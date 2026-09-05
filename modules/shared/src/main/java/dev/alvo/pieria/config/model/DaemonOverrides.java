@@ -56,7 +56,13 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
     String codeGraphMinConfidence,
     RecallMode recallMode,
     Double nearDuplicateThreshold,
-    Double semanticDuplicateThreshold) {
+    Double semanticDuplicateThreshold,
+    Boolean rerankEnabled,
+    Double rerankSemanticWeight,
+    Boolean rerankModelEnabled,
+    Integer rerankWindow,
+    Integer rerankSnippetChars,
+    Long rerankTimeoutMs) {
   }
 
   /**
@@ -78,7 +84,9 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
       retrieval.graphSeedLimit(), retrieval.channelLimit(), retrieval.channelTimeoutMs(),
       retrieval.weightSymbolFts(), retrieval.weightCodeGraph(), retrieval.codeGraphDepth(),
       retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence(),
-      retrieval.recallMode(), retrieval.nearDuplicateThreshold(), retrieval.semanticDuplicateThreshold()));
+      retrieval.recallMode(), retrieval.nearDuplicateThreshold(), retrieval.semanticDuplicateThreshold(),
+      retrieval.rerankEnabled(), retrieval.rerankSemanticWeight(), retrieval.rerankModelEnabled(),
+      retrieval.rerankWindow(), retrieval.rerankSnippetChars(), retrieval.rerankTimeoutMs()));
   }
 
   private static boolean allNull(Object... values) {

@@ -310,6 +310,13 @@ public record PieriaProperties(
    *                                   0.76-0.83 in embedding space. {@code 0} disables it. Candidates
    *                                   with no stored embedding (never vectorized, still queued, or
    *                                   {@code task} type) fall back to the lexical check alone.
+   * @param rerankEnabled              master switch for the reranking stage (off ⇒ fused order is final)
+   * @param rerankSemanticWeight       weight given to the semantic (embedding) signal versus the
+   *                                   heuristic/model label signal when combining reranker scores
+   * @param rerankModelEnabled         whether the model-backed reranker runs (off ⇒ heuristic reranker only)
+   * @param rerankWindow               number of top fused candidates the reranker re-scores
+   * @param rerankSnippetChars         max characters of each candidate's content sent to the reranker
+   * @param rerankTimeoutMs            timeout in milliseconds for the reranking stage
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,
@@ -332,11 +339,18 @@ public record PieriaProperties(
                           @DefaultValue("heuristic") String codeGraphMinConfidence,
                           @DefaultValue("SYNTHESIZED") RecallMode recallMode,
                           @DefaultValue("0.60") double nearDuplicateThreshold,
-                          @DefaultValue("0.78") double semanticDuplicateThreshold) {
+                          @DefaultValue("0.78") double semanticDuplicateThreshold,
+                          @DefaultValue("true") boolean rerankEnabled,
+                          @DefaultValue("0.4") double rerankSemanticWeight,
+                          @DefaultValue("true") boolean rerankModelEnabled,
+                          @DefaultValue("30") int rerankWindow,
+                          @DefaultValue("400") int rerankSnippetChars,
+                          @DefaultValue("4000") long rerankTimeoutMs) {
 
     public Retrieval {
       nearDuplicateThreshold = Math.clamp(nearDuplicateThreshold, 0.0, 1.0);
       semanticDuplicateThreshold = Math.clamp(semanticDuplicateThreshold, 0.0, 1.0);
+      rerankSemanticWeight = Math.clamp(rerankSemanticWeight, 0.0, 1.0);
     }
   }
 }
