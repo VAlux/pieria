@@ -8,6 +8,7 @@ import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.trace.TraceRecipe;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 
@@ -150,6 +151,23 @@ public interface ModelGateway {
    */
   default QueryAnalysis analyzeQuery(String query) {
     throw new UnsupportedOperationException("analyzeQuery(...) not implemented");
+  }
+
+  /**
+   * Rerank: label each candidate's relevance to {@code query}, in one batched call on the
+   * small/fast model tier. Never the large synthesis model.
+   *
+   * <p>Additive and degradable, like {@link #extractGraph}: the default returns an empty list —
+   * "no signal" — so stubs and gateways without rerank support keep working, and callers must treat
+   * that as "leave the fused order alone".
+   *
+   * <p>A non-empty result MUST be aligned 1:1 with {@code contents} (same order, same size).
+   * Callers treat any other size as failure and fall back, for the same reason
+   * {@link #embedAll} must not return a short list: a label attached to the wrong candidate is a
+   * silent wrong drop with nothing to signal it happened.
+   */
+  default List<RerankLabel> rerankCandidates(String query, List<String> contents) {
+    return List.of();
   }
 
   /**

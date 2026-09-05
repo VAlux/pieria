@@ -8,6 +8,7 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
@@ -57,6 +58,25 @@ public class FakeModelGateway implements ModelGateway {
    * behavior) and inspect the evidence each summary prompt was given.
    */
   public final List<CodeSummaryInput> summarizeCalls = new java.util.ArrayList<>();
+
+  /**
+   * Every {@link #rerankCandidates} content list, in call order — lets tests count model calls
+   * (proving EVIDENCE recalls make none) and inspect exactly what the prompt would have been given.
+   */
+  public final List<List<String>> rerankedContents = new java.util.ArrayList<>();
+
+  /** How many times {@link #rerankCandidates} was called. */
+  public int rerankCalls;
+
+  private List<RerankLabel> rerankLabels = List.of();
+
+  /**
+   * Labels the next {@link #rerankCandidates} call returns. Left unset, the fake reports "no
+   * signal" (an empty list), which is the pass-through case.
+   */
+  public void setRerankLabels(List<RerankLabel> labels) {
+    this.rerankLabels = labels == null ? List.of() : List.copyOf(labels);
+  }
 
   /**
    * When {@code true}, every method throws {@link ModelUnavailableException}.
@@ -186,6 +206,14 @@ public class FakeModelGateway implements ModelGateway {
     }
     List<String> topicKeys = terms.isEmpty() ? List.of() : List.of("topic." + terms.get(0));
     return new QueryAnalysis(topicKeys, terms, terms, "answer: " + query.strip());
+  }
+
+  @Override
+  public List<RerankLabel> rerankCandidates(String query, List<String> contents) {
+    rerankCalls++;
+    rerankedContents.add(contents == null ? List.of() : List.copyOf(contents));
+    failIfUnavailable();
+    return rerankLabels;
   }
 
   @Override
