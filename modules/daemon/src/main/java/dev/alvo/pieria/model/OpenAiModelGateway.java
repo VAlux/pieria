@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.embedding.Embedding;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.EmbeddingResponseMetadata;
@@ -1238,15 +1239,57 @@ public class OpenAiModelGateway implements ModelGateway {
 
   @Override
   public float[] embed(String text) {
+    return embedAll(List.of(text == null ? "" : text)).getFirst();
+  }
+
+  @Override
+  public List<float[]> embedAll(List<String> texts) {
+    if (texts.isEmpty()) {
+      return List.of();
+    }
+    List<String> inputs = texts.stream().map(text -> text == null ? "" : text).toList();
+
+    EmbeddingResponse response;
     try {
-      EmbeddingResponse response = retry.execute("embed",
-        () -> embeddingModel.embedForResponse(List.of(text == null ? "" : text)));
-      logEmbeddingUsage(response);
-      response.getResult();
-      return response.getResult().getOutput();
+      response = retry.execute("embed", () -> embeddingModel.embedForResponse(inputs));
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("Model embedding failed: " + e.getMessage(), e);
     }
+    logEmbeddingUsage(response);
+    // Alignment is checked outside the retry: a short or scrambled response is a contract violation,
+    // not a transient failure, and re-asking would not fix it.
+    return alignByIndex(response, inputs.size());
+  }
+
+  /**
+   * Place each returned vector at the position of the text that produced it. With one text per
+   * request the mapping was positional and implicit; batching makes it explicit, and
+   * {@link Embedding#getIndex()} is the only authoritative source for it. Anything that would leave
+   * a vector on the wrong text — a short response, a repeated or out-of-range index, a missing
+   * vector — fails loudly, because the alternative is a silently mis-embedded memory that no later
+   * signal would reveal.
+   */
+  private static List<float[]> alignByIndex(EmbeddingResponse response, int expected) {
+    List<Embedding> results = response == null ? List.of() : response.getResults();
+    if (results.size() != expected) {
+      throw new ModelUnavailableException(
+        "Model embedding returned " + results.size() + " vectors for " + expected + " texts");
+    }
+
+    float[][] byIndex = new float[expected][];
+    for (Embedding embedding : results) {
+      Integer index = embedding.getIndex();
+      if (index == null || index < 0 || index >= expected || byIndex[index] != null) {
+        throw new ModelUnavailableException(
+          "Model embedding returned an unusable result index: " + index);
+      }
+      float[] vector = embedding.getOutput();
+      if (vector == null) {
+        throw new ModelUnavailableException("Model embedding returned no vector at index " + index);
+      }
+      byIndex[index] = vector;
+    }
+    return List.of(byIndex);
   }
 
   /**

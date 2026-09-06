@@ -14,14 +14,10 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
- * Drains the vectorization outbox: for each pending memory, embeds its
- * {@code embed_text} on a virtual thread and persists the vector, deleting the outbox row only
+ * Drains the vectorization outbox: embeds the {@code embed_text} of every pending memory in one
+ * batched model call and persists the vectors, deleting each outbox row only
  * after the embedding write commits ({@link MemoryStore#completeVectorization}). Failures increment
  * the attempt counter; entries past {@code outboxMaxAttempts} are abandoned (outbox row dropped) to
  * avoid a poison-message loop.
@@ -50,7 +46,7 @@ public class VectorizationWorker {
 
   /**
    * Drain and process a single batch. Returns the number of memories successfully vectorized.
-   * Blocking embedding calls run on virtual threads; the method returns once the batch settles.
+   * The whole batch is embedded in one model call; the method returns once the batch settles.
    */
   public int drainOnce() {
     long start = System.nanoTime();
@@ -62,26 +58,19 @@ public class VectorizationWorker {
     log.debug("vectorization batch start entries={} batchSize={} maxAttempts={}",
       batch.size(), batchSize, maxAttempts);
 
-    // Embed in parallel on virtual threads (the slow model calls), producing the work to
-    // write but performing NO database writes.
+    // Resolve each entry to either a terminal outcome or the text to embed. Model-free, and cheap
+    // enough (point reads) not to need the virtual threads that used to overlap the embed calls —
+    // there is only one of those left to overlap.
     List<PreparedWrite> prepared = new ArrayList<>(batch.size());
-    try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
-      List<Future<PreparedWrite>> futures = new ArrayList<>(batch.size());
-      for (OutboxEntry entry : batch) {
-        futures.add(exec.submit(() -> prepare(entry)));
-      }
-      for (Future<PreparedWrite> f : futures) {
-        try {
-          prepared.add(f.get());
-        } catch (ExecutionException e) {
-          // prepare() never throws, but guard anyway: leave the outbox row for the next drain.
-          log.warn("vectorization prepare failed unexpectedly", e.getCause());
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          break;
-        }
+    List<Pending> pending = new ArrayList<>(batch.size());
+    for (OutboxEntry entry : batch) {
+      PreparedWrite terminal = resolve(entry, pending);
+      if (terminal != null) {
+        prepared.add(terminal);
       }
     }
+
+    prepared.addAll(embedPending(pending));
 
     // Apply the database writes serially on this thread. SQLite is single-writer, so
     // concurrent UPDATEs only collide (SQLITE_BUSY); serializing them removes vectorization-vs-
@@ -104,10 +93,11 @@ public class VectorizationWorker {
   }
 
   /**
-   * Read + embed one outbox entry (no DB writes). Never throws — an embedding failure is captured as a
-   * {@link VectorizationOutcome#FAILED} {@link PreparedWrite} so the serial write phase records it.
+   * Read one outbox entry (no DB writes, no model call). Returns a terminal {@link PreparedWrite}
+   * for an entry that needs no embedding, or {@code null} after appending the entry's text to
+   * {@code pending} for the batch embed.
    */
-  private PreparedWrite prepare(OutboxEntry entry) {
+  private PreparedWrite resolve(OutboxEntry entry, List<Pending> pending) {
     String memoryId = entry.memoryId();
     if (entry.attempts() >= maxAttempts) {
       // Poison message: drop the outbox row so it stops being drained (the memory stays un-embedded;
@@ -124,14 +114,54 @@ public class VectorizationWorker {
     String text = memory.embedText() != null && !memory.embedText().isBlank()
       ? memory.embedText()
       : memory.content();
-    log.debug("vectorization embedding start memoryId={} type={} attempt={} textChars={}",
+    log.debug("vectorization embedding queued memoryId={} type={} attempt={} textChars={}",
       memoryId, memory.type(), entry.attempts() + 1, text == null ? 0 : text.length());
+    pending.add(new Pending(entry, text));
+    return null;
+  }
+
+  /**
+   * Embed the whole batch in one round trip, falling back to one call per entry when that fails.
+   * The fallback is what preserves per-entry fault isolation: without it a single unembeddable text
+   * would fail every other entry in the batch alongside it, and repeated drains would march them all
+   * to {@code maxAttempts} and abandon healthy memories. Never throws.
+   */
+  private List<PreparedWrite> embedPending(List<Pending> pending) {
+    if (pending.isEmpty()) {
+      return List.of();
+    }
     try {
-      float[] embedding = modelGateway.embed(text);
-      return new PreparedWrite(VectorizationOutcome.SUCCEEDED, memoryId, embedding, null);
+      List<float[]> vectors = modelGateway.embedAll(pending.stream().map(Pending::text).toList());
+      if (vectors.size() != pending.size()) {
+        throw new IllegalStateException("embedAll returned " + vectors.size()
+          + " vectors for " + pending.size() + " texts");
+      }
+      List<PreparedWrite> writes = new ArrayList<>(pending.size());
+      for (int i = 0; i < pending.size(); i++) {
+        writes.add(new PreparedWrite(VectorizationOutcome.SUCCEEDED,
+          pending.get(i).entry().memoryId(), vectors.get(i), null));
+      }
+      return writes;
+    } catch (RuntimeException e) {
+      log.warn("batch embedding of {} entries failed ({}); falling back to one call per entry",
+        pending.size(), e.getMessage());
+      return pending.stream().map(this::embedOne).toList();
+    }
+  }
+
+  /**
+   * Embed one pending entry. Never throws — a failure is captured as a
+   * {@link VectorizationOutcome#FAILED} {@link PreparedWrite} so the serial write phase records it
+   * against that entry alone.
+   */
+  private PreparedWrite embedOne(Pending pending) {
+    String memoryId = pending.entry().memoryId();
+    try {
+      return new PreparedWrite(VectorizationOutcome.SUCCEEDED, memoryId,
+        modelGateway.embed(pending.text()), null);
     } catch (RuntimeException e) {
       log.warn("embedding failed for memory {} (attempt {}): {}",
-        memoryId, entry.attempts() + 1, e.getMessage());
+        memoryId, pending.entry().attempts() + 1, e.getMessage());
       return new PreparedWrite(VectorizationOutcome.FAILED, memoryId, null, e.getMessage());
     }
   }
@@ -170,6 +200,12 @@ public class VectorizationWorker {
     FAILED,
     ABANDONED,
     ORPHANED
+  }
+
+  /**
+   * An outbox entry that survived resolution, paired with the text to embed for it.
+   */
+  private record Pending(OutboxEntry entry, String text) {
   }
 
   /**

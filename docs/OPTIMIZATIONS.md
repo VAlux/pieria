@@ -29,9 +29,9 @@ measured against a committed LoCoMo baseline first (see [Measurement prerequisit
 | Ingest | `verifyAll` (`IngestionService.java:459`) | 1 per chunk with suspects | small |
 | Ingest | `extractGraphAll` (`IngestionService.java:541`) | 1 per chunk with survivors | small |
 | Ingest | `classify` (`IngestionService.java:637`) | 1 per `CORRECT` verdict | small |
-| Ingest | `embed` (`VectorizationWorker.java:137`) | 1 per stored memory | embedding |
+| Ingest | `embedAll` (`VectorizationWorker.java:129`) | 1 per outbox drain | embedding |
 | Recall | `analyzeQuery` (`RetrievalService.java:393`) | 1 per recall at `ANALYZED`+ | small |
-| Recall | `embed` (`RetrievalService.java:410`) | 1 for the query, 1 for HyDE | embedding |
+| Recall | `embedAll` (`RetrievalService.java:343`) | 1 per recall (query + HyDE) | embedding |
 | Recall | `synthesizeRecall` (`RetrievalService.java:384`) | 1 per recall at `SYNTHESIZED` | **large** |
 | Background | `extractGraphAll` (`ReminiscenceService.java:148`) | 1 per batch of 8 orphans | small |
 | Background | `summarizeCode` (`CodeSummarizationService.java:208`) | per file/module/repo, opt-in | **large** |
@@ -136,16 +136,40 @@ is the prerequisite for ever considering dropping the Stop hook outright.
 # Tier 1 — Free wins (output-identical, no baseline needed)
 
 **3. Batch the embedding calls**
-Saves: 32 → 1 embedding round trips per outbox drain | Risk: none | Status: proposed
+Saves: 32 → 1 round trips per outbox drain, 2 → 1 per recall | Risk: none | Status: **implemented**
 
-`OpenAiModelGateway.embed` (`:1151`) calls `embeddingModel.embedForResponse(List.of(text))` — a
-singleton list. `VectorizationWorker.drainOnce` (`:62`) drains `outbox-batch-size` (default 32)
-rows and then fans out 32 separate single-item HTTP calls on virtual threads.
-
-Add `ModelGateway.embedAll(List<String>)` and hand the whole batch to one call. The Spring AI
-surface is already list-shaped, so this is a call-site change plus a batch-aware
-`completeVectorization`. Same model, same inputs, same vectors — the stored embeddings are
+`ModelGateway.embedAll(List<String>)` (`:240`) is a `default` that embeds one text at a time, so
+every existing test double satisfies it unchanged; `OpenAiModelGateway` overrides it (`:1246`) with
+a single `embedForResponse(texts)`, and `embed` now delegates to that, leaving one retry and
+usage-logging path. Same model, same inputs, same vectors — the stored embeddings are
 byte-identical.
+
+Two call sites use it:
+
+- `VectorizationWorker.drainOnce` (`:51`) is now resolve → embed → write. Resolution (attempts
+  check, memory lookup, `embed_text`) is model-free, so the virtual-thread executor went away with
+  the per-entry model calls it existed to overlap. The write phase is unchanged.
+- `RetrievalService.embed` (`:343`) sends the query and the HyDE statement together, dropping every
+  `ANALYZED`/`SYNTHESIZED` recall from two sequential embedding round trips to one.
+
+Design notes:
+
+- **Alignment is checked, not assumed.** With one text per request the text → vector mapping was
+  positional and implicit. Batched, only `Embedding.getIndex()` is authoritative, so results are
+  placed by index and a short, scrambled, or duplicate-index response throws. A vector attached to
+  the wrong memory is silent retrieval corruption with nothing downstream to reveal it. The check
+  sits outside the retry: it is a contract violation, not a transient failure.
+- **A batch failure falls back to one call per entry** (`VectorizationWorker.embedPending`, `:129`).
+  Without it one unembeddable text fails all 32 entries together, and because `applyWrite`
+  increments `attempts`, repeated drains would march 31 healthy memories to `outboxMaxAttempts` and
+  abandon them. Per-entry fault isolation is therefore identical to before: the batch is the fast
+  path, the per-entry loop the correct slow path. Recall falls back the same way, so an oversized
+  HyDE statement cannot take the query's vector channel down with it.
+- **`completeVectorization` stays per-row.** The write phase is already serial and per-row
+  transactional; folding 32 rows into one transaction means one failure rolls back 31 good writes,
+  which is a SQLite-contention question with its own risk profile and belongs in its own change.
+- No new configuration knob: `outbox-batch-size` already bounds the batch, and the per-entry
+  fallback is the safety net a kill switch would otherwise provide.
 
 **4. Don't synthesize over empty evidence**
 Saves: 1 large-model call per zero-hit recall | Risk: none | Status: proposed

@@ -346,12 +346,46 @@ public class RetrievalService {
       return new Embeddings(null, null);
     }
 
-    float[] queryEmbedding = embedQuietly("query", query);
-    float[] hydeEmbedding = analysis.hydeStatement() == null ? null : embedQuietly("hyde", analysis.hydeStatement());
-    if (analysis.hydeStatement() == null) {
+    String hyde = analysis.hydeStatement();
+    if (hyde == null) {
       LOGGER.debug("recall hyde embedding skipped because analysis did not produce a HyDE statement");
     }
-    return new Embeddings(queryEmbedding, hydeEmbedding);
+
+    boolean wantQuery = query != null && !query.isBlank();
+    boolean wantHyde = hyde != null && !hyde.isBlank();
+    List<String> texts = new ArrayList<>(2);
+    if (wantQuery) {
+      texts.add(query);
+    }
+    if (wantHyde) {
+      texts.add(hyde);
+    }
+    if (texts.isEmpty()) {
+      return new Embeddings(null, null);
+    }
+
+    try {
+      List<float[]> vectors = modelGateway.embedAll(texts);
+      if (vectors.size() != texts.size()) {
+        throw new IllegalStateException("embedAll returned " + vectors.size()
+          + " vectors for " + texts.size() + " texts");
+      }
+      // texts holds the query first and the HyDE statement last, so each flag picks its own end.
+      float[] queryEmbedding = wantQuery ? usable(vectors.getFirst()) : null;
+      float[] hydeEmbedding = wantHyde ? usable(vectors.getLast()) : null;
+      LOGGER.debug("recall embeddings completed texts={} queryDimensions={} hydeDimensions={}",
+        texts.size(), embeddingDimensions(queryEmbedding), embeddingDimensions(hydeEmbedding));
+      return new Embeddings(queryEmbedding, hydeEmbedding);
+    } catch (RuntimeException e) {
+      // Fall back rather than null both: an oversized or otherwise unembeddable HyDE statement
+      // should not take the query's vector channel down with it.
+      LOGGER.warn("recall batch embedding failed ({}); falling back to one call per text", e.toString());
+      return new Embeddings(embedQuietly("query", query), embedQuietly("hyde", hyde));
+    }
+  }
+
+  private static float[] usable(float[] embedding) {
+    return (embedding == null || embedding.length == 0) ? null : embedding;
   }
 
   /**
