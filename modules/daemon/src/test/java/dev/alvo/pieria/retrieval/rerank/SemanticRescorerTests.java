@@ -121,6 +121,27 @@ class SemanticRescorerTests {
   }
 
   @Test
+  void aWrongWidthVectorKeepsItsRrfPositionRatherThanScoringZero() {
+    // Mirrors semanticSignalPromotesALowerRrfCandidate exactly, changing only "a"'s vector from a
+    // right-width vector orthogonal to the query to a wrong-width one. Vectors.cosine treats a
+    // width mismatch as "no similarity" (0.0) — if blend() used that, "a" would score identically
+    // to the sibling test and "b" would be promoted past it there too. Instead blend() diverges
+    // deliberately and returns "a"'s normalizedRrf untouched, so it keeps its RRF-top position
+    // here while the sibling's real orthogonal vector still lets "b" win. That flip, from the same
+    // RRF scores and the same weight, is what tells the test the guard is firing on width and not
+    // merely recomputing "no similarity". The window this protects is real: changing
+    // pieria.model.embedding-dimension forces a re-embed, and during the drain the store holds
+    // old-width and new-width vectors together.
+    float[] wrongWidth = new float[] {1.0f, 0.0f, 0.0f};   // 3-wide against a 4-wide query
+    List<RecallCandidate> input = List.of(candidate("a", 0.9), candidate("b", 0.1));
+    Map<String, float[]> vectors = Map.of("a", wrongWidth, "b", axis(0));
+
+    RerankOutcome outcome = rescore(input, vectors, axis(0), 0.6);
+
+    assertThat(outcome.candidates()).extracting(c -> c.memory().id()).containsExactly("a", "b");
+  }
+
+  @Test
   void negativeCosineIsClampedRatherThanSubtracting() {
     // An opposed vector must score the same as no similarity at all, never worse than a candidate
     // with no vector — clamping is what keeps the two comparable.
