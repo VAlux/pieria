@@ -279,6 +279,26 @@ class ProfileApiTests {
   }
 
   @Test
+  void recallDebugCarriesRerankStageDiagnostics() throws Exception {
+    remember();
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType("application/json")
+        .content("{\"query\":\"tea\",\"debug\":true}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.debug.rerank").isArray());
+  }
+
+  @Test
+  void recallWithoutDebugOmitsTheRerankBlockEntirely() throws Exception {
+    remember();
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType("application/json")
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.debug").doesNotExist());
+  }
+
+  @Test
   void recallWithNoMatchesReportsInsufficientEvidence() throws Exception {
     remember();
     mvc.perform(post("/v1/profiles/alice/recall")
@@ -424,7 +444,7 @@ class ProfileApiTests {
       return new PieriaProperties(null, null, null, null,
         new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70),
         new PieriaProperties.Retrieval(false, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-          false, 0.4, true, 30, 400, 4000L),
+          true, 0.4, true, 30, 400, 4000L),
         new PieriaProperties.Stats(0.0, 200000, java.util.Map.of(
           "extraction", new PieriaProperties.Stats.TierPrice(0.30, 0.60),
           "synthesis", new PieriaProperties.Stats.TierPrice(3.0, 15.0),

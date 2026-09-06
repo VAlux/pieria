@@ -40,11 +40,13 @@ public record RecallResponse(String answer, List<MemoryResponse> memories,
    * @param candidates    fused candidates with RRF score + channel provenance, in rank order
    * @param temporalFacts pre-computed temporal facts injected into synthesis (rendered)
    * @param channels      per-channel latency/hit/failure diagnostics
+   * @param rerank        per-rerank-stage diagnostics, in the order the stages ran
    */
   public record RecallDebug(
     List<Provenance> candidates,
     List<String> temporalFacts,
-    List<ChannelDiagnostic> channels) {
+    List<ChannelDiagnostic> channels,
+    List<RerankDiagnostic> rerank) {
 
     /** One fused candidate's provenance: memory id, RRF score, and the channels that produced it. */
     public record Provenance(String id, double score, String source) {
@@ -52,6 +54,16 @@ public record RecallResponse(String answer, List<MemoryResponse> memories,
 
     /** Per-channel diagnostic: which channel, how long it took, how many hits, did it fail. */
     public record ChannelDiagnostic(String channel, long latencyMs, int hits, boolean failed) {
+    }
+
+    /**
+     * Per-rerank-stage diagnostic. {@code fellBack} is the field to read when a rerank looks like
+     * it did nothing: the stage declined to act and returned its input untouched, which is the
+     * designed behaviour on every failure, timeout, and absent signal — and invisible from the
+     * candidate list alone.
+     */
+    public record RerankDiagnostic(String stage, int input, int output, int dropped,
+                                   long latencyMs, boolean fellBack) {
     }
   }
 }

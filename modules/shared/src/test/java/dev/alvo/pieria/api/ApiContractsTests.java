@@ -43,7 +43,8 @@ class ApiContractsTests {
       RecallResponse.CodeEvidence.class,
       RecallResponse.RecallDebug.class,
       RecallResponse.RecallDebug.Provenance.class,
-      RecallResponse.RecallDebug.ChannelDiagnostic.class);
+      RecallResponse.RecallDebug.ChannelDiagnostic.class,
+      RecallResponse.RecallDebug.RerankDiagnostic.class);
   }
 
   @Test

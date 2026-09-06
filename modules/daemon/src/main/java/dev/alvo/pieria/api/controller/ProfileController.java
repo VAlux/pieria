@@ -18,6 +18,7 @@ import dev.alvo.pieria.api.response.RecallResponse.CodeEvidence;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
+import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.RerankDiagnostic;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -170,7 +171,11 @@ public class ProfileController {
       .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
       .toList();
 
-    return new RecallDebug(candidates, temporalFacts, channels);
+    List<RerankDiagnostic> rerank = result.diagnostics() == null ? List.of() : result.diagnostics().rerank().stream()
+      .map(d -> new RerankDiagnostic(d.stage(), d.input(), d.output(), d.dropped(), d.latencyMs(), d.fellBack()))
+      .toList();
+
+    return new RecallDebug(candidates, temporalFacts, channels, rerank);
   }
 
   /**
