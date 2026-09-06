@@ -7,6 +7,7 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.model.FakeModelGateway;
+import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -17,14 +18,19 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests {@link VectorizationWorker#drainOnce()} against a real {@link SqliteMemoryStore}: batch
- * draining + embedding persistence on success, attempt increments + poison-row abandonment on
- * repeated failure (driven by {@link FakeModelGateway#setUnavailable(boolean)}).
+ * draining + embedding persistence on success, one batch model call per drain with a per-entry
+ * fallback when it fails, attempt increments + poison-row abandonment on repeated failure (driven by
+ * {@link FakeModelGateway#setUnavailable(boolean)}).
  */
 class VectorizationWorkerTests {
 
@@ -87,6 +93,40 @@ class VectorizationWorkerTests {
       .query(Long.class).single();
   }
 
+  private String memoryIdOf(String content) {
+    return jdbc.sql("SELECT id FROM memories WHERE content = ?").param(content)
+      .query(String.class).single();
+  }
+
+  /**
+   * Records how the worker reaches the model — one batch call, or the per-text fallback — and can
+   * fail the batch outright while letting individual texts succeed or fail on their own.
+   */
+  private static final class RecordingGateway extends FakeModelGateway {
+    private final List<List<String>> batches = new ArrayList<>();
+    private final List<String> singles = new ArrayList<>();
+    private Set<String> poison = Set.of();
+    private boolean batchFails;
+
+    @Override
+    public List<float[]> embedAll(List<String> texts) {
+      batches.add(List.copyOf(texts));
+      if (batchFails) {
+        throw new ModelUnavailableException("batch embedding failed");
+      }
+      return texts.stream().map(text -> super.embed(text)).toList();
+    }
+
+    @Override
+    public float[] embed(String text) {
+      singles.add(text);
+      if (poison.contains(text)) {
+        throw new ModelUnavailableException("poison text");
+      }
+      return super.embed(text);
+    }
+  }
+
   @Test
   void drainsBatchAndPersistsEmbeddings() {
     enqueueFact("alpha");
@@ -112,6 +152,59 @@ class VectorizationWorkerTests {
     assertEquals(1, outboxSize());
     assertEquals(1, worker.drainOnce());
     assertEquals(0, outboxSize());
+  }
+
+  @Test
+  void wholeBatchIsEmbeddedInOneModelCall() {
+    enqueueFact("alpha");
+    enqueueFact("beta");
+    enqueueFact("gamma");
+    RecordingGateway recording = new RecordingGateway();
+
+    assertEquals(3, new VectorizationWorker(store, recording, props(32, 5)).drainOnce());
+
+    assertEquals(1, recording.batches.size(), "one batch call for the whole drain");
+    assertEquals(3, recording.batches.getFirst().size());
+    assertTrue(recording.singles.isEmpty(), "no per-text embed calls on the happy path");
+  }
+
+  @Test
+  void eachMemoryStoresTheVectorForItsOwnText() {
+    enqueueFact("alpha");
+    enqueueFact("beta");
+    enqueueFact("gamma");
+
+    new VectorizationWorker(store, gateway, props(32, 5)).drainOnce();
+
+    // FakeModelGateway derives the vector from the text, so a shifted batch result lands the wrong
+    // vector on a memory while every count above still looks correct.
+    for (String content : new String[] {"alpha", "beta", "gamma"}) {
+      String id = memoryIdOf(content);
+      float[] stored = store.embeddingsFor(profileId, List.of(id)).get(id);
+      assertArrayEquals(gateway.embed("queries " + content), stored, "vector for " + content);
+    }
+  }
+
+  @Test
+  void batchFailureFallsBackToEmbeddingEachEntryOnItsOwn() {
+    enqueueFact("alpha");
+    enqueueFact("beta");
+    enqueueFact("gamma");
+    RecordingGateway recording = new RecordingGateway();
+    recording.batchFails = true;
+    recording.poison = Set.of("queries beta");
+
+    // Without the fallback the whole batch fails together, and repeated drains would march the two
+    // healthy entries to maxAttempts and abandon them alongside the poison one.
+    assertEquals(2, new VectorizationWorker(store, recording, props(32, 5)).drainOnce());
+
+    assertEquals(1, recording.batches.size(), "the batch is attempted first");
+    assertEquals(3, recording.singles.size(), "every entry retried individually");
+    assertEquals(2, embeddingCount());
+    assertEquals(1, outboxSize(), "only the poison entry stays queued");
+    assertEquals(memoryIdOf("beta"),
+      jdbc.sql("SELECT memory_id FROM vectorization_outbox").query(String.class).single());
+    assertEquals(1, jdbc.sql("SELECT attempts FROM vectorization_outbox").query(Integer.class).single());
   }
 
   @Test

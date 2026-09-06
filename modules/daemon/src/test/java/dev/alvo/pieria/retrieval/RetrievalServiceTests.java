@@ -871,6 +871,51 @@ class RetrievalServiceTests {
     @Override public CodeIndexCounts counts(String p) { return new CodeIndexCounts(1, 1, 1, 0); }
   }
 
+  /** Records the texts handed to the model for embedding, and how they were grouped into calls. */
+  private static final class RecordingEmbedGateway extends FakeModelGateway {
+    private final List<List<String>> batches = new java.util.ArrayList<>();
+    private String hydeStatement = "answer: tea";
+
+    @Override
+    public QueryAnalysis analyzeQuery(String query) {
+      QueryAnalysis analysis = super.analyzeQuery(query);
+      return new QueryAnalysis(analysis.topicKeys(), analysis.ftsTerms(), analysis.entities(), hydeStatement);
+    }
+
+    @Override
+    public List<float[]> embedAll(List<String> texts) {
+      batches.add(List.copyOf(texts));
+      return texts.stream().map(text -> super.embed(text)).toList();
+    }
+  }
+
+  @Test
+  void queryAndHydeStatementAreEmbeddedInOneCall() {
+    FakeStore store = new FakeStore();
+    store.vectorAvailable = true;
+    store.exactKey = List.of(mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0));
+    RecordingEmbedGateway model = new RecordingEmbedGateway();
+
+    service(store, model).recall("p", "tea", 10, false);
+
+    assertThat(model.batches).hasSize(1);
+    assertThat(model.batches.getFirst()).containsExactly("tea", "answer: tea");
+  }
+
+  @Test
+  void onlyTheQueryIsEmbeddedWhenAnalysisProducesNoHydeStatement() {
+    FakeStore store = new FakeStore();
+    store.vectorAvailable = true;
+    store.exactKey = List.of(mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0));
+    RecordingEmbedGateway model = new RecordingEmbedGateway();
+    model.hydeStatement = null;
+
+    service(store, model).recall("p", "tea", 10, false);
+
+    assertThat(model.batches).hasSize(1);
+    assertThat(model.batches.getFirst()).containsExactly("tea");
+  }
+
   /** Minimal configurable {@link MemoryStore}: only the methods the read path touches are wired. */
   private static final class FakeStore implements MemoryStore {
     Profile profile = new Profile("prof-1", "p", T0);

@@ -243,6 +243,23 @@ public interface ModelGateway {
   float[] embed(String text);
 
   /**
+   * Embed a batch of texts in as few provider round trips as the implementation can manage. A local
+   * single-GPU provider is round-trip bound, so collapsing N embeddings into one call is worth far
+   * more than shrinking each one.
+   *
+   * <p>The returned list has exactly {@code texts.size()} entries, index-aligned with the input: the
+   * vector at position {@code i} is the embedding of {@code texts.get(i)}. Implementations must
+   * throw {@link ModelUnavailableException} rather than return a short or misaligned list — a vector
+   * attached to the wrong memory is silent retrieval corruption with nothing to signal it happened.
+   *
+   * <p>The default embeds one text at a time, which keeps implementations that only know how to do
+   * that working unchanged.
+   */
+  default List<float[]> embedAll(List<String> texts) {
+    return texts.stream().map(this::embed).toList();
+  }
+
+  /**
    * Lightweight provider reachability probe for {@code /pieria-health}. Must NOT invoke a model or
    * generate tokens. The default returns {@code false} (configured but status unknown) so existing
    * test stubs ({@code FakeModelGateway}, {@code StubModelGateway}) compile without modification.
