@@ -1300,10 +1300,10 @@ Create `modules/daemon/src/main/resources/prompts/rerank-candidates.txt`:
 You are ranking stored memories by how well each one answers a question.
 
 Question:
-{query}
+{{query}}
 
 Candidates:
-{candidates}
+{{candidates}}
 
 For each candidate, output exactly one line:
 
@@ -1588,6 +1588,66 @@ Run: `grep -rn "new PieriaProperties.Retrieval(\|new Retrieval(\|new DaemonOverr
 For each **existing test** call site, append `, false, 0.4, true, 30, 400, 4000L` to `PieriaProperties.Retrieval` constructions (or six `null`s to `DaemonOverrides.Retrieval` constructions).
 
 **`rerankEnabled` is `false` in every pre-existing fixture, deliberately.** Those tests assert the pipeline's behaviour without a reranker, and that is exactly the baseline acceptance criterion #1 protects. Task 6 adds new fixtures that turn it on.
+
+- [ ] **Step 7a: Add the twelve schema entries**
+
+In `modules/daemon/src/main/resources/config/config-schema.json`, append these six after the `fusion` section's entries:
+
+```json
+  {
+    "key": "retrieval.rerank-enabled",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Reranking enabled",
+    "hint": "Off restores the plain fusion ordering."
+  },
+  {
+    "key": "retrieval.rerank-semantic-weight",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "double",
+    "label": "Semantic blend weight",
+    "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
+  },
+  {
+    "key": "retrieval.rerank-model-enabled",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Model reranking",
+    "hint": "Adds one small-model call. Only runs at the analyzed and synthesized tiers."
+  },
+  {
+    "key": "retrieval.rerank-window",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Candidate window"
+  },
+  {
+    "key": "retrieval.rerank-snippet-chars",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Candidate text limit (chars)"
+  },
+  {
+    "key": "retrieval.rerank-timeout-ms",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "int",
+    "label": "Rerank timeout (ms)"
+  },
+```
+
+and these six alongside the other `global` entries (same labels and hints, `scope: "global"`, `tier: "restart"`, keys prefixed `pieria.retrieval.`). `tier` is `restart` because the daemon binds `pieria.properties` once at startup and never re-reads it.
 
 - [ ] **Step 8: Run the full suite**
 
@@ -2216,65 +2276,14 @@ Add to `modules/daemon/src/test/java/dev/alvo/pieria/config/schema/ConfigSchemaT
 Run: `./gradlew :daemon:test --tests "dev.alvo.pieria.config.schema.ConfigSchemaTests"`
 Expected: FAIL — `profileScopedKeysMatchDaemonOverridesExactly` fails too, since the record has six components the schema does not list.
 
-- [ ] **Step 3: Add the twelve schema entries**
+- [x] **Step 3: Add the twelve schema entries — MOVED TO TASK 5**
 
-In `modules/daemon/src/main/resources/config/config-schema.json`, append these six after the `fusion` section's entries:
-
-```json
-  {
-    "key": "retrieval.rerank-enabled",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "bool",
-    "label": "Reranking enabled",
-    "hint": "Off restores the plain fusion ordering."
-  },
-  {
-    "key": "retrieval.rerank-semantic-weight",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "double",
-    "label": "Semantic blend weight",
-    "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
-  },
-  {
-    "key": "retrieval.rerank-model-enabled",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "bool",
-    "label": "Model reranking",
-    "hint": "Adds one small-model call. Only runs at the analyzed and synthesized tiers."
-  },
-  {
-    "key": "retrieval.rerank-window",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "int",
-    "label": "Candidate window"
-  },
-  {
-    "key": "retrieval.rerank-snippet-chars",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "int",
-    "label": "Candidate text limit (chars)"
-  },
-  {
-    "key": "retrieval.rerank-timeout-ms",
-    "scope": "profile",
-    "section": "rerank",
-    "tier": "live",
-    "kind": "int",
-    "label": "Rerank timeout (ms)"
-  },
-```
-
-and these six alongside the other `global` entries (same labels and hints, `scope: "global"`, `tier: "restart"`, keys prefixed `pieria.retrieval.`). `tier` is `restart` because the daemon binds `pieria.properties` once at startup and never re-reads it.
+`ConfigSchemaTests.profileScopedKeysMatchDaemonOverridesExactly` asserts that the profile-scoped
+schema keys and the `DaemonOverrides.Retrieval` components match *exactly*. Splitting the record
+change (Task 5) from the schema change (Task 8) therefore leaves the suite red for three commits,
+which contradicts this plan's own "full suite passes before every commit" constraint. The drift
+guard is right and the split was wrong: schema and record move together, in one commit. The twelve
+entries are now Task 5's Step 6a.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
