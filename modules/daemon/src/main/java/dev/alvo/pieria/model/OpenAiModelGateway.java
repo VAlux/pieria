@@ -1076,7 +1076,7 @@ public class OpenAiModelGateway implements ModelGateway {
 
     StringBuilder rendered = new StringBuilder();
     for (int i = 0; i < contents.size(); i++) {
-      String content = contents.get(i) == null ? "" : contents.get(i).replace('\n', ' ').strip();
+      String content = contents.get(i) == null ? "" : contents.get(i).replaceAll("\\R", " ").strip();
       rendered.append(i + 1).append(". ").append(content).append('\n');
     }
 
