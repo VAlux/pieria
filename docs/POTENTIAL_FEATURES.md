@@ -16,10 +16,11 @@ Fit: New `pieria onboard --source-code` path. For Java/Kotlin/Scala, start with 
 Shipped: real Tree-sitter-based indexer (`CodeIndexingService`, `CodeIndexStore`/`SqliteCodeIndexStore`) behind `pieria onboard --source-code` and `POST /v1/profiles/{name}/code(/async)` + `GET /code/status`; content-hash based skip-unchanged and `--reindex`; `SymbolFtsChannel` and `CodeGraphChannel` feed the same RRF pipeline as the memory channels.
 
 3. Reranker stage between fusion and synthesis
-Phase: 9 | Status: pending
+Phase: 9 | Status: done
 Who has it: Mem0, LanceDB, Pinecone, Langbase.
 What: RRF currently feeds top-K straight into synthesis. A cross-encoder (or small-model) rerank of the fused candidates before synthesis sharply improves precision of what the large model sees. Once code-index channels exist, reranking becomes more important because memory, code symbol, trace, and graph candidates will be competing for the same context budget.
 Fit: Drops in cleanly after ReciprocalRankFusion, before synthesis, using the existing two-tier model gateway (small model does the rerank). Low effort, measurable on your eval harness immediately. Add feature flags to compare memory-only rerank vs mixed memory+code rerank.
+Shipped: `retrieval.rerank` (`Reranker`/`SemanticRescorer`/`ModelReranker`/`RerankSettings`) running inside `RetrievalService.fuse()` between near-duplicate collapse and the recall limit. Two sub-stages split by tier: a deterministic cosine-blend re-score in every tier (no model call, reusing the vectors the collapse pass already reads) and a coarse three-way relevance label from the small tier at `ANALYZED`+. Truncation moved after the stage so a candidate ranked below `limit` by RRF can be promoted. Every failure — model down, timeout, misaligned labels, unanimous irrelevance — falls back to fused order. Six `rerank*` properties, per-profile overridable and editable at both console config scopes. The memory-only-vs-mixed rerank flag was dropped: code and memory candidates competing for one context budget is the reason to rerank at all.
 
 4. Bi-temporal fact validity / temporal invalidation
 Phase: 10 | Status: pending

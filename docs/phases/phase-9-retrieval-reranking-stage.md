@@ -1,6 +1,6 @@
 # Phase 9 - Retrieval Reranking Stage
 
-> **Superseded in part (2026-09-02).** The design of record is
+> **Implemented (2026-09-06).** The design of record is
 > [`docs/superpowers/specs/2026-09-02-retrieval-reranking-design.md`](../superpowers/specs/2026-09-02-retrieval-reranking-design.md).
 > This document remains the phase charter — its Objective, Scope, and Acceptance Criteria still
 > hold. **Implementation Sequence steps 3, 4, and 8, and the Tests bullets that reference the
