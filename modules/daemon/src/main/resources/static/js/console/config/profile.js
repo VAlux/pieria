@@ -24,7 +24,13 @@ const SECTION_TITLES = {
 // here rather than another boolean threaded through renderSection.
 const SECTION_INACTIVE_WHEN = {
   graph: function (valueOf) { return Number(valueOf("retrieval.weight-graph")) === 0; },
-  rerank: function (valueOf) { return valueOf("retrieval.rerank-enabled") === false; }
+  // !== true rather than === false: field.js accepts the string "true" for a checkbox value (see
+  // its `checked` assignment above), which means a string-typed boolean does reach this layer
+  // somewhere. Under === false, a stray "false" string compares unequal to the literal false and
+  // the section silently stops greying out. !== true fails toward "inactive" for anything that
+  // isn't the literal boolean true — the same direction the graph predicate above is robust in
+  // (its Number(...) coercion also resolves an ambiguous value to "treat as off" rather than "on").
+  rerank: function (valueOf) { return valueOf("retrieval.rerank-enabled") !== true; }
 };
 
 // The switch that deactivates a section must stay live, or there is no way to switch it back on.
