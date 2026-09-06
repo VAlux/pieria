@@ -67,6 +67,17 @@ class RetrievalServiceTests {
       true, semanticWeight, modelEnabled, 30, 400, 4000L);
   }
 
+  /**
+   * As {@link #rerankCfg} but with model reranking on and a tiny {@code rerankTimeoutMs}, to force
+   * the real {@code TimeoutException} branch in {@code runModelRerank} rather than a caught
+   * provider exception (which never reaches {@code future.get(...)}'s timeout at all).
+   */
+  private static PieriaProperties.Retrieval rerankCfgWithTimeout(long timeoutMs) {
+    return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
+      0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.0, 0.0,
+      true, 0.0, true, 30, 400, timeoutMs);
+  }
+
   private RetrievalService serviceWithRerank(MemoryStore store, FakeModelGateway model,
                                              PieriaProperties.Retrieval cfg) {
     PieriaProperties props = new PieriaProperties(null, null, null, null,
@@ -645,6 +656,38 @@ class RetrievalServiceTests {
       .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
 
     assertThat(withFailure.memories().stream().map(Memory::id).toList())
+      .isEqualTo(baseline.memories().stream().map(Memory::id).toList());
+  }
+
+  @Test
+  void aTimedOutRerankModelStillReturnsTheFusedResult() {
+    // Unlike aFailingRerankModelStillReturnsTheFusedResult (a caught provider exception that never
+    // reaches future.get(...)'s timeout at all), this forces the real TimeoutException branch in
+    // runModelRerank: rerankCandidates blocks well past the tiny configured timeout below.
+    FakeModelGateway model = new FakeModelGateway() {
+      @Override
+      public List<RerankLabel> rerankCandidates(String query, List<String> contents) {
+        try {
+          // Comfortably longer than the 50ms timeout configured below, but still bounded: even if
+          // future.cancel(true) failed to interrupt this thread, the sleep ends on its own and the
+          // worker cannot hang the test.
+          Thread.sleep(300);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        return List.of(RerankLabel.ESSENTIAL, RerankLabel.ESSENTIAL);
+      }
+    };
+    FakeStore store = storeWithTwoMemories();
+
+    RecallResult baseline = serviceWithRerank(store, new FakeModelGateway(), rerankCfg(0.0, false))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+    RecallResult timedOut = serviceWithRerank(store, model, rerankCfgWithTimeout(50L))
+      .recall("p", "vector search", 10, false, RecallMode.SYNTHESIZED);
+
+    // The timeout degrades to pass-through: the recall completes (doesn't hang or fail) and keeps
+    // the fused order, exactly as if the model reranker had never run.
+    assertThat(timedOut.memories().stream().map(Memory::id).toList())
       .isEqualTo(baseline.memories().stream().map(Memory::id).toList());
   }
 
