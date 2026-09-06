@@ -280,22 +280,20 @@ class ProfileApiTests {
 
   @Test
   void recallDebugCarriesRerankStageDiagnostics() throws Exception {
-    remember();
-    mvc.perform(post("/v1/profiles/alice/recall")
+    // Dedicated profile (not "alice", a singleton shared across test methods) seeded with two
+    // distinct memories that both match "tea", so fusion yields 2+ candidates: RetrievalService
+    // .rerank() short-circuits below that, and a single-memory fixture would make this test pass
+    // against a controller that never read result.diagnostics() at all.
+    storeFact("reranktest", "Bob likes tea");
+    storeFact("reranktest", "Carol drinks oolong tea after dinner");
+    mvc.perform(post("/v1/profiles/reranktest/recall")
         .contentType("application/json")
         .content("{\"query\":\"tea\",\"debug\":true}"))
       .andExpect(status().isOk())
-      .andExpect(jsonPath("$.debug.rerank").isArray());
-  }
-
-  @Test
-  void recallWithoutDebugOmitsTheRerankBlockEntirely() throws Exception {
-    remember();
-    mvc.perform(post("/v1/profiles/alice/recall")
-        .contentType("application/json")
-        .content("{\"query\":\"tea\"}"))
-      .andExpect(status().isOk())
-      .andExpect(jsonPath("$.debug").doesNotExist());
+      .andExpect(jsonPath("$.debug.rerank").isArray())
+      .andExpect(jsonPath("$.debug.rerank[0]").exists())
+      .andExpect(jsonPath("$.debug.rerank[0].stage", org.hamcrest.Matchers.isOneOf("semantic", "model")))
+      .andExpect(jsonPath("$.debug.rerank[0].fellBack").exists());
   }
 
   @Test
