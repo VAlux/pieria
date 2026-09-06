@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 
@@ -22,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ConfigSchemaTests {
 
   private static final String TRACE_PREFIX = "pieria.ingestion.trace.";
+  private static final String RETRIEVAL_PREFIX = "pieria.retrieval.";
 
   private final ConfigSchemaService schema = new ConfigSchemaService();
 
@@ -124,6 +126,59 @@ class ConfigSchemaTests {
     // EffectiveConfigResolver invalidates its cache on write — which is why they keep that tier.
     assertThat(schema.forScope("global")).allSatisfy(
       field -> assertThat(field.tier()).isIn("restart", "locked"));
+  }
+
+  // The global scope has no DaemonOverrides to check against, so a mistyped global key would write
+  // to pieria.properties and bind to nothing — silently. Only the rerank subset of
+  // PieriaProperties.Retrieval is globally editable, so this asserts a subset, not equality.
+  @Test
+  void globalRetrievalKeysExistOnPieriaPropertiesRetrieval() {
+    Set<String> fromCode = kebabComponentNames(PieriaProperties.Retrieval.class)
+      .stream()
+      .map(name -> RETRIEVAL_PREFIX + name)
+      .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    Set<String> fromSchema = schema.forScope("global").stream()
+      .map(ConfigField::key)
+      .filter(key -> key.startsWith(RETRIEVAL_PREFIX))
+      .collect(Collectors.toCollection(LinkedHashSet::new));
+
+    assertThat(fromSchema).isNotEmpty().isSubsetOf(fromCode);
+  }
+
+  @Test
+  void everyRerankKnobIsEditableAtBothScopes() {
+    Set<String> suffixes = Set.of("rerank-enabled", "rerank-semantic-weight", "rerank-model-enabled",
+      "rerank-window", "rerank-snippet-chars", "rerank-timeout-ms");
+
+    Set<String> profileKeys = schema.forScope("profile").stream()
+      .map(ConfigField::key).collect(Collectors.toSet());
+    Set<String> globalKeys = schema.forScope("global").stream()
+      .map(ConfigField::key).collect(Collectors.toSet());
+
+    suffixes.forEach(suffix -> {
+      assertThat(profileKeys).contains("retrieval." + suffix);
+      assertThat(globalKeys).contains(RETRIEVAL_PREFIX + suffix);
+    });
+  }
+
+  @Test
+  void rerankFieldsAreGroupedUnderTheirOwnSectionAtBothScopes() {
+    assertThat(schema.forScope("profile").stream()
+      .filter(f -> f.key().startsWith("retrieval.rerank-"))
+      .map(ConfigField::section)).allMatch("rerank"::equals);
+    assertThat(schema.forScope("global").stream()
+      .filter(f -> f.key().startsWith(RETRIEVAL_PREFIX + "rerank-"))
+      .map(ConfigField::section)).allMatch("rerank"::equals);
+  }
+
+  // The blend knob must not be named weight-* : channel-mix.js selects fusion channels with
+  // key.indexOf("retrieval.weight-") === 0, and a weight-prefixed key would render a non-channel
+  // in the channel mix bar and its legend.
+  @Test
+  void theBlendKnobIsNotNamedLikeAChannelWeight() {
+    assertThat(schema.forScope("profile").stream().map(ConfigField::key))
+      .noneMatch(key -> key.startsWith("retrieval.weight-") && key.contains("rerank"));
   }
 
   private static Set<String> kebabComponentNames(Class<? extends Record> type) {

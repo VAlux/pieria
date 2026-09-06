@@ -27,6 +27,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -163,6 +164,24 @@ class ProfileConfigApiTests {
     controller.put("p", json("{}"));
     assertThat(controller.get("p").at("/retrieval/rrf-k").asInt()).isEqualTo(60);
     assertThat(store.getProfileConfig(store.findProfile("p").orElseThrow().id())).isEmpty();
+  }
+
+  @Test
+  void rerankOverridesRoundTripThroughTheProfileConfigTable() {
+    controller.put("p", ConfigCodec.toNode(Map.of(
+      "retrieval", Map.of("rerank-enabled", false, "rerank-window", 12))));
+
+    JsonNode effective = controller.get("p");
+
+    assertThat(effective.get("retrieval").get("rerank-enabled").asBoolean()).isFalse();
+    assertThat(effective.get("retrieval").get("rerank-window").asInt()).isEqualTo(12);
+  }
+
+  @Test
+  void aMistypedRerankKeyIsRejectedByTheWhitelist() {
+    assertThatThrownBy(() -> controller.put("p", ConfigCodec.toNode(Map.of(
+      "retrieval", Map.of("rerank-windows", 12)))))
+      .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test

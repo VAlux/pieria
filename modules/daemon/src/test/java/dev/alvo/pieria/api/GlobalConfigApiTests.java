@@ -12,11 +12,13 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.JsonNode;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.StreamSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +36,8 @@ class GlobalConfigApiTests {
     environment.setProperty("pieria.daemon.port", "8077");
     environment.setProperty("pieria.reminiscence.parallelism", "8");
     environment.setProperty("pieria.model.embedding-dimension", "1024");
+    environment.setProperty("pieria.retrieval.rerank-enabled", "true");
+    environment.setProperty("pieria.retrieval.rerank-window", "30");
 
     ConfigSchemaService schema = new ConfigSchemaService();
     AppDataPathResolver paths = new AppDataPathResolver(
@@ -158,5 +162,36 @@ class GlobalConfigApiTests {
     assertThat(port.get("value").asString()).isEqualTo("8077");
     assertThat(port.get("file-value").asString()).isEqualTo("9090");
     assertThat(port.get("restart-pending").asBoolean()).isTrue();
+  }
+
+  // Rerank is the first retrieval family editable at the global scope: before this, no
+  // pieria.retrieval.* key existed on the global page at all.
+  @Test
+  void globalRerankKeysAreReportedAsRestartTier() {
+    JsonNode entries = controller.get().get("entries");
+
+    JsonNode window = StreamSupport.stream(entries.spliterator(), false)
+      .filter(entry -> "pieria.retrieval.rerank-window".equals(entry.get("key").asString()))
+      .findFirst()
+      .orElseThrow(() -> new AssertionError("rerank-window missing from the global entries"));
+
+    assertThat(window.get("tier").asString()).isEqualTo("restart");
+    assertThat(window.get("value").asString()).isEqualTo("30");
+  }
+
+  @Test
+  void aGlobalRerankWriteLandsInPieriaProperties() throws Exception {
+    controller.put(new GlobalConfigController.GlobalConfigUpdate(
+      Map.of("pieria.retrieval.rerank-window", "12"), false));
+
+    assertThat(Files.readString(configDir.resolve("pieria.properties")))
+      .contains("pieria.retrieval.rerank-window=12");
+  }
+
+  @Test
+  void aNonNumericRerankWindowIsRejectedAndWritesNothing() {
+    assertThatThrownBy(() -> controller.put(new GlobalConfigController.GlobalConfigUpdate(
+      Map.of("pieria.retrieval.rerank-window", "wide"), false)))
+      .isInstanceOf(IllegalArgumentException.class);
   }
 }

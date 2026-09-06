@@ -15,8 +15,20 @@ const SECTION_TITLES = {
   graph: "Graph traversal",
   "code-graph": "Code graph",
   fusion: "Fusion and limits",
+  rerank: "Reranking",
   ingestion: "Ingestion"
 };
+
+// A section whose own switch is off renders read-only: its fields still show their values, but
+// editing them would imply an effect they cannot have. Keyed by section so a new one is a line
+// here rather than another boolean threaded through renderSection.
+const SECTION_INACTIVE_WHEN = {
+  graph: function (valueOf) { return Number(valueOf("retrieval.weight-graph")) === 0; },
+  rerank: function (valueOf) { return valueOf("retrieval.rerank-enabled") === false; }
+};
+
+// The switch that deactivates a section must stay live, or there is no way to switch it back on.
+const SECTION_SWITCH = { rerank: "retrieval.rerank-enabled" };
 
 const OPEN_BY_DEFAULT = { channels: true, ingestion: true };
 
@@ -176,10 +188,8 @@ function render() {
   }
   root.appendChild(summary);
 
-  const graphOff = Number(valueOf("retrieval.weight-graph")) === 0;
-
   bySection(Object.values(schemaFields), "profile").forEach(function (group) {
-    root.appendChild(renderSection(group, errors, graphOff));
+    root.appendChild(renderSection(group, errors));
   });
 
   const bar = el("div", "cfg-savebar");
@@ -188,9 +198,10 @@ function render() {
   paintSaveBar();
 }
 
-function renderSection(group, errors, graphOff) {
+function renderSection(group, errors) {
   const section = el("section", "cfg-section");
-  const inactive = group.section === "graph" && graphOff;
+  const predicate = SECTION_INACTIVE_WHEN[group.section];
+  const inactive = predicate ? predicate(valueOf) : false;
   const open = !!openSections[group.section];
 
   const head = el("button", "cfg-section-head");
@@ -236,7 +247,7 @@ function renderSection(group, errors, graphOff) {
         ? "overridden"
         : "global " + formatValue(at(layers.global, field.key)),
       error: errors[field.key],
-      disabled: inactive,
+      disabled: inactive && field.key !== SECTION_SWITCH[group.section],
       onChange: function (next) { form.set(field.key, next); render(); },
       onLiveChange: function (next) {
         form.set(field.key, next);
