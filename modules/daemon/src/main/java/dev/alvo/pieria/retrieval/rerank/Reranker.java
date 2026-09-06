@@ -9,7 +9,12 @@ package dev.alvo.pieria.retrieval.rerank;
  * retrieve them.
  *
  * <p>This is also the seam a dedicated reranker model (a bge-reranker over Ollama, say) would slot
- * into as a third implementation, without the pipeline learning anything new.
+ * into as a third implementation — though it is a seam in shape only. {@code RetrievalService}
+ * holds {@code SemanticRescorer} and {@code ModelReranker} as fields typed to their concrete
+ * classes and calls them by name, not through a {@code List<Reranker>}, and the off-thread bound
+ * a dedicated model would need lives in {@code RetrievalService.runModelRerank}, not behind this
+ * interface. A third implementation is a small, well-located edit at that call site — not a change
+ * the pipeline needs no awareness of.
  */
 public interface Reranker {
 

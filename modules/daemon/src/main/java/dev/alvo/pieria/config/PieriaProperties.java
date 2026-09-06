@@ -311,12 +311,13 @@ public record PieriaProperties(
    *                                   with no stored embedding (never vectorized, still queued, or
    *                                   {@code task} type) fall back to the lexical check alone.
    * @param rerankEnabled              master switch for the reranking stage (off ⇒ fused order is final)
-   * @param rerankSemanticWeight       weight given to the semantic (embedding) signal versus the
-   *                                   heuristic/model label signal when combining reranker scores
+   * @param rerankSemanticWeight       the cosine term's share of the blended score, in [0,1]; 0
+   *                                   disables the deterministic re-scorer alone
    * @param rerankModelEnabled         whether the model-backed reranker runs (off ⇒ heuristic reranker only)
    * @param rerankWindow               number of top fused candidates the reranker re-scores
    * @param rerankSnippetChars         max characters of each candidate's content sent to the reranker
-   * @param rerankTimeoutMs            timeout in milliseconds for the reranking stage
+   * @param rerankTimeoutMs            wall-clock bound on the model reranker's call; the deterministic
+   *                                   re-scorer is pure arithmetic and unbounded by this
    */
   public record Retrieval(@DefaultValue("true") boolean vectorEnabled,
                           @DefaultValue("60") int rrfK,

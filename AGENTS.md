@@ -53,9 +53,11 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 - **Reranking modulates channel evidence, it does not replace it**: the rerank stage sits between
   near-duplicate collapse and the recall `limit`. The small tier returns a coarse
   `essential`/`related`/`irrelevant` label — never a numeric score — because a local 4-8B model
-  clusters numeric relevance judgements too tightly to order anything, and RRF order is preserved
-  inside each label bucket so the model supplies the judgement it can make and fusion supplies the
-  fine ordering it cannot. `RecallCandidate.score` therefore stays the RRF score and the returned
+  clusters numeric relevance judgements too tightly to order anything, and the incoming re-scored
+  order is preserved inside each label bucket (that incoming order is the deterministic re-scorer's
+  output, not raw RRF — the two differ whenever `rerankSemanticWeight > 0`, the default) so the
+  model supplies the judgement it can make and fusion-plus-re-scoring supplies the fine ordering it
+  cannot. `RecallCandidate.score` therefore stays the RRF score and the returned
   list is not sorted by it — **rank by list position, never by `score`**. The stage is incapable of
   failing a recall: model failure, timeout, misaligned labels, and *unanimous* `irrelevant` all
   return the fused order untouched. That last case is a guard, not a verdict — a batch that labels
