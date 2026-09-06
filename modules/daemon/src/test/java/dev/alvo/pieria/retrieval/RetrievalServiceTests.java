@@ -720,6 +720,70 @@ class RetrievalServiceTests {
       assertThat(candidate.source()).isNotBlank());
   }
 
+  // Regression: embeddingsForCandidates (formerly embeddingsForCollapse) used to filter
+  // code-derived memories out of the id list it fetches vectors for, on the theory that only the
+  // collapse pass consumed the map. But SemanticRescorer consumes the same map with no such
+  // exemption, so every code-derived candidate fell into its missing-vector branch and kept its
+  // raw normalized RRF score untouched while ordinary memory candidates got blended down —
+  // systematically favouring code-index noise over relevant memories.
+  //
+  // Three fused candidates from real RRF math (rrfK=60, weightExactKey=3.0, weightFtsMemory=1.0):
+  //   mem-M  exactKey rank 1 -> rrf = 3.0/61 = 0.049180  (normalized 1.0)
+  //   code-C exactKey rank 2 -> rrf = 3.0/62 = 0.048387  (normalized ~0.9758)
+  //   mem-F  ftsMemory rank 1 -> rrf = 1.0/61 = 0.016393  (normalized 0.0; never given a stored
+  //          vector at all — its only job is to give the window a non-degenerate spread, so
+  //          code-C's normalized score isn't trivially pinned to 0 or 1)
+  //
+  // mem-M's true cosine-to-query is 0.6 (a real match); code-C's is 0.1 (irrelevant boilerplate).
+  // At semanticWeight=0.4: blended(mem-M) = 0.6*1.0 + 0.4*0.6 = 0.84.
+  //   Pre-fix, code-C's vector is never fetched (filtered out of the id list), so it keeps its raw
+  //   normalized score (~0.976) and wins outright: order comes back [code-C, mem-M, mem-F].
+  //   Post-fix, code-C is blended too: 0.6*0.976 + 0.4*0.1 = 0.625, and mem-M correctly outranks
+  //   it: order comes back [mem-M, code-C, mem-F].
+  @Test
+  void semanticRescorerFetchesVectorsForCodeDerivedCandidatesToo() {
+    float[] queryVector = vector1024(1.0f, 0.0f);
+    float[] memVector = vector1024(3.0f, 4.0f);                       // cos(query) = 3/5 = 0.6
+    float[] codeVector = vector1024(1.0f, (float) Math.sqrt(99.0));   // cos(query) = 1/10 = 0.1
+
+    Memory memM = mem("mem-M", "the rerank stage blends cosine similarity into the normalized rrf score",
+      MemoryType.FACT, "rerank.blend", T0);
+    Memory codeC = new Memory("code-C", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
+      "Source file Foo.java defines class Foo, method bar", "code:file:Foo.java", null, false,
+      "{}", null, T0);
+    Memory memF = mem("mem-F", "flyway runs the schema migrations at daemon startup",
+      MemoryType.FACT, "migrations", T0);
+
+    FakeStore store = new FakeStore();
+    store.vectorAvailable = true;
+    store.exactKey = List.of(memM, codeC);   // ranks 1, 2
+    store.ftsMemory = List.of(memF);         // rank 1
+    store.embeddings = Map.of("mem-M", memVector, "code-C", codeVector);
+
+    String query = "rerank blending";
+    FakeModelGateway model = new FakeModelGateway() {
+      @Override
+      public float[] embed(String text) {
+        return query.equals(text) ? queryVector : super.embed(text);
+      }
+    };
+
+    RetrievalService service = serviceWithRerank(store, model, rerankCfg(0.4, false));
+    RecallResult result = service.recall("p", query, 10, false, RecallMode.SYNTHESIZED);
+
+    // Discriminating against the pre-fix behaviour: before the fix this comes back
+    // ["code-C", "mem-M", "mem-F"] instead — the irrelevant code candidate winning outright.
+    assertThat(result.candidates()).extracting(c -> c.memory().id())
+      .containsExactly("mem-M", "code-C", "mem-F");
+  }
+
+  private static float[] vector1024(float c0, float c1) {
+    float[] vector = new float[dev.alvo.pieria.model.FakeModelGateway.EMBEDDING_DIMENSION];
+    vector[0] = c0;
+    vector[1] = c1;
+    return vector;
+  }
+
   /** Two distinct FTS hits, so fusion produces a two-candidate list the rerank stage can reorder. */
   private static FakeStore storeWithTwoMemories() {
     FakeStore store = new FakeStore();

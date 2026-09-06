@@ -403,10 +403,12 @@ public class RetrievalService {
     List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
 
     // One store read serves both consumers: the collapse pass's semantic half and the rerank
-    // stage's cosine term score the same candidates against the same vectors.
+    // stage's cosine term score the same candidates against the same map — but collapse then
+    // deliberately ignores the code-derived entries in it (its own exemption, applied where the
+    // vectors are actually consumed), while the rerank stage's cosine term does not exempt anyone.
     boolean wantVectors = pipeline.semanticDuplicateThreshold() > 0.0
       || (pipeline.rerank().enabled() && pipeline.rerank().semanticWeight() > 0.0);
-    Map<String, float[]> vectors = wantVectors ? embeddingsForCollapse(profileId, fused) : Map.of();
+    Map<String, float[]> vectors = wantVectors ? embeddingsForCandidates(profileId, fused) : Map.of();
 
     List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold(),
       pipeline.semanticDuplicateThreshold(), vectors);
@@ -552,12 +554,16 @@ public class RetrievalService {
   }
 
   /**
-   * Embeddings for the collapse pass, in one store read. A backend that does not implement the
-   * lookup returns an empty map, which degrades to the lexical check rather than failing the recall.
+   * Embeddings for every fused candidate, in one store read shared by the collapse pass and the
+   * rerank stage. Deliberately unfiltered: collapse applies its own code-derived exemption where
+   * the vectors are actually consumed ({@link #collapseNearDuplicates}), and the rerank stage's
+   * {@code SemanticRescorer} applies no exemption at all, so pre-filtering here would silently
+   * starve it of vectors for every code-derived candidate. A backend that does not implement the
+   * lookup returns an empty map, which degrades to the lexical check (for collapse) or an
+   * unblended score (for rerank) rather than failing the recall.
    */
-  private Map<String, float[]> embeddingsForCollapse(String profileId, List<RecallCandidate> ranked) {
+  private Map<String, float[]> embeddingsForCandidates(String profileId, List<RecallCandidate> ranked) {
     List<String> ids = ranked.stream()
-      .filter(candidate -> !isCodeDerived(candidate.memory()))
       .map(candidate -> candidate.memory().id())
       .toList();
     if (ids.isEmpty()) {
