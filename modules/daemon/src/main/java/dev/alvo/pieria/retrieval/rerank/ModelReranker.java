@@ -24,7 +24,13 @@ import java.util.List;
  */
 public class ModelReranker implements Reranker {
 
-  static final String STAGE = "model";
+  /**
+   * The diagnostics stage name this reranker reports under. Public because
+   * {@code RetrievalService.runModelRerank}'s timeout path needs it too — it degrades to a
+   * pass-through outside this class, on the bounded thread that runs {@link #rerank}, so it must
+   * name the same stage rather than a hardcoded literal that could drift from it.
+   */
+  public static final String STAGE = "model";
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ModelReranker.class);
 

@@ -407,7 +407,8 @@ public class RetrievalService {
     // deliberately ignores the code-derived entries in it (its own exemption, applied where the
     // vectors are actually consumed), while the rerank stage's cosine term does not exempt anyone.
     boolean wantVectors = pipeline.semanticDuplicateThreshold() > 0.0
-      || (pipeline.rerank().enabled() && pipeline.rerank().semanticWeight() > 0.0);
+      || (pipeline.rerank().enabled() && pipeline.rerank().semanticWeight() > 0.0
+      && context.queryEmbedding() != null);
     Map<String, float[]> vectors = wantVectors ? embeddingsForCandidates(profileId, fused) : Map.of();
 
     List<RecallCandidate> distinct = collapseNearDuplicates(fused, pipeline.nearDuplicateThreshold(),
@@ -467,10 +468,16 @@ public class RetrievalService {
    *
    * <p>The usage accumulator is re-bound <em>inside</em> the worker because
    * {@link InferenceUsageSink} is thread-bound and virtual threads do not inherit thread-locals.
-   * A rerank that times out may still land its tokens after this recall's usage has been recorded;
-   * the accumulator is LongAdder-striped so that is safe, it just means a timed-out rerank's tokens
-   * can go unbilled for that recall. Losing an accounting line is the right trade against blocking
-   * a recall on a slow model.
+   * On a timeout this method returns a pass-through immediately, but the submitted task keeps
+   * running: {@code exec}'s try-with-resources {@code close()} blocks until it terminates, so a
+   * timed-out rerank's tokens always land on the (LongAdder-striped) accumulator <em>before</em>
+   * {@code recordInferenceUsage} reads it, never after — nothing here goes unbilled.
+   *
+   * <p>What that blocking teardown actually costs: a wedged provider call can hold this recall's
+   * thread well past {@code rerankTimeoutMs}, because the HTTP call is only as interruptible as
+   * the request factory makes it and none of the chat clients configure a read timeout.
+   * {@code timeoutMs} bounds how long the recall <em>waits</em> for the result, not how long the
+   * underlying call keeps running — the bound on total recall latency is soft, not hard.
    */
   private RerankOutcome runModelRerank(RerankInput input, RerankSettings settings,
                                        InferenceUsageAccumulator usage) {
@@ -488,7 +495,7 @@ public class RetrievalService {
         }
         future.cancel(true);
         LOGGER.warn("rerank stage failed/timed out ({}); keeping fused order", e.toString());
-        return RerankOutcome.passThrough(input.candidates(), "model", settings.timeoutMs());
+        return RerankOutcome.passThrough(input.candidates(), ModelReranker.STAGE, settings.timeoutMs());
       }
     }
   }
