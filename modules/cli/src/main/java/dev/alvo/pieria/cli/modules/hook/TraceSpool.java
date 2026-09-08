@@ -24,10 +24,10 @@ import java.util.stream.Stream;
 /**
  * A per-session, append-only NDJSON buffer of captured tool calls.
  *
- * <p>It exists because {@code PostToolUse} fires inside the agent's loop after every tool call.
- * Anything that touches the network there is paid dozens of times per turn; appending a line and
- * exiting is not. The turn-end hooks drain it and ship one batch, which also keeps a failure and
- * the fix that followed it inside a single extraction window.
+ * <p>It exists because {@code PostToolUse} and {@code PostToolUseFailure} fire inside the agent's
+ * loop after tool calls. Anything that touches the network there is paid dozens of times per turn;
+ * appending a line and exiting is not. The turn-end hooks drain it and ship one batch, which also
+ * keeps a failure and the fix that followed it inside a single extraction window.
  *
  * <p>Lives under the app-data root, not {@code PIERIA_HOME}: that is the install root, and
  * {@link AppDirs} exists precisely to keep the two apart.

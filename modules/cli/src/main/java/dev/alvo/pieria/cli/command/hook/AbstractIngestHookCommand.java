@@ -23,8 +23,8 @@ import java.util.List;
  * whole point: probing the environment alone silently skipped every Claude Code ingest, because the
  * variables it was probing for do not exist.
  *
- * <p>These hooks are also where spooled tool calls are shipped. {@code PostToolUse} only writes to
- * disk — it runs inside the agent's loop — so the batch leaves the machine here, on the same
+ * <p>These hooks are also where spooled tool calls are shipped. The tool-outcome hooks only write
+ * to disk — they run inside the agent's loop — so the batch leaves the machine here, on the same
  * lifecycle events that already talk to the daemon.
  */
 abstract class AbstractIngestHookCommand extends AbstractHookCommand {

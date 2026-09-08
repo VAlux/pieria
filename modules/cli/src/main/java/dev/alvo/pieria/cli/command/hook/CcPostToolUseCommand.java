@@ -12,13 +12,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 /**
- * Claude Code {@code PostToolUse}: record one tool call.
+ * Claude Code {@code PostToolUse}/{@code PostToolUseFailure}: record one tool call.
  *
  * <p>This runs after <em>every</em> tool call, inside the agent's loop, so it does exactly two
  * things — scrub and append a line — and never contacts the daemon. The turn-end hooks ship the
  * batch.
  */
-@Command(name = "post-tool-use", description = "Claude Code PostToolUse hook.")
+@Command(name = "post-tool-use", description = "Claude Code tool-outcome hook.")
 public final class CcPostToolUseCommand extends AbstractHookCommand {
 
   /**
@@ -32,7 +32,7 @@ public final class CcPostToolUseCommand extends AbstractHookCommand {
   protected HookOutcome execute() {
     HookInput input = HookInput.readLenient(System.in);
     if (input.toolName() == null || input.toolName().isBlank()) {
-      return new HookOutcome.Skipped("no tool_name in the PostToolUse payload; nothing to record");
+      return new HookOutcome.Skipped("no tool_name in the tool-outcome payload; nothing to record");
     }
 
     Path repoRoot = Path.of("").toAbsolutePath();
@@ -43,9 +43,9 @@ public final class CcPostToolUseCommand extends AbstractHookCommand {
       input.toolName(),
       scrub(input.toolInput(), repoRoot, userHome),
       scrub(input.toolResponse(), repoRoot, userHome),
-      status(input.exitCode()),
+      status(input),
       input.exitCode(),
-      null,
+      scrub(input.error(), repoRoot, userHome),
       null,
       now);
 
@@ -63,12 +63,22 @@ public final class CcPostToolUseCommand extends AbstractHookCommand {
       : Redaction.scrub(text, CAPTURE_BUDGET_CHARS, repoRoot, userHome).text();
   }
 
-  /** A missing exit code means the tool ran no process, which is not the same as succeeding. */
-  private static TraceStatus status(Integer exitCode) {
-    if (exitCode == null) {
+  /**
+   * Claude Code splits successful and failed calls into distinct hook events. The event name is
+   * therefore authoritative; a numeric exit code is only a compatibility fallback for older
+   * harness payloads that did not identify the event.
+   */
+  private static TraceStatus status(HookInput input) {
+    if ("PostToolUse".equals(input.hookEventName())) {
+      return TraceStatus.SUCCESS;
+    }
+    if ("PostToolUseFailure".equals(input.hookEventName())) {
+      return TraceStatus.FAILURE;
+    }
+    if (input.exitCode() == null) {
       return TraceStatus.UNKNOWN;
     }
-    return exitCode == 0 ? TraceStatus.SUCCESS : TraceStatus.FAILURE;
+    return input.exitCode() == 0 ? TraceStatus.SUCCESS : TraceStatus.FAILURE;
   }
 
   @Override

@@ -2,6 +2,7 @@ import { $, el, addRow } from "../util/dom.js";
 import { typeColor, typeTint, tint } from "../util/palette.js";
 import { fmtDate } from "../util/format.js";
 import { forgetMemory } from "./memories.js";
+import { memoryPresentation } from "./memory-presentation.js";
 
 let drawerMem = null;
 
@@ -14,21 +15,36 @@ export function openDrawer(m) {
   chip.style.background = typeTint(m.type);
   $("drawerDelete").style.display = m.superseded ? "none" : "";
 
-  let payload = m.payload;
-  try { payload = JSON.stringify(JSON.parse(m.payload || "{}"), null, 2); } catch (e) { /* leave as-is */ }
-
+  const view = memoryPresentation(m);
   const body = $("drawerBody");
   body.innerHTML = "";
-  body.appendChild(kv("Content", m.content || ""));
-  appendCode(body, "Payload", payload || "{}");
+  const heading = el("div", "mem-heading");
+  if (view.subtypeLabel) heading.appendChild(el("span", "mem-subtype", view.subtypeLabel));
+  if (view.status) heading.appendChild(el("span", "mem-status " + view.status, view.statusLabel));
+  body.appendChild(heading);
+  if (view.toolCall) {
+    body.appendChild(kv("Tool call", view.title));
+    if (view.tool) body.appendChild(kv("Tool", view.tool));
+    if (view.exitCode !== null) body.appendChild(kv("Exit code", String(view.exitCode)));
+    if (view.failure) body.appendChild(kv("Error", view.failure));
+    appendCode(body, "Invocation", Object.keys(view.args).length ? JSON.stringify(view.args, null, 2) : view.invocation || m.content || "");
+  } else body.appendChild(kv("Content", m.content || ""));
   const meta = el("dl", "kv");
   addRow(meta, "Type", m.type);
+  if (view.source) addRow(meta, "Source", view.source);
+  if (view.payload.occurred_at) addRow(meta, "Occurred", fmtDate(view.payload.occurred_at));
+  if (view.payload.stated_at) addRow(meta, "Stated", fmtDate(view.payload.stated_at));
   addRow(meta, "Topic key", m.topicKey || "—");
   addRow(meta, "Session", m.sessionId || "—");
-  addRow(meta, "Created", fmtDate(m.createdAt));
+  addRow(meta, "Stored", fmtDate(m.createdAt));
   addRow(meta, "Superseded", m.superseded ? "yes" : "no");
   addRow(meta, "Id", m.id);
   body.appendChild(meta);
+  const raw = el("details", "mem-raw");
+  raw.appendChild(el("summary", null, "Raw memory & payload"));
+  raw.appendChild(kv("Original content", m.content || ""));
+  appendCode(raw, "Payload", typeof m.payload === "object" ? JSON.stringify(m.payload, null, 2) : pretty(m.payload || "{}"));
+  body.appendChild(raw);
 
   $("drawer").classList.add("open");
   $("drawerBackdrop").classList.add("open");

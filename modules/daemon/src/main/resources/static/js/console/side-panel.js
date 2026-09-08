@@ -21,7 +21,9 @@ function applyState(expanded) {
 
 export function initSidePanel() {
   const toggle = $("sidePanelToggle");
-  applyState(!window.matchMedia(NARROW_VIEWPORT).matches);
+  const viewport = window.matchMedia(NARROW_VIEWPORT);
+  applyState(!viewport.matches);
+  viewport.addEventListener("change", function (event) { applyState(!event.matches); });
   toggle.addEventListener("click", function () {
     applyState(toggle.getAttribute("aria-expanded") !== "true");
   });

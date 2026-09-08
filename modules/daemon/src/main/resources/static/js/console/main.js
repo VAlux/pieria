@@ -49,6 +49,7 @@ function wireUp() {
     resetPageAndRender();
   });
   $("sessionFilter").addEventListener("change", resetPageAndRender);
+  $("subtypeFilter").addEventListener("change", resetPageAndRender);
   $("sortSelect").addEventListener("change", resetPageAndRender);
   $("supToggle").addEventListener("change", function () {
     state.includeSuperseded = $("supToggle").checked;

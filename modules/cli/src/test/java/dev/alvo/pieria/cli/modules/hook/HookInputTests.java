@@ -66,21 +66,48 @@ class HookInputTests {
     assertThat(HookInput.readLenient(stream("[]"))).isEqualTo(HookInput.EMPTY);
     assertThat(HookInput.readLenient(stream(""))).isEqualTo(HookInput.EMPTY);
     assertThat(HookInput.readLenient(stream("{\"session_id\":\"s1\"}")))
-      .isEqualTo(new HookInput("s1", null, null, null, null, null));
+      .isEqualTo(new HookInput("s1", null, null, null, null, null, null, null));
   }
 
   @Test
-  void postToolUseFieldsAreParsed() {
+  void documentedPostToolUseFieldsAreParsedWithoutInventingAnExitCode() {
     HookInput input = HookInput.readLenient(new java.io.ByteArrayInputStream("""
-      {"session_id":"s1","tool_name":"Bash",
+      {"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Bash",
        "tool_input":{"command":"./gradlew test"},
-       "tool_response":{"stdout":"BUILD FAILED","exitCode":1}}
+       "tool_response":{"stdout":"BUILD SUCCESSFUL","stderr":"","interrupted":false,"isImage":false}}
       """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
     assertThat(input.sessionId()).isEqualTo("s1");
+    assertThat(input.hookEventName()).isEqualTo("PostToolUse");
     assertThat(input.toolName()).isEqualTo("Bash");
     assertThat(input.toolInput()).contains("./gradlew test");
-    assertThat(input.toolResponse()).contains("BUILD FAILED");
+    assertThat(input.toolResponse()).contains("BUILD SUCCESSFUL");
+    assertThat(input.exitCode()).isNull();
+    assertThat(input.error()).isNull();
+  }
+
+  @Test
+  void documentedPostToolUseFailureFieldsAreParsed() {
+    HookInput input = HookInput.readLenient(stream("""
+      {"session_id":"s1","hook_event_name":"PostToolUseFailure","tool_name":"Bash",
+       "tool_input":{"command":"./gradlew test"},
+       "error":"Command exited with non-zero status code 1","is_interrupt":false}
+      """));
+
+    assertThat(input.hookEventName()).isEqualTo("PostToolUseFailure");
+    assertThat(input.toolResponse()).isNull();
+    assertThat(input.error()).isEqualTo("Command exited with non-zero status code 1");
+    assertThat(input.exitCode()).isNull();
+  }
+
+  @Test
+  void legacyNumericExitCodeIsStillParsedAsACompatibilityFallback() {
+    HookInput input = HookInput.readLenient(stream("""
+      {"session_id":"s1","tool_name":"Bash",
+       "tool_input":{"command":"./gradlew test"},
+       "tool_response":{"stdout":"BUILD FAILED","exitCode":1}}
+      """));
+
     assertThat(input.exitCode()).isEqualTo(1);
   }
 
@@ -93,6 +120,8 @@ class HookInputTests {
 
     assertThat(input.toolName()).isNull();
     assertThat(input.toolInput()).isNull();
+    assertThat(input.hookEventName()).isNull();
+    assertThat(input.error()).isNull();
     assertThat(input.exitCode()).isNull();
   }
 

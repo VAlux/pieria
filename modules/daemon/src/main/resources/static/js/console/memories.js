@@ -1,6 +1,7 @@
-import { $, el, api, apiFetch, escapeHtml, icon } from "../util/dom.js";
+import { $, el, api, apiFetch, icon } from "../util/dom.js";
 import { typeColor, typeTint } from "../util/palette.js";
-import { relTime } from "../util/format.js";
+import { relTime, fmtDate } from "../util/format.js";
+import { memoryPresentation } from "./memory-presentation.js";
 import { state } from "./state.js";
 import { renderBanner } from "./router.js";
 import { toast } from "./toast.js";
@@ -20,6 +21,7 @@ export function loadMemories(force) {
     .then(function (data) {
       state.memories = data.memories || [];
       rebuildSessionFilter();
+      rebuildSubtypeFilter();
       page = 1;
       renderMemories();
     })
@@ -49,11 +51,14 @@ function filteredSorted() {
   const term = $("searchInput").value.trim().toLowerCase();
   const type = state.typeFilter;
   const session = $("sessionFilter").value;
+  const subtype = $("subtypeFilter").value;
   const rows = state.memories.filter(function (m) {
+    const view = memoryPresentation(m);
     if (type && m.type !== type) return false;
+    if (subtype && (view.subtype || "unclassified") !== subtype) return false;
     if (session && m.sessionId !== session) return false;
     if (term) {
-      const hay = ((m.content || "") + " " + (m.topicKey || "") + " " + (m.sessionId || "")).toLowerCase();
+      const hay = [m.content, m.topicKey, m.sessionId, view.subtypeLabel, view.tool, view.statusLabel, view.source, view.preview].join(" ").toLowerCase();
       if (hay.indexOf(term) < 0) return false;
     }
     return true;
@@ -71,11 +76,12 @@ function filteredSorted() {
 
 /**
  * One memory row. Shared with the recall view so the two lists cannot drift apart.
- * Type is signalled by a rail down the row and a tinted chip; the relative time gets its own
- * right-aligned tabular column rather than trailing the metadata sentence.
+ * Type, subtype and execution status have independent visual treatments. The adapter supplies
+ * structured previews without changing stored content or recall ordering.
  */
 export function memoryRow(m, forgettable) {
-  const row = el("div", "mem" + (m.superseded ? " superseded" : ""));
+  const view = memoryPresentation(m);
+  const row = el("article", "mem" + (m.superseded ? " superseded" : ""));
   row.addEventListener("click", function () { openDrawer(m); });
 
   const rail = el("div", "mem-rail");
@@ -84,23 +90,45 @@ export function memoryRow(m, forgettable) {
 
   const main = el("div", "mem-main");
 
+  const body = el("div", "mem-body");
+  const head = el("div", "mem-heading");
   const chip = el("span", "chip", m.type);
   chip.style.color = typeColor(m.type);
   chip.style.background = typeTint(m.type);
-  main.appendChild(chip);
-
-  const body = el("div", "mem-body");
-  body.appendChild(el("div", "mem-content", m.content || ""));
+  head.appendChild(chip);
+  if (view.subtypeLabel) head.appendChild(el("span", "mem-subtype", view.subtypeLabel));
+  if (view.status) head.appendChild(el("span", "mem-status " + view.status, view.statusLabel));
+  if (view.exitCode !== null) head.appendChild(el("span", "mem-context", "Exit " + view.exitCode));
+  if (m.superseded) head.appendChild(el("span", "tag-super", "Superseded"));
+  body.appendChild(head);
+  if (view.title) body.appendChild(el("div", "mem-title", view.title));
+  body.appendChild(el("div", "mem-content" + (view.toolCall ? " mem-command" : ""), view.preview));
+  if (view.failure) body.appendChild(el("div", "mem-content mem-failure", view.failure));
   const meta = el("div", "mem-meta");
-  const bits = [];
-  if (m.topicKey) bits.push('<span class="key">' + escapeHtml(m.topicKey) + "</span>");
-  if (m.sessionId) bits.push(escapeHtml(m.sessionId));
-  meta.innerHTML = bits.join(" · ");
+  if (view.tool) meta.appendChild(el("span", "mem-context", view.tool));
+  if (view.source && !view.toolCall) meta.appendChild(el("span", "mem-context", "Source: " + view.source));
+  if (m.topicKey && !m.topicKey.startsWith("trace:")) {
+    const topic = el("span", "key", "Topic: " + m.topicKey);
+    topic.title = m.topicKey;
+    meta.appendChild(topic);
+  }
+  if (m.sessionId) {
+    const session = el("span", "mem-context", "Session " + m.sessionId.slice(0, 8));
+    session.title = m.sessionId;
+    meta.appendChild(session);
+  }
+  const details = el("button", "mem-details", "View details");
+  details.type = "button";
+  details.setAttribute("aria-label", "View " + (view.subtypeLabel || m.type) + " memory details");
+  details.addEventListener("click", function (ev) { ev.stopPropagation(); openDrawer(m); });
+  meta.appendChild(details);
   body.appendChild(meta);
   main.appendChild(body);
 
-  if (m.superseded) main.appendChild(el("span", "tag-super", "superseded"));
-  main.appendChild(el("span", "mem-time num", relTime(m.createdAt)));
+  const time = el("time", "mem-time num", relTime(view.date));
+  if (view.date) time.dateTime = view.date;
+  time.title = view.dateLabel + ": " + fmtDate(view.date) + " · Stored: " + fmtDate(m.createdAt);
+  main.appendChild(time);
 
   if (forgettable && !m.superseded) {
     const del = el("button", "icon-btn");
@@ -114,6 +142,25 @@ export function memoryRow(m, forgettable) {
 
   row.appendChild(main);
   return row;
+}
+
+function rebuildSubtypeFilter() {
+  const select = $("subtypeFilter"), current = select.value;
+  const subtypes = new Map();
+  state.memories.forEach(function (m) {
+    const view = memoryPresentation(m);
+    subtypes.set(view.subtype || "unclassified", view.subtypeLabel || "No subtype");
+  });
+  select.replaceChildren();
+  const all = el("option", null, "All subtypes");
+  all.value = "";
+  select.appendChild(all);
+  [...subtypes].sort((a, b) => a[1].localeCompare(b[1])).forEach(function ([value, title]) {
+    const option = el("option", null, title);
+    option.value = value;
+    select.appendChild(option);
+  });
+  if (subtypes.has(current)) select.value = current;
 }
 
 export function renderMemories() {

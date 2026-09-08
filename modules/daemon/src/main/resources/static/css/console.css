@@ -222,23 +222,51 @@ h2.section, .section {
 .mem.superseded { opacity: .55; }
 /* Type reads down the column as a rail; the chip stops shouting. */
 .mem-rail { flex: none; width: 2px; }
-.mem-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; }
+.mem-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; }
 .chip {
   flex: none; min-width: 76px; text-align: center;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
   padding: 3px 8px; border-radius: 999px; white-space: nowrap;
 }
 .mem-body { flex: 1 1 auto; min-width: 0; }
+.mem-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.mem-heading .chip { min-width: 0; }
+.mem-subtype { border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.mem-status { font-size: 11px; color: var(--muted); }
+.mem-status::before { content: "•"; margin-right: 5px; }
+.mem-status.success { color: #7ee787; }
+.mem-status.failure { color: #ff7b72; }
+.mem-status.unknown { color: var(--muted); }
+.mem-title { font-size: 14px; font-weight: 600; margin-bottom: 7px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 /* Two lines rather than one hard truncate: most memories are a full clause. */
 .mem-content {
-  font-size: 14px; line-height: 1.45;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
 }
+.mem-command { font: 12px/1.65 var(--mono); background: var(--bg); border-left: 2px solid var(--border); padding: 8px 10px; border-radius: 4px; color: var(--muted); -webkit-line-clamp: 2; }
+.mem-failure { font-size: 12px; color: #ff7b72; margin-top: 7px; -webkit-line-clamp: 2; }
 .mem-meta {
-  font-family: var(--mono); color: var(--dim); font-size: 11.5px; margin-top: 4px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  color: var(--muted); font-size: 11px; margin-top: 10px;
 }
-.mem-meta .key { color: var(--accent); }
+.mem-meta .key { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(100%, 420px); }
+.mem-context { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.mem-details { background: transparent; border: 0; padding: 0; color: var(--accent); font-size: 11px; cursor: pointer; }
+.mem-details:hover { text-decoration: underline; }
+.mem-details:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.mem-raw { border-top: 1px solid var(--border); padding-top: 14px; }
+.mem-raw summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+@media (max-width: 600px) {
+  .topbar { overflow-x: auto; }
+  .topbar > * { flex-shrink: 0; }
+  main { padding: 14px 12px 60px; }
+  .controls .grow { min-width: 0; flex-basis: 100%; }
+  .controls select { max-width: 100%; }
+  .segmented { flex-wrap: wrap; }
+  .mem-main { padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .mem-body { flex-basis: 100%; }
+  .mem .mem-time { text-align: left; width: auto; margin-right: auto; }
+}
 /* Time leaves the metadata run for its own column, so a scan reads as a column of times. */
 .mem-time { flex: none; width: 62px; text-align: right; font-size: 12px; color: var(--dim); margin-top: 2px; }
 .tag-super { flex: none; font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-top: 2px; white-space: nowrap; }

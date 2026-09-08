@@ -14,23 +14,26 @@ import java.nio.file.Path;
  */
 public record HookInput(String sessionId,
                         Path transcriptPath,
+                        String hookEventName,
                         String toolName,
                         String toolInput,
                         String toolResponse,
+                        String error,
                         Integer exitCode) {
 
   /** No payload: every field unset, so callers fall back to the environment. */
-  public static final HookInput EMPTY = new HookInput(null, null, null, null, null, null);
+  public static final HookInput EMPTY = new HookInput(null, null, null, null, null, null, null, null);
 
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
   /**
    * Parse the hook payload, leaving absent or null fields unset.
    *
-   * <p>{@code tool_name}/{@code tool_input}/{@code tool_response} are the PostToolUse fields; the
-   * lifecycle hooks send none of them, and reading one reader for both keeps the two payload
-   * shapes from needing separate parsers. {@code tool_input} and {@code tool_response} are kept as
-   * raw JSON text because their shape varies per tool.
+   * <p>{@code tool_name}/{@code tool_input}/{@code tool_response} are the {@code PostToolUse}
+   * fields. {@code PostToolUseFailure} replaces the response with a top-level {@code error}.
+   * Lifecycle hooks send none of them, and one reader keeps the payload shapes from needing
+   * separate parsers. {@code tool_input} and {@code tool_response} are kept as raw JSON text
+   * because their shape varies per tool.
    */
   public static HookInput read(InputStream input) throws IOException {
     JsonNode root = MAPPER.readTree(input);
@@ -41,9 +44,11 @@ public record HookInput(String sessionId,
     return new HookInput(
       text(root, "session_id"),
       transcript == null ? null : Path.of(transcript),
+      text(root, "hook_event_name"),
       text(root, "tool_name"),
       raw(root, "tool_input"),
       raw(root, "tool_response"),
+      text(root, "error"),
       exitCode(root.get("tool_response")));
   }
 
@@ -75,8 +80,9 @@ public record HookInput(String sessionId,
   }
 
   /**
-   * The tool response's exit code, under either spelling harnesses use. Absent for tools that do
-   * not run a process, which is not an error.
+   * A legacy tool response's exit code, under any previously observed spelling. Current Claude
+   * Code payloads communicate success or failure through {@code hook_event_name}; this remains a
+   * compatibility fallback for older harness payloads and direct invocations.
    */
   private static Integer exitCode(JsonNode toolResponse) {
     if (toolResponse == null || !toolResponse.isObject()) {
