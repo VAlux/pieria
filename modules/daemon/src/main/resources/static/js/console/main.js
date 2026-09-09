@@ -24,14 +24,15 @@ function applyAuditFiltersNow() {
 
 function wireUp() {
   $("profileList").addEventListener("click", function (e) {
-    // The delete control is a sibling of the profile entry, so it needs its own branch — and it
-    // has to come first, or a stray match would select the profile it is about to remove.
-    const del = e.target.closest("button[data-delete-profile]");
-    if (del) { deleteProfile(del.dataset.deleteProfile, Number(del.dataset.memoryCount)); return; }
-    const link = e.target.closest("button[data-view]");
-    if (link) { setView(link.dataset.view); return; }
     const button = e.target.closest("button[data-profile]");
     if (button) selectProfile(button.dataset.profile);
+  });
+  $("profileConfigBtn").addEventListener("click", function () { setView("profile-config"); });
+  $("deleteProfileBtn").addEventListener("click", function (e) {
+    const button = e.currentTarget;
+    if (button.dataset.deleteProfile) {
+      deleteProfile(button.dataset.deleteProfile, Number(button.dataset.memoryCount));
+    }
   });
   $("daemonConfigLink").addEventListener("click", function () { setView("global-config"); });
   $("nav").addEventListener("click", function (e) {
@@ -92,6 +93,7 @@ function boot() {
     document.querySelectorAll(".nav button").forEach(function (b) { b.classList.toggle("active", b.dataset.view === initialView); });
     document.querySelectorAll(".view").forEach(function (s) { s.classList.toggle("active", s.id === "view-" + initialView); });
     document.body.classList.toggle("view-graph", initialView === "graph");
+    $("profileConfigBtn").classList.toggle("active", initialView === "profile-config");
   }
   loadProfiles(params.get("profile") || "");
 }

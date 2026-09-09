@@ -195,27 +195,25 @@ class ConfigConsoleAssetsTests {
   }
 
   @Test
-  void bothConfigEntriesLiveInTheSidePanelNotTheNavBar() throws IOException {
+  void configEntriesReflectTheirScopeOutsideTheMainNav() throws IOException {
     Document html = Jsoup.parse(resource("static/index.html"));
 
     // Global config hangs off the daemon block, because that is its scope.
     assertThat(html.select("#sidePanel #daemonConfigLink[data-view=global-config]")).hasSize(1);
-    // A seventh nav tab would read as global and undercut the per-profile scoping.
+    // Profile config is an action for the selected profile, adjacent to its removal action in the
+    // header. Neither configuration scope belongs among the content-view tabs.
+    assertThat(html.select(".topbar #profileConfigBtn[data-view=profile-config]")).hasSize(1);
     assertThat(html.select(".nav button[data-view=profile-config]")).isEmpty();
     assertThat(html.select(".nav button[data-view=global-config]")).isEmpty();
   }
 
   @Test
-  void selectingAProfileRevealsItsConfigurationEntry() throws IOException {
+  void selectingAProfileEnablesAndTargetsItsHeaderActions() throws IOException {
     String profiles = resource("static/js/console/profiles.js");
-    String css = resource("static/css/console.css");
 
-    // Call-site shape, not bare token presence: renderSubList(row) is the actual call (built once,
-    // called from both renderProfiles and markSelected), and the dataset assignment is what makes
-    // the rendered entry route to profile-config. A stray comment mentioning either word could not
-    // satisfy this.
-    assertThat(profiles).contains("renderSubList(row)", "link.dataset.view = \"profile-config\";");
-    assertThat(css).contains(".side-panel-subitem");
+    assertThat(profiles)
+      .contains("config.disabled = !selected;", "remove.disabled = !selected;")
+      .contains("syncProfileActions(profile, memoryCount);");
   }
 
   @Test

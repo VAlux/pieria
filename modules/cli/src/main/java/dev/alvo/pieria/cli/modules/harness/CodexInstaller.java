@@ -11,10 +11,11 @@ import java.util.Map;
 
 /**
  * Wires the Codex CLI: an {@code [mcp_servers.pieria]} table in {@code config.toml}, plus
- * {@code Stop} ingestion and {@code SessionStart} recall entries in {@code hooks.json}. Project
- * scope writes under {@code ./.codex/}; {@code --user} writes under {@code ~/.codex/}.
+ * {@code Stop}/{@code SessionEnd} ingestion, {@code SessionStart} recall, and
+ * {@code PostToolUse} trace capture entries in {@code hooks.json}. Project scope writes under
+ * {@code ./.codex/}; {@code --user} writes under {@code ~/.codex/}.
  *
- * <p>VERIFY against current Codex CLI docs (as of 2026-07): the {@code [mcp_servers.*]} table,
+ * <p>VERIFY against current Codex CLI docs (as of 2026-09): the {@code [mcp_servers.*]} table,
  * the {@code hooks.json} structure, event names, and stdin payload. Codex command hooks are recent
  * and command-only.
  */
@@ -25,7 +26,9 @@ public final class CodexInstaller implements HarnessInstaller {
    */
   private static final Map<String, String> HOOK_EVENTS = new LinkedHashMap<>() {{
     put("SessionStart", "session-start");
+    put("PostToolUse", "post-tool-use");
     put("Stop", "stop");
+    put("SessionEnd", "session-end");
   }};
 
   /**
@@ -192,7 +195,7 @@ public final class CodexInstaller implements HarnessInstaller {
     ObjectNode handler = json.newObject();
     handler.put("type", "command");
     handler.put("command", HookCommandLine.of(ctx.cliCommand(), "hook", "codex", subcommand));
-    if (subcommand.equals("stop")) {
+    if (subcommand.equals("stop") || subcommand.equals("session-end")) {
       handler.put("timeout", 30);
     }
     handlers.add(handler);

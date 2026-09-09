@@ -48,11 +48,17 @@ class CodexInstallerTests {
     ObjectNode hooks = json.load(installer.hooksFile(ctx));
     assertThat(handlerCommand(hooks, "SessionStart"))
       .isEqualTo("/opt/pieria/bin/pieria hook codex session-start");
+    assertThat(handlerCommand(hooks, "PostToolUse"))
+      .isEqualTo("/opt/pieria/bin/pieria hook codex post-tool-use");
     assertThat(handlerCommand(hooks, "Stop"))
       .isEqualTo("/opt/pieria/bin/pieria hook codex stop");
+    assertThat(handlerCommand(hooks, "SessionEnd"))
+      .isEqualTo("/opt/pieria/bin/pieria hook codex session-end");
     assertThat(hooks.path("hooks").path("Stop").path(0).path("hooks").path(0).path("type").asString())
       .isEqualTo("command");
     assertThat(hooks.path("hooks").path("Stop").path(0).path("hooks").path(0).path("timeout").asInt())
+      .isEqualTo(30);
+    assertThat(hooks.path("hooks").path("SessionEnd").path(0).path("hooks").path(0).path("timeout").asInt())
       .isEqualTo(30);
   }
 
@@ -64,6 +70,8 @@ class CodexInstallerTests {
     String hooks = Files.readString(installer.hooksFile(ctx));
     assertThat(hooks).contains("/opt/pieria/bin/pieria hook codex stop");
     assertThat(hooks).contains("/opt/pieria/bin/pieria hook codex session-start");
+    assertThat(hooks).contains("/opt/pieria/bin/pieria hook codex post-tool-use");
+    assertThat(hooks).contains("/opt/pieria/bin/pieria hook codex session-end");
     assertThat(hooks).doesNotContain(".sh");
   }
 
@@ -74,7 +82,9 @@ class CodexInstallerTests {
     installer.install(ctx);
     ObjectNode root = json.load(installer.hooksFile(ctx));
     assertThat(root.path("hooks").path("SessionStart").size()).isEqualTo(1);
+    assertThat(root.path("hooks").path("PostToolUse").size()).isEqualTo(1);
     assertThat(root.path("hooks").path("Stop").size()).isEqualTo(1);
+    assertThat(root.path("hooks").path("SessionEnd").size()).isEqualTo(1);
   }
 
   @Test
@@ -126,6 +136,8 @@ class CodexInstallerTests {
     assertThat(stop.size()).isEqualTo(1);
     assertThat(stop.path(0).path("hooks").path(0).path("command").asString()).isEqualTo("echo other");
     assertThat(hooksRoot.path("hooks").has("SessionStart")).isFalse();
+    assertThat(hooksRoot.path("hooks").has("PostToolUse")).isFalse();
+    assertThat(hooksRoot.path("hooks").has("SessionEnd")).isFalse();
   }
 
   @Test

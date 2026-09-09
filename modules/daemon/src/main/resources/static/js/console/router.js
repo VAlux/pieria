@@ -31,6 +31,7 @@ export function setView(view) {
   document.querySelectorAll(".nav button").forEach(function (b) {
     b.classList.toggle("active", b.dataset.view === view);
   });
+  $("profileConfigBtn").classList.toggle("active", view === "profile-config");
   document.querySelectorAll(".view").forEach(function (s) {
     s.classList.toggle("active", s.id === "view-" + view);
   });

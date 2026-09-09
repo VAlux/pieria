@@ -157,8 +157,10 @@ receipt so direct API callers are covered too. It is idempotent.
 
 ### 4.2 `cli` — capture and spool
 
-**`CcPostToolUseCommand`** (`pieria hook claude-code post-tool-use`), registered in
-`ClaudeCodeInstaller.HOOK_EVENTS` under `PostToolUse`.
+**`CcPostToolUseCommand`** (`pieria hook claude-code post-tool-use`) and
+**`CodexPostToolUseCommand`** (`pieria hook codex post-tool-use`), registered under each
+harness's `PostToolUse` event. Codex does not expose the Bash process exit code in this payload,
+so Bash status remains `unknown`; its non-shell PostToolUse events represent successful results.
 
 `HookInput` currently reads only `session_id` and `transcript_path`. It is extended with the
 `PostToolUse` fields — `tool_name`, `tool_input`, `tool_response` — kept optional so the existing
@@ -440,9 +442,9 @@ Retrieval:
 
 - **Transcript-native trace extraction** (rejected in D1). The `TranscriptParser` implementations
   continue to discard `tool_use` / `tool_result`.
-- **Codex and OpenCode capture.** The REST surface is harness-neutral, so adding them is a CLI-only
-  change — but it depends on each harness exposing a per-tool hook event, which has not been
-  verified. Claude Code's `PostToolUse` is confirmed; the others are follow-up work.
+- **OpenCode capture.** The REST surface is harness-neutral, so adding it is a CLI-only change —
+  but it depends on OpenCode exposing a verified per-tool hook event. Claude Code and Codex
+  `PostToolUse` capture are implemented.
 - **TTL / `expires_at`** (POTENTIAL_FEATURES #10) and **Phase 10 validity windows**. D5 makes neither
   a prerequisite.
 - **Consolidation of repetitive trace memories** — Phase 11.

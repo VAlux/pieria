@@ -7,7 +7,12 @@ import picocli.CommandLine.Command;
 @Command(
   name = "codex",
   description = "Codex CLI lifecycle hooks.",
-  subcommands = {CodexSessionStartCommand.class, CodexStopCommand.class}
+  subcommands = {
+    CodexSessionStartCommand.class,
+    CodexStopCommand.class,
+    CodexSessionEndCommand.class,
+    CodexPostToolUseCommand.class
+  }
 )
 public final class CodexHookCommand implements Runnable {
 

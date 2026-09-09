@@ -15,7 +15,8 @@ class ConsoleAssetsTests {
   void consoleUsesAccessibleProfileSidePanelBelowHeader() throws IOException {
     Document html = Jsoup.parse(resource("static/index.html"));
 
-    assertThat(html.select(".topbar #profileLabel, .topbar #nav, .topbar #exportBtn")).hasSize(3);
+    assertThat(html.select(".topbar #profileLabel, .topbar #nav, .topbar #profileConfigBtn, "
+      + ".topbar #deleteProfileBtn, .topbar #exportBtn")).hasSize(5);
     assertThat(html.select("#profileSelect")).isEmpty();
     assertThat(html.select(".content-shell > #sidePanel + main")).hasSize(1);
     assertThat(html.select("#sidePanel #profilesCategoryTitle")).hasSize(1);
@@ -222,33 +223,32 @@ class ConsoleAssetsTests {
   }
 
   @Test
-  void deleteSitsUnderConfigurationInTheSelectedProfilesSublist() throws IOException {
+  void profileActionsSitInTheHeaderBeforeTasksAndExport() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
     String profiles = resource("static/js/console/profiles.js");
     String main = resource("static/js/console/main.js");
     String css = resource("static/css/console.css");
 
-    // Same trash the memory list uses, not a second glyph for the same gesture.
-    assertThat(profiles).contains("icon(\"trash\"", "button.dataset.deleteProfile = name;");
+    assertThat(html.select(".topbar > #profileConfigBtn + #deleteProfileBtn + .tray + #exportBtn"))
+      .hasSize(1);
+    assertThat(html.select("#profileConfigBtn[data-view=profile-config][disabled], "
+      + "#deleteProfileBtn[disabled]")).hasSize(2);
+    assertThat(html.select("#deleteProfileBtn svg path[d^='M4 7h16']")).hasSize(1);
+    assertThat(html.select("#profileList [data-view=profile-config], #profileList [data-delete-profile]"))
+      .isEmpty();
 
-    // A sublist entry, so it exists only for the profile that is actually selected — that is what
-    // makes it unambiguous which profile it deletes, and keeps a destructive control off every row.
-    int subList = profiles.indexOf("function renderSubList");
-    int configEntry = profiles.indexOf("sub.appendChild(configItem());");
-    int deleteEntry = profiles.indexOf("sub.appendChild(deleteItem(");
-    assertThat(subList).as("renderSubList must exist").isNotNegative();
-    assertThat(configEntry).as("Configuration entry belongs to the sublist").isGreaterThan(subList);
-    assertThat(deleteEntry).as("delete goes under Configuration, not above it").isGreaterThan(configEntry);
-    assertThat(profiles).doesNotContain("side-panel-row");
+    // Selection owns both controls: they remain stable in the header while their profile-specific
+    // target and count follow whichever row is active.
+    assertThat(profiles)
+      .contains("function syncProfileActions", "remove.dataset.deleteProfile = profile || \"\";")
+      .contains("remove.dataset.memoryCount = String(memoryCount || 0);")
+      .doesNotContain("renderSubList", "side-panel-subitem");
+    assertThat(main)
+      .contains("$(\"profileConfigBtn\").addEventListener", "$(\"deleteProfileBtn\").addEventListener")
+      .contains("deleteProfile(button.dataset.deleteProfile, Number(button.dataset.memoryCount))");
 
-    // The panel delegates clicks, so delete needs its own branch — ahead of the profile-selection
-    // one, or a stray match would select a profile instead of deleting it.
-    int deleteBranch = main.indexOf("button[data-delete-profile]");
-    int selectBranch = main.indexOf("button[data-profile]");
-    assertThat(deleteBranch).as("delete branch must exist in the panel delegation").isNotNegative();
-    assertThat(deleteBranch).isLessThan(selectBranch);
-
-    // Red under the pointer only: a permanently red row shouts on every glance at the panel.
-    assertThat(css).contains(".side-panel-danger:hover { color: var(--danger);");
+    // Red belongs to the destructive hover gesture, not the resting header.
+    assertThat(css).contains(".profile-delete-btn:not(:disabled):hover { color: var(--danger);");
   }
 
   @Test

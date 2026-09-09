@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * Shared scaffolding for hook command tests: run the CLI with a given stdin payload and capture
  * what lands on stderr. Extracted out of {@code HookCommandTests} so
- * {@code CcPostToolUseCommandTests} can reuse it rather than duplicating it.
+ * tool-outcome command tests can reuse it rather than duplicating it.
  */
 final class HookTestSupport {
 
