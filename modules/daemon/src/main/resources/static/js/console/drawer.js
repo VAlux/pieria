@@ -3,6 +3,7 @@ import { typeColor, typeTint, tint } from "../util/palette.js";
 import { fmtDate } from "../util/format.js";
 import { forgetMemory } from "./memories.js";
 import { memoryPresentation } from "./memory-presentation.js";
+import { markdown } from "../util/markdown.js";
 
 let drawerMem = null;
 
@@ -28,7 +29,7 @@ export function openDrawer(m) {
     if (view.exitCode !== null) body.appendChild(kv("Exit code", String(view.exitCode)));
     if (view.failure) body.appendChild(kv("Error", view.failure));
     appendCode(body, "Invocation", Object.keys(view.args).length ? JSON.stringify(view.args, null, 2) : view.invocation || m.content || "");
-  } else body.appendChild(kv("Content", m.content || ""));
+  } else body.appendChild(markdownKv("Content", m.content || ""));
   const meta = el("dl", "kv");
   addRow(meta, "Type", m.type);
   if (view.source) addRow(meta, "Source", view.source);
@@ -106,6 +107,15 @@ function kv(label, value) {
   const d = el("dl", "kv");
   d.appendChild(el("dt", null, label));
   d.appendChild(el("dd", null, value));
+  return d;
+}
+
+function markdownKv(label, value) {
+  const d = el("dl", "kv");
+  d.appendChild(el("dt", null, label));
+  const dd = el("dd");
+  dd.appendChild(markdown(value));
+  d.appendChild(dd);
   return d;
 }
 

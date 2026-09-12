@@ -7,6 +7,7 @@ import { renderBanner } from "./router.js";
 import { toast } from "./toast.js";
 import { refreshProfileCounts } from "./profiles.js";
 import { openDrawer, closeDrawer } from "./drawer.js";
+import { markdown } from "../util/markdown.js";
 
 const PAGE_SIZE = 100;
 let page = 1;   // 1-indexed page into the filtered/sorted result
@@ -102,7 +103,9 @@ export function memoryRow(m, forgettable) {
   if (m.superseded) head.appendChild(el("span", "tag-super", "Superseded"));
   body.appendChild(head);
   if (view.title) body.appendChild(el("div", "mem-title", view.title));
-  body.appendChild(el("div", "mem-content" + (view.toolCall ? " mem-command" : ""), view.preview));
+  body.appendChild(view.toolCall
+    ? el("div", "mem-content mem-command", view.preview)
+    : markdown(view.preview, { className: "mem-content", inline: true }));
   if (view.failure) body.appendChild(el("div", "mem-content mem-failure", view.failure));
   const meta = el("div", "mem-meta");
   if (view.tool) meta.appendChild(el("span", "mem-context", view.tool));

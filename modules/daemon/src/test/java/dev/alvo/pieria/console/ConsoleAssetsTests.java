@@ -223,6 +223,27 @@ class ConsoleAssetsTests {
   }
 
   @Test
+  void modelProseUsesSafeVendoredMarkdownRendering() throws IOException {
+    String markdown = resource("static/js/util/markdown.js");
+    String vendor = resource("static/js/vendor/markdown-it.js");
+
+    assertThat(markdown)
+      .contains("html: false", "linkify: true", "parser.render", "parser.renderInline")
+      .contains("noopener noreferrer")
+      .doesNotContain("validateLink =");
+    assertThat(vendor)
+      .contains("markdown-it 15.0.2")
+      .doesNotContain("from\"http", "from \"http", "from\"/npm", "from \"/npm");
+
+    assertThat(resource("static/js/console/recall.js"))
+      .contains("markdown(data.answer", "className: \"cand-content\"");
+    assertThat(resource("static/js/console/memories.js"))
+      .contains("markdown(view.preview", "inline: true");
+    assertThat(resource("static/js/console/drawer.js")).contains("markdownKv(\"Content\"");
+    assertThat(resource("static/js/graph/inspector.js")).contains("markdown(m.content");
+  }
+
+  @Test
   void profileActionsSitInTheHeaderBeforeTasksAndExport() throws IOException {
     Document html = Jsoup.parse(resource("static/index.html"));
     String profiles = resource("static/js/console/profiles.js");

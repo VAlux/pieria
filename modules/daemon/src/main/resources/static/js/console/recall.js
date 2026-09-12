@@ -3,6 +3,7 @@ import { channelColor, tint } from "../util/palette.js";
 import { state } from "./state.js";
 import { renderBanner } from "./router.js";
 import { memoryRow } from "./memories.js";
+import { markdown } from "../util/markdown.js";
 
 // The channel result cap. A channel that returns exactly this many had more to give, so the hit
 // count is reporting the limit rather than a distribution — worth marking.
@@ -45,7 +46,7 @@ function renderRecall(out, data, elapsedSec) {
   if (data.answer) {
     const panel = el("div", "panel");
     panel.appendChild(el("h2", "section", "Answer"));
-    panel.appendChild(el("div", "answer", data.answer));
+    panel.appendChild(markdown(data.answer, { className: "answer" }));
     if (data.debug) panel.appendChild(explainToggle(data.debug, mems, elapsedSec));
     out.appendChild(panel);
   }
@@ -208,7 +209,10 @@ function candidatePanel(candidates, mems) {
 
     const body = el("div");
     const memory = mems.find(function (m) { return m.id === c.id; });
-    body.appendChild(el("div", "cand-content", memory ? memory.content : "(not in the returned set)"));
+    body.appendChild(markdown(memory ? memory.content : "(not in the returned set)", {
+      className: "cand-content",
+      inline: true
+    }));
     body.appendChild(el("div", "cand-id", c.id));
     row.appendChild(body);
 

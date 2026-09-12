@@ -380,6 +380,31 @@ table.data tr:last-child td { border-bottom: 0; }
 
 /* ---- recall ---- */
 .answer { max-width: 68ch; font-size: 15px; line-height: 1.65; }
+.markdown { overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre,
+.markdown table { margin: 0 0 12px; }
+.markdown ul, .markdown ol { padding-left: 24px; }
+.markdown li + li { margin-top: 4px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 {
+  margin: 22px 0 9px; line-height: 1.25; color: var(--text);
+}
+.markdown h1 { font-size: 1.55em; }
+.markdown h2 { font-size: 1.3em; }
+.markdown h3 { font-size: 1.12em; }
+.markdown blockquote { padding-left: 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.markdown code { font: .88em/1.5 var(--mono); padding: 2px 5px; border-radius: 4px; background: var(--bg); }
+.markdown pre { max-width: 100%; overflow-x: auto; padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); }
+.markdown pre code { padding: 0; background: transparent; }
+.markdown a { color: var(--accent); text-decoration: none; }
+.markdown a:hover { text-decoration: underline; }
+.markdown hr { margin: 18px 0; border: 0; border-top: 1px solid var(--border); }
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown th, .markdown td { padding: 7px 10px; border: 1px solid var(--border); text-align: left; }
+.markdown th { background: var(--panel-2); }
+.markdown img { max-width: 100%; height: auto; border-radius: 7px; }
+.markdown-inline { white-space: normal; }
 .explain-toggle {
   display: flex; align-items: center; gap: 10px; width: 100%;
   margin-top: 16px; padding: 14px 0 0; text-align: left;

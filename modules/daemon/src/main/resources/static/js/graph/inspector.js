@@ -8,6 +8,7 @@ import { entityTypeColor, typeColor } from "../util/palette.js";
 import { relTime } from "../util/format.js";
 import { openDrawer } from "../console/drawer.js";
 import { model } from "./model.js";
+import { markdown } from "../util/markdown.js";
 import { fetchEntity } from "./api.js";
 
 let handlers = { onFocus: function () {}, onExpand: function () {} };
@@ -162,7 +163,10 @@ function memorySection(memories) {
     row.appendChild(chip);
 
     const bodyText = el("div", "graph-memory-body");
-    bodyText.appendChild(el("div", "graph-memory-content", m.content || ""));
+    bodyText.appendChild(markdown(m.content || "", {
+      className: "graph-memory-content",
+      inline: true
+    }));
     bodyText.appendChild(el("div", "graph-memory-meta", relTime(m.createdAt)));
     row.appendChild(bodyText);
 
