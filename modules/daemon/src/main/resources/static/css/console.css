@@ -297,6 +297,12 @@ pre.code {
   padding: 12px 14px; overflow-x: auto; font: 12px/1.55 var(--mono);
   white-space: pre-wrap; word-break: break-word; margin: 0; color: var(--muted);
 }
+.code-json .token.property { color: #79c0ff; }
+.code-json .token.string { color: #a5d6ff; }
+.code-json .token.number { color: #d2a8ff; }
+.code-json .token.boolean, .code-json .token.null { color: #ff7b72; }
+.code-json .token.punctuation { color: var(--muted); }
+.code-json .token.operator { color: #ff7b72; }
 
 /* ---- forms ---- */
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 780px; }

@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
@@ -25,7 +26,13 @@ public record RecallResult(
   List<RecallCandidate> candidates,
   List<TemporalFact> temporalFacts,
   List<GraphEvidence> graphEvidence,
-  RetrievalDiagnostics diagnostics) {
+  RetrievalDiagnostics diagnostics,
+  TemporalSnapshot snapshot) {
+
+  public RecallResult(String answer, List<RecallCandidate> candidates, List<TemporalFact> facts,
+                      List<GraphEvidence> evidence, RetrievalDiagnostics diagnostics) {
+    this(answer, candidates, facts, evidence, diagnostics, null);
+  }
 
   public RecallResult {
     candidates = candidates == null ? List.of() : List.copyOf(candidates);

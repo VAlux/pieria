@@ -36,10 +36,19 @@ public final class ProfileRememberCommand extends AbstractProfileCommand {
   @Option(names = "--payload", description = "Opaque JSON payload to store alongside the memory.")
   String payload;
 
+  @Option(names = "--valid-from", description = "ISO timestamp with offset.")
+  String validFrom;
+
+  @Option(names = "--valid-to", description = "ISO timestamp with offset.")
+  String validTo;
+
+  @Option(names = "--check-conflicts", description = "Check semantic conflicts.")
+  boolean checkConflicts;
+
   @Override
   protected int run(ProfileClient client) {
     MemoryResponse stored = client.remember(name,
-      new RememberRequest(type, content, session, topicKey, payload));
+      new RememberRequest(type, content, session, topicKey, payload, validFrom, validTo, checkConflicts));
     log.info("Stored {} [{}]", stored.id(), stored.type());
     return 0;
   }

@@ -1,13 +1,18 @@
 package dev.alvo.pieria.profile;
 
+import dev.alvo.pieria.api.request.RevisionRequest;
+import dev.alvo.pieria.api.response.RevisionResponse;
+import dev.alvo.pieria.api.response.TemporalValidity;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -48,6 +53,28 @@ public class ProfileService {
   public List<ExportRow> export(String name) {
     Profile profile = findOrThrow(name);
     return store.exportProfile(profile.id());
+  }
+
+  public List<TemporalValidity> validityHistory(String name, String memoryId) {
+    return store.validityHistory(findOrThrow(name).id(), memoryId);
+  }
+
+  public List<String> temporalCoverage(String name, boolean explicit) {
+    var limitations = new ArrayList<>(store.findProfile(name).map(p -> store.temporalCoverage(p.id())).orElse(List.of()));
+    if (explicit) limitations.add("Unversioned symbol and code-graph channels are omitted.");
+    return List.copyOf(limitations);
+  }
+
+  public List<TemporalValidity> validity(String memoryId, TemporalSnapshot snapshot) {
+    return store.selectedValidity(memoryId, snapshot == null ? store.temporalSnapshot(null, null) : snapshot);
+  }
+
+  public List<RevisionResponse> revisions(String name, String memoryId) {
+    return store.revisions(findOrThrow(name).id(), memoryId);
+  }
+
+  public RevisionResponse revise(String name, String memoryId, RevisionRequest request) {
+    return store.revise(findOrThrow(name).id(), memoryId, request);
   }
 
   private Profile findOrThrow(String name) {

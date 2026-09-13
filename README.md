@@ -77,7 +77,7 @@ The daemon runs two pipelines over a pluggable storage backend:
 
 - **Write path (ingest):** conversation → normalize → chunk → parallel unified extraction
   (memory plus classification) → verification against the source chunk → optional correction
-  reclassification → graph extraction → supersession → store → async
+  reclassification → graph extraction → conservative semantic conflicts → temporal assertion resolution → store → async
   vectorization. The call returns before vectorization completes; a virtual-thread worker
   drains the outbox.
 - **Read path (recall):** query analysis + embedding → parallel retrieval channels →
@@ -445,7 +445,7 @@ Harnesses interact through four model-facing MCP tools:
 
 | MCP tool   | Purpose                                                              |
 |------------|----------------------------------------------------------------------|
-| `recall`   | Run retrieval; returns a synthesized answer, or raw evidence in the cheaper `mode` tiers. |
+| `recall`   | Run retrieval with optional `asOf` and `knownAsOf`; returns a synthesized answer, or raw evidence in the cheaper `mode` tiers. |
 | `remember` | Store a single memory explicitly (bypasses the model pipeline).      |
 | `list`     | List memories (filter by type/session).                              |
 | `forget`   | Mark a memory as no longer valid.                                    |
@@ -496,6 +496,8 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | POST   | `/v1/profiles/{name}/ingest/async`    | Same, submitted as a background task.       |
 | POST   | `/v1/profiles/{name}/memories`        | Store a single memory explicitly.           |
 | POST   | `/v1/profiles/{name}/recall`          | Run retrieval (JSON, or `text/plain`).      |
+| GET    | `/v1/profiles/{name}/memories/{id}/revisions` | Read assertion revision history. |
+| POST   | `/v1/profiles/{name}/memories/{id}/revisions` | Correct or invalidate an assertion. |
 | GET    | `/v1/profiles/{name}/memories`        | List memories (filter by type/session).     |
 | DELETE | `/v1/profiles/{name}/memories/{id}`   | Forget a memory.                            |
 | GET    | `/v1/profiles/{name}/stats`           | Counts, storage, and inference spend.       |
@@ -560,6 +562,42 @@ POST /v1/profiles/my-project/recall
 200 OK
 { "answer": "The user prefers pnpm over npm.", "memories": [ ... ] }
 ```
+
+Temporal recall accepts independent world-time (`asOf`) and knowledge-time (`knownAsOf`) cutoffs.
+Both default to request time and accept ISO timestamps with offsets. A future world time is valid;
+a future knowledge cutoff is rejected. Both intervals use inclusive starts and exclusive ends.
+
+```json
+{ "query": "Who owns the service?", "mode": "evidence",
+  "asOf": "2026-03-15T00:00:00Z", "knownAsOf": "2026-04-01T00:00:00Z" }
+```
+
+Remember accepts optional `validFrom`, `validTo`, and `checkConflicts` (false by default).
+A bounded replacement restores the predecessor after expiry when its asserted interval permits.
+Memory responses include assertion/segment provenance; recall includes resolved timestamps and
+coverage limitations. Explicit temporal recalls omit unversioned symbol/code-graph evidence.
+
+Read `GET /v1/profiles/{name}/memories/{id}/revisions`, then correct a revision with:
+
+```http
+POST /v1/profiles/my-project/memories/MEMORY_ID/revisions
+{ "assertionId": "ASSERTION_ID", "expectedRevisionId": "REVISION_ID",
+  "content": "Carol owns the service", "validFrom": "2026-03-01T00:00:00Z" }
+```
+
+Omitted correction fields retain their values; `openEnded=true` removes an end bound.
+Alternatively supply `invalidateAt` to end validity at an instant. Concurrent edits return 409.
+Revision and resolved segment history are included in exports. Forgotten content is excluded at every cutoff and from
+history/export; legacy history carries approximation markers where the prior schema lacked evidence.
+
+```sh
+pieria profile recall my-project "Who owns the service?" --as-of 2026-03-15T00:00:00Z --known-as-of 2026-04-01T00:00:00Z
+pieria profile remember my-project --type fact --content "Bob owns the service" --topic-key service.owner --valid-from 2026-03-01T00:00:00Z --valid-to 2026-04-01T00:00:00Z
+pieria profile revisions my-project MEMORY_ID
+pieria profile revise my-project MEMORY_ID --assertion ASSERTION_ID --expected-revision REVISION_ID --content "Carol owns the service"
+```
+
+See the [Phase 10 design](docs/phases/phase-10-bi-temporal-fact-validity.md) for resolution and migration semantics.
 
 Onboarding request body:
 

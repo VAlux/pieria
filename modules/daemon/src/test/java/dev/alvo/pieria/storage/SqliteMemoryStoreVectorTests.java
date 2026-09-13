@@ -1,11 +1,10 @@
 package dev.alvo.pieria.storage;
 
-import dev.alvo.pieria.config.VerifyMode;
-
 import com.zaxxer.hikari.HikariDataSource;
-import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.api.request.RecallMode;
+import dev.alvo.pieria.config.DataSourceConfig.VecCapability;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.VerifyMode;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -24,6 +23,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -220,6 +220,45 @@ class SqliteMemoryStoreVectorTests {
   }
 
   @Test
+  void temporalRankingFiltersBeforeLimitAtFiveAndFiftyThousandRows() {
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
+    for (int size : new int[]{5_000, 50_000}) {
+      Profile p = store.getOrCreateProfile("temporal-scale-" + size);
+      jdbc.sql("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?) "
+          + "INSERT INTO memories(id, profile_id, type, content, payload, created_at, embedding) "
+          + "SELECT ? || i, ?, 'fact', 'fixture temporal memory ' || i, '{}', '2020-01-01T00:00:00Z', "
+          + "CASE WHEN i <= ? THEN ? ELSE ? END FROM n")
+        .params(size, p.id() + ":", p.id(), size - 50, encodeForTest(vec(0f, 0f, 0f, 0f)),
+          encodeForTest(vec(10f, 0f, 0f, 0f))).update();
+      jdbc.sql("INSERT INTO memory_assertions(id, profile_id, source_occurrence, fact_group) "
+          + "SELECT id, profile_id, id, id FROM memories WHERE profile_id = ?").param(p.id()).update();
+      jdbc.sql("INSERT INTO assertion_revisions(id, assertion_id, memory_id, valid_from, recorded_from, from_sequence) "
+          + "SELECT id, id, id, '2020-01-01T00:00:00.000000000Z', '2020-01-01T00:00:00.000000000Z', 0 "
+          + "FROM memories WHERE profile_id = ?").param(p.id()).update();
+      jdbc.sql("INSERT INTO validity_segments(revision_id, profile_id, fact_group, valid_from, valid_to, recorded_from, from_sequence) "
+          + "SELECT id, profile_id, id, '2020-01-01T00:00:00.000000000Z', "
+          + "CASE WHEN CAST(substr(id, length(?) + 2) AS INTEGER) <= ? THEN '2021-01-01T00:00:00.000000000Z' ELSE NULL END, "
+          + "'2020-01-01T00:00:00.000000000Z', 0 FROM memories WHERE profile_id = ?")
+        .params(p.id(), size - 50, p.id()).update();
+      var current = store.temporalSnapshot(null, null);
+      var historical = store.temporalSnapshot("2020-06-01T00:00:00Z", null);
+      for (var snapshot : List.of(current, historical)) {
+        long[] elapsed = new long[5];
+        for (int run = 0; run < elapsed.length; run++) {
+          long started = System.nanoTime();
+          var hits = store.atSnapshot(snapshot, () -> store.vectorSearch(p.id(), vec(0f, 0f, 0f, 0f), 10));
+          elapsed[run] = System.nanoTime() - started;
+          assertEquals(10, hits.size(), "ineligible nearest vectors must not starve the limit");
+          if (snapshot == current) assertTrue(hits.stream().allMatch(m -> Integer.parseInt(m.id().substring(p.id().length() + 1)) > size - 50));
+        }
+        Arrays.sort(elapsed);
+        System.out.printf("TEMPORAL_BENCH rows=%d dimensions=4 mode=%s median_ms=%.3f max_ms=%.3f%n",
+          size, snapshot == current ? "current" : "historical", elapsed[2] / 1e6, elapsed[4] / 1e6);
+      }
+    }
+  }
+
+  @Test
   void backfillPopulatesVecFromExistingBlobs() {
     VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-backfill");
@@ -229,7 +268,7 @@ class SqliteMemoryStoreVectorTests {
       .params(encodeForTest(vec(1f, 0f, 0f, 0f)), s.stored().id())
       .update();
     jdbc.sql("DELETE FROM memories_vec WHERE memory_id = ?").param(s.stored().id()).update();
-    assertTrue(store.vectorSearch(p.id(), vec(1f, 0f, 0f, 0f), 10).isEmpty());
+    assertEquals(1, store.vectorSearch(p.id(), vec(1f, 0f, 0f, 0f), 10).size());
 
     int n = store.backfillVectors();
     assertEquals(1, n);

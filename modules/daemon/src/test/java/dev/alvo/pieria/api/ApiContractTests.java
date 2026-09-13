@@ -1,21 +1,28 @@
 package dev.alvo.pieria.api;
 
-import dev.alvo.pieria.config.VerifyMode;
-
 import dev.alvo.pieria.api.controller.ProfileController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
 import dev.alvo.pieria.api.request.RecallMode;
+import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.TraceProperties;
+import dev.alvo.pieria.config.VerifyMode;
 import dev.alvo.pieria.ingestion.Chunker;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
+import dev.alvo.pieria.ingestion.transcript.ClaudeCodeTranscriptParser;
+import dev.alvo.pieria.ingestion.transcript.CodexTranscriptParser;
+import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
 import dev.alvo.pieria.model.ModelGateway;
+import dev.alvo.pieria.profile.ProfileService;
+import dev.alvo.pieria.profile.ProfileStatsService;
+import dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.storage.NoOpCodeIndexStore;
+import dev.alvo.pieria.task.TaskRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -47,11 +54,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = {ProfileController.class, GlobalExceptionHandler.class})
 @Import({ApiContractTests.Wiring.class, IngestionService.class, RetrievalService.class,
-  dev.alvo.pieria.retrieval.DeterministicQueryAnalyzer.class,
+  DeterministicQueryAnalyzer.class,
   TranscriptNormalizer.class, Chunker.class,
-  dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry.class,
-  dev.alvo.pieria.ingestion.transcript.ClaudeCodeTranscriptParser.class,
-  dev.alvo.pieria.ingestion.transcript.CodexTranscriptParser.class,
+  TranscriptParserRegistry.class,
+  ClaudeCodeTranscriptParser.class,
+  CodexTranscriptParser.class,
   TraceIngestionService.class})
 class ApiContractTests {
 
@@ -95,6 +102,25 @@ class ApiContractTests {
       .andExpect(jsonPath("$.memories[0].superseded").exists())
       .andExpect(jsonPath("$.memories[0].payload").exists())
       .andExpect(jsonPath("$.memories[0].createdAt").exists());
+  }
+
+  @Test
+  void temporalParametersValidateOffsetsAndIndependentDefaults() throws Exception {
+    mvc.perform(post("/v1/profiles/alice/recall").contentType("application/json")
+        .content("{\"query\":\"tea\",\"mode\":\"evidence\",\"asOf\":\"2020-01-01T02:00:00+02:00\"}"))
+      .andExpect(status().isOk()).andExpect(jsonPath("$.temporal.asOf", is("2020-01-01T00:00:00Z")))
+      .andExpect(jsonPath("$.temporal.knownAsOf").exists());
+    for (String malformed : new String[]{"yesterday", "2020-01-01", "2020-01-01T00:00:00"}) {
+      mvc.perform(post("/v1/profiles/alice/recall").contentType("application/json")
+          .content("{\"query\":\"tea\",\"asOf\":\"" + malformed + "\"}"))
+        .andExpect(status().isBadRequest());
+    }
+    mvc.perform(post("/v1/profiles/alice/recall").contentType("application/json")
+        .content("{\"query\":\"tea\",\"knownAsOf\":\"2999-01-01T00:00:00Z\"}"))
+      .andExpect(status().isBadRequest());
+    mvc.perform(post("/v1/profiles/alice/memories").contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"x\",\"validFrom\":\"2026-02-01T00:00:00Z\",\"validTo\":\"2026-02-01T00:00:00Z\"}"))
+      .andExpect(status().isBadRequest());
   }
 
   // ---- remember 201 contract -------------------------------------------------------------
@@ -247,13 +273,13 @@ class ApiContractTests {
     }
 
     @Bean("apiContractEffectiveConfigResolver")
-    dev.alvo.pieria.config.EffectiveConfigResolver effectiveConfigResolver() {
-      return dev.alvo.pieria.config.EffectiveConfigResolver.withoutOverrides(pieriaProperties());
+    EffectiveConfigResolver effectiveConfigResolver() {
+      return EffectiveConfigResolver.withoutOverrides(pieriaProperties());
     }
 
     @Bean("apiContractTaskRegistry")
-    dev.alvo.pieria.task.TaskRegistry taskRegistry() {
-      return new dev.alvo.pieria.task.TaskRegistry();
+    TaskRegistry taskRegistry() {
+      return new TaskRegistry();
     }
 
     @Bean("apiContractObjectMapper")
@@ -263,13 +289,13 @@ class ApiContractTests {
     }
 
     @Bean("apiContractProfileService")
-    dev.alvo.pieria.profile.ProfileService profileService(MemoryStore store) {
-      return new dev.alvo.pieria.profile.ProfileService(store);
+    ProfileService profileService(MemoryStore store) {
+      return new ProfileService(store);
     }
 
     @Bean("apiContractProfileStatsService")
-    dev.alvo.pieria.profile.ProfileStatsService profileStatsService(MemoryStore store, PieriaProperties properties) {
-      return new dev.alvo.pieria.profile.ProfileStatsService(store, properties);
+    ProfileStatsService profileStatsService(MemoryStore store, PieriaProperties properties) {
+      return new ProfileStatsService(store, properties);
     }
   }
 }

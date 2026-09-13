@@ -25,6 +25,7 @@ import dev.alvo.pieria.tools.Tokens;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -243,13 +244,19 @@ public class IngestionService {
    * Merge candidates across samples, de-duplicating by normalized content (case-insensitive,
    * trimmed) while keeping the first occurrence with its classification and provenance.
    */
+  private static String sourceReference(String payload) {
+    try { return new ObjectMapper().readTree(payload == null ? "{}" : payload).path("source_message_index").asText(""); }
+    catch (RuntimeException e) { return ""; }
+  }
+
   private static List<UnifiedCandidate> mergeCandidates(List<UnifiedCandidate> candidates) {
     Map<String, UnifiedCandidate> byContent = new LinkedHashMap<>();
     for (UnifiedCandidate candidate : candidates) {
       if (candidate == null || candidate.content() == null || candidate.content().isBlank()) {
         continue;
       }
-      String key = candidate.content().strip().toLowerCase(Locale.ROOT);
+      String key = candidate.content().strip().toLowerCase(Locale.ROOT) + ":" + candidate.chunkIndex() + ":"
+        + sourceReference(candidate.classification().payload());
       byContent.putIfAbsent(key, candidate);
     }
     return new ArrayList<>(byContent.values());
@@ -872,6 +879,7 @@ public class IngestionService {
             long storeStart = System.nanoTime();
             StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
               graph, graphOutcome, perMemorySourceTokens, statedAtByChunk.get(chunkIndex),
+              chunks.stream().filter(c -> c.index() == chunkIndex).findFirst().orElse(null),
               k + 1, survivors.size());
             sqliteStoreNanos += System.nanoTime() - storeStart;
             stored.add(s.stored());
@@ -940,7 +948,7 @@ public class IngestionService {
    */
   private StoredOne storeMemory(String profileId, String sessionId, String content,
                                 Classification classification, GraphFragment graph, GraphOutcome graphOutcome,
-                                long sourceTokens, Instant statedAt, int index, int total) {
+                                long sourceTokens, Instant statedAt, Chunk sourceChunk, int index, int total) {
     log.debug("ingest classified candidate={}/{} type={} hasTopicKey={} interrogativeQueries={} graph={}",
       index, total, classification.type(), classification.topicKey() != null,
       classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size(),
@@ -953,6 +961,8 @@ public class IngestionService {
       null, sessionId, classification.type(), content, classification.topicKey(),
       null, false, payload, embedText, null);
 
+    candidate = EffectiveDates.apply(candidate, sourceChunk);
+    candidate = SemanticConflictResolver.check(store, modelGateway, profileId, candidate, graph);
     MemoryStore.StoreOutcome outcome = store.store(profileId, candidate, graph, sourceTokens);
     log.debug("ingest stored candidate={}/{} memoryId={} type={} supersededId={} vectorEnqueued={}",
       index, total, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),
@@ -1013,7 +1023,12 @@ public class IngestionService {
    * resolved profile (with supersession + vectorization enqueue) and return the stored row.
    */
   public Memory remember(String profileName, Memory memory) {
+    return remember(profileName, memory, false);
+  }
+
+  public Memory remember(String profileName, Memory memory, boolean checkConflicts) {
     Profile profile = store.getOrCreateProfile(profileName);
+    if (checkConflicts) memory = SemanticConflictResolver.check(store, modelGateway, profile.id(), memory);
     MemoryStore.StoreOutcome outcome = store.store(profile.id(), memory);
     log.info("remember profile={} memoryId={} type={} supersededId={} vectorEnqueued={}",
       profileName, outcome.stored().id(), outcome.stored().type(), outcome.supersededId(),

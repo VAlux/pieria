@@ -244,6 +244,28 @@ class ConsoleAssetsTests {
   }
 
   @Test
+  void structuredDrawerBodiesUseVendoredJsonHighlighting() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+    String component = resource("static/js/util/json-code.js");
+    String drawer = resource("static/js/console/drawer.js");
+
+    assertThat(html.select("script[src='js/vendor/prism-core.js'][data-manual]"
+      + " + script[src='js/vendor/prism-json.js'] + script[type=module][src='js/console/main.js']"))
+      .hasSize(1);
+    assertThat(component)
+      .contains("prism.highlight", "prism.languages.json", "JSON.stringify(parsed, null, 2)")
+      .contains("code.textContent = formatted.text")
+      .doesNotContain("fetch(", "http://", "https://");
+    assertThat(drawer)
+      .contains("appendJson(raw, \"Payload\"", "appendJson(body, \"Metadata\"")
+      .contains("e.requestBody", "e.responseBody", "appendJson(body, \"Invocation\", view.args)")
+      .doesNotContain("function pretty(");
+
+    assertThat(resource("static/js/vendor/prism-core.js")).doesNotContain("http://", "https://");
+    assertThat(resource("static/js/vendor/prism-json.js")).contains("Prism.languages.json");
+  }
+
+  @Test
   void profileActionsSitInTheHeaderBeforeTasksAndExport() throws IOException {
     Document html = Jsoup.parse(resource("static/index.html"));
     String profiles = resource("static/js/console/profiles.js");

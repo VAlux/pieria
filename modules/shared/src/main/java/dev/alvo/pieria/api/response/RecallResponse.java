@@ -2,6 +2,7 @@ package dev.alvo.pieria.api.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -13,7 +14,14 @@ import java.util.List;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RecallResponse(String answer, List<MemoryResponse> memories,
-                             List<CodeEvidence> codeEvidence, RecallDebug debug) {
+                             List<CodeEvidence> codeEvidence, RecallDebug debug, TemporalContext temporal) {
+
+  public record TemporalContext(Instant asOf, Instant knownAsOf, long snapshotSequence,
+                                List<String> limitations) {}
+
+  public RecallResponse(String answer, List<MemoryResponse> memories, List<CodeEvidence> codeEvidence, RecallDebug debug) {
+    this(answer, memories, codeEvidence, debug, null);
+  }
 
   /** Concise response (no code evidence, no debug block). */
   public RecallResponse(String answer, List<MemoryResponse> memories) {

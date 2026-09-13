@@ -20,6 +20,8 @@ import picocli.CommandLine.Command;
     ProfileMemoriesCommand.class,
     ProfileRecallCommand.class,
     ProfileRememberCommand.class,
+    ProfileReviseCommand.class,
+    ProfileRevisionsCommand.class,
     ProfileForgetCommand.class,
     ProfileAuditCommand.class,
     ProfileExportCommand.class,

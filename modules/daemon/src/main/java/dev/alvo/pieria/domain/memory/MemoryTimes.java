@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>{@link #knowledgeTime} — <em>how current is this claim?</em> Answered by when it was said,
- *       because that is when the knowledge was acquired. Drives supersession and recency ranking.</li>
+ *       which drives precedence and recency ranking. The bi-temporal recorded-time axis instead uses actual storage transactions.</li>
  *   <li>{@link #anchor} — <em>what is a relative phrase in this text relative to?</em> Answered by
  *       when the thing happened if known, else when it was said. Drives temporal-fact resolution.</li>
  * </ul>

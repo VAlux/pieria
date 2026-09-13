@@ -1,13 +1,15 @@
 package dev.alvo.pieria.retrieval;
 
-import dev.alvo.pieria.config.TraceProperties;
-import dev.alvo.pieria.config.VerifyMode;
-
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
+import dev.alvo.pieria.config.TraceProperties;
+import dev.alvo.pieria.config.VerifyMode;
+import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.code.CodeEdge;
+import dev.alvo.pieria.domain.code.CodeFile;
+import dev.alvo.pieria.domain.code.CodeModule;
 import dev.alvo.pieria.domain.code.CodeRelation;
 import dev.alvo.pieria.domain.code.CodeSymbol;
 import dev.alvo.pieria.domain.code.CodeSymbolKind;
@@ -15,14 +17,17 @@ import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.model.FakeModelGateway;
+import dev.alvo.pieria.model.ModelUnavailableException;
+import dev.alvo.pieria.retrieval.RetrievalDiagnostics;
+import dev.alvo.pieria.retrieval.model.GraphEvidence;
+import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.RetrievalChannelType;
-import dev.alvo.pieria.domain.memory.Message;
-import dev.alvo.pieria.model.FakeModelGateway;
-import dev.alvo.pieria.model.ModelUnavailableException;
-import dev.alvo.pieria.retrieval.model.QueryAnalysis;
+import dev.alvo.pieria.retrieval.model.TemporalFact;
 import dev.alvo.pieria.storage.CodeIndexStore;
 import dev.alvo.pieria.storage.CodeIndexStore.EdgeEvidence;
 import dev.alvo.pieria.storage.MemoryStore;
@@ -32,11 +37,14 @@ import dev.alvo.pieria.tools.Tokens;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -322,7 +330,7 @@ class RetrievalServiceTests {
     // the model for query analysis or synthesis (the expensive calls).
     assertThat(result.answer()).isNull();
     assertThat(result.candidates()).extracting(c -> c.memory().id()).contains("m1");
-    assertThat(result.temporalFacts()).isEmpty();
+    assertThat(result.temporalFacts()).extracting(f -> f.description()).contains("Query world time", "Query knowledge cutoff");
     assertThat(model.analyzeQueryCalled).isFalse();
     assertThat(model.synthesizeCalled).isFalse();
   }
@@ -703,7 +711,7 @@ class RetrievalServiceTests {
 
     assertThat(quiet.diagnostics()).isNull();
     assertThat(loud.diagnostics().rerank()).extracting(
-        dev.alvo.pieria.retrieval.RetrievalDiagnostics.RerankDiagnostics::stage)
+        RetrievalDiagnostics.RerankDiagnostics::stage)
       .containsExactly("semantic", "model");
   }
 
@@ -778,7 +786,7 @@ class RetrievalServiceTests {
   }
 
   private static float[] vector1024(float c0, float c1) {
-    float[] vector = new float[dev.alvo.pieria.model.FakeModelGateway.EMBEDDING_DIMENSION];
+    float[] vector = new float[FakeModelGateway.EMBEDDING_DIMENSION];
     vector[0] = c0;
     vector[1] = c1;
     return vector;
@@ -797,7 +805,7 @@ class RetrievalServiceTests {
   private static final class ProbeGateway extends FakeModelGateway {
     boolean analyzeQueryCalled = false;
     boolean synthesizeCalled = false;
-    List<dev.alvo.pieria.retrieval.model.GraphEvidence> synthesizedGraphEvidence;
+    List<GraphEvidence> synthesizedGraphEvidence;
 
     @Override
     public QueryAnalysis analyzeQuery(String query) {
@@ -813,15 +821,15 @@ class RetrievalServiceTests {
 
     @Override
     public String synthesizeRecall(String query, List<RecallCandidate> candidates,
-                                   List<dev.alvo.pieria.retrieval.model.TemporalFact> temporalFacts) {
+                                   List<TemporalFact> temporalFacts) {
       synthesizeCalled = true;
       return super.synthesizeRecall(query, candidates, temporalFacts);
     }
 
     @Override
     public String synthesizeRecall(String query, List<RecallCandidate> candidates,
-                                   List<dev.alvo.pieria.retrieval.model.TemporalFact> temporalFacts,
-                                   List<dev.alvo.pieria.retrieval.model.GraphEvidence> graphEvidence) {
+                                   List<TemporalFact> temporalFacts,
+                                   List<GraphEvidence> graphEvidence) {
       synthesizeCalled = true;
       synthesizedGraphEvidence = graphEvidence;
       return super.synthesizeRecall(query, candidates, temporalFacts, graphEvidence);
@@ -858,12 +866,12 @@ class RetrievalServiceTests {
     }
 
     // --- unused surface for the evidence tests ---
-    @Override public dev.alvo.pieria.domain.code.CodeModule upsertCodeModule(String p, dev.alvo.pieria.domain.code.CodeModule m) { return m; }
-    @Override public dev.alvo.pieria.domain.code.CodeFile upsertCodeFile(String p, dev.alvo.pieria.domain.code.CodeFile f) { return f; }
+    @Override public CodeModule upsertCodeModule(String p, CodeModule m) { return m; }
+    @Override public CodeFile upsertCodeFile(String p, CodeFile f) { return f; }
     @Override public CodeSymbol upsertCodeSymbol(String p, CodeSymbol s) { return s; }
     @Override public CodeEdge upsertCodeEdge(String p, CodeEdge e) { return e; }
     @Override public Optional<String> fileContentHash(String p, String path) { return Optional.empty(); }
-    @Override public void replaceFileIndex(String p, dev.alvo.pieria.domain.code.CodeFile f, List<CodeSymbol> s, List<CodeEdge> e) { }
+    @Override public void replaceFileIndex(String p, CodeFile f, List<CodeSymbol> s, List<CodeEdge> e) { }
     @Override public List<CodeSymbol> searchSymbolsFts(String p, String q, int l) { return List.of(); }
     @Override public List<CodeSymbol> findSymbolsByQualifiedName(String p, List<String> n, int l) { return List.of(); }
     @Override public List<CodeSymbol> findSymbolsByIds(String p, List<String> ids, int l) { return List.of(); }
@@ -873,7 +881,7 @@ class RetrievalServiceTests {
 
   /** Records the texts handed to the model for embedding, and how they were grouped into calls. */
   private static final class RecordingEmbedGateway extends FakeModelGateway {
-    private final List<List<String>> batches = new java.util.ArrayList<>();
+    private final List<List<String>> batches = new ArrayList<>();
     private String hydeStatement = "answer: tea";
 
     @Override
@@ -969,18 +977,18 @@ class RetrievalServiceTests {
     // This fake has no separate provenance/source-token model: it stands in for a backend where
     // each memory's source is its own content, mirroring the real store's remember-path default.
     @Override
-    public long sumActiveSourceTokens(String profileId, java.util.Collection<String> memoryIds) {
+    public long sumActiveSourceTokens(String profileId, Collection<String> memoryIds) {
       if (memoryIds == null || memoryIds.isEmpty()) {
         return 0L;
       }
-      java.util.Map<String, Memory> byId = new java.util.LinkedHashMap<>();
-      java.util.stream.Stream.of(exactKey, ftsMemory, ftsMessage, vectorHits, graphMemories)
+      Map<String, Memory> byId = new LinkedHashMap<>();
+      Stream.of(exactKey, ftsMemory, ftsMessage, vectorHits, graphMemories)
         .flatMap(List::stream)
         .forEach(m -> byId.putIfAbsent(m.id(), m));
       return memoryIds.stream()
         .distinct()
         .map(byId::get)
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .mapToLong(m -> Tokens.estimate(m.content()))
         .sum();
     }
@@ -1048,7 +1056,7 @@ class RetrievalServiceTests {
     @Override public Memory insertMemory(String p, Memory m) { throw new UnsupportedOperationException(); }
     @Override public List<Memory> listMemories(String p, MemoryType t, String s, boolean incl) { return List.of(); }
     @Override public boolean forgetMemory(String p, String id) { return false; }
-    @Override public List<dev.alvo.pieria.domain.ExportRow> exportProfile(String p) { return List.of(); }
+    @Override public List<ExportRow> exportProfile(String p) { return List.of(); }
     @Override public List<RecallCandidate> findRecallCandidates(String p, String q, int l) { return List.of(); }
   }
 }

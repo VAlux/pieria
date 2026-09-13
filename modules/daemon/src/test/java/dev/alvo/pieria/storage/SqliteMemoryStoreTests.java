@@ -3,15 +3,16 @@ package dev.alvo.pieria.storage;
 import com.zaxxer.hikari.HikariDataSource;
 import dev.alvo.pieria.domain.ContentId;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
-import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
@@ -25,7 +26,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -314,15 +317,15 @@ class SqliteMemoryStoreTests {
   void recordInferenceUsageUpsertsAndAccumulatesPerTier() {
     Profile p = store.getOrCreateProfile("spend");
 
-    store.recordInferenceUsage(p.id(), java.util.Map.of(
+    store.recordInferenceUsage(p.id(), Map.of(
       InferenceTier.EXTRACTION, new TierUsage(3, 1_200, 80),
       InferenceTier.SYNTHESIS, new TierUsage(1, 400, 120)));
     // Second operation accumulates onto the existing rows; embedding appears for the first time.
-    store.recordInferenceUsage(p.id(), java.util.Map.of(
+    store.recordInferenceUsage(p.id(), Map.of(
       InferenceTier.EXTRACTION, new TierUsage(2, 800, 20),
       InferenceTier.EMBEDDING, new TierUsage(5, 0, 0)));
 
-    java.util.Map<InferenceTier, TierUsage> usage = store.inferenceUsage(p.id());
+    Map<InferenceTier, TierUsage> usage = store.inferenceUsage(p.id());
     assertEquals(3, usage.size());
 
     TierUsage extraction = usage.get(InferenceTier.EXTRACTION);
@@ -340,7 +343,7 @@ class SqliteMemoryStoreTests {
     assertEquals(0, embedding.promptTokens());
 
     // An empty snapshot is a no-op (and never throws).
-    store.recordInferenceUsage(p.id(), java.util.Map.of());
+    store.recordInferenceUsage(p.id(), Map.of());
     assertEquals(5, store.inferenceUsage(p.id()).get(InferenceTier.EXTRACTION).calls());
   }
 
@@ -398,7 +401,7 @@ class SqliteMemoryStoreTests {
         INSERT INTO messages (id, profile_id, session_id, role, content, created_at)
         VALUES (?, ?, ?, ?, ?, ?)""")
       .params(legacyMessageId, owner.id(), "legacy-session", "user", "legacy shared message",
-        java.time.Instant.now().toString())
+        Instant.now().toString())
       .update();
 
     Message message = Message.of("legacy-session", "user", "legacy shared message");
@@ -416,7 +419,7 @@ class SqliteMemoryStoreTests {
           (id, profile_id, session_id, type, content, superseded, payload, created_at)
         VALUES (?, ?, ?, ?, ?, 0, '{}', ?)""")
       .params(legacyMemoryId, owner.id(), "legacy-session", "fact", "legacy shared fact",
-        java.time.Instant.now().toString())
+        Instant.now().toString())
       .update();
 
     StoreOutcome ownerStore = store.store(owner.id(), memory);
@@ -480,16 +483,19 @@ class SqliteMemoryStoreTests {
   }
 
   @Test
-  void exportProfileIncludesSupersededMemories() {
+  void exportProfileIncludesSupersededMemoriesButExcludesForgottenMemories() {
     Profile p = store.getOrCreateProfile("frank");
     Memory kept = store.insertMemory(
       p.id(), Memory.of(MemoryType.FACT, "kept", "s1", null, null));
     Memory gone = store.insertMemory(
       p.id(), Memory.of(MemoryType.FACT, "forgotten", "s1", null, null));
     store.forgetMemory(p.id(), gone.id());
+    store.store(p.id(), Memory.of(MemoryType.FACT, "old owner Alice", "s2", "owner", null));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "new owner Bob", "s3", "owner", null));
 
     List<ExportRow> rows = store.exportProfile(p.id());
-    assertEquals(2, rows.size());
+    assertEquals(3, rows.size());
+    assertFalse(rows.stream().anyMatch(r -> r.memory().id().equals(gone.id())));
     assertTrue(rows.stream().allMatch(r -> r.profileName().equals("frank")));
     assertTrue(rows.stream().anyMatch(r -> r.memory().superseded()));
     assertTrue(rows.stream().anyMatch(r -> r.memory().id().equals(kept.id())));
@@ -545,7 +551,7 @@ class SqliteMemoryStoreTests {
   }
 
   @Test
-  void storeKeyedFactSupersedesPredecessorAndClearsItsEmbedding() {
+  void storeKeyedFactSupersedesPredecessorAndRetainsItsEmbedding() {
     Profile p = store.getOrCreateProfile("iris");
     StoreOutcome first = store.store(p.id(),
       Memory.of(MemoryType.FACT, "User lives in Berlin", "s1", "location", null));
@@ -559,7 +565,7 @@ class SqliteMemoryStoreTests {
     assertEquals(first.stored().id(), second.supersededId());
     assertEquals(first.stored().id(), second.stored().supersedes());
     assertTrue(isSuperseded(first.stored().id()));
-    assertNull(embeddingOf(first.stored().id()));
+    assertNotNull(embeddingOf(first.stored().id()));
     assertFalse(isSuperseded(second.stored().id()));
 
     // Only the new fact is active.
@@ -586,7 +592,7 @@ class SqliteMemoryStoreTests {
     assertNull(backFilled.supersededId());
     assertTrue(backFilled.stored().superseded());
     assertFalse(isSuperseded(current.stored().id()));
-    assertFalse(backFilled.enqueuedVector(), "a superseded row is never embedded");
+    assertTrue(backFilled.enqueuedVector(), "recoverable history remains vector searchable");
 
     List<Memory> active = store.listMemories(p.id(), MemoryType.FACT, null);
     assertEquals(1, active.size());
@@ -648,7 +654,7 @@ class SqliteMemoryStoreTests {
     assertEquals(first.stored().id(), second.supersededId());
     assertEquals(first.stored().id(), second.stored().supersedes());
     assertTrue(isSuperseded(first.stored().id()));
-    assertNull(embeddingOf(first.stored().id()));
+    assertNotNull(embeddingOf(first.stored().id()));
     assertEquals(1, store.listMemories(p.id(), MemoryType.FACT, null).size());
   }
 
@@ -856,7 +862,7 @@ class SqliteMemoryStoreTests {
   void createProfileRejectsDuplicateName() {
     store.createProfile("dup");
     assertTrue(store.findProfile("dup").isPresent());
-    assertThrows(dev.alvo.pieria.domain.error.ConflictException.class, () -> store.createProfile("dup"));
+    assertThrows(ConflictException.class, () -> store.createProfile("dup"));
   }
 
   @Test

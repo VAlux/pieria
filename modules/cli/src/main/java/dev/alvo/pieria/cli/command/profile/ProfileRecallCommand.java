@@ -31,9 +31,15 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
   @Option(names = "--limit", description = "Maximum number of evidence memories (default: daemon default).")
   Integer limit;
 
+  @Option(names = "--as-of", description = "ISO timestamp with offset.")
+  String asOf;
+
+  @Option(names = "--known-as-of", description = "ISO timestamp with offset.")
+  String knownAsOf;
+
   @Override
   protected int run(ProfileClient client) {
-    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null));
+    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null, asOf, knownAsOf));
 
     log.info(response.answer() == null ? "(no answer)" : response.answer());
 

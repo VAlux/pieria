@@ -1,6 +1,8 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.temporal.ConflictDecision;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
@@ -8,14 +10,15 @@ import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.trace.TraceRecipe;
 import dev.alvo.pieria.retrieval.model.GraphEvidence;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
-import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.retrieval.model.RerankLabel;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Provider-agnostic access to chat + embedding models, backed by Spring AI.
@@ -24,6 +27,11 @@ import java.util.Objects;
  * {@link ModelUnavailableException} so the API can map it to 503.
  */
 public interface ModelGateway {
+  default List<ConflictDecision> classifyConflicts(String incoming,
+      List<RevisionResponse> candidates) {
+    return List.of();
+  }
+
 
   /**
    * Unified extraction: one small-model call per chunk that extracts candidate memories
@@ -278,8 +286,8 @@ public interface ModelGateway {
    * {@code StubModelGateway}) compile unchanged and callers degrade gracefully when the provider is
    * unreachable. Implementations must never throw; on any IO failure return an empty set.
    */
-  default java.util.Set<String> availableModels() {
-    return java.util.Set.of();
+  default Set<String> availableModels() {
+    return Set.of();
   }
 
   /**

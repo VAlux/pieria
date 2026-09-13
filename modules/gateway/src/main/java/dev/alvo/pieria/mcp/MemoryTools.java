@@ -3,11 +3,14 @@ package dev.alvo.pieria.mcp;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.request.RevisionRequest;
+import dev.alvo.pieria.client.ProfileClient;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
-import dev.alvo.pieria.client.ProfileClient;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+
+import java.util.function.Supplier;
 
 /**
  * Model-facing MCP tools. Each tool forwards to the daemon's REST surface via
@@ -60,9 +63,11 @@ public class MemoryTools {
       or the query is vague; 'synthesized' runs the full pipeline and composes a written answer \
       (tens of seconds), for questions that genuinely need one answer reconciled across many \
       memories.""") String mode,
-    @ToolParam(required = false, description = "Profile name override") String profile) {
+    @ToolParam(required = false, description = "Profile name override") String profile,
+    @ToolParam(required = false, description = "World-time ISO timestamp with offset") String asOf,
+    @ToolParam(required = false, description = "Knowledge-cutoff ISO timestamp with offset; cannot be future") String knownAsOf) {
     return guarded(() -> client.toJson(client.recall(profile(profile),
-      new RecallRequest(query, limit, null, parseMode(mode)))));
+      new RecallRequest(query, limit, null, parseMode(mode), asOf, knownAsOf))));
   }
 
   /** Lenient tier parse for the model-facing tool: blank or unrecognized values take the default. */
@@ -92,9 +97,41 @@ public class MemoryTools {
       with the same key replaces the prior value for that key instead of accumulating a \
       duplicate. Use it for facts whose value changes over time.""") String topicKey,
     @ToolParam(required = false, description = "Opaque payload string") String payload,
-    @ToolParam(required = false, description = "Profile name override") String profile) {
+    @ToolParam(required = false, description = "Profile name override") String profile,
+    @ToolParam(required = false, description = "Inclusive effective start, ISO timestamp with offset") String validFrom,
+    @ToolParam(required = false, description = "Exclusive effective end, ISO timestamp with offset") String validTo,
+    @ToolParam(required = false, description = "Check semantic conflicts (default false)") Boolean checkConflicts) {
     return guarded(() -> client.toJson(client.remember(
-      profile(profile), new RememberRequest(type, content, sessionId, topicKey, payload))));
+      profile(profile), new RememberRequest(type, content, sessionId, topicKey, payload, validFrom, validTo, checkConflicts))));
+  }
+
+  public String recall(String query, Integer limit, String mode, String profile) {
+    return recall(query, limit, mode, profile, null, null);
+  }
+
+  public String remember(String type, String content, String sessionId, String topicKey, String payload, String profile) {
+    return remember(type, content, sessionId, topicKey, payload, profile, null, null, false);
+  }
+
+  @Tool(name = "revise", description = "Correct assertion content or bounds, or invalidate at an instant. Requires the current revision ID from history.")
+  public String revise(
+    @ToolParam(description = "Memory ID") String id,
+    @ToolParam(description = "Assertion ID") String assertionId,
+    @ToolParam(description = "Expected current revision ID") String expectedRevisionId,
+    @ToolParam(required = false, description = "Corrected content") String content,
+    @ToolParam(required = false, description = "Corrected inclusive start timestamp") String validFrom,
+    @ToolParam(required = false, description = "Corrected exclusive end timestamp") String validTo,
+    @ToolParam(required = false, description = "Effective invalidation timestamp") String invalidateAt,
+    @ToolParam(required = false, description = "Remove the asserted end bound") Boolean openEnded,
+    @ToolParam(required = false, description = "Profile name override") String profile) {
+    return guarded(() -> client.toJson(client.revise(profile(profile), id,
+      new RevisionRequest(assertionId, expectedRevisionId, content, validFrom, validTo, invalidateAt, openEnded))));
+  }
+
+  @Tool(name = "revisions", description = "Read assertion revision history, including prior knowledge intervals.")
+  public String revisions(@ToolParam(description = "Memory ID") String id,
+      @ToolParam(required = false, description = "Profile name override") String profile) {
+    return guarded(() -> client.toJson(client.revisions(profile(profile), id)));
   }
 
   @Tool(name = "list", description = """
@@ -123,7 +160,7 @@ public class MemoryTools {
   /**
    * Translates a daemon-down failure into a concise tool error string instead of throwing.
    */
-  private String guarded(java.util.function.Supplier<String> call) {
+  private String guarded(Supplier<String> call) {
     try {
       return call.get();
     } catch (DaemonUnavailableException e) {

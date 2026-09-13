@@ -1,131 +1,134 @@
-# Phase 10 - Bi-Temporal Fact Validity
+# Phase 10 — Full bi-temporal fact validity
 
-## Objective
+## Model and scope
 
-Add bi-temporal validity to memories so facts can be invalidated by time, not only by exact `topic_key` collision. Track
-two time axes: a VALID-time interval (`valid_from`/`valid_to`, when the fact is true in the world) and the existing
-`created_at` as TRANSACTION/ingest time (when Pieria learned it). Extend supersession to close prior facts' validity
-windows instead of only flipping the boolean, make active-set retrieval time-aware, support "as-of" recall, and surface
-validity windows in synthesis provenance. Hard dependency on Phase 2 (supersession + classification) and Phase 3 (
-active-set retrieval filtering + temporal extraction); independent of Phase 8 (graph) and Phase 9 (reranker) and may run
-in parallel with them.
+SQLite stores content-addressed memories separately from source assertions, assertion revisions,
+and resolved validity segments. World time answers “what was true at T?”; recorded time answers
+“what did Pieria believe at K about T?”. PostgreSQL implementation remains deferred to Phase 6.
 
-## Scope
+`memory_assertions` identifies a stable source occurrence and fact group. `assertion_revisions`
+preserves asserted bounds, speaking time, source payload, correction evidence and transaction
+intervals. `validity_segments` stores the resolved intervals referencing those revisions. Both
+axes use half-open intervals: start inclusive, end exclusive. A monotonic transaction sequence
+breaks clock ties and supplies a committed watermark for parallel recall channels.
 
-- Bi-temporal model behind `MemoryStore`, validity-aware ingestion, supersession, and retrieval.
-- SQLite remains the active backend; mirror the schema on the Postgres backend but defer Postgres implementation to
-  Phase 6.
-- Reuse `TemporalExtractor` patterns for relative-date resolution; no new model-driven date math.
-- No MCP gateway protocol changes beyond surfacing the optional as-of parameter and validity provenance.
-- No consolidation/merge logic (that is Phase 11).
+Facts, instructions and keyed `trace:outcome:` events resolve within fact groups. Ordinary events
+and tasks are append-only; knowledge cutoffs still apply. Tasks never receive embeddings.
+`superseded` and `supersedes` remain compatibility/lineage fields, not visibility predicates.
 
-## Implementation Sequence
+## Deterministic resolution
 
-1. Add bi-temporal columns to the memory model.
-  - Add nullable `valid_from` and `valid_to` (`Instant`) to `Memory` and the `memories` table via a Flyway migration;
-    keep `created_at` as transaction time.
-  - Semantics: `valid_from` is when the fact becomes true in the world (defaults to `created_at` when the transcript
-    states nothing); open-ended `valid_to = NULL` means currently valid; a non-null `valid_to` invalidates the fact at
-    that instant without deleting it.
-  - Migrate existing rows with `valid_from = created_at`, `valid_to = NULL` so all current memories stay active.
-  - Index `(profile_id, type, topic_key, valid_to)` to keep active-set and as-of filters cheap.
-  - Mirror the column definitions in the Postgres schema notes; defer the Postgres `MemoryStore` implementation to Phase
-    6.
+Partition a group's asserted intervals at every boundary. The latest effective start wins an
+overlap, then speaking time and stable source order. When a start-time bucket contains missing
+speaking times, transaction order resolves that bucket; using one mode per bucket avoids a
+non-transitive mixed comparator. Adjacent segments with the same winner coalesce.
 
-2. Define the validity predicate once.
-  - A memory is "valid at instant T" when `superseded = 0` (the row is the live version chain head) AND
-    `valid_from <= T` AND (`valid_to IS NULL` OR `T < valid_to`).
-  - Default recall uses T = request timestamp; as-of recall uses the caller-supplied instant.
-  - Express the predicate as a single reusable SQL fragment so every channel filter shares it.
+An assertion that applies from January onward plus a March-only override resolves to:
 
-3. Populate valid-time during ingestion.
-  - Extend classification/extraction so the model may report a stated effective date string per `fact`/`instruction`
-    candidate (free-text date phrase, never a computed delta).
-  - Resolve the phrase to an `Instant` deterministically in Java by reusing `TemporalExtractor` date-resolution helpers
-    against the ingest request timestamp; never ask the model to do arithmetic (SPEC §7.2).
-  - When no effective date is stated or the phrase is unparseable, set `valid_from = created_at` and `valid_to = NULL`.
-  - Store the raw stated date phrase in `payload` for provenance and debugging.
+| World interval | Selected assertion |
+| --- | --- |
+| January 1–March 1 | Alice |
+| March 1–April 1 | Bob |
+| April 1 onward | Alice |
 
-4. Extend supersession to close validity windows.
-  - In the existing single-transaction supersession path for keyed `fact`/`instruction` memories sharing
-    `(profile_id, type, topic_key)`: keep marking the prior row `superseded` and keep the `supersedes` version chain.
-  - Additionally, set the prior row's `valid_to` to the new memory's `valid_from` (when the prior `valid_to` is still
-    open and the new `valid_from` is later), so the predecessor reads as valid only up to the moment the new fact took
-    effect.
-  - Remove the superseded memory's vector in the same transaction, unchanged from Phase 2.
-  - Leave `event` and `task` memories append-only; do not auto-close their windows.
+Late arrivals fill their historical periods. Future replacements leave predecessors visible until
+their effective start. Corrections replace a targeted assertion revision before partitioning;
+old segments remain queryable under earlier recorded cutoffs. Invalidating at an instant truncates
+an assertion, allowing an underlying valid assertion to resume.
 
-5. Add conflict resolution beyond exact-key matches.
-  - When a new keyed fact carries a stated `valid_from` earlier than an existing active row's `valid_from` (
-    late-arriving past fact), insert it as superseded-by-time rather than as the chain head, closing its own `valid_to`
-    at the successor's `valid_from`.
-  - Keep resolution deterministic and ordering-independent: the row with the latest `valid_from` wins the open-ended (
-    currently-valid) slot for a given `topic_key`.
-  - Document that non-keyed types remain append-only and are not conflict-resolved here.
+Store entry points and revisions run inside one transaction: persist content and assertion changes,
+close previous recorded intervals, resolve replacement segments, persist graph evidence, and enqueue
+embeddings. Direct-store overloads carry transaction annotations too. Revision writes take the SQLite
+writer lock before checking the expected revision, so concurrent corrections yield one winner and a
+409 conflict. Model calls run before storage; semantic targets are revalidated at commit.
 
-6. Make retrieval active-set filtering time-aware.
-  - Thread an "as-of" instant (defaulting to request time) through `RetrievalService` into every channel's active-memory
-    filter.
-  - Apply the §2 validity predicate in `searchMemoriesFts`, `exactKeyLookup`, `searchMemoriesByMessageFts`, and
-    `vectorSearch` so expired and not-yet-valid facts are excluded by default.
-  - Keep `event`/`task` behavior intact: they have no validity window and remain filtered only by `superseded`.
+## Public contract
 
-7. Add the optional as-of recall parameter.
-  - Add an optional `asOf` timestamp to the recall request DTO in `shared` and to `POST /v1/profiles/{name}/recall`;
-    default to request time when absent.
-  - Pass it through to the validity predicate so "what was true on DATE" returns the fact valid at that instant, not the
-    current head.
-  - Surface the same parameter through the MCP `recall` tool in `gateway`.
-  - Reject as-of values that are malformed; an absent value is not an error.
+- Recall accepts optional `asOf` and `knownAsOf`, independently defaulting to request time. Values
+  must be ISO timestamps with offsets and normalize to UTC. Future world time is allowed; future
+  knowledge cutoffs and malformed timestamps are rejected. Natural-language dates do not select a
+  database snapshot.
+- Remember accepts `validFrom`, `validTo` and `checkConflicts=false`. A missing start uses source
+  speaking time when available, otherwise store time. Empty/reversed intervals are rejected.
+- `POST /memories/{id}/revisions` requires `assertionId` and `expectedRevisionId`. Optional
+  `content`, `validFrom` and `validTo` correct an assertion. Omitted fields retain their values;
+  `openEnded=true` explicitly removes an end bound. `invalidateAt` truncates validity and cannot
+  be combined with correction fields. Stale expected revisions return 409.
+- `GET /memories/{id}/revisions` exposes revision history. NDJSON exports include revision and resolved segment history.
+- Memory responses carry selected `validity` segments; write/list responses also expose assertion
+  history. Segment provenance includes assertion/revision IDs, speaking time, source occurrence,
+  fact group, source payload and approximation status. Recall reports both resolved query times,
+  the transaction watermark, and coverage limitations. Historical recall does not expose revisions
+  learned after its cutoff.
+- MCP adds temporal parameters plus `revise`/`revisions`; CLI adds `--as-of`, `--known-as-of`,
+  `--valid-from`, `--valid-to`, `--check-conflicts`, `profile revise` and `profile revisions`.
 
-8. Surface validity in temporal facts and provenance.
-  - Extend `TemporalExtractor` (or a sibling step) to emit a `TemporalFact` per returned keyed memory describing its
-    validity window, e.g. `valid window for <topic_key>` → `from 2026-01-01, currently valid` or
-    `from 2026-01-01 to 2026-03-15`.
-  - Inject these validity facts into the synthesis prompt alongside the existing deterministic temporal facts.
-  - Include `validFrom`/`validTo` in the per-candidate provenance returned in the recall API response for debuggability.
+## Extraction and semantic conflicts
 
-9. Add ingestion and retrieval observability.
-  - Log validity windows assigned at ingest and windows closed during supersession.
-  - Log the effective as-of instant used per recall and the count of candidates excluded by the validity predicate.
-  - Keep these behind the existing debug/diagnostic surface; default responses stay concise.
+Extraction supplies a source-message index and verbatim effective-date phrase in its payload.
+Java verifies the phrase against that turn and resolves supported ISO dates, day references, and
+calendar periods using shared `RelativeDates`. An explicit whole-month applicability can produce
+month bounds; “sometime in May” cannot become May 1. Missing source references use a marked chunk
+fallback. Unresolved timing and inferred defaults remain in provenance.
 
-## Tests
+Assertion identity uses content identity, stable source occurrence and explicit temporal inputs.
+Fallback wall-clock times do not change occurrence identity. Distinct source turns can assert the
+same content independently; identical replays do not add assertion or transaction history.
 
-- Migration tests proving existing Phase 1/2/3 rows get `valid_from = created_at`, `valid_to = NULL`, and remain active.
-- Unit tests for the validity predicate at boundaries: exactly `valid_from`, exactly `valid_to` (exclusive), open-ended,
-  and superseded rows.
-- Ingestion tests for deterministic resolution of stated effective dates (absolute ISO, relative phrases) and the
-  default-when-absent path, with fake model responses.
-- Supersession tests proving the prior row's `valid_to` is closed at the new `valid_from` in one transaction and the
-  version chain is preserved.
-- Conflict-resolution tests for late-arriving past facts (ordering-independent winner for the open slot).
-- Retrieval tests proving expired/not-yet-valid facts are excluded by default across FTS, exact-key, message-FTS, and
-  vector channels.
-- API/gateway tests for as-of recall returning the fact valid at the supplied instant and for malformed as-of rejection.
-- Synthesis tests proving validity-window temporal facts and provenance fields appear.
-- Run `./gradlew test`.
+Conversational ingestion checks semantic conflicts by default; direct remember opts in. Candidate
+collection is bounded and uses exact keys, FTS, available graph entities and already stored
+embeddings. The small model labels replacement, correction, equivalent, compatible or uncertain.
+Automatic changes require one unambiguous target, the same literal subject/property, and grounded
+quotes on both sides. Ambiguous, multivalued, malformed, timed-out or failed classifications retain
+both assertions. A three-second deadline bounds model waiting. Code-derived memories stay outside
+semantic matching. Semantic no-change decisions cannot fall through into near-duplicate invalidation.
+Exact keys remain deterministic; direct writes without semantic checking retain the established
+near-duplicate fallback, except for explicitly bounded temporal occurrences.
 
-## Acceptance Criteria
+## Retrieval, forgetting and migration
 
-- Every memory has a valid-time interval; existing rows are open-ended and unchanged in behavior after migration.
-- Default recall returns only memories valid at request time; superseded and time-expired facts are excluded.
-- As-of recall returns the fact valid at the supplied instant rather than the current head.
-- Supersession closes the predecessor's validity window in the same transaction while preserving the `supersedes` chain
-  and removing the vector.
-- Late-arriving facts resolve deterministically and ordering-independently.
-- Synthesis receives deterministic validity-window facts and the recall API returns `validFrom`/`validTo` provenance.
+Every memory channel and graph hop uses the shared temporal predicate before limits. Raw messages
+and graph attachments have recorded timestamps and sequence watermarks separate from source speaking
+time. Explicit temporal recalls omit unversioned symbol/code-graph channels and disclose that limit;
+code-derived memory records remain searchable through memory channels. Synthesis receives resolved
+query times and selected assertion provenance; EVIDENCE makes no chat-model calls.
 
-## Risks And Follow-Ups
+Historical and scheduled assertions retain embeddings. SQLite vector recall filters eligible raw
+embedding blobs before exact L2 ranking with `vec_distance_L2`. Its correlated eligibility lookup
+starts at the memory's indexed revisions, then indexed segments; the opposite join order caused an
+expensive profile-wide scan per candidate in scale testing.
 
-- Phase 11 (Memory Consolidation & Reflection) depends on this phase: consolidation reasons over validity windows to
-  merge and retire memories, and must consume `valid_from`/`valid_to` rather than inventing a parallel notion of
-  recency.
-- Model-stated effective dates are noisy; keep extraction conservative (default to `created_at` on any ambiguity) and
-  revisit prompt versioning with Phase 5 evaluation data.
-- Bi-temporal queries can grow expensive; the `(profile_id, type, topic_key, valid_to)` index is a default to be
-  validated under load.
-- The Postgres mirror is schema-only here; Phase 6 must implement the same validity predicate and as-of paths to keep
-  the backend swap behavior-preserving.
-- As-of recall over the vector channels assumes embeddings of superseded/expired memories are reachable; confirm vector
-  index retention policy does not silently drop historical rows needed for as-of queries.
+Forgetting sets an independent marker, removes stored/indexed embeddings and queued work, and hides
+the content from every cutoff, graph query, history listing and export. Forgotten assertions still
+participate in resolution, so forgetting cannot resurrect competitors. Vectorization rechecks the
+marker while holding the writer lock.
+
+`V2__temporal_assertions.sql` follows the consolidated V1 baseline without modifying it. Migration
+reconstructs approximate assertions from `created_at`, parseable `stated_at` and surviving successor
+links. The actual live set anchors current visibility. Unlinked superseded rows are excluded because
+legacy forgetting cannot be distinguished safely from supersession; unsupported ancestors cannot
+become current during a later group resolution. Reconstructed assertions are marked approximate,
+coverage gaps are recorded, and recoverable missing embeddings are queued without model calls.
+Legacy reconstruction cannot recover corrections or provenance that the old schema never retained.
+
+## Verification
+
+Tests cover both interval axes and independent query defaults; future world times and invalid
+requests; bounded/nested overrides and gaps; retroactive corrections; repeated content and replay;
+optimistic concurrent corrections; graph attachment cutoffs; source-message cutoffs; semantic
+compatibility/failure guards; forgetting and vector completion; fresh schema and legacy reconstruction;
+profile isolation; export behavior; and vector eligibility under heavily ineligible nearest neighbors.
+
+Local scalar-vector fixture measurements (September 12, 2026; four-dimensional vectors, five queries,
+median; excludes model/network time):
+
+| Memories | Current query | Historical query |
+| --- | ---: | ---: |
+| 5,000 | 5.9 ms | 6.3 ms |
+| 50,000 | 63.6 ms | 71.4 ms |
+
+The current fixtures have only 50 eligible rows and many closer ineligible vectors. Every query
+returns ten eligible hits. These measurements establish filtering behavior and SQL scaling; they
+are not end-to-end recall benchmarks at production embedding dimensions.
+
+Run `./gradlew test`. Native compilation and deployment require explicit user authorization.

@@ -4,6 +4,7 @@ import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.ExportLineResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
@@ -19,12 +20,14 @@ import dev.alvo.pieria.api.response.RecallResponse.RecallDebug;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.ChannelDiagnostic;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.RerankDiagnostic;
+import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.ingestion.ChunkLedgerMode;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.IngestionService;
@@ -57,6 +60,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -168,7 +172,7 @@ public class ProfileController {
       .toList();
 
     List<ChannelDiagnostic> channels = result.diagnostics() == null ? List.of() : result.diagnostics().channels().stream()
-      .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(java.util.Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
+      .map(d -> new ChannelDiagnostic(d.channel().name().toLowerCase(Locale.ROOT), d.latencyMs(), d.hits(), d.failed()))
       .toList();
 
     List<RerankDiagnostic> rerank = result.diagnostics() == null ? List.of() : result.diagnostics().rerank().stream()
@@ -214,7 +218,7 @@ public class ProfileController {
       stored.addAll(traceIngestionService.ingest(name, request.sessionId(), request.traces()));
     }
 
-    return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
+    return IngestResponse.of(stored.stream().map(m -> this.memoryResponseConverter.convert(m).withAssertions(profileService.revisions(name, m.id()))).toList());
   }
 
   /**
@@ -244,7 +248,7 @@ public class ProfileController {
     List<Memory> stored =
       ingestionService.ingest(name, parsed.sessionId(), messages, null, ledgerMode, IngestProgressListener.noop());
 
-    return IngestResponse.of(stored.stream().map(this.memoryResponseConverter::convert).toList());
+    return IngestResponse.of(stored.stream().map(m -> this.memoryResponseConverter.convert(m).withAssertions(profileService.revisions(name, m.id()))).toList());
   }
 
   /**
@@ -316,21 +320,38 @@ public class ProfileController {
                                  @Valid @RequestBody RememberRequest request) {
     MemoryType type = MemoryType.fromWire(request.type());
     Memory memory = Memory.of(type, request.content(), request.sessionId(),
-      request.topicKey(), request.payload());
-    return this.memoryResponseConverter.convert(ingestionService.remember(name, memory));
+      request.topicKey(), request.payload()).withValidity(
+        request.validFrom() == null ? null : TemporalSnapshot.parse(request.validFrom()),
+        request.validTo() == null ? null : TemporalSnapshot.parse(request.validTo()), null);
+    Memory stored = ingestionService.remember(name, memory, Boolean.TRUE.equals(request.checkConflicts()));
+    return this.memoryResponseConverter.convert(stored).withValidity(profileService.validity(stored.id(), null)).withAssertions(profileService.revisions(name, stored.id()));
+  }
+
+  @GetMapping("/memories/{id}/revisions")
+  public List<RevisionResponse> revisions(@PathVariable String name, @PathVariable String id) {
+    return profileService.revisions(name, id);
+  }
+
+  @PostMapping("/memories/{id}/revisions")
+  public RevisionResponse revise(@PathVariable String name, @PathVariable String id,
+      @Valid @RequestBody RevisionRequest request) {
+    return profileService.revise(name, id, request);
   }
 
   @PostMapping("/recall")
   public RecallResponse recall(@PathVariable String name, @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
     boolean debug = Boolean.TRUE.equals(request.debug());
-    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode());
+    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode(), false, request.asOf(), request.knownAsOf());
 
     List<MemoryResponse> memories = result.candidates().stream()
-      .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()))
+      .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()).withValidity(profileService.validity(candidate.memory().id(), result.snapshot())))
       .toList();
 
-    return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null);
+    return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null,
+      result.snapshot() == null ? null : new RecallResponse.TemporalContext(result.snapshot().asOf(), result.snapshot().knownAsOf(),
+        result.snapshot().sequence(), profileService.temporalCoverage(name, result.snapshot().explicit())));
+
   }
 
   /**
@@ -345,7 +366,7 @@ public class ProfileController {
   public ResponseEntity<String> recallContext(@PathVariable String name,
                                               @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
-    RecallResult result = retrievalService.recall(name, request.query(), limit, false, RecallMode.EVIDENCE, true);
+    RecallResult result = retrievalService.recall(name, request.query(), limit, false, RecallMode.EVIDENCE, true, request.asOf(), request.knownAsOf());
 
     String block = renderContextBlock(name, result.candidates());
     return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);
@@ -384,7 +405,7 @@ public class ProfileController {
                                  @RequestParam(name = "includeSuperseded", defaultValue = "false") boolean includeSuperseded) {
     MemoryType typeFilter = type == null ? null : MemoryType.fromWire(type);
     List<Memory> memories = profileService.list(name, typeFilter, session, includeSuperseded);
-    return new MemoryListResponse(memories.stream().map(this.memoryResponseConverter::convert).toList());
+    return new MemoryListResponse(memories.stream().map(m -> this.memoryResponseConverter.convert(m).withValidity(profileService.validity(m.id(), null)).withAssertions(profileService.revisions(name, m.id()))).toList());
   }
 
   @DeleteMapping("/memories/{id}")
@@ -398,7 +419,7 @@ public class ProfileController {
     List<ExportRow> rows = profileService.export(name);
     StringBuilder body = new StringBuilder();
 
-    rows.forEach(row -> body.append(writeLine(exportLineConverter.convert(row))).append('\n'));
+    rows.forEach(row -> body.append(writeLine(exportLineConverter.convert(row).withRevisions(profileService.revisions(name, row.memory().id())).withValidityHistory(profileService.validityHistory(name, row.memory().id())))).append('\n'));
 
     return ResponseEntity.ok()
       .contentType(MediaType.parseMediaType(NDJSON))

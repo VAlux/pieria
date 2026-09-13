@@ -1,6 +1,5 @@
 package dev.alvo.pieria.retrieval;
 
-
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.code.CodeIndexingService;
 import dev.alvo.pieria.config.EffectiveConfigResolver;
@@ -8,6 +7,7 @@ import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
@@ -215,6 +215,12 @@ public class RetrievalService {
                              RecallMode requestMode,
                              boolean excludeCodeDerived) {
 
+    return recall(profileName, query, limit, debug, requestMode, excludeCodeDerived, null, null);
+  }
+
+  public RecallResult recall(String profileName, String query, int limit, boolean debug, RecallMode requestMode,
+                             boolean excludeCodeDerived, String asOf, String knownAsOf) {
+    var snapshot = store.temporalSnapshot(asOf, knownAsOf);
     long totalStart = System.nanoTime();
 
     var profile = store.findProfile(profileName).orElse(null);
@@ -223,7 +229,7 @@ public class RetrievalService {
       // harness auto-recall before anything has been stored) is not an error — there is simply
       // nothing to recall. Warn and return an empty result rather than throwing.
       LOGGER.warn("recall on unknown profile name={} — no memories to recall, returning empty result", profileName);
-      return RecallResult.empty();
+      return new RecallResult(null, List.of(), List.of(), List.of(), null, snapshot);
     }
     LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
 
@@ -260,7 +266,7 @@ public class RetrievalService {
 
       RetrievalContext context = new RetrievalContext(
         profile.id(), query, analysis.value(),
-        embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit());
+        embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit()).withTemporal(snapshot);
 
       List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
       List<GraphEvidence> graphEvidence = new ArrayList<>();
@@ -283,13 +289,20 @@ public class RetrievalService {
       // Non-synthesizing tiers skip temporal facts + synthesis entirely: the answer is null and callers
       // (e.g. the injection hooks) consume the raw memories directly.
       Timed<List<TemporalFact>> temporal = Timed.measure(
-        () -> mode.synthesizes() ? extractTemporalFacts(query, fused.value()) : List.<TemporalFact>of());
+        () -> {
+          List<TemporalFact> facts = new ArrayList<>(mode.synthesizes() ? extractTemporalFacts(query, temporalCandidates(fused.value(), snapshot), snapshot.asOf()) : List.of());
+          facts.add(new TemporalFact("Query world time", snapshot.asOf().toString()));
+          facts.add(new TemporalFact("Query knowledge cutoff", snapshot.knownAsOf().toString()));
+          for (var candidate : fused.value()) for (var validity : store.selectedValidity(candidate.memory().id(), snapshot))
+            facts.add(new TemporalFact("Validity of " + candidate.memory().id(), validity.toString()));
+          return facts;
+        });
       LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
         profileName, temporal.value().size(), temporal.millis());
 
       List<GraphEvidence> evidence = graphEvidence.stream().distinct().toList();
       Timed<String> answer = Timed.measure(
-        () -> mode.synthesizes() ? synthesize(query, fused.value(), temporal.value(), evidence) : null);
+        () -> mode.synthesizes() ? synthesize(query, temporalCandidates(fused.value(), snapshot), temporal.value(), evidence) : null);
       LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
         profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
@@ -304,7 +317,7 @@ public class RetrievalService {
         profileName, hits.value().size(), fused.value().size(),
         analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(), rerankMs,
         temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
-      return new RecallResult(answer.value(), fused.value(), temporal.value(), evidence, diagnostics);
+      return new RecallResult(answer.value(), temporalCandidates(fused.value(), snapshot), temporal.value(), evidence, diagnostics, snapshot);
 
     } finally {
       usageBinding.close();
@@ -621,15 +634,27 @@ public class RetrievalService {
   /**
    * Temporal stage: deterministic temporal facts over the fused evidence (date math in Java).
    */
-  private List<TemporalFact> extractTemporalFacts(String query, List<RecallCandidate> fused) {
+  private List<TemporalFact> extractTemporalFacts(String query, List<RecallCandidate> fused, Instant asOf) {
     List<Memory> evidence = fused.stream().map(RecallCandidate::memory).toList();
-    return temporalExtractor.extract(query, Instant.now(), evidence);
+    return temporalExtractor.extract(query, asOf, evidence);
   }
 
   /**
    * Synthesis stage: the large model composes the answer from the fused evidence and temporal facts.
    * A failure here is genuine (mapped to 503), not soft.
    */
+  private List<RecallCandidate> temporalCandidates(List<RecallCandidate> candidates,
+      TemporalSnapshot snapshot) {
+    return candidates.stream().map(candidate -> {
+      var selected = store.selectedValidity(candidate.memory().id(), snapshot);
+      if (selected.isEmpty()) return store.supportsTemporalHistory() ? null : candidate;
+      Memory m = candidate.memory();
+      Memory projected = new Memory(m.id(), m.sessionId(), m.type(), m.content(), m.topicKey(), null, false,
+        selected.getFirst().sourcePayload(), m.embedText(), m.createdAt());
+      return new RecallCandidate(projected, candidate.score(), candidate.source());
+    }).filter(Objects::nonNull).toList();
+  }
+
   private String synthesize(String query, List<RecallCandidate> fused, List<TemporalFact> temporalFacts,
                             List<GraphEvidence> graphEvidence) {
     return modelGateway.synthesizeRecall(query, fused, temporalFacts, graphEvidence);
@@ -685,11 +710,13 @@ public class RetrievalService {
     try (ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor()) {
       Map<RetrievalChannel, Future<Timed<RetrievalChannel.ChannelResult>>> futures = new LinkedHashMap<>();
       for (RetrievalChannel channel : channelsToRun) {
+        if (ctx.temporal() != null && ctx.temporal().explicit()
+            && (channel.type() == RetrievalChannelType.SYMBOL_FTS || channel.type() == RetrievalChannelType.CODE_GRAPH)) continue;
         LOGGER.debug("retrieval channel {} scheduled critical={} limit={} seedCandidates={}",
           channel.type(), channel.critical(), ctx.limit(), ctx.seedCandidates().size());
         futures.put(channel, exec.submit(() -> {
           LOGGER.debug("retrieval channel {} started", channel.type());
-          return Timed.measure(() -> channel.retrieveWithEvidence(ctx));
+          return Timed.measure(() -> store.atSnapshot(ctx.temporal(), () -> channel.retrieveWithEvidence(ctx)));
         }));
       }
 

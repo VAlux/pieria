@@ -1,11 +1,12 @@
 package dev.alvo.pieria.client;
 
+import dev.alvo.pieria.api.request.AuditListRequest;
 import dev.alvo.pieria.api.request.IngestRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
-import dev.alvo.pieria.api.request.AuditListRequest;
+import dev.alvo.pieria.api.request.RememberRequest;
+import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.AuditEventDetail;
 import dev.alvo.pieria.api.response.AuditListResponse;
-import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
@@ -13,6 +14,7 @@ import dev.alvo.pieria.api.response.ProfileListResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileSummary;
 import dev.alvo.pieria.api.response.RecallResponse;
+import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
 
 import java.nio.charset.StandardCharsets;
@@ -71,6 +73,16 @@ public final class ProfileClient {
   public RecallResponse recall(String name, RecallRequest request) {
     return transport.parse(
       transport.post(profile(name) + "/recall", request, Duration.ofSeconds(60)), RecallResponse.class);
+  }
+
+  public RevisionResponse revise(String name, String id, RevisionRequest request) {
+    return transport.parse(transport.post(profile(name) + "/memories/" + DaemonTransport.segment(id) + "/revisions", request, Duration.ofSeconds(60)),
+      RevisionResponse.class);
+  }
+
+  public RevisionResponse[] revisions(String name, String id) {
+    return transport.parse(transport.get(profile(name) + "/memories/" + DaemonTransport.segment(id) + "/revisions", Duration.ofSeconds(15)),
+      RevisionResponse[].class);
   }
 
   public MemoryResponse remember(String name, RememberRequest request) {

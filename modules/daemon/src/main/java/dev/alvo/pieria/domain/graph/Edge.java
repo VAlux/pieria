@@ -11,8 +11,8 @@ import java.time.Instant;
  * idempotent (see {@link ContentId#forEdge}).
  *
  * <p>{@code memoryId} is the provenance seam: an edge is active only while its source memory is
- * active ({@code superseded = 0}). Edges are never physically deleted on supersession; queries
- * join {@code memories} to exclude edges off superseded memories. {@code id} and {@code createdAt}
+ * visible in the recall's temporal snapshot and the attachment was already recorded. Edges are
+ * retained across replacements; every hop applies the same temporal memory predicate. {@code id} and {@code createdAt}
  * are assigned at store time when null.
  */
 public record Edge(

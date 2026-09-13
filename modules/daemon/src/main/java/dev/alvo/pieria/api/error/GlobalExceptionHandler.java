@@ -1,11 +1,11 @@
 package dev.alvo.pieria.api.error;
 
-
 import dev.alvo.pieria.api.response.ErrorResponse;
 import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
+import dev.alvo.pieria.storage.TemporalConflictException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +48,11 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
       .body(new ErrorResponse("not_found", ex.getMessage()));
+  }
+
+  @ExceptionHandler(TemporalConflictException.class)
+  public ResponseEntity<ErrorResponse> handleTemporalConflict(TemporalConflictException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("conflict", ex.getMessage()));
   }
 
   @ExceptionHandler(ConflictException.class)

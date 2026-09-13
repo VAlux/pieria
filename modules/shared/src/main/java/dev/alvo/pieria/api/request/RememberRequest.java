@@ -10,5 +10,11 @@ public record RememberRequest(
   @NotBlank String content,
   String sessionId,
   String topicKey,
-  String payload) {
+  String payload,
+  String validFrom,
+  String validTo,
+  Boolean checkConflicts) {
+  public RememberRequest(String type, String content, String sessionId, String topicKey, String payload) {
+    this(type, content, sessionId, topicKey, payload, null, null, false);
+  }
 }

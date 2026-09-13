@@ -1,11 +1,12 @@
 package dev.alvo.pieria.model;
 
-
+import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.EntityNormalizer;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.temporal.ConflictDecision;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.Classification;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
@@ -292,7 +293,7 @@ public class OpenAiModelGateway implements ModelGateway {
     if (raw == null || raw.isBlank()) {
       return null;
     }
-    String normalized = raw.strip().toLowerCase(java.util.Locale.ROOT)
+    String normalized = raw.strip().toLowerCase(Locale.ROOT)
       .replaceAll("[^a-z0-9]+", ".")
       .replaceAll("^\\.+|\\.+$", "");
     return normalized.isBlank() ? null : normalized;
@@ -1067,6 +1068,17 @@ public class OpenAiModelGateway implements ModelGateway {
     }
 
     return new QueryAnalysis(topicKeys, ftsTerms, entities, blankToNull(dto.hydeStatement()));
+  }
+
+  @Override
+  public List<ConflictDecision> classifyConflicts(String incoming,
+      List<RevisionResponse> candidates) {
+    String prompt = PromptTemplateLoader.render("semantic-conflicts", Map.of("incoming", incoming,
+      "candidates", objectMapper.writeValueAsString(candidates)));
+    try {
+      return objectMapper.readValue(callExtractionText(prompt, "semantic-conflicts"),
+        new TypeReference<List<ConflictDecision>>() {});
+    } catch (RuntimeException e) { return List.of(); }
   }
 
   @Override

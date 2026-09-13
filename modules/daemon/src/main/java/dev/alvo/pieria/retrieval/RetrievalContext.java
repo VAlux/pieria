@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
 
@@ -29,7 +30,17 @@ public record RetrievalContext(
   float[] queryEmbedding,
   float[] hydeEmbedding,
   int limit,
-  List<RetrievalCandidate> seedCandidates) {
+  List<RetrievalCandidate> seedCandidates,
+  TemporalSnapshot temporal) {
+
+  public RetrievalContext(String profileId, String query, QueryAnalysis analysis, float[] queryEmbedding,
+                          float[] hydeEmbedding, int limit, List<RetrievalCandidate> seeds) {
+    this(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, null);
+  }
+
+  public RetrievalContext withTemporal(TemporalSnapshot snapshot) {
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, snapshot);
+  }
 
   public RetrievalContext {
     seedCandidates = seedCandidates == null ? List.of() : List.copyOf(seedCandidates);
@@ -47,7 +58,7 @@ public record RetrievalContext(
    * A copy of this context carrying the given first-wave hits as graph seeds.
    */
   public RetrievalContext withSeedCandidates(List<RetrievalCandidate> seeds) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal);
   }
 
   /**

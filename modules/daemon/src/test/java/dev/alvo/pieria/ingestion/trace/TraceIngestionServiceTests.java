@@ -3,6 +3,7 @@ package dev.alvo.pieria.ingestion.trace;
 import dev.alvo.pieria.api.request.TraceEventDto;
 import dev.alvo.pieria.api.request.TraceStatus;
 import dev.alvo.pieria.config.TraceProperties;
+import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
@@ -110,10 +111,10 @@ class TraceIngestionServiceTests {
       .extracting(Memory::id)
       .contains(lateOutcome.id());
 
-    // And never embedded: a stale-on-arrival row is never enqueued for vectorization at all.
+    // Historical trace outcomes remain eligible for embedding.
     assertThat(store.drainOutbox(50))
       .extracting(OutboxEntry::memoryId)
-      .doesNotContain(lateOutcome.id());
+      .contains(lateOutcome.id());
   }
 
   @Test
@@ -174,19 +175,19 @@ class TraceIngestionServiceTests {
     String profileId = store.getOrCreateProfile("p").id();
     assertThat(store.graphCounts(profileId).edgeCount()).isPositive();
 
-    List<dev.alvo.pieria.domain.graph.Entity> tests =
+    List<Entity> tests =
       store.findEntitiesByName(profileId, List.of("groundingfiltertests"), 10);
     assertThat(tests).isNotEmpty();
 
     List<Memory> viaGraph = store.findMemoriesByEntities(profileId,
-      tests.stream().map(dev.alvo.pieria.domain.graph.Entity::id).toList(), 10);
+      tests.stream().map(Entity::id).toList(), 10);
     assertThat(viaGraph).hasSize(1);
 
     // A later green run supersedes the failure, and the failure's edges go with it.
     service.ingest("p", "s2", List.of(trace("./gradlew test", TraceStatus.SUCCESS, 0, null, T2)));
 
     assertThat(store.findMemoriesByEntities(profileId,
-      tests.stream().map(dev.alvo.pieria.domain.graph.Entity::id).toList(), 10)).isEmpty();
+      tests.stream().map(Entity::id).toList(), 10)).isEmpty();
   }
 
   @Test

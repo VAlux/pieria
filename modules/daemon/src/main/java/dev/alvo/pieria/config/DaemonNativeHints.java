@@ -40,6 +40,7 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
     String owner = "dev.alvo.pieria.model.OpenAiModelGateway$";
     return new String[]{
       owner + "UnifiedCandidateDto",
+      "dev.alvo.pieria.domain.temporal.ConflictDecision",
       owner + "UnifiedCandidateList",
       owner + "VerificationDto",
       owner + "VerificationItemDto",

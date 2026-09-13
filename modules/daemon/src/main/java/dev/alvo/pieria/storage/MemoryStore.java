@@ -1,6 +1,10 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.api.request.RevisionRequest;
+import dev.alvo.pieria.api.response.RevisionResponse;
+import dev.alvo.pieria.api.response.TemporalValidity;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphCounts;
@@ -15,23 +19,60 @@ import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.tools.Tokens;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /**
  * The single persistence seam behind all storage backends.
  * All ingestion writes and retrieval channels are defined against this interface.
  */
 public interface MemoryStore {
+  default List<RevisionResponse> conflictCandidates(String profileId, Memory incoming, GraphFragment graph, int limit) {
+    return conflictCandidates(profileId, incoming, limit);
+  }
+
+  default List<RevisionResponse> conflictCandidates(String profileId, Memory incoming, int limit) {
+    return List.of();
+  }
+
+  default List<TemporalValidity> validityHistory(String profileId, String memoryId) { return List.of(); }
+
+  default List<String> temporalCoverage(String profileId) { return List.of(); }
+
+  default boolean supportsTemporalHistory() { return false; }
+
+  default TemporalSnapshot temporalSnapshot(String asOf, String knownAsOf) {
+    return TemporalSnapshot.resolve(asOf, knownAsOf, Instant.now(), Long.MAX_VALUE);
+  }
+
+  default <T> T atSnapshot(TemporalSnapshot snapshot, Supplier<T> action) {
+    return action.get();
+  }
+
+  default List<TemporalValidity> selectedValidity(String memoryId, TemporalSnapshot snapshot) {
+    return List.of();
+  }
+
+  default List<RevisionResponse> revisions(String profileId, String memoryId) {
+    return List.of();
+  }
+
+  default RevisionResponse revise(String profileId, String memoryId, RevisionRequest request) {
+    throw new UnsupportedOperationException("revisions not supported");
+  }
+
 
   /**
    * Look up a profile by name, creating it if absent.
@@ -45,7 +86,7 @@ public interface MemoryStore {
    */
   default Profile createProfile(String name) {
     findProfile(name).ifPresent(existing -> {
-      throw dev.alvo.pieria.domain.error.ConflictException.profileExists(name);
+      throw ConflictException.profileExists(name);
     });
     return getOrCreateProfile(name);
   }
@@ -289,7 +330,7 @@ public interface MemoryStore {
 
   /**
    * Memory FTS channel: FTS5 MATCH over {@code memories_fts}, joined to {@code memories},
-   * filtered to {@code profileId} and the active set ({@code superseded = 0}), ordered by FTS rank
+   * filtered to {@code profileId} and the selected temporal snapshot, ordered by FTS rank
    * (best first). The query is sanitized so arbitrary user text cannot raise an FTS5 syntax error.
    */
   default List<Memory> searchMemoriesFts(String profileId, String matchQuery, int limit) {
@@ -315,9 +356,8 @@ public interface MemoryStore {
   }
 
   /**
-   * Direct/HyDE vector channel: KNN over {@code memories_vec} joined to {@code memories},
-   * filtered to {@code profileId}, the active set, and excluding {@code task} (defensive), ordered by
-   * distance ascending. Returns an empty list when vector search is unavailable.
+   * Direct/HyDE vector channel: exact distance ranking over stored embedding blobs, filtered
+   * to the profile and temporal snapshot before LIMIT, excluding tasks and forgotten content. Returns an empty list when vector search is unavailable.
    */
   default List<Memory> vectorSearch(String profileId, float[] queryEmbedding, int limit) {
     throw new UnsupportedOperationException("vectorSearch(...) not implemented");
@@ -337,8 +377,8 @@ public interface MemoryStore {
   }
 
   /**
-   * Backfill {@code memories_vec} from the {@code embedding} BLOB column for active, vector-eligible
-   * memories ({@code superseded = 0} and {@code type != 'task'}) that are missing from the index.
+   * Backfill {@code memories_vec} from retained {@code embedding} BLOBs for non-forgotten, vector-eligible
+   * memories ({@code type != 'task'}) that are missing from the index.
    * Returns the count backfilled. No-op (returns 0) when vector search is unavailable.
    */
   default int backfillVectors() {
@@ -404,8 +444,8 @@ public interface MemoryStore {
   List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter, boolean includeSuperseded);
 
   /**
-   * Mark a memory superseded (logical delete); never physically deletes.
-   * Returns {@code true} if a matching active memory was found and updated.
+   * Mark a memory forgotten independently of temporal state; remove embeddings and queued work.
+   * Returns {@code true} if a matching non-forgotten memory was found and updated.
    */
   boolean forgetMemory(String profileId, String memoryId);
 
@@ -491,7 +531,7 @@ public interface MemoryStore {
 
   /**
    * Entity counts per normalized type across the whole profile, highest count first. Drives the
-   * explorer's type facet, so it counts every entity — including ones no active edge touches.
+   * explorer's type facet, counting only entities supported by temporally visible evidence.
    */
   default Map<String, Integer> entityTypeCounts(String profileId) {
     throw new UnsupportedOperationException("entityTypeCounts(...) not implemented");

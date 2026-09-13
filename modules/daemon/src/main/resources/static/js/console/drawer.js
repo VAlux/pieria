@@ -4,6 +4,7 @@ import { fmtDate } from "../util/format.js";
 import { forgetMemory } from "./memories.js";
 import { memoryPresentation } from "./memory-presentation.js";
 import { markdown } from "../util/markdown.js";
+import { jsonCode } from "../util/json-code.js";
 
 let drawerMem = null;
 
@@ -28,7 +29,8 @@ export function openDrawer(m) {
     if (view.tool) body.appendChild(kv("Tool", view.tool));
     if (view.exitCode !== null) body.appendChild(kv("Exit code", String(view.exitCode)));
     if (view.failure) body.appendChild(kv("Error", view.failure));
-    appendCode(body, "Invocation", Object.keys(view.args).length ? JSON.stringify(view.args, null, 2) : view.invocation || m.content || "");
+    if (Object.keys(view.args).length) appendJson(body, "Invocation", view.args);
+    else appendCode(body, "Invocation", view.invocation || m.content || "");
   } else body.appendChild(markdownKv("Content", m.content || ""));
   const meta = el("dl", "kv");
   addRow(meta, "Type", m.type);
@@ -44,7 +46,7 @@ export function openDrawer(m) {
   const raw = el("details", "mem-raw");
   raw.appendChild(el("summary", null, "Raw memory & payload"));
   raw.appendChild(kv("Original content", m.content || ""));
-  appendCode(raw, "Payload", typeof m.payload === "object" ? JSON.stringify(m.payload, null, 2) : pretty(m.payload || "{}"));
+  appendJson(raw, "Payload", m.payload || "{}");
   body.appendChild(raw);
 
   $("drawer").classList.add("open");
@@ -88,11 +90,11 @@ export function openAuditDrawer(e) {
   body.appendChild(meta);
 
   if (e.errorMessage) body.appendChild(kv("Error", (e.errorKind || "failure") + ": " + e.errorMessage));
-  appendCode(body, "Metadata", pretty(e.metadata || "{}"));
-  appendCode(body, "Request · " + bytes(e.requestBytes, e.requestTruncated) + " · sha256 " + e.requestSha256,
-    pretty(e.requestBody || ""));
-  appendCode(body, "Response · " + bytes(e.responseBytes, e.responseTruncated) + " · sha256 " + e.responseSha256,
-    pretty(e.responseBody || ""));
+  appendJson(body, "Metadata", e.metadata || "{}");
+  appendJson(body, "Request · " + bytes(e.requestBytes, e.requestTruncated) + " · sha256 " + e.requestSha256,
+    e.requestBody || "");
+  appendJson(body, "Response · " + bytes(e.responseBytes, e.responseTruncated) + " · sha256 " + e.responseSha256,
+    e.responseBody || "");
 
   $("drawer").classList.add("open");
   $("drawerBackdrop").classList.add("open");
@@ -120,17 +122,20 @@ function markdownKv(label, value) {
 }
 
 function appendCode(container, label, value) {
+  appendBlock(container, label, el("pre", "code", value));
+}
+
+function appendJson(container, label, value) {
+  appendBlock(container, label, jsonCode(value));
+}
+
+function appendBlock(container, label, block) {
   const d = el("dl", "kv");
   d.appendChild(el("dt", null, label));
   const dd = el("dd");
-  dd.appendChild(el("pre", "code", value));
+  dd.appendChild(block);
   d.appendChild(dd);
   container.appendChild(d);
-}
-
-function pretty(value) {
-  if (!value) return "(empty)";
-  try { return JSON.stringify(JSON.parse(value), null, 2); } catch (e) { return value; }
 }
 
 function bytes(count, truncated) {

@@ -15,5 +15,10 @@ public record RecallRequest(
   @NotBlank String query,
   Integer limit,
   Boolean debug,
-  RecallMode mode) {
+  RecallMode mode,
+  String asOf,
+  String knownAsOf) {
+  public RecallRequest(String query, Integer limit, Boolean debug, RecallMode mode) {
+    this(query, limit, debug, mode, null, null);
+  }
 }

@@ -23,11 +23,11 @@ Fit: Drops in cleanly after ReciprocalRankFusion, before synthesis, using the ex
 Shipped: `retrieval.rerank` (`Reranker`/`SemanticRescorer`/`ModelReranker`/`RerankSettings`) running inside `RetrievalService.fuse()` between near-duplicate collapse and the recall limit. Two sub-stages split by tier: a deterministic cosine-blend re-score in every tier (no model call, reusing the vectors the collapse pass already reads) and a coarse three-way relevance label from the small tier at `ANALYZED`+. Truncation moved after the stage so a candidate ranked below `limit` by RRF can be promoted. Every failure — model down, timeout, misaligned labels, unanimous irrelevance — falls back to fused order. Six `rerank*` properties, per-profile overridable and editable at both console config scopes. The memory-only-vs-mixed rerank flag was dropped: code and memory candidates competing for one context budget is the reason to rerank at all.
 
 4. Bi-temporal fact validity / temporal invalidation
-Phase: 10 | Status: pending
-Who has it: Zep, Graphiti.
-What: Today supersession only fires on explicit topic_key collision. Competitors track valid_from/valid_to so facts can be invalidated by time, enabling "what was true last week" and conflict resolution without an exact
-key match.
-Fit: You already have TemporalExtractor and the supersession machinery — extend the memory row with validity columns and filter active queries on them. Medium effort.
+Phase: 10 | Status: implemented (SQLite; PostgreSQL deferred)
+What: Independent world-time and knowledge-time recall, versioned assertions and validity segments,
+bounded overrides that restore predecessors, optimistic corrections, conservative semantic conflicts,
+and retained historical embeddings. Legacy reconstruction is explicitly approximate.
+Design and validation: [Phase 10](phases/phase-10-bi-temporal-fact-validity.md).
 
 5. Memory consolidation / reflection (background replay)
 Phase: 11 | Status: pending

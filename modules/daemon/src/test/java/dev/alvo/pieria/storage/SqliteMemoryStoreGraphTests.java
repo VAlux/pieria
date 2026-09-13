@@ -216,7 +216,7 @@ class SqliteMemoryStoreGraphTests {
   }
 
   @Test
-  void entityTypeCountsGroupsEveryEntityByType() {
+  void entityTypeCountsGroupsOnlyTemporallySupportedEntities() {
     Profile p = store.getOrCreateProfile("g-facets");
     store.store(p.id(), Memory.of(MemoryType.FACT, "alpha uses beta", "s1", null, null), frag("alpha", "uses", "beta"));
     store.upsertEntity(p.id(), Entity.of("person", "ada", "{}"));
@@ -224,7 +224,7 @@ class SqliteMemoryStoreGraphTests {
     var counts = store.entityTypeCounts(p.id());
 
     assertEquals(2, counts.get("concept"));
-    assertEquals(1, counts.get("person"));
+    assertFalse(counts.containsKey("person"));
   }
 
   @Test
@@ -282,7 +282,7 @@ class SqliteMemoryStoreGraphTests {
   void searchEntitiesTreatsWildcardsLiterally() {
     Profile p = store.getOrCreateProfile("g-search-wildcards");
     store.upsertEntity(p.id(), Entity.of("concept", "alpha", "{}"));
-    store.upsertEntity(p.id(), Entity.of("concept", "100% coverage", "{}"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "alpha has 100% coverage", "s1", null, null), frag("alpha", "has", "100% coverage"));
 
     // A bare "%" must not behave as "match everything".
     List<RankedEntity> matches = store.searchEntities(p.id(), "%", List.of(), 10);
