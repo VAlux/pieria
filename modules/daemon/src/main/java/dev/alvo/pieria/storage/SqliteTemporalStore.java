@@ -12,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static dev.alvo.pieria.domain.temporal.TemporalSnapshot.timestamp;
 
@@ -136,7 +137,7 @@ final class SqliteTemporalStore {
 
   List<TemporalValidity> selected(String memory, TemporalSnapshot snapshot) {
     return jdbc.sql("""
-      SELECT a.id AS assertion_id, r.id AS revision_id, s.*, a.approximate, r.stated_at, a.source_occurrence, a.fact_group, r.source_payload FROM validity_segments s
+      SELECT a.id AS assertion_id, r.id AS revision_id, s.*, r.stated_at, a.source_occurrence, a.fact_group, r.source_payload FROM validity_segments s
       JOIN assertion_revisions r ON r.id = s.revision_id JOIN memory_assertions a ON a.id = r.assertion_id
       JOIN memories m ON m.id = r.memory_id WHERE m.id = ? AND m.forgotten = 0
       AND s.valid_from <= ? AND (s.valid_to IS NULL OR ? < s.valid_to)
@@ -145,32 +146,91 @@ final class SqliteTemporalStore {
       """).params(memory, timestamp(snapshot.asOf()), timestamp(snapshot.asOf()), timestamp(snapshot.knownAsOf()), snapshot.sequence(),
         timestamp(snapshot.knownAsOf()), snapshot.sequence()).query((rs, _) -> new TemporalValidity(rs.getString("assertion_id"),
           rs.getString("revision_id"), instant(rs.getString("valid_from")), instant(rs.getString("valid_to")),
-          instant(rs.getString("recorded_from")), null, rs.getInt("approximate") != 0,
+          instant(rs.getString("recorded_from")), null,
           instant(rs.getString("stated_at")), rs.getString("source_occurrence"), rs.getString("fact_group"), rs.getString("source_payload"))).list();
   }
 
   List<TemporalValidity> segments(String profile, String memory) {
     return jdbc.sql("""
-      SELECT a.id AS assertion_id, r.id AS revision_id, s.*, a.approximate, r.stated_at,
+      SELECT a.id AS assertion_id, r.id AS revision_id, s.*, r.stated_at,
         a.source_occurrence, a.fact_group, r.source_payload
       FROM assertion_revisions r JOIN validity_segments s ON s.revision_id = r.id
       JOIN memory_assertions a ON a.id = r.assertion_id JOIN memories m ON m.id = r.memory_id
       WHERE a.profile_id = ? AND m.id = ? AND m.forgotten = 0 ORDER BY s.from_sequence, s.valid_from
       """).params(profile, memory).query((rs, _) -> new TemporalValidity(rs.getString("assertion_id"),
         rs.getString("revision_id"), instant(rs.getString("valid_from")), instant(rs.getString("valid_to")),
-        instant(rs.getString("recorded_from")), instant(rs.getString("recorded_to")), rs.getInt("approximate") != 0,
+        instant(rs.getString("recorded_from")), instant(rs.getString("recorded_to")),
         instant(rs.getString("stated_at")), rs.getString("source_occurrence"), rs.getString("fact_group"), rs.getString("source_payload"))).list();
+  }
+
+  Optional<MemoryStore.FactHistory> factHistory(String profile, String memory,
+                                                TemporalSnapshot snapshot) {
+    String group = jdbc.sql("""
+      SELECT a.fact_group FROM memory_assertions a
+      JOIN assertion_revisions r ON r.assertion_id = a.id
+      JOIN memories m ON m.id = r.memory_id
+      WHERE a.profile_id = ? AND r.memory_id = ? AND m.forgotten = 0
+      ORDER BY r.from_sequence LIMIT 1
+      """).params(profile, memory).query(String.class).optional().orElse(null);
+    if (group == null) return Optional.empty();
+
+    List<RevisionResponse> revisions = jdbc.sql("""
+      SELECT r.*, a.source_occurrence, a.fact_group, m.content
+      FROM assertion_revisions r
+      JOIN memory_assertions a ON a.id = r.assertion_id
+      JOIN memories m ON m.id = r.memory_id
+      WHERE a.profile_id = ? AND a.fact_group = ? AND m.forgotten = 0
+      ORDER BY r.from_sequence, r.id
+      """).params(profile, group).query((rs, _) -> new RevisionResponse(rs.getString("assertion_id"), rs.getString("id"),
+        rs.getString("memory_id"), rs.getString("content"), instant(rs.getString("valid_from")), instant(rs.getString("valid_to")),
+        instant(rs.getString("stated_at")), instant(rs.getString("recorded_from")), instant(rs.getString("recorded_to")),
+        rs.getString("corrects"), rs.getString("source_occurrence"), rs.getInt("invalidated") != 0,
+        rs.getString("fact_group"), rs.getString("source_payload"),
+        rs.getString("conflict_evidence"))).list();
+
+    List<TemporalValidity> segments = groupSegments(profile, group, null);
+    List<TemporalValidity> selected = groupSegments(profile, group, snapshot);
+    return Optional.of(new MemoryStore.FactHistory(group, revisions, segments, selected));
+  }
+
+  private List<TemporalValidity> groupSegments(String profile, String group,
+                                               TemporalSnapshot snapshot) {
+    String filter = snapshot == null ? "" : """
+      AND s.valid_from <= ? AND (s.valid_to IS NULL OR ? < s.valid_to)
+      AND s.recorded_from <= ? AND s.from_sequence <= ?
+      AND (s.recorded_to IS NULL OR ? < s.recorded_to OR s.to_sequence > ?)
+      """;
+    var query = jdbc.sql("""
+      SELECT a.id AS assertion_id, r.id AS revision_id, s.*, r.stated_at,
+        a.source_occurrence, a.fact_group, r.source_payload
+      FROM validity_segments s
+      JOIN assertion_revisions r ON r.id = s.revision_id
+      JOIN memory_assertions a ON a.id = r.assertion_id
+      JOIN memories m ON m.id = r.memory_id
+      WHERE a.profile_id = ? AND a.fact_group = ? AND m.forgotten = 0
+      """ + filter + " ORDER BY s.from_sequence, s.valid_from, r.id");
+    if (snapshot == null) {
+      query = query.params(profile, group);
+    } else {
+      query = query.params(profile, group, timestamp(snapshot.asOf()), timestamp(snapshot.asOf()),
+        timestamp(snapshot.knownAsOf()), snapshot.sequence(), timestamp(snapshot.knownAsOf()), snapshot.sequence());
+    }
+    return query.query((rs, _) -> new TemporalValidity(rs.getString("assertion_id"),
+      rs.getString("revision_id"), instant(rs.getString("valid_from")), instant(rs.getString("valid_to")),
+      instant(rs.getString("recorded_from")), instant(rs.getString("recorded_to")),
+      instant(rs.getString("stated_at")),
+      rs.getString("source_occurrence"), rs.getString("fact_group"), rs.getString("source_payload"))).list();
   }
 
   List<RevisionResponse> history(String profile, String memory) {
     return jdbc.sql("""
-      SELECT r.*, a.source_occurrence, a.approximate, a.fact_group, m.content FROM assertion_revisions r
+      SELECT r.*, a.source_occurrence, a.fact_group, m.content FROM assertion_revisions r
       JOIN memory_assertions a ON a.id = r.assertion_id JOIN memories m ON m.id = r.memory_id
       WHERE m.forgotten = 0 AND a.profile_id = ? AND a.id IN (SELECT assertion_id FROM assertion_revisions WHERE memory_id = ?)
       ORDER BY r.from_sequence, r.id
       """).params(profile, memory).query((rs, _) -> new RevisionResponse(rs.getString("assertion_id"), rs.getString("id"),
         rs.getString("memory_id"), rs.getString("content"), instant(rs.getString("valid_from")), instant(rs.getString("valid_to")),
         instant(rs.getString("stated_at")), instant(rs.getString("recorded_from")), instant(rs.getString("recorded_to")),
-        rs.getString("corrects"), rs.getString("source_occurrence"), rs.getInt("invalidated") != 0, rs.getInt("approximate") != 0, rs.getString("fact_group"), rs.getString("source_payload"), rs.getString("conflict_evidence"))).list();
+        rs.getString("corrects"), rs.getString("source_occurrence"), rs.getInt("invalidated") != 0, rs.getString("fact_group"), rs.getString("source_payload"), rs.getString("conflict_evidence"))).list();
   }
 }

@@ -69,7 +69,9 @@ class ProfileApiTests {
     mvc.perform(get("/v1/profiles/alice/memories"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")))
-      .andExpect(jsonPath("$.memories[0].type", is("fact")));
+      .andExpect(jsonPath("$.memories[0].type", is("fact")))
+      .andExpect(jsonPath("$.memories[0].validity").isEmpty())
+      .andExpect(jsonPath("$.memories[0].assertions").isEmpty());
 
     // list filtered by type
     mvc.perform(get("/v1/profiles/alice/memories").param("type", "instruction"))

@@ -7,6 +7,7 @@ import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
 import dev.alvo.pieria.client.exception.DaemonNotFoundException;
 import dev.alvo.pieria.client.exception.DaemonProtocolException;
+import dev.alvo.pieria.client.exception.DaemonTimeoutException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import dev.alvo.pieria.config.toml.ConfigCodec;
 import tools.jackson.databind.DeserializationFeature;
@@ -18,9 +19,11 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -117,6 +120,10 @@ final class DaemonTransport {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new DaemonInterruptedException(e);
+    } catch (HttpConnectTimeoutException e) {
+      throw new DaemonUnavailableException(baseUrl, e);
+    } catch (HttpTimeoutException e) {
+      throw new DaemonTimeoutException(baseUrl, e);
     } catch (Exception e) {
       throw new DaemonUnavailableException(baseUrl, e);
     }
@@ -182,6 +189,10 @@ final class DaemonTransport {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new DaemonInterruptedException(e);
+    } catch (HttpConnectTimeoutException e) {
+      throw new DaemonUnavailableException(baseUrl, e);
+    } catch (HttpTimeoutException e) {
+      throw new DaemonTimeoutException(baseUrl, e);
     } catch (Exception e) {
       throw new DaemonUnavailableException(baseUrl, e);
     }

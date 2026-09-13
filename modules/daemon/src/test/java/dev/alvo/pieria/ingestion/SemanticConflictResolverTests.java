@@ -17,7 +17,7 @@ import static org.mockito.Mockito.*;
 class SemanticConflictResolverTests {
   private final Memory incoming = Memory.of(MemoryType.FACT, "Alice uses editor Vim", "s", "editor.new", "{}");
   private final RevisionResponse candidate = new RevisionResponse("a", "r", "m", "Alice uses editor Emacs",
-    Instant.EPOCH, null, Instant.EPOCH, Instant.EPOCH, null, null, "turn-1", false, false);
+    Instant.EPOCH, null, Instant.EPOCH, Instant.EPOCH, null, null, "turn-1", false);
   private Memory check(String relationship, String subject) {
     MemoryStore store = mock(MemoryStore.class);
     when(store.conflictCandidates("p", incoming, 12)).thenReturn(List.of(candidate));

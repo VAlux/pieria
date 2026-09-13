@@ -103,10 +103,14 @@ public class SqliteMemoryStore implements MemoryStore {
    */
   private static final String EDGE_COLUMNS =
     "e.id, e.profile_id, e.source_entity_id, e.target_entity_id, e.relation, e.memory_id, e.created_at";
+
   /**
    * The ids of every entity an active edge touches, as a subquery. Binds profileId twice.
    */
-  private static String connectedEntityIds() { return "SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id   WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " UNION SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id   WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + ""; }
+  private static String connectedEntityIds() {
+    return "SELECT e.source_entity_id AS eid FROM edges e JOIN memories m ON m.id = e.memory_id   WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " UNION SELECT e.target_entity_id FROM edges e JOIN memories m ON m.id = e.memory_id   WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + "";
+  }
+
   private static final ScopedValue<TemporalSnapshot> SNAPSHOT = ScopedValue.newInstance();
 
   private static String active(String alias) {
@@ -132,12 +136,9 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
-  public List<String> temporalCoverage(String profileId) {
-    return jdbc.sql("SELECT limitation FROM temporal_coverage WHERE profile_id = ?").param(profileId).query(String.class).list();
+  public boolean supportsTemporalHistory() {
+    return true;
   }
-
-  @Override
-  public boolean supportsTemporalHistory() { return true; }
 
   @Override
   public TemporalSnapshot temporalSnapshot(String asOf, String knownAsOf) {
@@ -183,7 +184,7 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public RevisionResponse revise(String profileId, String memoryId,
-      RevisionRequest request) {
+                                 RevisionRequest request) {
     jdbc.sql("UPDATE temporal_transactions SET sequence = sequence WHERE sequence = (SELECT MAX(sequence) FROM temporal_transactions)").update();
     var temporal = new SqliteTemporalStore(jdbc);
     var current = temporal.history(profileId, memoryId).stream()
@@ -207,7 +208,8 @@ public class SqliteMemoryStore implements MemoryStore {
       if (!invalidated && (to == null || cutoff.isBefore(to))) to = cutoff;
     }
     if (to != null && !from.isBefore(to)) throw new IllegalArgumentException("validFrom must precede validTo");
-    if (request.content() != null && request.content().isBlank()) throw new IllegalArgumentException("content must not be blank");
+    if (request.content() != null && request.content().isBlank())
+      throw new IllegalArgumentException("content must not be blank");
     var tx = temporal.transaction();
     int closed = jdbc.sql("UPDATE assertion_revisions SET recorded_to = ?, to_sequence = ? WHERE id = ? AND to_sequence IS NULL")
       .params(TemporalSnapshot.timestamp(tx.at()), tx.sequence(), current.revisionId()).update();
@@ -233,7 +235,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   public List<RevisionResponse> conflictCandidates(String profileId, Memory incoming,
-      GraphFragment graph, int limit) {
+                                                   GraphFragment graph, int limit) {
     int channelLimit = Math.max(1, limit / 3);
     Set<String> ids = new LinkedHashSet<>();
     if (incoming.topicKey() != null) {
@@ -242,13 +244,16 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     String match = toFtsMatch(incoming.content());
     if (match != null) ids.addAll(jdbc.sql("SELECT m.id FROM memories_fts f JOIN memories m ON m.rowid = f.rowid "
-      + "WHERE memories_fts MATCH ? AND m.profile_id = ? AND m.type = ? AND m.forgotten = 0 "
-      + "AND (m.topic_key IS NULL OR m.topic_key NOT LIKE 'code:%') ORDER BY f.rank LIMIT ?")
+        + "WHERE memories_fts MATCH ? AND m.profile_id = ? AND m.type = ? AND m.forgotten = 0 "
+        + "AND (m.topic_key IS NULL OR m.topic_key NOT LIKE 'code:%') ORDER BY f.rank LIMIT ?")
       .params(match, profileId, incoming.type().wire(), channelLimit).query(String.class).list());
     if (graph != null && !graph.entities().isEmpty()) {
       var names = graph.entities().stream().map(Entity::name).distinct().limit(channelLimit).toList();
       var params = new ArrayList<Object>();
-      params.add(profileId); params.add(incoming.type().wire()); params.addAll(names); params.add(channelLimit);
+      params.add(profileId);
+      params.add(incoming.type().wire());
+      params.addAll(names);
+      params.add(channelLimit);
       ids.addAll(jdbc.sql("SELECT DISTINCT m.id FROM entities en JOIN edges e ON en.id IN (e.source_entity_id, e.target_entity_id) "
           + "JOIN memories m ON m.id = e.memory_id WHERE m.profile_id = ? AND m.type = ? AND m.forgotten = 0 "
           + "AND en.name IN (" + String.join(",", Collections.nCopies(names.size(), "?")) + ") LIMIT ?")
@@ -283,6 +288,12 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public List<RevisionResponse> revisions(String profileId, String memoryId) {
     return new SqliteTemporalStore(jdbc).history(profileId, memoryId);
+  }
+
+  @Override
+  public Optional<FactHistory> factHistory(String profileId, String memoryId,
+                                           TemporalSnapshot snapshot) {
+    return new SqliteTemporalStore(jdbc).factHistory(profileId, memoryId, snapshot);
   }
 
   private static byte[] encodeEmbedding(float[] embedding) {
@@ -493,7 +504,6 @@ public class SqliteMemoryStore implements MemoryStore {
     jdbc.sql("DELETE FROM validity_segments WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM assertion_revisions WHERE assertion_id IN (SELECT id FROM memory_assertions WHERE profile_id = ?)").param(profileId).update();
     jdbc.sql("DELETE FROM memory_assertions WHERE profile_id = ?").param(profileId).update();
-    jdbc.sql("DELETE FROM temporal_coverage WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM edges WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM entities WHERE profile_id = ?").param(profileId).update();
     jdbc.sql("DELETE FROM code_edges WHERE profile_id = ?").param(profileId).update();
@@ -746,7 +756,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
     SqliteTemporalStore.Transaction tx = null;
     for (Message message : messages) {
-      String id = resolveMessageId(profileId, sessionId, message);
+      String id = ContentId.forMessage(profileId, sessionId, message.role(), message.content());
       if (messageIdOwnedByProfile(id, profileId)) continue;
       if (tx == null) tx = new SqliteTemporalStore(jdbc).transaction();
       String createdAt = (message.createdAt() == null ? Instant.now() : message.createdAt()).toString();
@@ -760,18 +770,6 @@ public class SqliteMemoryStore implements MemoryStore {
         throw new IllegalStateException("message id collision across profiles: " + id);
       }
     }
-  }
-
-  /**
-   * Keep existing databases idempotent: reuse a legacy unscoped id only when this profile already
-   * owns it. Otherwise generate the new profile-scoped id so identical transcripts can coexist.
-   */
-  private String resolveMessageId(String profileId, String sessionId, Message message) {
-    String legacyId = ContentId.forMessage(sessionId, message.role(), message.content());
-    if (messageIdOwnedByProfile(legacyId, profileId)) {
-      return legacyId;
-    }
-    return ContentId.forMessage(profileId, sessionId, message.role(), message.content());
   }
 
   @Override
@@ -826,20 +824,9 @@ public class SqliteMemoryStore implements MemoryStore {
       createdAt), true);
   }
 
-  /**
-   * Reuse an active legacy unscoped id only when this profile owns it; this preserves idempotency
-   * for pre-upgrade data without allowing another profile's row to absorb the new write.
-   */
   private String resolveMemoryId(String profileId, Memory memory) {
     if (memory.id() != null) {
       return memory.id();
-    }
-    String legacyId = ContentId.forMemory(memory.sessionId(), memory.type(), memory.content());
-    if (jdbc.sql("SELECT EXISTS(SELECT 1 FROM memories WHERE id = ? AND profile_id = ? AND superseded = 0)")
-      .params(legacyId, profileId)
-      .query(Integer.class)
-      .single() == 1) {
-      return legacyId;
     }
     return ContentId.forMemory(profileId, memory.sessionId(), memory.type(), memory.content());
   }
@@ -1022,8 +1009,8 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     return jdbc.sql(
         "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
-            + "= ? AND m.type = ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
+          + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
+          + "= ? AND m.type = ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
       .params(match, profileId, type.wire(), limit)
       .query((rs, _) -> mapMemory(rs))
       .list();
@@ -1036,7 +1023,7 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     return jdbc.sql(
         "SELECT id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at FROM "
-            + "memories WHERE profile_id = ? AND type = ? AND topic_key = ? AND " + active("") + " ORDER BY created_at DESC")
+          + "memories WHERE profile_id = ? AND type = ? AND topic_key = ? AND " + active("") + " ORDER BY created_at DESC")
       .params(profileId, type.wire(), topicKey)
       .query((rs, _) -> mapMemory(rs))
       .list();
@@ -1094,7 +1081,10 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     // Write the BLOB first, mirror it into the sqlite-vec index, then remove the outbox row, all in
     // one transaction. encodeEmbedding throws on a null vector before any write happens.
-    if (isForgotten(memoryId)) { deleteOutboxRow(memoryId); return; }
+    if (isForgotten(memoryId)) {
+      deleteOutboxRow(memoryId);
+      return;
+    }
     byte[] encoded = encodeEmbedding(embedding);
     jdbc.sql("UPDATE memories SET embedding = ? WHERE id = ?")
       .params(encoded, memoryId)
@@ -1271,8 +1261,8 @@ public class SqliteMemoryStore implements MemoryStore {
     // Join FTS rowid back to memories; filter to this profile's active set, rank best-first.
     return jdbc.sql(
         "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
-            + "= ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
+          + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
+          + "= ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
       .params(match, profileId, limit)
       .query((rs, _) -> mapMemory(rs))
       .list();
@@ -1289,7 +1279,9 @@ public class SqliteMemoryStore implements MemoryStore {
     return jdbc.sql(
         "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
             + "m.created_at FROM memories m JOIN (   SELECT msg.session_id AS sid, MIN(f.rank) AS best_rank   FROM messages_fts f "
-            + "  JOIN messages msg ON msg.rowid = f.rowid   WHERE messages_fts MATCH ? AND msg.profile_id = ? AND " + known("msg") + "   GROUP BY msg.session_id ) hit ON hit.sid = m.session_id WHERE m.profile_id = ? AND " + active("m") + " ORDER BY hit.best_rank, m.created_at DESC LIMIT ?")
+            // The recorded-time predicates otherwise make SQLite drive this join from messages
+            // and re-scan the FTS5 table once per profile message. CROSS JOIN pins FTS5 first.
+            + "  CROSS JOIN messages msg ON msg.rowid = f.rowid   WHERE messages_fts MATCH ? AND msg.profile_id = ? AND " + known("msg") + "   GROUP BY msg.session_id ) hit ON hit.sid = m.session_id WHERE m.profile_id = ? AND " + active("m") + " ORDER BY hit.best_rank, m.created_at DESC LIMIT ?")
       .params(match, profileId, profileId, limit)
       .query((rs, _) -> mapMemory(rs))
       .list();
@@ -1396,7 +1388,7 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     List<Pending> rows = jdbc.sql(
         "SELECT m.id AS id, m.embedding AS embedding FROM memories m WHERE m.forgotten = 0 AND m.type != ? AND m.embedding "
-            + "IS NOT NULL AND NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.memory_id = m.id)")
+          + "IS NOT NULL AND NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.memory_id = m.id)")
       .param(MemoryType.TASK.wire())
       .query((rs, _) -> new Pending(rs.getString("id"), rs.getBytes("embedding")))
       .list();

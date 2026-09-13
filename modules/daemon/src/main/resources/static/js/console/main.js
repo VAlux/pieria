@@ -59,6 +59,10 @@ function wireUp() {
   $("addSubmit").addEventListener("click", submitAdd);
   $("recallBtn").addEventListener("click", submitRecall);
   $("recallQuery").addEventListener("keydown", function (e) { if (e.key === "Enter") submitRecall(); });
+  $("recallTimeClear").addEventListener("click", function () {
+    $("recallAsOf").value = "";
+    $("recallKnownAsOf").value = "";
+  });
   $("exportBtn").addEventListener("click", exportProfile);
   $("auditClear").addEventListener("click", function () {
     clearTimeout(auditSearchTimer);
@@ -78,6 +82,7 @@ function wireUp() {
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerBackdrop").addEventListener("click", closeDrawer);
   $("drawerDelete").addEventListener("click", forgetDrawerMemory);
+  document.addEventListener("pieria:reload-memories", function () { loadMemories(true); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDrawer(); });
 }
 

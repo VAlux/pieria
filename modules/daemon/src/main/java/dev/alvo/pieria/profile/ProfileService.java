@@ -3,6 +3,7 @@ package dev.alvo.pieria.profile;
 import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TemporalValidity;
+import dev.alvo.pieria.api.response.FactHistoryResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -12,7 +13,6 @@ import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -59,10 +59,8 @@ public class ProfileService {
     return store.validityHistory(findOrThrow(name).id(), memoryId);
   }
 
-  public List<String> temporalCoverage(String name, boolean explicit) {
-    var limitations = new ArrayList<>(store.findProfile(name).map(p -> store.temporalCoverage(p.id())).orElse(List.of()));
-    if (explicit) limitations.add("Unversioned symbol and code-graph channels are omitted.");
-    return List.copyOf(limitations);
+  public List<String> temporalLimitations(boolean explicit) {
+    return explicit ? List.of("Unversioned symbol and code-graph channels are omitted.") : List.of();
   }
 
   public List<TemporalValidity> validity(String memoryId, TemporalSnapshot snapshot) {
@@ -75,6 +73,21 @@ public class ProfileService {
 
   public RevisionResponse revise(String name, String memoryId, RevisionRequest request) {
     return store.revise(findOrThrow(name).id(), memoryId, request);
+  }
+
+  public FactHistoryResponse factHistory(String name, String memoryId,
+                                         String asOf, String knownAsOf) {
+    Profile profile = findOrThrow(name);
+    TemporalSnapshot snapshot = store.temporalSnapshot(asOf, knownAsOf);
+    MemoryStore.FactHistory history = store.factHistory(profile.id(), memoryId, snapshot)
+      .orElseThrow(() -> NotFoundException.memory(memoryId));
+    TemporalValidity selected = history.selected().stream().findFirst().orElse(null);
+    RevisionResponse selectedRevision = selected == null ? null : history.revisions().stream()
+      .filter(revision -> revision.revisionId().equals(selected.revisionId()))
+      .findFirst().orElse(null);
+    return new FactHistoryResponse(history.factGroup(), selectedRevision, selected,
+      history.revisions(), history.segments(), new FactHistoryResponse.TemporalContext(
+        snapshot.asOf(), snapshot.knownAsOf(), snapshot.sequence()));
   }
 
   private Profile findOrThrow(String name) {

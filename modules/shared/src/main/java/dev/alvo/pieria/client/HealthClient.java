@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.response.StatusResponse;
 import dev.alvo.pieria.client.exception.DaemonClientException;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
+import dev.alvo.pieria.client.exception.DaemonTimeoutException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 
 import java.time.Duration;
@@ -37,7 +38,7 @@ public final class HealthClient {
     try {
       transport.probe(PIERIA_HEALTH_PATH, TIMEOUT);
       return true;
-    } catch (DaemonUnavailableException | DaemonInterruptedException e) {
+    } catch (DaemonUnavailableException | DaemonTimeoutException | DaemonInterruptedException e) {
       return false;
     }
   }

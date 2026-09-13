@@ -1,9 +1,6 @@
 -- Pieria embedded SQLite schema — consolidated baseline.
 --
--- This file replaces the original V1..V14 chain, squashed before the first external release. It is
--- the complete schema, not an incremental step: column order matches what the old chain produced
--- (later ALTERs appended columns, and V13's DROP/RENAME left profile_usage in the order below), so
--- a database created here is byte-for-byte equivalent to one migrated through the old sequence.
+-- This is the complete schema for a new database, not an incremental compatibility migration.
 --
 -- The sqlite-vec `memories_vec` virtual table is deliberately absent. A `vec0` virtual table needs
 -- the native extension loaded at migration time, which would crash startup wherever the extension
@@ -25,19 +22,21 @@ CREATE TABLE profiles
 -- memories.source_tokens.
 CREATE TABLE messages
 (
-  id         TEXT PRIMARY KEY, -- hex of SHA-256(session+role+content)[:16]
+  id         TEXT PRIMARY KEY, -- hex of SHA-256(profile+session+role+content)[:16]
   profile_id TEXT NOT NULL REFERENCES profiles (id),
   session_id TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  recorded_sequence INTEGER NOT NULL
 );
 
 CREATE INDEX idx_msg_profile_session ON messages (profile_id, session_id);
 
 -- ═══ memories ═══════════════════════════════════════════════════════════════════════════════
 -- `embedding` holds the raw vector as little-endian float32 bytes (4 per dimension);
--- completeVectorization writes it and supersession NULLs it for the superseded row.
+-- completeVectorization writes it and historical/scheduled assertions retain it.
 --
 -- `graph_adopted_at` is the orphan-adoption ("reminiscence") marker: NULL = never scanned for
 -- entities/edges; a non-null ISO-8601 timestamp = scanned, so it is never re-extracted even if it
@@ -57,7 +56,8 @@ CREATE TABLE memories
   content          TEXT    NOT NULL,              -- canonical declarative statement
   topic_key        TEXT,                          -- normalized key (facts/instructions)
   supersedes       TEXT REFERENCES memories (id), -- forward pointer in version chain
-  superseded       INTEGER NOT NULL DEFAULT 0,    -- 0/1
+  superseded       INTEGER NOT NULL DEFAULT 0,    -- lineage only; visibility is temporal
+  forgotten        INTEGER NOT NULL DEFAULT 0,    -- independent permanent exclusion marker
   payload          TEXT    NOT NULL DEFAULT '{}', -- JSON (json1/jsonb funcs)
   embed_text       TEXT,                          -- declarative + interrogative queries
   created_at       TEXT    NOT NULL,
@@ -66,13 +66,14 @@ CREATE TABLE memories
   source_tokens    INTEGER NOT NULL DEFAULT 0     -- raw source tokens this memory was distilled from
 );
 
--- Keyed lookup / type filter over the active (non-superseded) set.
-CREATE INDEX idx_mem_profile_key ON memories (profile_id, topic_key) WHERE superseded = 0;
-CREATE INDEX idx_mem_profile_type ON memories (profile_id, type) WHERE superseded = 0;
+CREATE INDEX idx_mem_profile ON memories (profile_id);
+CREATE INDEX idx_mem_profile_key ON memories (profile_id, topic_key);
+CREATE INDEX idx_mem_profile_type ON memories (profile_id, type);
+CREATE INDEX idx_mem_profile_session ON memories (profile_id, session_id);
 
 -- Supports the orphan finder's active/unadopted scan (SqliteMemoryStore.findGraphOrphans).
 CREATE INDEX idx_mem_graph_adopted ON memories (profile_id, created_at)
-  WHERE superseded = 0 AND graph_adopted_at IS NULL;
+  WHERE graph_adopted_at IS NULL;
 
 CREATE TABLE vectorization_outbox
 (
@@ -80,6 +81,63 @@ CREATE TABLE vectorization_outbox
   enqueued_at TEXT    NOT NULL,
   attempts    INTEGER NOT NULL DEFAULT 0
 );
+
+-- ═══ bi-temporal assertions ════════════════════════════════════════════════════════════════
+-- Immutable memory content is separated from source assertions, correction revisions, and the
+-- resolved world-time/recorded-time visibility segments used by every retrieval channel.
+CREATE TABLE temporal_transactions (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  recorded_at TEXT NOT NULL
+);
+
+CREATE TABLE memory_assertions (
+  id TEXT PRIMARY KEY,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  source_occurrence TEXT NOT NULL,
+  fact_group TEXT NOT NULL
+);
+
+CREATE INDEX idx_assertion_group ON memory_assertions(profile_id, fact_group);
+
+CREATE TABLE assertion_revisions (
+  id TEXT PRIMARY KEY,
+  assertion_id TEXT NOT NULL REFERENCES memory_assertions(id) ON DELETE CASCADE,
+  memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  valid_from TEXT NOT NULL,
+  valid_to TEXT,
+  stated_at TEXT,
+  recorded_from TEXT NOT NULL,
+  recorded_to TEXT,
+  from_sequence INTEGER NOT NULL,
+  to_sequence INTEGER,
+  corrects TEXT,
+  source_payload TEXT NOT NULL DEFAULT '{}',
+  conflict_evidence TEXT,
+  invalidated INTEGER NOT NULL DEFAULT 0,
+  CHECK(valid_to IS NULL OR valid_from < valid_to)
+);
+
+CREATE UNIQUE INDEX idx_revision_current ON assertion_revisions(assertion_id)
+  WHERE to_sequence IS NULL;
+CREATE INDEX idx_revision_memory ON assertion_revisions(memory_id);
+CREATE INDEX idx_revision_assertion ON assertion_revisions(assertion_id);
+
+CREATE TABLE validity_segments (
+  revision_id TEXT NOT NULL REFERENCES assertion_revisions(id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  fact_group TEXT NOT NULL,
+  valid_from TEXT NOT NULL,
+  valid_to TEXT,
+  recorded_from TEXT NOT NULL,
+  recorded_to TEXT,
+  from_sequence INTEGER NOT NULL,
+  to_sequence INTEGER
+);
+
+CREATE INDEX idx_segment_visibility
+  ON validity_segments(profile_id, valid_from, valid_to, recorded_from, recorded_to);
+CREATE INDEX idx_segment_group ON validity_segments(profile_id, fact_group, to_sequence);
+CREATE INDEX idx_segment_revision ON validity_segments(revision_id);
 
 -- ═══ full-text search ═══════════════════════════════════════════════════════════════════════
 -- External-content FTS5 tables (the content lives in the base tables; the FTS table stores only the
@@ -126,9 +184,8 @@ END;
 
 -- ═══ entity-relation graph ══════════════════════════════════════════════════════════════════
 -- Profile-scoped with content-addressed ids (ContentId.forEntity / forEdge), so re-ingest is
--- idempotent via INSERT OR IGNORE. An edge is "active" only while its source memory is active
--- (memories.superseded = 0); edges are never physically deleted on supersession, so all graph
--- queries join memories and filter superseded = 0 at read time.
+-- idempotent via INSERT OR IGNORE. Edges are immutable provenance records; graph reads apply their
+-- recorded-time cutoff and the source memory's shared temporal visibility predicate.
 
 CREATE TABLE entities (
   id         TEXT PRIMARY KEY,          -- SHA-256(profile_id + type + normalized_name)[:128]
@@ -148,8 +205,10 @@ CREATE TABLE edges (
   source_entity_id TEXT NOT NULL REFERENCES entities (id),
   target_entity_id TEXT NOT NULL REFERENCES entities (id),
   relation         TEXT NOT NULL,       -- normalized relation label
-  memory_id        TEXT NOT NULL REFERENCES memories (id),  -- provenance: edge active iff this memory is active
-  created_at       TEXT NOT NULL
+  memory_id        TEXT NOT NULL REFERENCES memories (id),
+  created_at       TEXT NOT NULL,
+  recorded_at      TEXT NOT NULL,
+  recorded_sequence INTEGER NOT NULL
 );
 
 CREATE INDEX idx_edge_source ON edges (profile_id, source_entity_id);

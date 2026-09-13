@@ -127,6 +127,7 @@
     <main>
     <!-- ===== Memories ===== -->
     <section class="view active" id="view-memories">
+      <div id="memoryListView">
       <div class="controls">
         <div class="search-field grow">
           <span class="ico" aria-hidden="true">
@@ -153,6 +154,8 @@
       </div>
       <div id="memList" class="mem-list"></div>
       <div id="memPager" class="pager"></div>
+      </div>
+      <div id="memoryHistoryView" hidden></div>
     </section>
 
     <!-- ===== Add ===== -->
@@ -210,6 +213,21 @@
         <button class="primary" id="recallBtn">Ask</button>
       </div>
       <p class="hint" id="recallHint">Synthesized runs the full retrieval + synthesis pipeline. Analyzed and Evidence skip synthesis and return the supporting memories directly.</p>
+      <details class="recall-temporal">
+        <summary>Temporal context</summary>
+        <div class="temporal-controls">
+          <label>
+            <span>World time (asOf)</span>
+            <input id="recallAsOf" type="datetime-local" step="60">
+          </label>
+          <label>
+            <span>Knowledge cutoff (knownAsOf)</span>
+            <input id="recallKnownAsOf" type="datetime-local" step="60">
+          </label>
+          <button id="recallTimeClear" type="button">Use request time</button>
+        </div>
+        <p class="hint">Each blank value independently defaults to request time. Times are entered in your local zone and sent as UTC.</p>
+      </details>
       <div id="recallResult"></div>
     </section>
 

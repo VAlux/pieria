@@ -497,6 +497,7 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | POST   | `/v1/profiles/{name}/memories`        | Store a single memory explicitly.           |
 | POST   | `/v1/profiles/{name}/recall`          | Run retrieval (JSON, or `text/plain`).      |
 | GET    | `/v1/profiles/{name}/memories/{id}/revisions` | Read assertion revision history. |
+| GET    | `/v1/profiles/{name}/memories/{id}/history` | Read the complete fact-group timeline at optional `asOf`/`knownAsOf`. |
 | POST   | `/v1/profiles/{name}/memories/{id}/revisions` | Correct or invalidate an assertion. |
 | GET    | `/v1/profiles/{name}/memories`        | List memories (filter by type/session).     |
 | DELETE | `/v1/profiles/{name}/memories/{id}`   | Forget a memory.                            |
@@ -588,7 +589,7 @@ POST /v1/profiles/my-project/memories/MEMORY_ID/revisions
 Omitted correction fields retain their values; `openEnded=true` removes an end bound.
 Alternatively supply `invalidateAt` to end validity at an instant. Concurrent edits return 409.
 Revision and resolved segment history are included in exports. Forgotten content is excluded at every cutoff and from
-history/export; legacy history carries approximation markers where the prior schema lacked evidence.
+history/export.
 
 ```sh
 pieria profile recall my-project "Who owns the service?" --as-of 2026-03-15T00:00:00Z --known-as-of 2026-04-01T00:00:00Z

@@ -186,6 +186,26 @@ class ConsoleAssetsTests {
   }
 
   @Test
+  void memoriesOfferAnAccessibleBiTemporalHistoryDrillDown() throws IOException {
+    Document html = Jsoup.parse(resource("static/index.html"));
+    String memories = resource("static/js/console/memories.js");
+    String history = resource("static/js/console/fact-history.js");
+    String recall = resource("static/js/console/recall.js");
+
+    assertThat(html.select("#view-memories #memoryListView + #memoryHistoryView[hidden]")).hasSize(1);
+    assertThat(html.select("#view-recall #recallAsOf[type=datetime-local], "
+      + "#view-recall #recallKnownAsOf[type=datetime-local]")).hasSize(2);
+    assertThat(memories).contains("hasFactHistory", "openFactHistory", "View history");
+    assertThat(history)
+      .contains("/history", "Bi-temporal fact history", "role: \"img\"")
+      .doesNotContain("memory.assertions")
+      .contains("Correct assertion", "Invalidate assertion", "expectedRevisionId")
+      .contains("error.status === 409", "pieria:reload-memories")
+      .doesNotContain("from \"http", "fetch(\"http", "fetch(\"https");
+    assertThat(recall).contains("asOf: asOf", "knownAsOf: knownAsOf", "snapshotSequence");
+  }
+
+  @Test
   void memoryRowsCarryATypeRailAndASeparateTimeColumn() throws IOException {
     String memories = resource("static/js/console/memories.js");
     String css = resource("static/css/console.css");

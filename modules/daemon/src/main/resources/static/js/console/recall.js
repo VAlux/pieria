@@ -4,6 +4,7 @@ import { state } from "./state.js";
 import { renderBanner } from "./router.js";
 import { memoryRow } from "./memories.js";
 import { markdown } from "../util/markdown.js";
+import { fmtDate, isoInstant } from "../util/format.js";
 
 // The channel result cap. A channel that returns exactly this many had more to give, so the hit
 // count is reporting the limit rather than a distribution — worth marking.
@@ -16,6 +17,18 @@ export function submitRecall() {
   const mode = $("recallMode").value;
   const out = $("recallResult");
   const btn = $("recallBtn");
+  const asOfValue = $("recallAsOf").value;
+  const knownAsOfValue = $("recallKnownAsOf").value;
+  const asOf = asOfValue ? isoInstant(asOfValue) : null;
+  const knownAsOf = knownAsOfValue ? isoInstant(knownAsOfValue) : null;
+  if ((asOfValue && !asOf) || (knownAsOfValue && !knownAsOf)) {
+    renderBanner(out, "Temporal values must be valid date-times.", true);
+    return;
+  }
+  if (knownAsOf && new Date(knownAsOf).getTime() > Date.now()) {
+    renderBanner(out, "Knowledge cutoff cannot be in the future.", true);
+    return;
+  }
   btn.disabled = true;
   const loading = mode === "synthesized" ? "Recalling… this can take a while." : "Recalling…";
   out.innerHTML = '<div class="panel"><span class="spinner"></span> ' + loading + "</div>";
@@ -24,7 +37,8 @@ export function submitRecall() {
   const startedAt = performance.now();
   apiFetch(api(state.profile, "/recall"), {
     method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ query: query, limit: limit, mode: mode, debug: true })
+    body: JSON.stringify({ query: query, limit: limit, mode: mode, debug: true,
+      asOf: asOf, knownAsOf: knownAsOf })
   })
     .then(function (r) {
       if (r.status === 204) return null;
@@ -42,6 +56,8 @@ export function submitRecall() {
 
 function renderRecall(out, data, elapsedSec) {
   const mems = data.memories || [];
+
+  if (data.temporal) out.appendChild(temporalContext(data.temporal));
 
   if (data.answer) {
     const panel = el("div", "panel");
@@ -62,6 +78,29 @@ function renderRecall(out, data, elapsedSec) {
 
   // Modes below SYNTHESIZED return a null answer, so the toggle has no answer panel to hang off.
   if (data.debug && !data.answer) out.appendChild(explainToggle(data.debug, mems, elapsedSec));
+}
+
+function temporalContext(context) {
+  const panel = el("div", "recall-temporal-context");
+  const times = el("div", "recall-temporal-times");
+  times.appendChild(contextItem("World time", fmtDate(context.asOf)));
+  times.appendChild(contextItem("Knowledge cutoff", fmtDate(context.knownAsOf)));
+  times.appendChild(contextItem("Snapshot", "#" + Number(context.snapshotSequence || 0).toLocaleString()));
+  panel.appendChild(times);
+  (context.limitations || []).forEach(function (limitation) {
+    const note = el("div", "recall-temporal-limitation");
+    note.appendChild(icon("activity", 14));
+    note.appendChild(el("span", null, limitation));
+    panel.appendChild(note);
+  });
+  return panel;
+}
+
+function contextItem(label, value) {
+  const item = el("div", "recall-temporal-item");
+  item.appendChild(el("span", null, label));
+  item.appendChild(el("strong", "num", value));
+  return item;
 }
 
 /** The disclosure plus the panel it reveals. */

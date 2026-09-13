@@ -6,6 +6,7 @@ import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.ExportLineResponse;
+import dev.alvo.pieria.api.response.FactHistoryResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
@@ -332,6 +333,13 @@ public class ProfileController {
     return profileService.revisions(name, id);
   }
 
+  @GetMapping("/memories/{id}/history")
+  public FactHistoryResponse factHistory(@PathVariable String name, @PathVariable String id,
+      @RequestParam(name = "asOf", required = false) String asOf,
+      @RequestParam(name = "knownAsOf", required = false) String knownAsOf) {
+    return profileService.factHistory(name, id, asOf, knownAsOf);
+  }
+
   @PostMapping("/memories/{id}/revisions")
   public RevisionResponse revise(@PathVariable String name, @PathVariable String id,
       @Valid @RequestBody RevisionRequest request) {
@@ -350,7 +358,7 @@ public class ProfileController {
 
     return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null,
       result.snapshot() == null ? null : new RecallResponse.TemporalContext(result.snapshot().asOf(), result.snapshot().knownAsOf(),
-        result.snapshot().sequence(), profileService.temporalCoverage(name, result.snapshot().explicit())));
+        result.snapshot().sequence(), profileService.temporalLimitations(result.snapshot().explicit())));
 
   }
 
@@ -405,7 +413,9 @@ public class ProfileController {
                                  @RequestParam(name = "includeSuperseded", defaultValue = "false") boolean includeSuperseded) {
     MemoryType typeFilter = type == null ? null : MemoryType.fromWire(type);
     List<Memory> memories = profileService.list(name, typeFilter, session, includeSuperseded);
-    return new MemoryListResponse(memories.stream().map(m -> this.memoryResponseConverter.convert(m).withValidity(profileService.validity(m.id(), null)).withAssertions(profileService.revisions(name, m.id()))).toList());
+    // Keep the collection endpoint lightweight. Temporal history is potentially much larger than
+    // the memory itself and is loaded only when the caller opens /memories/{id}/history.
+    return new MemoryListResponse(memories.stream().map(this.memoryResponseConverter::convert).toList());
   }
 
   @DeleteMapping("/memories/{id}")

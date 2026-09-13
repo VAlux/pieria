@@ -20,6 +20,9 @@ import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.api.response.RevisionResponse;
+import dev.alvo.pieria.api.response.TemporalValidity;
+import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -49,6 +52,21 @@ class StubMemoryStore implements MemoryStore {
   // profileId -> per-tier inference spend
   private final Map<String, Map<InferenceTier, TierUsage>> inferenceUsage = new LinkedHashMap<>();
   private long enqueueSeq = 0;
+
+  @Override
+  public Optional<FactHistory> factHistory(String profileId, String memoryId, TemporalSnapshot snapshot) {
+    Memory memory = memories.getOrDefault(profileId, Map.of()).get(memoryId);
+    if (memory == null) return Optional.empty();
+    Instant from = memory.createdAt();
+    String assertionId = "assertion-" + memoryId;
+    String revisionId = "revision-" + memoryId;
+    String group = memory.type().wire() + ":" + (memory.topicKey() == null ? memoryId : memory.topicKey());
+    RevisionResponse revision = new RevisionResponse(assertionId, revisionId, memoryId, memory.content(),
+      from, null, from, from, null, null, "stub-source", false, group, memory.payload(), null);
+    TemporalValidity validity = new TemporalValidity(assertionId, revisionId, from, null, from, null,
+      from, "stub-source", group, memory.payload());
+    return Optional.of(new FactHistory(group, List.of(revision), List.of(validity), List.of(validity)));
+  }
 
   @Override
   public void recordInferenceUsage(String profileId, Map<InferenceTier, TierUsage> usage) {

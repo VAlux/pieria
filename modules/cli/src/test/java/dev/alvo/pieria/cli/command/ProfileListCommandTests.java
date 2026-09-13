@@ -60,7 +60,10 @@ class ProfileListCommandTests {
 
   @Test
   void exitsWithCode3WhenDaemonUnreachable() {
-    // Server created but never started: connection is refused on the bound port.
+    // Release the bound port so the connection is refused rather than accepted and left hanging.
+    server.start();
+    server.stop(0);
+    server = null;
     Captured out = run("profile", "list", "--daemon-url", baseUrl);
 
     assertThat(out.code).isEqualTo(3);

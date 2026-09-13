@@ -18,17 +18,7 @@ public final class ContentId {
   private ContentId() {
   }
 
-  /**
-   * Legacy unscoped message id, retained to recognize rows written before profile namespacing.
-   */
-  public static String forMessage(String sessionId, String role, String content) {
-    return hash128(nullToEmpty(sessionId), nullToEmpty(role), nullToEmpty(content));
-  }
-
-  /**
-   * Profile-scoped message id used for new persisted rows. The three-argument form remains available
-   * to recognize ids written before profile namespacing was introduced.
-   */
+  /** Profile-scoped message id used for persisted rows. */
   public static String forMessage(String profileId, String sessionId, String role, String content) {
     return hash128(
       nullToEmpty(profileId),
@@ -37,20 +27,7 @@ public final class ContentId {
       nullToEmpty(content));
   }
 
-  /**
-   * Legacy unscoped memory id, retained to recognize rows written before profile namespacing.
-   *
-   * <p>Backwards-compatible 3-arg form: delegates to the full form with null
-   * {@code topicKey}/{@code payload}.
-   */
-  public static String forMemory(String sessionId, MemoryType type, String content) {
-    return forMemory(sessionId, type, content, null, null);
-  }
-
-  /**
-   * Profile-scoped memory id used for new persisted rows. The three-argument form remains available
-   * to recognize ids written before profile namespacing was introduced.
-   */
+  /** Profile-scoped memory id used for persisted rows. */
   public static String forMemory(
     String profileId, String sessionId, MemoryType type, String content) {
     return hash128(
@@ -58,23 +35,6 @@ public final class ContentId {
       nullToEmpty(sessionId),
       type.wire(),
       nullToEmpty(content));
-  }
-
-  /**
-   * Legacy unscoped id incorporating identity-defining fields: session, type, canonical content,
-   * {@code topicKey}, and {@code payload}. Two keyed memories with the same content but distinct
-   * topic keys (or distinct payloads) therefore receive distinct ids, while remaining fully
-   * deterministic. The 3-arg overload is equivalent to passing null for both extra fields, so the
-   * common case where no topic key/payload exists keeps its historical id.
-   */
-  public static String forMemory(
-    String sessionId, MemoryType type, String content, String topicKey, String payload) {
-    return hash128(
-      nullToEmpty(sessionId),
-      type.wire(),
-      nullToEmpty(content),
-      nullToEmpty(topicKey),
-      nullToEmpty(payload));
   }
 
   /**

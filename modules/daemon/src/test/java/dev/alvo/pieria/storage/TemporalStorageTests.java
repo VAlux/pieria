@@ -31,7 +31,8 @@ class TemporalStorageTests {
   private DriverManagerDataSource dataSource;
 
   private void setup() {
-    var ds = new DriverManagerDataSource(); ds.setUrl("jdbc:sqlite:" + dir.resolve("temporal.db") + "?busy_timeout=10000");
+    var ds = new DriverManagerDataSource(); ds.setUrl("jdbc:sqlite:" + dir.resolve("temporal.db")
+      + "?busy_timeout=10000&transaction_mode=IMMEDIATE");
     dataSource = ds;
     Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
     jdbc = JdbcClient.create(ds); store = new SqliteMemoryStore(jdbc);
@@ -68,6 +69,25 @@ class TemporalStorageTests {
     assertEquals(List.of(alice.content()), recall("04", after));
     assertThrows(TemporalConflictException.class, () -> store.revise(profile, bob.id(), request));
     assertEquals(2, store.revisions(profile, bob.id()).size());
+  }
+
+  @Test void factHistoryReturnsResolvedGroupRowsAndDoesNotResurrectForgottenWinners() {
+    setup();
+    Memory alice = put("Alice owns the service", "01", null);
+    Memory bob = put("Bob owns the service", "03", "04");
+    var march = new TemporalSnapshot(at("03"), store.temporalSnapshot(null, null).knownAsOf(),
+      store.temporalSnapshot(null, null).sequence(), true);
+    var history = store.factHistory(profile, alice.id(), march).orElseThrow();
+    assertEquals("fact:owner", history.factGroup());
+    assertEquals(2, history.revisions().size());
+    assertEquals(bob.id(), history.revisions().stream()
+      .filter(r -> r.revisionId().equals(history.selected().getFirst().revisionId()))
+      .findFirst().orElseThrow().memoryId());
+
+    assertTrue(store.forgetMemory(profile, bob.id()));
+    var afterForget = store.factHistory(profile, alice.id(), march).orElseThrow();
+    assertTrue(afterForget.revisions().stream().noneMatch(r -> r.memoryId().equals(bob.id())));
+    assertTrue(afterForget.selected().isEmpty(), "forgetting the winner must leave a gap, not restore Alice");
   }
 
   @Test void forgettingHidesEveryCutoffAndDoesNotRestoreCompetitorsOrEmbeddings() {

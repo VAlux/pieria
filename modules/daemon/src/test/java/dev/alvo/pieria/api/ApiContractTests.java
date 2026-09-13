@@ -154,6 +154,32 @@ class ApiContractTests {
       .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")));
   }
 
+  @Test
+  void factHistoryReturnsBothAxesAndAssertionProvenance() throws Exception {
+    String id = storeMemory();
+    mvc.perform(get("/v1/profiles/alice/memories/" + id + "/history")
+        .param("asOf", "2030-01-01T02:00:00+02:00"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.factGroup", is("fact:bob-beverage")))
+      .andExpect(jsonPath("$.selectedRevision.memoryId", is(id)))
+      .andExpect(jsonPath("$.selectedValidity.assertionId", notNullValue()))
+      .andExpect(jsonPath("$.revisions[0].revisionId", notNullValue()))
+      .andExpect(jsonPath("$.segments[0].validFrom", notNullValue()))
+      .andExpect(jsonPath("$.temporal.asOf", is("2030-01-01T00:00:00Z")))
+      .andExpect(jsonPath("$.temporal.knownAsOf", notNullValue()))
+      .andExpect(jsonPath("$.temporal.snapshotSequence", notNullValue()));
+  }
+
+  @Test
+  void factHistoryRejectsFutureKnowledgeAndMissingMemory() throws Exception {
+    String id = storeMemory();
+    mvc.perform(get("/v1/profiles/alice/memories/" + id + "/history")
+        .param("knownAsOf", "2999-01-01T00:00:00Z"))
+      .andExpect(status().isBadRequest());
+    mvc.perform(get("/v1/profiles/alice/memories/missing/history"))
+      .andExpect(status().isNotFound());
+  }
+
   // ---- forget 204 and 404 ---------------------------------------------------------------
 
   @Test

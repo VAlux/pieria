@@ -26,7 +26,7 @@ Shipped: `retrieval.rerank` (`Reranker`/`SemanticRescorer`/`ModelReranker`/`Rera
 Phase: 10 | Status: implemented (SQLite; PostgreSQL deferred)
 What: Independent world-time and knowledge-time recall, versioned assertions and validity segments,
 bounded overrides that restore predecessors, optimistic corrections, conservative semantic conflicts,
-and retained historical embeddings. Legacy reconstruction is explicitly approximate.
+and retained historical embeddings.
 Design and validation: [Phase 10](phases/phase-10-bi-temporal-fact-validity.md).
 
 5. Memory consolidation / reflection (background replay)

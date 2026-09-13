@@ -6,6 +6,7 @@ import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.client.ProfileClient;
 import dev.alvo.pieria.client.exception.DaemonHttpException;
+import dev.alvo.pieria.client.exception.DaemonTimeoutException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -164,6 +165,8 @@ public class MemoryTools {
     try {
       return call.get();
     } catch (DaemonUnavailableException e) {
+      return e.getMessage();
+    } catch (DaemonTimeoutException e) {
       return e.getMessage();
     } catch (DaemonHttpException e) {
       return e.body().isBlank() ? e.getMessage() : e.body();

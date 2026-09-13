@@ -8,11 +8,13 @@ import { toast } from "./toast.js";
 import { refreshProfileCounts } from "./profiles.js";
 import { openDrawer, closeDrawer } from "./drawer.js";
 import { markdown } from "../util/markdown.js";
+import { hasFactHistory, openFactHistory, resetFactHistory } from "./fact-history.js";
 
 const PAGE_SIZE = 100;
 let page = 1;   // 1-indexed page into the filtered/sorted result
 
 export function loadMemories(force) {
+  if (force) resetFactHistory();
   const list = $("memList");
   $("memPager").innerHTML = "";
   renderBanner(list, "Loading memories…");
@@ -119,6 +121,13 @@ export function memoryRow(m, forgettable) {
     const session = el("span", "mem-context", "Session " + m.sessionId.slice(0, 8));
     session.title = m.sessionId;
     meta.appendChild(session);
+  }
+  if (hasFactHistory(m)) {
+    const history = el("button", "mem-details", "View history");
+    history.type = "button";
+    history.setAttribute("aria-label", "View temporal history for this memory");
+    history.addEventListener("click", function (ev) { ev.stopPropagation(); openFactHistory(m); });
+    meta.appendChild(history);
   }
   const details = el("button", "mem-details", "View details");
   details.type = "button";

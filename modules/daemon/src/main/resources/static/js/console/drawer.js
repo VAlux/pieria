@@ -5,6 +5,7 @@ import { forgetMemory } from "./memories.js";
 import { memoryPresentation } from "./memory-presentation.js";
 import { markdown } from "../util/markdown.js";
 import { jsonCode } from "../util/json-code.js";
+import { hasFactHistory, openFactHistory } from "./fact-history.js";
 
 let drawerMem = null;
 
@@ -43,6 +44,12 @@ export function openDrawer(m) {
   addRow(meta, "Superseded", m.superseded ? "yes" : "no");
   addRow(meta, "Id", m.id);
   body.appendChild(meta);
+  if (hasFactHistory(m)) {
+    const history = el("button", "primary drawer-history", "View fact history");
+    history.type = "button";
+    history.addEventListener("click", function () { openFactHistory(m); });
+    body.appendChild(history);
+  }
   const raw = el("details", "mem-raw");
   raw.appendChild(el("summary", null, "Raw memory & payload"));
   raw.appendChild(kv("Original content", m.content || ""));

@@ -21,3 +21,19 @@ export function fmtDate(iso) {
 }
 
 export function fmtInt(n) { return (n == null ? 0 : n).toLocaleString(); }
+
+/** Format an instant for a datetime-local control without losing the browser's local zone. */
+export function localDateTimeValue(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (isNaN(date)) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+/** Convert a datetime-local value to the offset-bearing UTC form required by temporal APIs. */
+export function isoInstant(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return isNaN(date) ? null : date.toISOString();
+}

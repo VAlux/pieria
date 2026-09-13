@@ -5,12 +5,12 @@ import java.time.Instant;
 public record RevisionResponse(String assertionId, String revisionId, String memoryId, String content,
                                Instant validFrom, Instant validTo, Instant statedAt,
                                Instant recordedFrom, Instant recordedTo, String corrects,
-                               String sourceOccurrence, boolean invalidated, boolean approximate,
+                               String sourceOccurrence, boolean invalidated,
                                String factGroup, String sourcePayload, String conflictEvidence) {
   public RevisionResponse(String assertionId, String revisionId, String memoryId, String content, Instant validFrom,
                           Instant validTo, Instant statedAt, Instant recordedFrom, Instant recordedTo, String corrects,
-                          String sourceOccurrence, boolean invalidated, boolean approximate) {
+                          String sourceOccurrence, boolean invalidated) {
     this(assertionId, revisionId, memoryId, content, validFrom, validTo, statedAt, recordedFrom, recordedTo, corrects,
-      sourceOccurrence, invalidated, approximate, null, "{}", null);
+      sourceOccurrence, invalidated, null, "{}", null);
   }
 }

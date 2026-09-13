@@ -57,7 +57,7 @@ writer lock before checking the expected revision, so concurrent corrections yie
 - `GET /memories/{id}/revisions` exposes revision history. NDJSON exports include revision and resolved segment history.
 - Memory responses carry selected `validity` segments; write/list responses also expose assertion
   history. Segment provenance includes assertion/revision IDs, speaking time, source occurrence,
-  fact group, source payload and approximation status. Recall reports both resolved query times,
+  fact group and source payload. Recall reports both resolved query times,
   the transaction watermark, and coverage limitations. Historical recall does not expose revisions
   learned after its cutoff.
 - MCP adds temporal parameters plus `revise`/`revisions`; CLI adds `--as-of`, `--known-as-of`,
@@ -103,20 +103,16 @@ the content from every cutoff, graph query, history listing and export. Forgotte
 participate in resolution, so forgetting cannot resurrect competitors. Vectorization rechecks the
 marker while holding the writer lock.
 
-`V2__temporal_assertions.sql` follows the consolidated V1 baseline without modifying it. Migration
-reconstructs approximate assertions from `created_at`, parseable `stated_at` and surviving successor
-links. The actual live set anchors current visibility. Unlinked superseded rows are excluded because
-legacy forgetting cannot be distinguished safely from supersession; unsupported ancestors cannot
-become current during a later group resolution. Reconstructed assertions are marked approximate,
-coverage gaps are recorded, and recoverable missing embeddings are queued without model calls.
-Legacy reconstruction cannot recover corrections or provenance that the old schema never retained.
+The consolidated V1 baseline creates the bi-temporal tables and indexes directly. Pre-temporal
+databases are intentionally unsupported and must be recreated; Pieria does not infer assertions,
+validity intervals, corrections, or provenance from legacy rows.
 
 ## Verification
 
 Tests cover both interval axes and independent query defaults; future world times and invalid
 requests; bounded/nested overrides and gaps; retroactive corrections; repeated content and replay;
 optimistic concurrent corrections; graph attachment cutoffs; source-message cutoffs; semantic
-compatibility/failure guards; forgetting and vector completion; fresh schema and legacy reconstruction;
+failure guards; forgetting and vector completion; fresh schema;
 profile isolation; export behavior; and vector eligibility under heavily ineligible nearest neighbors.
 
 Local scalar-vector fixture measurements (September 12, 2026; four-dimensional vectors, five queries,

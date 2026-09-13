@@ -11,6 +11,7 @@ import dev.alvo.pieria.client.exception.DaemonHttpException;
 import dev.alvo.pieria.client.exception.DaemonInterruptedException;
 import dev.alvo.pieria.client.exception.DaemonNotFoundException;
 import dev.alvo.pieria.client.exception.DaemonProtocolException;
+import dev.alvo.pieria.client.exception.DaemonTimeoutException;
 import dev.alvo.pieria.client.exception.DaemonUnavailableException;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +25,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -166,7 +168,20 @@ class DaemonClientsTests {
     assertThat(Thread.currentThread().isInterrupted()).isTrue();
   }
 
+  @Test
+  void responseTimeoutIsNotReportedAsDaemonUnavailable() {
+    DaemonTransport transport = new DaemonTransport(
+      "http://127.0.0.1:" + server.getAddress().getPort());
+
+    assertThatThrownBy(() -> transport.get("/slow", Duration.ofMillis(20)))
+      .isInstanceOf(DaemonTimeoutException.class)
+      .hasMessageContaining("request timed out");
+  }
+
   private void handle(HttpExchange exchange) throws IOException {
+    if (exchange.getRequestURI().getPath().equals("/slow")) {
+      LockSupport.parkNanos(Duration.ofMillis(200).toNanos());
+    }
     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
     requests.add(new Request(exchange.getRequestMethod(), exchange.getRequestURI().getRawPath(),
       exchange.getRequestURI().getRawQuery(), body, exchange.getRequestHeaders()));

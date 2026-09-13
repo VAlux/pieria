@@ -98,6 +98,14 @@ class SqliteMemoryStoreTests {
     assertTrue(tables.contains("vectorization_outbox"));
     assertTrue(tables.contains("memories_fts"));
     assertTrue(tables.contains("messages_fts"));
+
+    List<String> indexes = jdbc.sql(
+        "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
+      .query(String.class)
+      .list();
+    assertTrue(indexes.contains("idx_revision_assertion"));
+    assertTrue(indexes.contains("idx_mem_profile"));
+    assertTrue(indexes.contains("idx_mem_profile_session"));
   }
 
   // ---- FTS5 migration + triggers + active filtering ----
@@ -390,48 +398,6 @@ class SqliteMemoryStoreTests {
     assertNotEquals(firstStore.stored().id(), secondStore.stored().id());
     assertEquals(1, store.listMemories(first.id(), null, null).size());
     assertEquals(1, store.listMemories(second.id(), null, null).size());
-  }
-
-  @Test
-  void legacyUnscopedIdsRemainIdempotentForOwnerButDoNotBlockAnotherProfile() {
-    Profile owner = store.getOrCreateProfile("legacy-owner");
-    Profile newcomer = store.getOrCreateProfile("legacy-newcomer");
-    String legacyMessageId = ContentId.forMessage("legacy-session", "user", "legacy shared message");
-    jdbc.sql("""
-        INSERT INTO messages (id, profile_id, session_id, role, content, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)""")
-      .params(legacyMessageId, owner.id(), "legacy-session", "user", "legacy shared message",
-        Instant.now().toString())
-      .update();
-
-    Message message = Message.of("legacy-session", "user", "legacy shared message");
-    store.insertMessages(owner.id(), "legacy-session", List.of(message));
-    store.insertMessages(newcomer.id(), "legacy-session", List.of(message));
-
-    assertEquals(legacyMessageId, messageId(owner.id()));
-    assertEquals(ContentId.forMessage(
-      newcomer.id(), "legacy-session", "user", "legacy shared message"), messageId(newcomer.id()));
-
-    Memory memory = Memory.of(MemoryType.FACT, "legacy shared fact", "legacy-session", null, null);
-    String legacyMemoryId = ContentId.forMemory("legacy-session", MemoryType.FACT, "legacy shared fact");
-    jdbc.sql("""
-        INSERT INTO memories
-          (id, profile_id, session_id, type, content, superseded, payload, created_at)
-        VALUES (?, ?, ?, ?, ?, 0, '{}', ?)""")
-      .params(legacyMemoryId, owner.id(), "legacy-session", "fact", "legacy shared fact",
-        Instant.now().toString())
-      .update();
-
-    StoreOutcome ownerStore = store.store(owner.id(), memory);
-    StoreOutcome newcomerStore = store.store(newcomer.id(), memory);
-
-    assertFalse(ownerStore.inserted());
-    assertEquals(legacyMemoryId, ownerStore.stored().id());
-    assertTrue(newcomerStore.inserted());
-    assertEquals(ContentId.forMemory(
-      newcomer.id(), "legacy-session", MemoryType.FACT, "legacy shared fact"),
-      newcomerStore.stored().id());
-    assertNotEquals(ownerStore.stored().id(), newcomerStore.stored().id());
   }
 
   private String messageId(String profileId) {

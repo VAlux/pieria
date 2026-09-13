@@ -39,6 +39,9 @@ import java.util.function.Supplier;
  * All ingestion writes and retrieval channels are defined against this interface.
  */
 public interface MemoryStore {
+  record FactHistory(String factGroup, List<RevisionResponse> revisions,
+                     List<TemporalValidity> segments, List<TemporalValidity> selected) {}
+
   default List<RevisionResponse> conflictCandidates(String profileId, Memory incoming, GraphFragment graph, int limit) {
     return conflictCandidates(profileId, incoming, limit);
   }
@@ -48,8 +51,6 @@ public interface MemoryStore {
   }
 
   default List<TemporalValidity> validityHistory(String profileId, String memoryId) { return List.of(); }
-
-  default List<String> temporalCoverage(String profileId) { return List.of(); }
 
   default boolean supportsTemporalHistory() { return false; }
 
@@ -71,6 +72,11 @@ public interface MemoryStore {
 
   default RevisionResponse revise(String profileId, String memoryId, RevisionRequest request) {
     throw new UnsupportedOperationException("revisions not supported");
+  }
+
+  default Optional<FactHistory> factHistory(String profileId, String memoryId,
+                                            TemporalSnapshot snapshot) {
+    return Optional.empty();
   }
 
 
