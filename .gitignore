@@ -31,6 +31,10 @@ pieria-eval-reports/
 # Benchmark datasets (LoCoMo, LongMemEval) are fetched locally, never checked in.
 datasets/
 
+# Local browser verification artifacts.
+output/playwright/
+.playwright-cli/
+
 ### Pieria native sqlite-vec extension (platform binaries fetched at build/release time) ###
 packaging/native/*/*.dylib
 packaging/native/*/*.so
@@ -51,6 +55,10 @@ packaging/native/*/*.dll
 .claude
 .codex/
 .superpowers/
+
+# Web console build and installed dependencies.
+console/node_modules/
+console/dist/
 
 # Seeded design-canvas outputs are regenerable from their .dc.html sources.
 docs/design/**/*.html

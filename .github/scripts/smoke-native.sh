@@ -15,9 +15,11 @@ platform="${1:?usage: smoke-native.sh <platform>}"
 port="${PIERIA_SMOKE_PORT:-8078}"
 
 bin_dir="modules/daemon/build/distributions/pieria-native/bin"
+dist_root="$PWD/modules/daemon/build/distributions/pieria-native"
 exe="$bin_dir/pieria-daemon"
 if [ "${RUNNER_OS:-}" = "Windows" ]; then
   exe="${exe}.exe"
+  dist_root="$(pwd -W)/modules/daemon/build/distributions/pieria-native"
 fi
 
 if [ ! -x "$exe" ] && [ ! -f "$exe" ]; then
@@ -119,7 +121,7 @@ echo "smoke: starting $exe on 127.0.0.1:$port ($platform)"
 # irrelevant to what this step verifies.
 # stdin from /dev/null and both output streams to a file: a background process holding the step's
 # own pipes open is the other classic way an Actions step outlives its script.
-"$exe" \
+PIERIA_HOME="$dist_root" "$exe" \
   --pieria.daemon.port="$port" \
   --pieria.app-data.root="$appdata" \
   --pieria.first-run.check-models=false \
@@ -157,6 +159,17 @@ if ! grep -Eq '"vectorSearch"[[:space:]]*:[[:space:]]*true' "$work/status.json";
   echo "----- daemon log -----" >&2
   grep -iE "vec|extension" "$log" >&2 || cat "$log" >&2
   diagnose_vec >&2
+  exit 1
+fi
+
+if ! curl -fsS "http://127.0.0.1:${port}/console/" -o "$work/console.html"; then
+  echo "smoke: FAILED — the native daemon did not serve console/index.html" >&2
+  cat "$log" >&2
+  exit 1
+fi
+console_js="$(grep -Eo '/console/assets/[^" ]+\.js' "$work/console.html" | head -1 || true)"
+if [ -z "$console_js" ] || ! curl -fsS "http://127.0.0.1:${port}${console_js}" -o /dev/null; then
+  echo "smoke: FAILED — the console JavaScript asset was not served" >&2
   exit 1
 fi
 

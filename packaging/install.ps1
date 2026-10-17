@@ -144,12 +144,13 @@ Check that release '$Version' publishes that asset: https://github.com/$Repo/rel
 	}
 
 	if ($DryRun) {
-		Write-Host "expand $zipName -> $InstallDir (expects bin\{pieria,pieria-daemon,pieria-gateway}.exe)"
+		Write-Host "expand $zipName -> $InstallDir (expects bin\ and console\)"
 	} else {
 		New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 		# Archive root contains bin\*.exe; expand into the install root.
 		Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
 		if (-not (Test-Path $daemonExe)) { throw "expected $daemonExe after extraction; check archive layout." }
+		if (-not (Test-Path (Join-Path $InstallDir 'console\index.html'))) { throw "release is missing console\index.html." }
 	}
 }
 finally {

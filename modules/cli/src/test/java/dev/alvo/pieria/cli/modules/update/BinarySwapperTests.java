@@ -28,12 +28,14 @@ class BinarySwapperTests {
   void swapsBinariesHardensAndStampsVersion(@TempDir Path tmp) throws IOException {
     StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
     writeFile(dist.binDir().resolve("version.txt"), "9.9.9");
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
 
     Path installBin = tmp.resolve("install").resolve("bin");
     for (String name : BinarySource.BINARIES) {
       writeFile(installBin.resolve(name), name + "-old");
     }
     InstallLayout install = new InstallLayout(installBin);
+    writeFile(tmp.resolve("install/console/index.html"), "old console");
 
     TestPlatform platform = new TestPlatform();
     new BinarySwapper(platform).swap(dist, install);
@@ -42,6 +44,7 @@ class BinarySwapperTests {
       assertThat(Files.readString(installBin.resolve(name))).isEqualTo(name + "-new");
     }
     assertThat(Files.readString(installBin.resolve("version.txt"))).isEqualTo("9.9.9");
+    assertThat(Files.readString(tmp.resolve("install/console/index.html"))).isEqualTo("new console");
     assertThat(platform.hardened).hasSize(3);
     // No staging/backup residue.
     try (var entries = Files.list(installBin)) {
@@ -51,18 +54,38 @@ class BinarySwapperTests {
   }
 
   @Test
+  void installsConsoleIntoAnOlderBinOnlyInstallation(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
+    writeFile(dist.consoleDir().resolve("assets/app.js"), "console asset");
+
+    Path installBin = tmp.resolve("install/bin");
+    for (String name : BinarySource.BINARIES) {
+      writeFile(installBin.resolve(name), name + "-old");
+    }
+
+    new BinarySwapper(new TestPlatform()).swap(dist, new InstallLayout(installBin));
+
+    assertThat(Files.readString(tmp.resolve("install/console/index.html"))).isEqualTo("new console");
+    assertThat(Files.readString(tmp.resolve("install/console/assets/app.js"))).isEqualTo("console asset");
+    assertThat(tmp.resolve("install/console.bak")).doesNotExist();
+  }
+
+  @Test
   void rollsBackEarlierBinariesWhenOneIsMissing(@TempDir Path tmp) throws IOException {
     // Staging is missing pieria-gateway, so the third swap fails after the first two committed.
     Path staging = tmp.resolve("staging");
     writeFile(staging.resolve("bin").resolve("pieria"), "pieria-new");
     writeFile(staging.resolve("bin").resolve("pieria-daemon"), "pieria-daemon-new");
     StagedDist dist = new StagedDist(staging);
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
 
     Path installBin = tmp.resolve("install").resolve("bin");
     for (String name : BinarySource.BINARIES) {
       writeFile(installBin.resolve(name), name + "-old");
     }
     InstallLayout install = new InstallLayout(installBin);
+    writeFile(tmp.resolve("install/console/index.html"), "old console");
 
     assertThatThrownBy(() -> new BinarySwapper(new TestPlatform()).swap(dist, install))
       .isInstanceOf(UpdateException.class);
@@ -71,6 +94,7 @@ class BinarySwapperTests {
     for (String name : BinarySource.BINARIES) {
       assertThat(Files.readString(installBin.resolve(name))).isEqualTo(name + "-old");
     }
+    assertThat(Files.readString(tmp.resolve("install/console/index.html"))).isEqualTo("old console");
     try (var entries = Files.list(installBin)) {
       assertThat(entries.map(p -> p.getFileName().toString()))
         .noneMatch(n -> n.endsWith(".new") || n.endsWith(".bak"));

@@ -537,6 +537,17 @@ fun reSignAdhocMacOs(binDir: File, log: org.gradle.api.logging.Logger) {
 // same task `deployLocal` uses locally and the two cannot drift.
 val prebuiltNativeBins = providers.gradleProperty("prebuiltNativeBins")
 
+val npmCommand = if (System.getProperty("os.name", "").lowercase().contains("win")) "npm.cmd" else "npm"
+val installConsoleDependencies by tasks.registering(Exec::class) {
+	workingDir(rootProject.file("console"))
+	commandLine(npmCommand, "ci", "--no-audit", "--no-fund")
+}
+val buildConsole by tasks.registering(Exec::class) {
+	dependsOn(installConsoleDependencies)
+	workingDir(rootProject.file("console"))
+	commandLine(npmCommand, "run", "build")
+}
+
 val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
 	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."
@@ -580,6 +591,10 @@ val nativeDist by tasks.registering(Sync::class) {
 	}
 	from(generateVersionStamp) {
 		into("bin")
+	}
+	dependsOn(buildConsole)
+	from(rootProject.layout.projectDirectory.dir("console/dist")) {
+		into("console")
 	}
 	// Re-sign the freshly assembled binaries so the dist (and release archives) ship plain ad-hoc.
 	doLast {
