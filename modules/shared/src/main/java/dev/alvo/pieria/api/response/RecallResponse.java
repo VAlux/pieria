@@ -49,12 +49,16 @@ public record RecallResponse(String answer, List<MemoryResponse> memories,
    * @param temporalFacts pre-computed temporal facts injected into synthesis (rendered)
    * @param channels      per-channel latency/hit/failure diagnostics
    * @param rerank        per-rerank-stage diagnostics, in the order the stages ran
+   * @param selection     why clusters and originals were selected, deferred, or suppressed
    */
   public record RecallDebug(
     List<Provenance> candidates,
     List<String> temporalFacts,
     List<ChannelDiagnostic> channels,
-    List<RerankDiagnostic> rerank) {
+    List<RerankDiagnostic> rerank,
+    List<SelectionDecision> selection) {
+
+    public record SelectionDecision(String id,String action,String reason,List<String> evidenceIds) {}
 
     /** One fused candidate's provenance: memory id, RRF score, and the channels that produced it. */
     public record Provenance(String id, double score, String source) {

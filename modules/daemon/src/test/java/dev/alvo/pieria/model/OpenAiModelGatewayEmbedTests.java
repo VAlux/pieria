@@ -54,7 +54,7 @@ class OpenAiModelGatewayEmbedTests {
     PieriaProperties properties = new PieriaProperties(null, null, null,
       new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, 4, null, null),
       null, null, null);
-    return new OpenAiModelGateway(null, null, embeddingModel, properties, new OllamaModelProviderAdapter());
+    return new OpenAiModelGateway(null, null, embeddingModel, properties, new OllamaModelProviderAdapter(), null);
   }
 
   @Test

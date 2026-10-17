@@ -39,6 +39,48 @@ import java.util.function.Supplier;
  * All ingestion writes and retrieval channels are defined against this interface.
  */
 public interface MemoryStore {
+  /** Snapshot-aware graph reads; model calls must stay outside the callback. */
+  default <T> T readClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    throw new UnsupportedOperationException("Cluster storage unavailable");
+  }
+
+  /** Serialized SQLite graph edits and synthesis publication. */
+  default <T> T writeClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    throw new UnsupportedOperationException("Cluster storage unavailable");
+  }
+
+  /** Generated cluster memory is usable only while all pinned source evidence is eligible. */
+  default boolean eligibleClusterMemory(String profileId, String memoryId, TemporalSnapshot snapshot,
+                                        boolean excludeCodeDerived) {
+    return true;
+  }
+
+  default java.util.Set<String> clusterCoveredOriginals(String profileId, String memoryId,
+      String query, TemporalSnapshot snapshot) {
+    return java.util.Set.of();
+  }
+  /** Bounded lexical and semantic hits on validated claims, resolved to eligible syntheses. */
+  default List<Memory> searchClusterClaims(String profileId,String query,TemporalSnapshot snapshot,
+                                           boolean excludeCodeDerived,int limit) {
+    return searchClusterClaims(profileId,query,null,snapshot,excludeCodeDerived,limit);
+  }
+  default List<Memory> searchClusterClaims(String profileId,String query,float[] queryEmbedding,
+                                           TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    return List.of();
+  }
+  default List<Memory> relevantClusterParents(String profileId,List<String> seedMemoryIds,String query,
+                                              TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    return List.of();
+  }
+  /** A short snapshot-consistent wiki read. The callback must not perform model/network I/O. */
+  default <T> T readWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    throw new UnsupportedOperationException("Wiki storage unavailable");
+  }
+  /** Atomic wiki mutation/publication. Never retain the repository or call a model in the callback. */
+  default <T> T writeWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    throw new UnsupportedOperationException("Wiki storage unavailable");
+  }
+
   record FactHistory(String factGroup, List<RevisionResponse> revisions,
                      List<TemporalValidity> segments, List<TemporalValidity> selected) {}
 

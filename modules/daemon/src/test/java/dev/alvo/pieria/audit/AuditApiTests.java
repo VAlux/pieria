@@ -31,6 +31,25 @@ class AuditApiTests {
   @Autowired ObjectMapper json;
 
   @Test
+  void wikiAuditRetainsMetadataWithoutSearchOrEvidenceBodies() throws Exception {
+    String profile = "wiki-audit-" + UUID.randomUUID();
+    mvc.perform(post("/v1/profiles/" + profile + "/memories").contentType("application/json")
+      .content("{\"type\":\"event\",\"content\":\"wiki-private-evidence\"}"))
+      .andExpect(status().isCreated());
+    mvc.perform(get("/v1/profiles/" + profile + "/wiki/search").param("q", "wiki-private-evidence"))
+      .andExpect(status().isOk());
+    String list = mvc.perform(get("/v1/profiles/" + profile + "/audit").param("operation", "wiki.search"))
+      .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    String id = json.readTree(list).get("events").get(0).get("id").asText();
+    mvc.perform(get("/v1/profiles/" + profile + "/audit/" + id))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.operation", is("wiki.search")))
+      .andExpect(jsonPath("$.requestBody", is("")))
+      .andExpect(jsonPath("$.responseBody", is("")))
+      .andExpect(jsonPath("$.queryString").doesNotExist());
+  }
+
+  @Test
   void capturesCallerRequestResponseAndSupportsDetailSearch() throws Exception {
     String profile = "audit-" + UUID.randomUUID();
     mvc.perform(post("/v1/profiles/" + profile + "/memories")

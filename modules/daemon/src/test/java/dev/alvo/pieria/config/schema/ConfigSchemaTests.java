@@ -30,10 +30,10 @@ class ConfigSchemaTests {
   @Test
   void profileScopedKeysMatchDaemonOverridesExactly() {
     Set<String> fromCode = new LinkedHashSet<>();
-    kebabComponentNames(DaemonOverrides.Ingestion.class)
-      .forEach(name -> fromCode.add("ingestion." + name));
-    kebabComponentNames(DaemonOverrides.Retrieval.class)
-      .forEach(name -> fromCode.add("retrieval." + name));
+    for (RecordComponent section : DaemonOverrides.class.getRecordComponents()) {
+      kebabComponentNames(section.getType().asSubclass(Record.class))
+        .forEach(name -> fromCode.add(section.getName() + "." + name));
+    }
 
     Set<String> fromSchema = schema.forScope("profile").stream()
       .map(ConfigField::key)

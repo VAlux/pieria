@@ -8,5 +8,8 @@ package dev.alvo.pieria.config;
  */
 public record ResolvedConfig(
   PieriaProperties.Ingestion ingestion,
-  PieriaProperties.Retrieval retrieval) {
+  PieriaProperties.Retrieval retrieval, WikiProperties wiki) {
+  public ResolvedConfig(PieriaProperties.Ingestion ingestion, PieriaProperties.Retrieval retrieval) {
+    this(ingestion,retrieval,WikiProperties.DEFAULT);
+  }
 }

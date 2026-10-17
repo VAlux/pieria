@@ -87,6 +87,7 @@ public class OpenAiModelGateway implements ModelGateway {
   private static final Pattern RERANK_LINE = Pattern.compile("^(\\d+)\\s*[.:\\-)]?\\s+([A-Za-z]+)\\s*$");
   private final ChatClient extractionChatClient;
   private final ChatClient synthesisChatClient;
+  private final ChatClient wikiChatClient;
   private final EmbeddingModel embeddingModel;
   private final PieriaProperties properties;
   private final ModelProviderAdapter providerAdapter;
@@ -97,9 +98,11 @@ public class OpenAiModelGateway implements ModelGateway {
                             @Qualifier("synthesisChatClient") ChatClient synthesisChatClient,
                             EmbeddingModel embeddingModel,
                             PieriaProperties properties,
-                            ModelProviderAdapter providerAdapter) {
+                            ModelProviderAdapter providerAdapter,
+                            @Qualifier("wikiChatClient") ChatClient wikiChatClient) {
     this.extractionChatClient = extractionChatClient;
     this.synthesisChatClient = synthesisChatClient;
+    this.wikiChatClient = wikiChatClient;
     this.embeddingModel = embeddingModel;
     this.properties = properties;
     this.providerAdapter = providerAdapter;
@@ -1210,6 +1213,100 @@ public class OpenAiModelGateway implements ModelGateway {
     } catch (RuntimeException e) {
       throw new ModelUnavailableException("model synthesis failed", e);
     }
+  }
+
+  @Override
+  public String synthesizeWiki(dev.alvo.pieria.wiki.WikiData.Bundle bundle) {
+    String prompt = dev.alvo.pieria.wiki.WikiEvidenceSelector.prompt(bundle);
+    try {
+      // Exactly one provider attempt: the durable wiki job owns the two-attempt budget.
+      ChatResponse response = wikiChatClient.prompt().user(prompt)
+        .options(reasoningOptions("synthesizeWiki", properties.model().synthesisModel()).maxTokens(bundle.maxOutputTokens()))
+        .call().chatResponse();
+      logTokenUsage("synthesizeWiki", response);
+      return response == null || response.getResult() == null ? "" : response.getResult().getOutput().getText();
+    } catch (RuntimeException e) {
+      InferenceUsageSink.current().add(InferenceTier.SYNTHESIS, 0, 0, 1);
+      throw new ModelUnavailableException("Wiki provider unavailable", e);
+    }
+  }
+
+  @Override
+  public dev.alvo.pieria.cluster.ClusterModelInput.Draft synthesizeCluster(
+      dev.alvo.pieria.cluster.ClusterModelInput input) {
+    StringBuilder evidence=new StringBuilder();
+    for(var source:input.evidence()) evidence.append(source.memoryId()).append(": ")
+      .append(source.content()).append('\n');
+    StringBuilder children=new StringBuilder();
+    for(var child:input.children()) {
+      children.append("Child ").append(child.clusterId()).append(" revision ")
+        .append(child.synthesisId()).append('\n');
+      for(var claim:child.claims()) children.append("- ").append(claim.text()).append('\n');
+    }
+    String prompt="""
+      Synthesize one evidence-backed knowledge cluster. Return ONLY JSON:
+      {"body":"concise synthesis","claims":[{"text":"one verifiable claim","supports":["original memory id"],"covers":["original memory id"]}]}
+      Cite only original memory IDs listed below. Every claim needs support. Mark covers only when
+      the claim preserves the detail, not merely when the memory was consulted. Do not infer facts
+      from repeated citations or from child prose alone. Omit unsupported claims.
+      Title: %s
+      Scope: %s
+      Validated child claims:
+      %s
+      Original evidence:
+      %s
+      """.formatted(input.title(),input.scope(),children,evidence);
+    try {
+      ChatResponse response=synthesisChatClient.prompt().user(prompt)
+        .options(reasoningOptions("synthesizeCluster",properties.model().synthesisModel())
+          .maxTokens(input.maxOutputTokens()))
+        .call().chatResponse();
+      logTokenUsage("synthesizeCluster",response);
+      String raw=response==null || response.getResult()==null?"":response.getResult().getOutput().getText();
+      String json=raw.strip().replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","");
+      return objectMapper.readValue(json,dev.alvo.pieria.cluster.ClusterModelInput.Draft.class);
+    } catch(RuntimeException e) {
+      throw new ModelUnavailableException("cluster synthesis failed",e);
+    }
+  }
+
+  @Override
+  public boolean validateClusterClaim(String claim,List<String> citedOriginals) {
+    if(citedOriginals==null || citedOriginals.isEmpty()) return false;
+    try {
+      var result=verify(claim,String.join("\n",citedOriginals));
+      return result!=null && result.verdict()==dev.alvo.pieria.ingestion.model.VerificationVerdict.PASS;
+    } catch(RuntimeException e) {
+      LOGGER.warn("cluster grounding check failed: {}",e.toString());
+      return false;
+    }
+  }
+
+  @Override
+  public boolean validateClusterGroup(String title,String scope,List<String> originals) {
+    if(originals==null || originals.size()<3) return false;
+    String prompt="""
+      Do these DISTINCT sources form one coherent knowledge topic with the proposed title and
+      scope? Reject generic vocabulary overlap, redundant wrappers, and incompatible subjects.
+      Reply only YES or NO.
+      Title: %s
+      Scope: %s
+      Sources:\n%s
+      """.formatted(title,scope,String.join("\n",originals));
+    try {return callExtractionText(prompt,"cluster-coherence").strip().equalsIgnoreCase("YES");}
+    catch(RuntimeException e) {return false;}
+  }
+
+  @Override
+  public boolean validateClusterCoverage(String original,String claim) {
+    String prompt="""
+      Does the claim preserve every factual detail in the original statement, including any
+      qualifications, values, and dates? A citation alone is insufficient. Reply only YES or NO.
+      Original: %s
+      Claim: %s
+      """.formatted(original,claim);
+    try {return callExtractionText(prompt,"cluster-coverage").strip().equalsIgnoreCase("YES");}
+    catch(RuntimeException e) {return false;}
   }
 
   @Override

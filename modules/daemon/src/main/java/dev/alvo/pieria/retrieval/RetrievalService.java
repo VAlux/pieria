@@ -7,12 +7,14 @@ import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.model.ModelGateway;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.ChannelDiagnostics;
 import dev.alvo.pieria.retrieval.RetrievalDiagnostics.RerankDiagnostics;
+import dev.alvo.pieria.retrieval.RetrievalDiagnostics.SelectionDecision;
 import dev.alvo.pieria.retrieval.channel.CodeGraphChannel;
 import dev.alvo.pieria.retrieval.channel.DirectVectorChannel;
 import dev.alvo.pieria.retrieval.channel.ExactKeyChannel;
@@ -276,12 +278,13 @@ public class RetrievalService {
       // for itself) so the limited slots go to the decisions/conventions it can't cheaply re-derive.
       // Filtered before fusion so the limit still yields that many real hits.
       List<RerankDiagnostics> rerankDiagnostics = new ArrayList<>();
+      List<SelectionDecision> selectionDiagnostics = debug ? new ArrayList<>() : null;
       Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
         List<RetrievalCandidate> forFusion = excludeCodeDerived
           ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
           : hits.value();
-        return fuse(pipeline, forFusion, limit, profile.id(), context, mode, inferenceUsage,
-          rerankDiagnostics);
+        return fuse(pipeline, forFusion, limit, profile.id(), context, mode, excludeCodeDerived, inferenceUsage,
+          rerankDiagnostics,selectionDiagnostics);
       });
       LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
         profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
@@ -309,7 +312,7 @@ public class RetrievalService {
       recordUsage(profile.id(), fused.value(), answer.value());
 
       RetrievalDiagnostics diagnostics = debug
-        ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, rerankDiagnostics)
+        ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, rerankDiagnostics,selectionDiagnostics)
         : null;
       long rerankMs = rerankDiagnostics.stream()
         .mapToLong(RerankDiagnostics::latencyMs).sum();
@@ -445,9 +448,26 @@ public class RetrievalService {
    */
   private List<RecallCandidate> fuse(Pipeline pipeline, List<RetrievalCandidate> hits, int limit,
                                      String profileId, RetrievalContext context, RecallMode mode,
+                                     boolean excludeCodeDerived,
                                      InferenceUsageAccumulator usage,
-                                     List<RerankDiagnostics> rerankDiagnostics) {
-    List<RecallCandidate> fused = pipeline.fusion().fuse(hits);
+                                     List<RerankDiagnostics> rerankDiagnostics,
+                                     List<SelectionDecision> selectionDiagnostics) {
+    List<RecallCandidate> fused = new ArrayList<>(pipeline.fusion().fuse(hits).stream()
+      .filter(candidate -> candidate.memory().type()!=MemoryType.CLUSTER ||
+        store.eligibleClusterMemory(profileId,candidate.memory().id(),context.temporal(),excludeCodeDerived))
+      .toList());
+    // Claims can preserve a detail omitted from the short vectorized body.
+    // Let these hits pass through the normal reranking and coverage selection.
+    Set<String> seen=new java.util.HashSet<>();
+    fused.forEach(candidate->seen.add(candidate.memory().id()));
+    double claimScore=fused.isEmpty()?0.01:fused.getFirst().score()*.85;
+    for(Memory cluster:store.searchClusterClaims(profileId,context.ftsText(),context.queryEmbedding(),context.temporal(),
+        excludeCodeDerived,Math.min(30,Math.max(limit*3,10))))
+      if(seen.add(cluster.id())) fused.add(new RecallCandidate(cluster,claimScore,"cluster:claim"));
+    List<String> seeds=fused.stream().limit(30).map(candidate->candidate.memory().id()).toList();
+    for(Memory parent:store.relevantClusterParents(profileId,seeds,context.ftsText(),context.temporal(),
+        excludeCodeDerived,30))
+      if(seen.add(parent.id())) fused.add(new RecallCandidate(parent,claimScore*.9,"cluster:parent"));
 
     // One store read serves both consumers: the collapse pass's semantic half and the rerank
     // stage's cosine term score the same candidates against the same map — but collapse then
@@ -464,7 +484,51 @@ public class RetrievalService {
     List<RecallCandidate> reranked = rerank(pipeline, distinct, vectors, context, mode, usage,
       rerankDiagnostics);
 
-    return reranked.size() > limit ? List.copyOf(reranked.subList(0, limit)) : reranked;
+    List<RecallCandidate> selected=selectComplementary(profileId,context.query(),context.temporal(),
+      reranked,selectionDiagnostics);
+    return selected.size() > limit ? List.copyOf(selected.subList(0, limit)) : selected;
+  }
+
+  private List<RecallCandidate> selectComplementary(String profileId,String query,
+      TemporalSnapshot snapshot,List<RecallCandidate> ranked,List<SelectionDecision> decisions) {
+    List<RecallCandidate> selected=new ArrayList<>();
+    List<RecallCandidate> uncoveredClusters=new ArrayList<>();
+    Set<String> represented=new java.util.HashSet<>();
+    for(RecallCandidate candidate:ranked) {
+      if(candidate.memory().type()==MemoryType.CLUSTER) {
+        Set<String> covered=store.clusterCoveredOriginals(profileId,candidate.memory().id(),query,snapshot);
+        if(covered.isEmpty()) {
+          uncoveredClusters.add(candidate);
+          decide(decisions,candidate,"deferred","no matching verified coverage",covered);
+          continue;
+        }
+        if(represented.containsAll(covered)) {
+          decide(decisions,candidate,"suppressed","matching evidence already represented",covered);
+          continue;
+        }
+        selected.add(candidate);
+        represented.addAll(covered);
+        decide(decisions,candidate,"selected",candidate.source().contains("cluster:parent")
+          ?"parent promoted for relevant claims or branches":"matching cluster claims cover new evidence",covered);
+      } else if(represented.add(candidate.memory().id())) {
+        selected.add(candidate);
+        decide(decisions,candidate,"selected","matching detail remains available as an original",
+          Set.of(candidate.memory().id()));
+      } else {
+        decide(decisions,candidate,"suppressed","original already represented",
+          Set.of(candidate.memory().id()));
+      }
+    }
+    selected.addAll(uncoveredClusters);
+    for(RecallCandidate candidate:uncoveredClusters)
+      decide(decisions,candidate,"fallback","summary has no verified matching coverage",Set.of());
+    return selected;
+  }
+
+  private static void decide(List<SelectionDecision> decisions,RecallCandidate candidate,
+                             String action,String reason,Set<String> evidence) {
+    if(decisions!=null) decisions.add(new SelectionDecision(candidate.memory().id(),action,reason,
+      evidence.stream().sorted().toList()));
   }
 
   /**
@@ -583,7 +647,7 @@ public class RetrievalService {
     List<Set<String>> keptShingles = new ArrayList<>(ranked.size());
     List<float[]> keptVectors = new ArrayList<>(ranked.size());
     for (RecallCandidate candidate : ranked) {
-      boolean exempt = isCodeDerived(candidate.memory());
+      boolean exempt = isCodeDerived(candidate.memory()) || candidate.memory().type()==MemoryType.CLUSTER;
       // An empty shingle set and a null vector never match, which is how the exemption is expressed.
       Set<String> shingles = exempt ? Set.of() : TextSimilarity.shingles(candidate.memory().content());
       float[] vector = exempt ? null : vectors.get(candidate.memory().id());
@@ -650,7 +714,7 @@ public class RetrievalService {
       if (selected.isEmpty()) return store.supportsTemporalHistory() ? null : candidate;
       Memory m = candidate.memory();
       Memory projected = new Memory(m.id(), m.sessionId(), m.type(), m.content(), m.topicKey(), null, false,
-        selected.getFirst().sourcePayload(), m.embedText(), m.createdAt());
+        m.type()==MemoryType.CLUSTER?m.payload():selected.getFirst().sourcePayload(), m.embedText(), m.createdAt());
       return new RecallCandidate(projected, candidate.score(), candidate.source());
     }).filter(Objects::nonNull).toList();
   }

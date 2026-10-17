@@ -37,8 +37,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -48,6 +46,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -68,6 +67,106 @@ import java.util.stream.Collectors;
  */
 @Repository
 public class SqliteMemoryStore implements MemoryStore {
+
+  @Override
+  public <T> T readClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    return work.apply(new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this));
+  }
+
+  @Override
+  @Transactional
+  public <T> T writeClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    jdbc.sql("UPDATE cluster_lock SET id=id WHERE id=1").update();
+    return work.apply(new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this));
+  }
+
+  @Override
+  public boolean eligibleClusterMemory(String profileId,String memoryId,TemporalSnapshot snapshot,
+                                       boolean excludeCodeDerived) {
+    return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+      .eligibleMemory(profileId,memoryId,snapshot,excludeCodeDerived);
+  }
+
+  @Override
+  public Set<String> clusterCoveredOriginals(String profileId,String memoryId,String query,
+                                             TemporalSnapshot snapshot) {
+    return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+      .coveredOriginals(profileId,memoryId,query,snapshot);
+  }
+
+  @Override
+  public List<Memory> searchClusterClaims(String profileId,String query,float[] queryEmbedding,TemporalSnapshot snapshot,
+                                           boolean excludeCodeDerived,int limit) {
+    if(limit<1) return List.of();
+    Set<String> ids=new LinkedHashSet<>();
+    String match=query==null?"":java.util.Arrays.stream(query.toLowerCase(java.util.Locale.ROOT)
+        .split("[^\\p{L}\\p{N}]+"))
+      .filter(term->term.length()>2).distinct().limit(10)
+      .map(term->"\""+term+"\"").collect(java.util.stream.Collectors.joining(" OR "));
+    if(!match.isBlank()) ids.addAll(jdbc.sql("""
+      SELECT s.memory_id FROM cluster_claims_fts
+      JOIN cluster_claims claim ON claim.rowid=cluster_claims_fts.rowid
+      JOIN cluster_syntheses s ON s.id=claim.synthesis_id
+      JOIN clusters c ON c.id=s.cluster_id
+      WHERE cluster_claims_fts MATCH ? AND c.profile_id=?
+      GROUP BY s.memory_id ORDER BY MAX(s.recorded_sequence) DESC,s.memory_id
+      LIMIT ?
+      """).params(match,profileId,Math.min(300,limit*3)).query(String.class).list());
+    if(queryEmbedding!=null && isVectorSearchAvailable()) {
+      try {
+        record ClaimVector(String memoryId,byte[] embedding) {}
+        for(ClaimVector hit:jdbc.sql("""
+          SELECT s.memory_id,claim.embedding FROM cluster_claims claim
+          JOIN cluster_syntheses s ON s.id=claim.synthesis_id
+          JOIN clusters c ON c.id=s.cluster_id
+          WHERE c.profile_id=? AND claim.embedding IS NOT NULL
+          ORDER BY vec_distance_L2(claim.embedding,?),s.recorded_sequence DESC LIMIT ?
+          """).params(profileId,encodeEmbedding(queryEmbedding),Math.min(300,limit*3))
+          .query((rs,_) -> new ClaimVector(rs.getString(1),rs.getBytes(2))).list()) {
+          float[] vector=decodeEmbedding(hit.embedding());
+          if(vector.length==queryEmbedding.length &&
+              dev.alvo.pieria.tools.Vectors.cosine(queryEmbedding,vector)>=.78)
+            ids.add(hit.memoryId());
+        }
+      } catch(RuntimeException e) {
+        // A missing vector extension or changed embedding width cannot break lexical recall.
+      }
+    }
+    List<Memory> result=new ArrayList<>();
+    for(String id:ids) {
+      if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
+      atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+      if(result.size()>=limit) break;
+    }
+    return result;
+  }
+  @Override
+  public List<Memory> relevantClusterParents(String profileId,List<String> seedMemoryIds,String query,
+                                              TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    List<Memory> result=new ArrayList<>();
+    for(String id:new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+        .relevantParents(profileId,seedMemoryIds,query,snapshot,limit)) {
+      if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
+      atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+    }
+    return result;
+  }
+
+  @Override
+  public <T> T readWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    // The embedded data source uses BEGIN IMMEDIATE for Spring transactions. A read-only
+    // transaction would still reserve SQLite's sole writer for the entire wiki response.
+    // WikiRepository captures a temporal watermark and its queries are independently scoped.
+    return work.apply(new SqliteWikiStore(jdbc, this));
+  }
+
+  @Override
+  @Transactional
+  public <T> T writeWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    // Reserve the single writer before reading, avoiding a WAL read-to-write upgrade race.
+    jdbc.sql("UPDATE wiki_lock SET id=id WHERE id=1").update();
+    return work.apply(new SqliteWikiStore(jdbc, this));
+  }
 
   private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);
 
@@ -297,23 +396,14 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   private static byte[] encodeEmbedding(float[] embedding) {
-    ByteBuffer buffer = ByteBuffer.allocate(embedding.length * Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
-    for (float value : embedding) {
-      buffer.putFloat(value);
-    }
-    return buffer.array();
+    return dev.alvo.pieria.tools.EmbeddingCodec.encode(embedding);
   }
 
   /**
    * Inverse of {@link #encodeEmbedding}: decode little-endian float32 bytes back to a float vector.
    */
   private static float[] decodeEmbedding(byte[] blob) {
-    ByteBuffer buffer = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
-    float[] out = new float[blob.length / Float.BYTES];
-    for (int i = 0; i < out.length; i++) {
-      out[i] = buffer.getFloat();
-    }
-    return out;
+    return dev.alvo.pieria.tools.EmbeddingCodec.decode(blob);
   }
 
   /**
@@ -490,6 +580,8 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public void deleteProfile(String profileId) {
+    new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this).deleteProfile(profileId);
+    new SqliteWikiStore(jdbc, this).deleteProfile(profileId);
     // Drop the sqlite-vec index rows first (they are not synchronized by triggers) while the
     // owning memory rows still exist to resolve the sub-select. No-op when vector search is off.
     if (isVectorSearchAvailable()) {
@@ -1130,10 +1222,12 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     sql.append(" ORDER BY created_at DESC");
 
-    return jdbc.sql(sql.toString())
+    List<Memory> listed = jdbc.sql(sql.toString())
       .params(params)
       .query((rs, _) -> mapMemory(rs))
       .list();
+    return listed.stream().filter(memory -> memory.type()!=MemoryType.CLUSTER ||
+      eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)).toList();
   }
 
   @Override
@@ -1172,6 +1266,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
     List<ExportRow> rows = new ArrayList<>(memories.size());
     for (Memory memory : memories) {
+      if (memory.type()==MemoryType.CLUSTER && !eligibleClusterMemory(profileId,memory.id(),null,false)) continue;
       rows.add(new ExportRow(profileName, memory));
     }
 
@@ -1259,13 +1354,23 @@ public class SqliteMemoryStore implements MemoryStore {
       return List.of();
     }
     // Join FTS rowid back to memories; filter to this profile's active set, rank best-first.
-    return jdbc.sql(
-        "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-          + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
-          + "= ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
-      .params(match, profileId, limit)
-      .query((rs, _) -> mapMemory(rs))
-      .list();
+    int pageSize=Math.min(100,Math.max(20,limit));
+    List<Memory> eligible=new ArrayList<>();
+    for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
+      List<Memory> page=jdbc.sql(
+          "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
+            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
+            + "= ? AND " + active("m") + " ORDER BY f.rank,m.id LIMIT ? OFFSET ?")
+        .params(match,profileId,Math.min(pageSize,300-offset),offset)
+        .query((rs, _) -> mapMemory(rs)).list();
+      for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
+          eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)) {
+        eligible.add(memory);
+        if(eligible.size()==limit) break;
+      }
+      if(page.size()<pageSize) break;
+    }
+    return List.copyOf(eligible);
   }
 
   @Override
@@ -1338,10 +1443,22 @@ public class SqliteMemoryStore implements MemoryStore {
       return List.of();
     }
     // Rank only eligible stored blobs. KNN-then-filter can starve a historical/profile query.
-    return jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE profile_id = ? AND " + active("")
-        + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ?")
-      .params(profileId, MemoryType.TASK.wire(), encodeEmbedding(queryEmbedding), limit)
-      .query((rs, _) -> mapMemory(rs)).list();
+    int pageSize=Math.min(100,Math.max(20,limit));
+    byte[] encoded=encodeEmbedding(queryEmbedding);
+    List<Memory> eligible=new ArrayList<>();
+    for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
+      List<Memory> page=jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE profile_id = ? AND " + active("")
+          + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ? OFFSET ?")
+        .params(profileId,MemoryType.TASK.wire(),encoded,Math.min(pageSize,300-offset),offset)
+        .query((rs, _) -> mapMemory(rs)).list();
+      for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
+          eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)) {
+        eligible.add(memory);
+        if(eligible.size()==limit) break;
+      }
+      if(page.size()<pageSize) break;
+    }
+    return List.copyOf(eligible);
   }
 
   @Override
@@ -1378,27 +1495,33 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
-  @Transactional
   public int backfillVectors() {
     if (!isVectorSearchAvailable()) {
       return 0;
     }
-    // Active, vector-eligible memories with a stored BLOB but no vec row yet.
-    record Pending(String id, byte[] embedding) {
-    }
-    List<Pending> rows = jdbc.sql(
-        "SELECT m.id AS id, m.embedding AS embedding FROM memories m WHERE m.forgotten = 0 AND m.type != ? AND m.embedding "
-          + "IS NOT NULL AND NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.memory_id = m.id)")
+    // vec0 does not make the memory_id equality predicate an efficient lookup. A correlated
+    // NOT EXISTS scans the vector table for each embedded memory, which took 38 seconds on a
+    // populated store even when nothing needed backfilling. Scan vec0 once, then find missing
+    // IDs from the ordinary indexed table. Do not hold a write transaction across either scan:
+    // startup backfill must not block HTTP, audit, and outbox writes for its whole duration.
+    Set<String> indexed = new HashSet<>(jdbc.sql("SELECT memory_id FROM memories_vec")
+      .query(String.class).list());
+    List<String> missing = jdbc.sql(
+        "SELECT id FROM memories WHERE forgotten = 0 AND type != ? AND embedding IS NOT NULL")
       .param(MemoryType.TASK.wire())
-      .query((rs, _) -> new Pending(rs.getString("id"), rs.getBytes("embedding")))
-      .list();
-
+      .query(String.class).list().stream()
+      .filter(id -> !indexed.contains(id))
+      .toList();
     int count = 0;
-    for (Pending row : rows) {
-      if (row.embedding() == null || row.embedding().length == 0) {
+    for (String id : missing) {
+      byte[] embedding = jdbc.sql("SELECT embedding FROM memories WHERE id = ? AND forgotten = 0")
+        .param(id).query(byte[].class).optional().orElse(null);
+      if (embedding == null || embedding.length == 0) {
         continue;
       }
-      upsertEmbedding(row.id(), decodeEmbedding(row.embedding()));
+      // The index is derived and idempotent. If interrupted between its delete and insert,
+      // the next startup sees the absent ID and repairs it.
+      upsertEmbedding(id, decodeEmbedding(embedding));
       count++;
     }
     return count;

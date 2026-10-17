@@ -159,6 +159,19 @@ public final class ProfileClient {
     return transport.get(profile(name) + "/export", Duration.ofSeconds(30));
   }
 
+  /** Raw cluster-management JSON for the CLI's evolving bounded graph surface. */
+  public String clusterGet(String name,String suffix) {
+    return transport.get(profile(name)+suffix,Duration.ofSeconds(30));
+  }
+
+  public String clusterPost(String name,String suffix,Object body) {
+    return transport.post(profile(name)+suffix,body,Duration.ofSeconds(30));
+  }
+
+  public String clusterPut(String name,String suffix,Object body) {
+    return transport.put(profile(name)+suffix,body,Duration.ofSeconds(30),false);
+  }
+
   public AuditListResponse audit(String name, AuditListRequest request) {
     String path = DaemonTransport.withQuery(profile(name) + "/audit",
       "q", request.search(), "operation", request.operation(), "client", request.client(),

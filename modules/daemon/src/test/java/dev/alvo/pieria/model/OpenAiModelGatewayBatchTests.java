@@ -65,7 +65,7 @@ class OpenAiModelGatewayBatchTests {
       ingestion, null, null);
     ChatClient client = ChatClient.builder(model)
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
-    return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());
+    return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter(), null);
   }
 
   private static String candidate(int n) {

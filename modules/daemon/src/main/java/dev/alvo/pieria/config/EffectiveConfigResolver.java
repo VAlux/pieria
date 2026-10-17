@@ -27,12 +27,18 @@ public class EffectiveConfigResolver {
 
   private final PieriaProperties properties;
   private final MemoryStore store;
+  private final WikiProperties wiki;
   private final ConcurrentHashMap<String, ResolvedConfig> cache = new ConcurrentHashMap<>();
 
   @Autowired
-  public EffectiveConfigResolver(PieriaProperties properties, MemoryStore store) {
+  public EffectiveConfigResolver(PieriaProperties properties, MemoryStore store, WikiProperties wiki) {
+    this.wiki = wiki;
     this.properties = properties;
     this.store = store;
+  }
+
+  public EffectiveConfigResolver(PieriaProperties properties, MemoryStore store) {
+    this(properties,store,WikiProperties.DEFAULT);
   }
 
   /**
@@ -51,7 +57,7 @@ public class EffectiveConfigResolver {
   private static ResolvedConfig overlay(ResolvedConfig global, DaemonOverrides overrides) {
     return new ResolvedConfig(
       overlayIngestion(global.ingestion(), overrides.ingestion()),
-      overlayRetrieval(global.retrieval(), overrides.retrieval()));
+      overlayRetrieval(global.retrieval(), overrides.retrieval()), global.wiki().overlay(overrides.wiki()));
   }
 
   private static PieriaProperties.Ingestion overlayIngestion(PieriaProperties.Ingestion g,
@@ -129,7 +135,7 @@ public class EffectiveConfigResolver {
    * The global configuration with no per-profile overrides applied.
    */
   public ResolvedConfig global() {
-    return new ResolvedConfig(properties.ingestion(), properties.retrieval());
+    return new ResolvedConfig(properties.ingestion(), properties.retrieval(), wiki);
   }
 
   /**
@@ -140,7 +146,7 @@ public class EffectiveConfigResolver {
   }
 
   private ResolvedConfig load(String profileId) {
-    ResolvedConfig global = new ResolvedConfig(properties.ingestion(), properties.retrieval());
+    ResolvedConfig global = new ResolvedConfig(properties.ingestion(), properties.retrieval(), wiki);
     if (store == null) {
       return global;
     }

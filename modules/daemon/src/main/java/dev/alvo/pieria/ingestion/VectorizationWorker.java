@@ -168,8 +168,9 @@ public class VectorizationWorker {
 
   /**
    * Apply one prepared outcome's database write, serially (single writer) from {@link #drainOnce}. A
-   * write that still fails (e.g. busy_timeout exhausted while ingestion holds the lock) is recorded as
-   * a failure so the entry retries on the next drain rather than aborting the batch.
+   * write that still fails (e.g. busy_timeout exhausted while another writer holds the lock)
+   * leaves the outbox row untouched for the next drain. The attempt budget is for embedding
+   * failures, not transient database contention.
    */
   private VectorizationOutcome applyWrite(PreparedWrite prepared) {
     String memoryId = prepared.memoryId();
@@ -185,12 +186,8 @@ public class VectorizationWorker {
       }
       return prepared.outcome();
     } catch (RuntimeException e) {
-      log.warn("vectorization write failed for memory {} ({}); recording for retry", memoryId, e.getMessage());
-      try {
-        store.recordOutboxFailure(memoryId, e.getMessage());
-      } catch (RuntimeException ignored) {
-        // The outbox row simply remains for the next drain.
-      }
+      log.warn("vectorization write failed for memory {} ({}); leaving queued for retry",
+        memoryId, e.getMessage());
       return VectorizationOutcome.FAILED;
     }
   }

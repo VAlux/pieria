@@ -267,7 +267,8 @@ class ProfileApiTests {
       .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")))
       .andExpect(jsonPath("$.debug.candidates[0].source", containsString("fts_memory")))
       .andExpect(jsonPath("$.debug.candidates[0].id", is(org.hamcrest.Matchers.notNullValue())))
-      .andExpect(jsonPath("$.debug.channels", org.hamcrest.Matchers.hasSize(6)));
+      .andExpect(jsonPath("$.debug.channels", org.hamcrest.Matchers.hasSize(6)))
+      .andExpect(jsonPath("$.debug.selection").isArray());
   }
 
   @Test

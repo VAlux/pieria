@@ -1,3 +1,5 @@
+import { loadWiki, unloadWiki } from "./wiki.js";
+import { loadClusters } from "./clusters.js";
 import { $, el } from "../util/dom.js";
 import { state } from "./state.js";
 import { loadMemories } from "./memories.js";
@@ -21,6 +23,7 @@ export function setView(view) {
     }
   }
 
+  if (state.view === "wiki" && view !== "wiki") unloadWiki();
   const leavingGraph = state.view === "graph" && view !== "graph";
   // Both config views hold fetched state; leaving must drop it so a profile switch cannot render
   // the previous profile's overrides against the new profile's name.
@@ -57,6 +60,8 @@ export function loadActiveView(profileChanged) {
   if (state.view === "memories") loadMemories(profileChanged);
   else if (state.view === "stats") loadStats();
   else if (state.view === "audit") loadAudit(profileChanged);
+  else if (state.view === "wiki") loadWiki(profileChanged);
+  else if (state.view === "clusters") loadClusters(profileChanged);
   else if (state.view === "graph") showGraph(state.profile, profileChanged);
   else if (state.view === "profile-config") loadProfileConfig(state.profile);
   // add + recall views are lazy (populated on submit).
@@ -66,6 +71,8 @@ export function syncUrl() {
   const url = new URL(location);
   if (state.profile) url.searchParams.set("profile", state.profile); else url.searchParams.delete("profile");
   url.searchParams.set("view", state.view);
+  if (state.view !== "wiki") url.searchParams.delete("page");
+  if (state.view !== "clusters") url.searchParams.delete("cluster");
   history.replaceState(null, "", url);
 }
 

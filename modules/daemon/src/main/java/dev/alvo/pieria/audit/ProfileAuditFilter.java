@@ -84,6 +84,11 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
   }
 
   static String operation(String method, String rest) {
+    if (rest.equals("wiki")) return "wiki.directory";
+    if (rest.equals("wiki/search")) return "wiki.search";
+    if (rest.startsWith("wiki/jobs/")) return "wiki.job";
+    if (rest.startsWith("wiki/pages/")) return rest.endsWith("/evaluate") ? "wiki.evaluate"
+      : rest.endsWith("/evidence") ? "wiki.evidence" : "wiki.read";
     return switch (rest) {
       case "" -> method.equals("PUT") ? "profile.create" : method.equals("DELETE") ? "profile.delete" : "profile.read";
       case "ingest" -> "ingest";
@@ -112,6 +117,10 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
   }
 
   private static String resourceId(String rest) {
+    if (rest.startsWith("wiki/pages/") || rest.startsWith("wiki/jobs/")) {
+      String id = rest.split("/", 4)[2];
+      return id.isBlank() ? null : id;
+    }
     if (rest.startsWith("memories/") && rest.length() > "memories/".length()) {
       return URLDecoder.decode(rest.substring("memories/".length()), StandardCharsets.UTF_8);
     }
@@ -135,8 +144,9 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
     String requestId = requestId(request.getHeader(AuditHeaders.REQUEST_ID));
     AuditCaller caller = caller(request);
     Instant startedAt = Instant.now();
-    AuditRequestWrapper wrappedRequest = new AuditRequestWrapper(request, maxBodyBytes);
-    AuditResponseWrapper wrappedResponse = new AuditResponseWrapper(response, maxBodyBytes);
+    boolean wiki = rest.equals("wiki") || rest.startsWith("wiki/");
+    AuditRequestWrapper wrappedRequest = new AuditRequestWrapper(request, wiki ? 0 : maxBodyBytes);
+    AuditResponseWrapper wrappedResponse = new AuditResponseWrapper(response, wiki ? 0 : maxBodyBytes);
     wrappedResponse.setHeader(AuditHeaders.REQUEST_ID, requestId);
     Throwable failure = null;
     AuditRequestContext.set(new AuditRequestContext(profile, operation, requestId, caller));
@@ -156,9 +166,10 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       // SqliteMemoryStore, and the filter must not recreate one after the profile is gone.
       if (!(operation.equals("profile.delete") && status >= 200 && status < 300)) {
         recorder.recordHttp(profile, operation, requestId, caller, request.getMethod(),
-          request.getRequestURI(), request.getQueryString(), request.getContentType(),
+          request.getRequestURI(), wiki ? null : request.getQueryString(), request.getContentType(),
           wrappedResponse.getContentType(), startedAt, completedAt, status,
-          wrappedRequest.captured(), wrappedResponse.captured(), resourceId(rest), failure);
+          wiki ? new CapturedPayload("",0,"",false) : wrappedRequest.captured(),
+          wiki ? new CapturedPayload("",0,"",false) : wrappedResponse.captured(), resourceId(rest), wiki ? null : failure);
       }
     }
   }

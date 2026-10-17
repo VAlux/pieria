@@ -355,7 +355,7 @@
     "tier": "restart",
     "kind": "string",
     "label": "Provider base URL",
-    "hint": "API root WITHOUT /v1 — the client appends it. In azure mode, the resource endpoint."
+    "hint": "API root WITHOUT /v1 \u2014 the client appends it. In azure mode, the resource endpoint."
   },
   {
     "key": "pieria.provider.api-key",
@@ -613,5 +613,277 @@
     "tier": "restart",
     "kind": "int",
     "label": "Rerank timeout (ms)"
+  },
+  {
+    "key": "wiki.enabled",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "bool",
+    "label": "Enable profile wiki"
+  },
+  {
+    "key": "wiki.max-sources",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "int",
+    "label": "Article source limit"
+  },
+  {
+    "key": "wiki.input-tokens",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "int",
+    "label": "Article input token budget"
+  },
+  {
+    "key": "wiki.output-tokens",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "int",
+    "label": "Article output token budget"
+  },
+  {
+    "key": "wiki.semantic-admit",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Semantic admission threshold"
+  },
+  {
+    "key": "wiki.semantic-retain",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Semantic retention threshold"
+  },
+  {
+    "key": "wiki.lexical-admit",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Lexical admission threshold"
+  },
+  {
+    "key": "wiki.lexical-retain",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Lexical retention threshold"
+  },
+  {
+    "key": "wiki.subject-lexical",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Subject compatibility threshold"
+  },
+  {
+    "key": "wiki.split-sources",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "int",
+    "label": "Split source threshold"
+  },
+  {
+    "key": "wiki.split-tokens",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "int",
+    "label": "Split token threshold"
+  },
+  {
+    "key": "wiki.merge-overlap",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Merge membership overlap"
+  },
+  {
+    "key": "wiki.merge-cosine",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Merge cosine threshold"
+  },
+  {
+    "key": "wiki.merge-lexical",
+    "scope": "profile",
+    "section": "wiki",
+    "tier": "live",
+    "kind": "double",
+    "label": "Merge lexical threshold"
+  },
+  {
+    "key": "pieria.wiki.enabled",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "bool",
+    "label": "Enable profile wiki"
+  },
+  {
+    "key": "pieria.wiki.max-sources",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Article source limit"
+  },
+  {
+    "key": "pieria.wiki.input-tokens",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Article input token budget"
+  },
+  {
+    "key": "pieria.wiki.output-tokens",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Article output token budget"
+  },
+  {
+    "key": "pieria.wiki.semantic-admit",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Semantic admission threshold"
+  },
+  {
+    "key": "pieria.wiki.semantic-retain",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Semantic retention threshold"
+  },
+  {
+    "key": "pieria.wiki.lexical-admit",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Lexical admission threshold"
+  },
+  {
+    "key": "pieria.wiki.lexical-retain",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Lexical retention threshold"
+  },
+  {
+    "key": "pieria.wiki.subject-lexical",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Subject compatibility threshold"
+  },
+  {
+    "key": "pieria.wiki.split-sources",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Split source threshold"
+  },
+  {
+    "key": "pieria.wiki.split-tokens",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Split token threshold"
+  },
+  {
+    "key": "pieria.wiki.merge-overlap",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Merge membership overlap"
+  },
+  {
+    "key": "pieria.wiki.merge-cosine",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Merge cosine threshold"
+  },
+  {
+    "key": "pieria.wiki.merge-lexical",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Merge lexical threshold"
+  },
+  {
+    "key": "pieria.wiki.batch-size",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki projection batch size"
+  },
+  {
+    "key": "pieria.wiki.interval-ms",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki maintenance interval (ms)"
+  },
+  {
+    "key": "pieria.wiki.queue-limit",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki global queue limit"
+  },
+  {
+    "key": "pieria.wiki.timeout-seconds",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki inference deadline (seconds)"
+  },
+  {
+    "key": "pieria.wiki.max-attempts",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki inference attempt limit"
+  },
+  {
+    "key": "pieria.wiki.structural-limit",
+    "scope": "global",
+    "section": "wiki",
+    "tier": "restart",
+    "kind": "int",
+    "label": "Wiki structural operation limit"
   }
 ]

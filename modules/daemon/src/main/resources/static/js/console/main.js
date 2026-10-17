@@ -12,7 +12,7 @@ import { initSidePanel } from "./side-panel.js";
 import { initDaemonStatus } from "./daemon.js";
 import { initTaskTray } from "./tasks.js";
 
-const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph",
+const VIEWS = ["memories", "add", "recall", "stats", "audit", "graph", "wiki", "clusters",
   "profile-config", "global-config"];
 let auditSearchTimer = null;
 

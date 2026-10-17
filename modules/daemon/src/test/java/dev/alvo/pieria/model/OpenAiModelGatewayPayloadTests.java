@@ -49,7 +49,7 @@ class OpenAiModelGatewayPayloadTests {
       new PieriaProperties.Model("extract-model", "synth-model", "embed", 1024, 4, null, null), null, null, null);
     ChatClient client = ChatClient.builder(new CannedChatModel(cannedContent))
       .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build();
-    return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter());
+    return new OpenAiModelGateway(client, client, null, properties, new OllamaModelProviderAdapter(), null);
   }
 
   /** A classify response whose {@code payload} string carries {@code inner} verbatim. */

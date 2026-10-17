@@ -40,7 +40,8 @@ public class ProfileConfigController {
    */
   private static final Map<String, Set<String>> WHITELIST = Map.of(
     "ingestion", kebabComponentNames(Ingestion.class),
-    "retrieval", kebabComponentNames(Retrieval.class));
+    "retrieval", kebabComponentNames(Retrieval.class),
+    "wiki", kebabComponentNames(DaemonOverrides.Wiki.class));
 
   private final ProfileConfigService configService;
 

@@ -180,7 +180,11 @@ public class ProfileController {
       .map(d -> new RerankDiagnostic(d.stage(), d.input(), d.output(), d.dropped(), d.latencyMs(), d.fellBack()))
       .toList();
 
-    return new RecallDebug(candidates, temporalFacts, channels, rerank);
+    List<RecallDebug.SelectionDecision> selection=result.diagnostics()==null?List.of():
+      result.diagnostics().selection().stream()
+        .map(d->new RecallDebug.SelectionDecision(d.id(),d.action(),d.reason(),d.evidenceIds()))
+        .toList();
+    return new RecallDebug(candidates, temporalFacts, channels, rerank, selection);
   }
 
   /**

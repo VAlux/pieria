@@ -9,7 +9,8 @@ public enum MemoryType {
   FACT,
   EVENT,
   INSTRUCTION,
-  TASK;
+  TASK,
+  CLUSTER;
 
   /**
    * Parse a stored/wire value (case-insensitive); throws {@link IllegalArgumentException} if unknown.

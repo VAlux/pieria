@@ -138,6 +138,59 @@ class RetrievalServiceTests {
   }
 
   @Test
+  void hierarchyCoversTwoBroadTopicsWithinOneResultWhereFlatAndOriginalOnlyCannot() {
+    Memory storage=mem("storage","SQLite allows one writer",MemoryType.FACT,null,T0);
+    Memory jobs=mem("jobs","Jobs use a durable queue",MemoryType.FACT,null,T0);
+    Memory flatStorage=mem("flat-storage","Storage uses SQLite",MemoryType.CLUSTER,null,T0);
+    Memory flatJobs=mem("flat-jobs","Job execution uses a queue",MemoryType.CLUSTER,null,T0);
+    Memory architecture=mem("architecture","Architecture combines SQLite storage and job queues",
+      MemoryType.CLUSTER,null,T0);
+    FakeStore originals=new FakeStore();originals.ftsMemory=List.of(storage,jobs);
+    FakeStore flat=new FakeStore();flat.ftsMemory=List.of(flatStorage,flatJobs);
+    flat.clusterCoverage=Map.of(flatStorage.id(),java.util.Set.of(storage.id()),
+      flatJobs.id(),java.util.Set.of(jobs.id()));
+    FakeStore hierarchy=new FakeStore();hierarchy.ftsMemory=List.of(architecture,flatStorage,flatJobs,storage,jobs);
+    hierarchy.clusterCoverage=Map.of(architecture.id(),java.util.Set.of(storage.id(),jobs.id()),
+      flatStorage.id(),java.util.Set.of(storage.id()),flatJobs.id(),java.util.Set.of(jobs.id()));
+
+    String query="architecture SQLite queue";
+    var originalResult=service(originals,new FakeModelGateway()).recall("p",query,1,false,RecallMode.EVIDENCE);
+    var flatResult=service(flat,new FakeModelGateway()).recall("p",query,1,false,RecallMode.EVIDENCE);
+    var hierarchyResult=service(hierarchy,new FakeModelGateway()).recall("p",query,1,false,RecallMode.EVIDENCE);
+    assertThat(originalResult.candidates().getFirst().memory().content()).doesNotContain("queue");
+    assertThat(flatResult.candidates().getFirst().memory().content()).doesNotContain("queue");
+    assertThat(hierarchyResult.candidates().getFirst().memory().id()).isEqualTo(architecture.id());
+    assertThat(hierarchyResult.candidates().getFirst().memory().content())
+      .contains("SQLite","queue");
+  }
+
+  @Test
+  void uncoveredClusterDefersToMatchingOriginalAndOverlapsCanComplementEachOther() {
+    Memory detail=mem("detail","WAL keeps readers available",MemoryType.FACT,null,T0);
+    Memory parent=mem("parent","Storage architecture overview",MemoryType.CLUSTER,null,T0);
+    FakeStore narrow=new FakeStore();narrow.ftsMemory=List.of(parent,detail);
+    var narrowResult=service(narrow,new FakeModelGateway()).recall("p","WAL readers",1,true,
+      RecallMode.EVIDENCE);
+    assertThat(narrowResult.candidates().getFirst().memory().id()).isEqualTo(detail.id());
+    assertThat(narrowResult.diagnostics().selection())
+      .anySatisfy(decision->assertThat(decision.action()).isEqualTo("deferred"))
+      .anySatisfy(decision->assertThat(decision.action()).isEqualTo("selected"));
+
+    Memory other=mem("other","Jobs retry queued work",MemoryType.FACT,null,T0);
+    Memory first=mem("first","WAL storage",MemoryType.CLUSTER,null,T0);
+    Memory second=mem("second","WAL storage and retry jobs",MemoryType.CLUSTER,null,T0);
+    FakeStore overlaps=new FakeStore();overlaps.ftsMemory=List.of(first,second,detail,other);
+    overlaps.clusterCoverage=Map.of(first.id(),java.util.Set.of(detail.id()),
+      second.id(),java.util.Set.of(detail.id(),other.id()));
+    var overlapResult=service(overlaps,new FakeModelGateway()).recall("p","WAL retry",2,true,
+      RecallMode.EVIDENCE);
+    assertThat(overlapResult.candidates().stream().map(c->c.memory().id()).toList())
+      .containsExactly(first.id(),second.id());
+    assertThat(overlapResult.diagnostics().selection())
+      .anySatisfy(decision->assertThat(decision.action()).isEqualTo("suppressed"));
+  }
+
+  @Test
   void recallRecordsEvidenceAndAnswerUsage() {
     Memory shared = mem("m1", "user prefers tea", MemoryType.FACT, "user.drink", T0);
     Memory ftsOnly = mem("m2", "tea is grown in Assam", MemoryType.FACT, null, T0.plusSeconds(10));
@@ -945,6 +998,7 @@ class RetrievalServiceTests {
     long recordedSourceTokens = -1;
     long recordedAnswerTokens = -1;
     Map<String, float[]> embeddings = Map.of();
+    Map<String, java.util.Set<String>> clusterCoverage = Map.of();
     RuntimeException embeddingsError;
 
     @Override
@@ -965,6 +1019,12 @@ class RetrievalServiceTests {
         }
       }
       return out;
+    }
+
+    @Override
+    public java.util.Set<String> clusterCoveredOriginals(String profileId,String memoryId,
+        String query,dev.alvo.pieria.domain.temporal.TemporalSnapshot snapshot) {
+      return clusterCoverage.getOrDefault(memoryId,java.util.Set.of());
     }
 
     @Override

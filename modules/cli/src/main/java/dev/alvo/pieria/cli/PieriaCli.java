@@ -1,6 +1,7 @@
 package dev.alvo.pieria.cli;
 
 import dev.alvo.pieria.cli.command.config.ConfigCommand;
+import dev.alvo.pieria.cli.command.cluster.ClusterCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonLogsCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonRestartCommand;
 import dev.alvo.pieria.cli.command.daemon.DaemonStartCommand;
@@ -30,6 +31,7 @@ import picocli.CommandLine.Command;
   subcommands = {
     HarnessCommand.class,
     ProfileCommand.class,
+    ClusterCommand.class,
     OnboardCommand.class,
     ReminisceCommand.class,
     TaskCommand.class,
