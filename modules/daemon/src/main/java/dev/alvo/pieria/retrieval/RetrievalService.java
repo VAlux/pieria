@@ -316,11 +316,14 @@ public class RetrievalService {
         : null;
       long rerankMs = rerankDiagnostics.stream()
         .mapToLong(RerankDiagnostics::latencyMs).sum();
+      RecallTimings timings = new RecallTimings(analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(),
+        rerankMs, temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
       LOGGER.info("recall latency profile={} hits={} evidence={} analysisMs={} embeddingMs={} channelsMs={} fusionMs={} rerankMs={} temporalMs={} synthesisMs={} totalMs={}",
         profileName, hits.value().size(), fused.value().size(),
-        analysis.millis(), embeddings.millis(), hits.millis(), fused.millis(), rerankMs,
-        temporal.millis(), answer.millis(), Timed.elapsedMillis(totalStart));
-      return new RecallResult(answer.value(), temporalCandidates(fused.value(), snapshot), temporal.value(), evidence, diagnostics, snapshot);
+        timings.analysisMs(), timings.embeddingMs(), timings.channelsMs(), timings.fusionMs(), timings.rerankMs(),
+        timings.temporalMs(), timings.synthesisMs(), timings.totalMs());
+      return new RecallResult(answer.value(), temporalCandidates(fused.value(), snapshot), temporal.value(), evidence,
+        diagnostics, snapshot, timings, channelDiagnostics);
 
     } finally {
       usageBinding.close();

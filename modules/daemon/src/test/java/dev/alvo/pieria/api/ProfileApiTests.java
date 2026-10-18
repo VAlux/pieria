@@ -84,7 +84,14 @@ class ProfileApiTests {
         .content("{\"query\":\"tea\"}"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.answer", containsString("Bob likes tea")))
-      .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")));
+      .andExpect(jsonPath("$.memories[0].content", is("Bob likes tea")))
+      // Timings, per-memory channels and channel hits come without asking for debug.
+      .andExpect(jsonPath("$.debug").doesNotExist())
+      .andExpect(jsonPath("$.timings.totalMs", org.hamcrest.Matchers.greaterThanOrEqualTo(0)))
+      .andExpect(jsonPath("$.sources[0].memoryId", is(id)))
+      .andExpect(jsonPath("$.sources[0].rank", is(1)))
+      .andExpect(jsonPath("$.sources[0].channels", org.hamcrest.Matchers.hasItem("fts_memory")))
+      .andExpect(jsonPath("$.channels[?(@.channel=='fts_memory')].hits", org.hamcrest.Matchers.contains(org.hamcrest.Matchers.greaterThanOrEqualTo(1))));
 
     // export -> ndjson
     mvc.perform(get("/v1/profiles/alice/export"))

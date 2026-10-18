@@ -36,7 +36,7 @@ export interface RecallResponse {
   temporal?: { asOf: string | null; knownAsOf: string | null; snapshotSequence: number; limitations: string[] };
   timings?: RecallTimings;
   sources?: RecallSource[];
-  synthesisModel?: string | null;
+  channels?: { channel: string; hits: number; latencyMs: number; failed: boolean }[];
 }
 
 export interface RecallResult {

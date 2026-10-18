@@ -43,6 +43,7 @@ import dev.alvo.pieria.profile.ProfileService;
 import dev.alvo.pieria.profile.ProfileStatsService;
 import dev.alvo.pieria.profile.ProfileStatsService.ProfileStatsView;
 import dev.alvo.pieria.retrieval.RecallResult;
+import dev.alvo.pieria.retrieval.RecallTimings;
 import dev.alvo.pieria.retrieval.RetrievalService;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
@@ -165,6 +166,30 @@ public class ProfileController {
     }
     return result.graphEvidence().stream()
       .map(e -> new CodeEvidence(e.src(), e.srcPath(), e.relation(), e.dst(), e.dstPath(), e.confidence()))
+      .toList();
+  }
+
+  private static RecallResponse.Timings timings(RecallTimings t) {
+    return t == null ? null : new RecallResponse.Timings(t.retrieveMs(), t.rerankMs(), t.synthesizeMs(), t.totalMs(),
+      t.analysisMs(), t.embeddingMs(), t.channelsMs(), t.fusionMs());
+  }
+
+  /** Splits the fused {@code rrf:a+b} provenance into channel names, in rank order. */
+  private static List<RecallResponse.MemorySource> sources(RecallResult result) {
+    List<RecallResponse.MemorySource> out = new ArrayList<>();
+    for (int i = 0; i < result.candidates().size(); i++) {
+      RecallCandidate candidate = result.candidates().get(i);
+      String source = candidate.source() == null ? "" : candidate.source();
+      String channels = source.startsWith("rrf:") ? source.substring(4) : source;
+      out.add(new RecallResponse.MemorySource(candidate.memory().id(), i + 1,
+        channels.isBlank() ? List.of() : List.of(channels.split("\\+"))));
+    }
+    return out;
+  }
+
+  private static List<RecallResponse.ChannelSummary> channelSummaries(RecallResult result) {
+    return result.channels().stream()
+      .map(d -> new RecallResponse.ChannelSummary(d.channel().name().toLowerCase(Locale.ROOT), d.hits(), d.latencyMs(), d.failed()))
       .toList();
   }
 
@@ -367,7 +392,8 @@ public class ProfileController {
 
     return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null,
       result.snapshot() == null ? null : new RecallResponse.TemporalContext(result.snapshot().asOf(), result.snapshot().knownAsOf(),
-        result.snapshot().sequence(), profileService.temporalLimitations(result.snapshot().explicit())));
+        result.snapshot().sequence(), profileService.temporalLimitations(result.snapshot().explicit())),
+      timings(result.timings()), sources(result), channelSummaries(result));
 
   }
 

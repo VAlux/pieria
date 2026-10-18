@@ -20,6 +20,8 @@ import java.util.List;
  * @param temporalFacts pre-computed temporal facts handed to synthesis
  * @param graphEvidence code-graph edge evidence handed to synthesis (never fused, never stored)
  * @param diagnostics   per-channel diagnostics, or {@code null} when not requested
+ * @param timings       how long each stage took; {@code null} when nothing ran (unknown profile)
+ * @param channels      per-channel hits and latency, always collected (cheap), unlike {@code diagnostics}
  */
 public record RecallResult(
   String answer,
@@ -27,17 +29,25 @@ public record RecallResult(
   List<TemporalFact> temporalFacts,
   List<GraphEvidence> graphEvidence,
   RetrievalDiagnostics diagnostics,
-  TemporalSnapshot snapshot) {
+  TemporalSnapshot snapshot,
+  RecallTimings timings,
+  List<RetrievalDiagnostics.ChannelDiagnostics> channels) {
 
   public RecallResult(String answer, List<RecallCandidate> candidates, List<TemporalFact> facts,
                       List<GraphEvidence> evidence, RetrievalDiagnostics diagnostics) {
     this(answer, candidates, facts, evidence, diagnostics, null);
   }
 
+  public RecallResult(String answer, List<RecallCandidate> candidates, List<TemporalFact> facts,
+                      List<GraphEvidence> evidence, RetrievalDiagnostics diagnostics, TemporalSnapshot snapshot) {
+    this(answer, candidates, facts, evidence, diagnostics, snapshot, null, List.of());
+  }
+
   public RecallResult {
     candidates = candidates == null ? List.of() : List.copyOf(candidates);
     temporalFacts = temporalFacts == null ? List.of() : List.copyOf(temporalFacts);
     graphEvidence = graphEvidence == null ? List.of() : List.copyOf(graphEvidence);
+    channels = channels == null ? List.of() : List.copyOf(channels);
   }
 
   /**
