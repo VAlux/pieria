@@ -34,4 +34,17 @@ public class ModelGatewayConfig {
   public ChatClient synthesisChatClient(OpenAiChatModel chatModel, PieriaProperties properties) {
     return chatClientForModel(chatModel, properties.model().synthesisModel());
   }
+
+  @Bean("wikiChatClient")
+  public ChatClient wikiChatClient(PieriaProperties properties,
+      dev.alvo.pieria.model.provider.ModelProviderAdapter adapter, dev.alvo.pieria.config.WikiProperties wiki) {
+    // The durable wiki queue owns retries. Suppress retries in the transport too, rather than
+    // multiplying the queue's two attempts by the SDK's retry policy.
+    var timeout = java.time.Duration.ofSeconds(wiki.timeoutSeconds());
+    var model = OpenAiChatModel.builder()
+      .openAiClient(adapter.buildSyncClient(properties.provider()).withOptions(o -> o.maxRetries(0).timeout(timeout)))
+      .openAiClientAsync(adapter.buildAsyncClient(properties.provider()).withOptions(o -> o.maxRetries(0).timeout(timeout)))
+      .options(OpenAiChatOptions.builder().model(properties.model().synthesisModel()).build()).build();
+    return chatClientForModel(model, properties.model().synthesisModel());
+  }
 }

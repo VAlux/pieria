@@ -8,6 +8,7 @@ import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -271,6 +272,11 @@ class GraphExplorerServiceTests {
 
     @Override
     public List<Edge> inducedEdges(String profileId, List<String> entityIds) {
+      return List.of();
+    }
+
+    @Override
+    public List<RelationTotal> relationTotals(String profileId, String entityId) {
       return List.of();
     }
 

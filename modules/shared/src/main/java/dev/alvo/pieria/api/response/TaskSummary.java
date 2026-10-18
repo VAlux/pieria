@@ -15,5 +15,9 @@ public record TaskSummary(
   List<TaskLaneProgress> lanes,
   long startedAtEpochMs,
   String errorKind,
-  String errorMessage) {
+  String errorMessage,
+  long finishedAtEpochMs,
+  long durationMs,
+  String resultSummary,
+  boolean retryable) {
 }

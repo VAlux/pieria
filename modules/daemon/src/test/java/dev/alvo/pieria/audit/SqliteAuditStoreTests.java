@@ -87,6 +87,45 @@ class SqliteAuditStoreTests {
     assertThat(second.nextCursor()).isNull();
   }
 
+  @Test
+  void searchesAndCountsAcrossProfiles() {
+    jdbc.sql("INSERT INTO profiles (id, name, created_at) VALUES ('p2', 'beta', ?)").param(Instant.now().toString()).update();
+    store.append(event("e1", "recall", "codex", "one", false));
+    store.append(inProfile(event("e2", "memory.remember", "cli", "two", false), "p2", "beta"));
+    AuditQuery all = new AuditQuery(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 10);
+
+    assertThat(store.search(null, all)).extracting(AuditEvent::id).containsExactly("e2", "e1");
+    assertThat(store.search("beta", all)).extracting(AuditEvent::id).containsExactly("e2");
+    assertThat(store.find(null, "e2")).isPresent();
+    assertThat(store.find("alpha", "e2")).isEmpty();
+
+    var facets = store.facets(null, all);
+    assertThat(facets.get("profile")).extracting(AuditStore.Facet::value).containsExactlyInAnyOrder("alpha", "beta");
+    assertThat(facets.get("operation")).extracting(AuditStore.Facet::value).containsExactlyInAnyOrder("recall", "memory.remember");
+    assertThat(facets.get("harness")).extracting(AuditStore.Facet::value).containsExactly("codex");
+    assertThat(store.facets("alpha", all).get("client")).containsExactly(new AuditStore.Facet("codex", 1));
+  }
+
+  @Test
+  void serviceFacetsDefaultToARecentWindow() {
+    store.append(event("e1", "recall", "codex", "old", false));
+    AuditListRequest none = new AuditListRequest(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    // e1 completed in January 2026, outside the default 30-day facet window.
+    assertThat(new AuditService(store).facets(null, none).facets().get("operation")).isEmpty();
+    AuditListRequest since = new AuditListRequest(null, null, null, null, null, null, null, null, null, null,
+      "2025-12-01T00:00:00Z", null, null, null, null);
+    assertThat(new AuditService(store).facets(null, since).facets().get("operation")).hasSize(1);
+  }
+
+  private static AuditEvent inProfile(AuditEvent e, String profileId, String profileName) {
+    return new AuditEvent(e.id(), profileId, profileName, e.eventType(), e.operation(), e.requestId(), e.parentRequestId(),
+      e.taskId(), e.sessionId(), e.resourceId(), e.client(), e.harness(), e.channel(), e.clientVersion(), e.serverVersion(),
+      e.remoteAddress(), e.method(), e.path(), e.queryString(), e.requestMediaType(), e.responseMediaType(), e.startedAt(),
+      e.completedAt(), e.durationMs(), e.httpStatus(), e.outcome(), e.errorKind(), e.errorMessage(), e.metadata(),
+      e.requestBody(), e.requestBytes(), e.requestSha256(), e.requestTruncated(), e.responseBody(), e.responseBytes(),
+      e.responseSha256(), e.responseTruncated());
+  }
+
   private List<AuditEvent> search(AuditQuery query) {
     return store.search("alpha", query);
   }

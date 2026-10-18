@@ -178,6 +178,34 @@ class SqliteMemoryStoreVectorTests {
   }
 
   @Test
+  void semanticClaimHitFindsEligibleClusterWithoutLexicalOverlap() {
+    VecExtension.requireLoaded(store.isVectorSearchAvailable());
+    Profile p=store.getOrCreateProfile("claim-vector");
+    var members=new ArrayList<dev.alvo.pieria.cluster.ClusterRepository.Member>();
+    var sources=new ArrayList<dev.alvo.pieria.cluster.ClusterRepository.Source>();
+    for(int i=0;i<3;i++) {
+      Memory memory=store.store(p.id(),Memory.of(MemoryType.FACT,"writer detail "+i,
+        "s"+i,"claim-test:"+i,null)).stored();
+      members.add(new dev.alvo.pieria.cluster.ClusterRepository.Member("memory",memory.id()));
+      String revision=jdbc.sql("SELECT id FROM assertion_revisions WHERE memory_id=?")
+        .param(memory.id()).query(String.class).single();
+      sources.add(new dev.alvo.pieria.cluster.ClusterRepository.Source(memory.id(),revision));
+    }
+    var group=store.writeClusters(repo->repo.create(p.id(),"Writer model","writer model",members,"test"));
+    String fingerprint=store.readClusters(repo->repo.fingerprint(p.id(),group.id()));
+    store.writeClusters(repo->repo.publish(p.id(),group.id(),group.revision(),fingerprint,
+      "One writer coordinates storage.",List.of(new dev.alvo.pieria.cluster.ClusterRepository.Claim(
+        "One writer coordinates storage.",sources,sources)),"fake","v1","{}","test",
+      List.of(vec(1f,0f,0f,0f))));
+
+    var snapshot=store.temporalSnapshot(null,null);
+    assertEquals(1,store.searchClusterClaims(p.id(),"unrelated",vec(1f,0f,0f,0f),
+      snapshot,false,10).size());
+    assertTrue(store.searchClusterClaims(p.id(),"unrelated",vec(0f,0f,0f,1f),
+      snapshot,false,10).isEmpty());
+  }
+
+  @Test
   void supersessionRemovesVectorFromResults() {
     VecExtension.requireLoaded(store.isVectorSearchAvailable());
     Profile p = store.getOrCreateProfile("vec-supersede");

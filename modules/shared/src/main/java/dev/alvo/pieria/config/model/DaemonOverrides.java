@@ -18,7 +18,15 @@ import dev.alvo.pieria.api.request.RecallMode;
  * Spring relaxed-binding names in {@code pieria.properties}.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
+public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval, Wiki wiki) {
+  public DaemonOverrides(Ingestion ingestion, Retrieval retrieval) { this(ingestion, retrieval, null); }
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public record Wiki(Boolean enabled, Integer maxSources, Integer inputTokens, Integer outputTokens,
+                     Double semanticAdmit, Double semanticRetain, Double lexicalAdmit, Double lexicalRetain,
+                     Double subjectLexical, Integer splitSources, Integer splitTokens,
+                     Double mergeOverlap, Double mergeCosine, Double mergeLexical) {}
+
 
   /** Mirrors the per-profile subset of {@code PieriaProperties.Ingestion}. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -86,7 +94,10 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval) {
       retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence(),
       retrieval.recallMode(), retrieval.nearDuplicateThreshold(), retrieval.semanticDuplicateThreshold(),
       retrieval.rerankEnabled(), retrieval.rerankSemanticWeight(), retrieval.rerankModelEnabled(),
-      retrieval.rerankWindow(), retrieval.rerankSnippetChars(), retrieval.rerankTimeoutMs()));
+      retrieval.rerankWindow(), retrieval.rerankSnippetChars(), retrieval.rerankTimeoutMs()))
+      && (wiki == null || allNull(wiki.enabled(),wiki.maxSources(),wiki.inputTokens(),wiki.outputTokens(),
+        wiki.semanticAdmit(),wiki.semanticRetain(),wiki.lexicalAdmit(),wiki.lexicalRetain(),wiki.subjectLexical(),
+        wiki.splitSources(),wiki.splitTokens(),wiki.mergeOverlap(),wiki.mergeCosine(),wiki.mergeLexical()));
   }
 
   private static boolean allNull(Object... values) {

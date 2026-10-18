@@ -72,4 +72,8 @@ public final class InstallLayout {
   public Path binDir() {
     return binDir;
   }
+
+  public Path consoleDir() {
+    return binDir.getParent().resolve("console");
+  }
 }

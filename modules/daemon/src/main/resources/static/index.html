@@ -6,6 +6,8 @@
   <title>Pieria · Console</title>
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/console.css">
+  <link rel="stylesheet" href="css/wiki.css">
+  <link rel="stylesheet" href="css/clusters.css">
   <link rel="stylesheet" href="css/graph.css">
   <link rel="stylesheet" href="css/config.css">
 </head>
@@ -20,6 +22,8 @@
       <button data-view="stats">Statistics</button>
       <button data-view="audit">Audit</button>
       <button data-view="graph">Graph</button>
+      <button data-view="wiki">Wiki</button>
+      <button data-view="clusters">Clusters</button>
     </nav>
     <div class="spacer"></div>
 
@@ -292,6 +296,34 @@
       </div>
       <div id="auditList" class="audit-list"></div>
       <div id="auditPager" class="pager"></div>
+    </section>
+
+    <section class="view" id="view-wiki" aria-label="Profile wiki">
+      <div class="wiki-layout">
+        <aside class="wiki-sidebar" aria-label="Wiki navigation">
+          <div class="wiki-sidebar-head"><h2>Knowledge wiki</h2><button id="wikiHome">Home</button></div>
+          <input id="wikiSearch" type="search" placeholder="Find a topic or source…" aria-label="Search wiki" autocomplete="off">
+          <label class="wiki-semantic"><input type="checkbox" id="wikiSemantic"> Include semantic matches</label>
+          <p id="wikiStatus" role="status"></p><nav id="wikiTree" aria-label="Topics"></nav>
+          <button id="wikiMore" hidden>More topics</button>
+        </aside>
+        <article id="wikiArticle" class="wiki-article" aria-live="polite"></article>
+        <aside id="wikiContext" class="wiki-context" aria-label="Article context"></aside>
+      </div>
+    </section>
+
+    <section class="view" id="view-clusters" aria-label="Knowledge clusters">
+      <div class="cluster-layout">
+        <aside class="cluster-sidebar">
+          <h2>Knowledge clusters</h2>
+          <input id="clusterSearch" type="search" placeholder="Search clusters…" aria-label="Search clusters">
+          <button id="clusterRunStart" type="button">Start clustering run</button>
+          <button id="clusterCreate" type="button">Create cluster</button>
+          <div id="clusterRunStatus" role="status"></div>
+          <nav id="clusterList" aria-label="Cluster hierarchy"></nav>
+        </aside>
+        <article id="clusterDetail" class="cluster-detail" aria-live="polite"></article>
+      </div>
     </section>
 
     <!-- ===== Graph ===== -->

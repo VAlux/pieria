@@ -72,7 +72,7 @@ class OpenAiModelGatewayReasoningTests {
     OpenAiModelGateway gateway = new OpenAiModelGateway(
       ChatClient.builder(extraction).defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build(),
       ChatClient.builder(synthesis).defaultOptions(OpenAiChatOptions.builder().model("synth-model")).build(),
-      null, properties, providerAdapter);
+      null, properties, providerAdapter, null);
     return new Harness(gateway, extraction, synthesis);
   }
 

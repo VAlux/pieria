@@ -266,6 +266,15 @@ Once installed, the daemon listens on `http://127.0.0.1:8077`. On first start it
 initializes the embedded database, runs migrations, and prints guidance for pulling the
 default Ollama models if they are absent.
 
+The new React console is served from `http://127.0.0.1:8077/console/` when the
+release includes its `console/` directory. The existing console remains at the
+root URL while its remaining views are migrated. The browser needs no Node.js
+installation or external asset host.
+
+For console development, run `npm ci` and `npm run dev` in `console/`; Vite
+proxies `/v1`, `/pieria-health`, and `/pieria-status` to the local daemon. Run
+`npm run build` to typecheck and produce the static `console/dist/` artifact.
+
 ### Wire a harness
 
 From inside a project, register the MCP gateway and lifecycle hooks for your tool:
@@ -395,8 +404,8 @@ asking a model to rediscover symbols the parser already resolved. The interpreti
 
 ### Update
 
-One command replaces the installed binaries and restarts the daemon — no manual copying, service
-juggling, or Gatekeeper workarounds:
+One command replaces the installed binaries and console files, then restarts the daemon — no manual
+copying, service juggling, or Gatekeeper workarounds:
 
 ```bash
 pieria update                 # download the latest release for this platform, swap, restart
@@ -405,7 +414,14 @@ pieria update --dry-run       # show exactly what would happen, change nothing
 ```
 
 It acquires the new distribution first (so a failed download never leaves you serviceless), stops
-the daemon, atomically swaps the binaries, restarts the daemon, and waits for it to come healthy.
+the daemon, swaps the console directory and binaries with rollback on failure, restarts the daemon,
+and waits for it to come healthy. The React console is then available at `/console/`.
+
+For the first upgrade from a release whose CLI only swaps binaries, run `pieria update` a second
+time. The first run installs the new CLI and daemon; the second sees the missing console files and
+installs them even though the release version already matches. Alternatively, rerun the platform
+installer for a one-step migration. Later updates install both parts in one run.
+
 A daemon restart is transparent to a running Claude Code session (the gateway reconnects over HTTP)
 — the lifecycle hooks live inside the `pieria` binary itself, so swapping it updates them
 automatically; you only need to relaunch the harness if the **gateway binary** changed.

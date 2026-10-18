@@ -192,9 +192,10 @@ public class DataSourceConfig {
     // transaction's first read. Without it, a keyed-memory SELECT can open a deferred read snapshot,
     // another connection can commit vectorization, and the later memory INSERT fails with
     // SQLITE_BUSY_SNAPSHOT because the stale snapshot cannot be upgraded. Both settings apply to
-    // every pooled connection.
+    // every pooled connection. The 15-second allowance covers occasional slow wiki source
+    // assignments; those transactions are limited to one source at a time.
     String url = "jdbc:sqlite:" + path
-      + "?enable_load_extension=true&busy_timeout=5000&transaction_mode=IMMEDIATE";
+      + "?enable_load_extension=true&busy_timeout=15000&transaction_mode=IMMEDIATE";
     HikariDataSource dataSource = DataSourceBuilder.create()
       .type(HikariDataSource.class)
       .driverClassName("org.sqlite.JDBC")

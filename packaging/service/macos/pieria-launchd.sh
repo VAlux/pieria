@@ -67,6 +67,11 @@ generate_plist() {
     <array>
 $(program_arguments)
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PIERIA_SUPERVISOR</key>
+        <string>launchd</string>
+    </dict>
     <key>RunAtLoad</key>
     <false/>
     <key>KeepAlive</key>

@@ -7,10 +7,15 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -31,6 +36,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -108,7 +114,12 @@ class StubMemoryStore implements MemoryStore {
   public List<ProfileCount> listProfiles() {
     return profilesByName.values().stream()
       .sorted(Comparator.comparing(Profile::name))
-      .map(p -> new ProfileCount(p, listMemories(p.id(), null, null).size()))
+      .map(p -> {
+        List<Memory> active = listMemories(p.id(), null, null);
+        return new ProfileCount(p, active.size(),
+          active.stream().map(Memory::sessionId).filter(Objects::nonNull).distinct().count(),
+          active.stream().map(Memory::createdAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
+      })
       .toList();
   }
 
@@ -309,6 +320,50 @@ class StubMemoryStore implements MemoryStore {
       out.add(m);
     }
     return out;
+  }
+
+  /** Unpaged, ungrouped stand-in: the SQL paging and grouping are covered by SqliteMemoryStoreSearchTests. */
+  @Override
+  public MemorySearchPage searchMemories(String profileId, MemorySearchQuery query) {
+    List<Memory> matching = listMemories(profileId, null, query.session(), query.includeSuperseded()).stream()
+      .filter(m -> query.text() == null || m.content().contains(query.text())
+        || (m.topicKey() != null && m.topicKey().contains(query.text())))
+      .toList();
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (MemoryType t : MemoryType.values()) counts.put(t.wire(), 0L);
+    matching.forEach(m -> counts.merge(m.type().wire(), 1L, Long::sum));
+    List<MemorySearchPage.Entry> entries = matching.stream()
+      .filter(m -> query.type() == null || m.type() == query.type())
+      .limit(query.limit())
+      .map(m -> new MemorySearchPage.Entry(m, null))
+      .toList();
+    return new MemorySearchPage(entries, counts, entries.size(), null);
+  }
+
+  @Override
+  public Optional<Memory> findMemory(String profileId, String memoryId) {
+    return Optional.ofNullable(memories.getOrDefault(profileId, Map.of()).get(memoryId));
+  }
+
+  @Override
+  public List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    Map<String, List<Memory>> bySession = new LinkedHashMap<>();
+    listMemories(profileId, null, null, false).stream().filter(m -> m.sessionId() != null)
+      .forEach(m -> bySession.computeIfAbsent(m.sessionId(), _ -> new ArrayList<>()).add(m));
+    return bySession.entrySet().stream()
+      .map(e -> new SessionActivity(e.getKey(), e.getValue().getFirst().createdAt(), e.getValue().getLast().createdAt(),
+        e.getValue().size(), 0, null))
+      .limit(limit)
+      .toList();
+  }
+
+  @Override
+  public List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type, boolean includeSystem, int limit) {
+    return listMemories(profileId, type, null, false).stream()
+      .filter(m -> m.topicKey() != null && m.topicKey().contains(text == null ? "" : text))
+      .limit(limit)
+      .map(m -> new TopicKeyEntry(m.topicKey(), m))
+      .toList();
   }
 
   @Override
@@ -612,6 +667,17 @@ class StubMemoryStore implements MemoryStore {
       }
     });
     return out;
+  }
+
+  @Override
+  public List<RelationTotal> relationTotals(String profileId, String entityId) {
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (IncidentEdge edge : incidentEdges(profileId, entityId, Integer.MAX_VALUE)) {
+      counts.merge(edge.edge().relation() + (edge.outgoing() ? "\u0000out" : "\u0000in"), 1L, Long::sum);
+    }
+    return counts.entrySet().stream()
+      .map(e -> new RelationTotal(e.getKey().split("\u0000")[0], e.getKey().endsWith("out"), e.getValue()))
+      .toList();
   }
 
   @Override

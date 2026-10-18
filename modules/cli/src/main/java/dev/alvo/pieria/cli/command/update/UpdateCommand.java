@@ -20,14 +20,15 @@ import picocli.CommandLine.Option;
 
 import java.time.Duration;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /**
- * {@code pieria update} — replace the installed binaries and restart the daemon in one step.
+ * {@code pieria update} — replace the installed distribution and restart the daemon in one step.
  *
  * <p>Acquires a new distribution (a published release by default, or a locally-built one via
- * {@code --from-build}/{@code --from}), stops the daemon, atomically swaps the binaries, restarts the
+ * {@code --from-build}/{@code --from}), stops the daemon, swaps the artifacts, restarts the
  * daemon, and waits for it to come healthy. A daemon restart is transparent to a live Claude Code
  * session; the lifecycle hooks live inside the {@code pieria} binary itself, so swapping it updates
  * them automatically — only a changed gateway binary requires relaunching the harness.
@@ -37,7 +38,7 @@ import java.util.concurrent.Callable;
  */
 @Command(
   name = "update",
-  description = "Update Pieria's binaries and restart the daemon.",
+  description = "Update Pieria and restart the daemon.",
   mixinStandardHelpOptions = true
 )
 public final class UpdateCommand implements Callable<Integer> {
@@ -56,7 +57,7 @@ public final class UpdateCommand implements Callable<Integer> {
   @Option(names = "--force", description = "Swap even if the installed version already matches the release.")
   boolean force;
 
-  @Option(names = "--no-restart", description = "Swap binaries only; do not stop/start the daemon.")
+  @Option(names = "--no-restart", description = "Swap artifacts without stopping or starting the daemon.")
   boolean noRestart;
 
   @Option(names = "--daemon-url", description = "Daemon base URL (default: $PIERIA_DAEMON_URL or http://127.0.0.1:8077).")
@@ -117,10 +118,19 @@ public final class UpdateCommand implements Callable<Integer> {
     String oldVersion = BuildInfo.readFrom(install.binDir());
     String newVersion = BuildInfo.readFrom(dist.binDir());
 
+    // An older CLI can install the new binaries while ignoring the console directory. A second
+    // update with this CLI must repair that first-upgrade gap even when the version already matches.
+    boolean consoleMissing = Files.isRegularFile(dist.consoleDir().resolve("index.html"))
+      && !Files.isRegularFile(install.consoleDir().resolve("index.html"));
+
     // 2. Skip a redundant release update (local sources always swap — the user explicitly built them).
-    if (releaseSource && !force && BuildInfo.isKnown(oldVersion) && oldVersion.equals(newVersion)) {
+    if (releaseSource && !force && !consoleMissing
+        && BuildInfo.isKnown(oldVersion) && oldVersion.equals(newVersion)) {
       log.info("Already up to date ({}). Use --force to reinstall.", oldVersion);
       return 0;
+    }
+    if (consoleMissing && BuildInfo.isKnown(oldVersion) && oldVersion.equals(newVersion)) {
+      log.info("Console files are missing; completing the installation of {}.", newVersion);
     }
 
     String url = DaemonUrls.resolve(daemonUrl);
@@ -133,10 +143,10 @@ public final class UpdateCommand implements Callable<Integer> {
       stopDaemon(daemon);
     }
 
-    // 4. Swap binaries (atomic; rolls back internally on failure).
+    // 4. Swap the console and binaries (rolls back internally on failure).
     try {
       new BinarySwapper(platform).swap(dist, install);
-      log.info("Swapped binaries in {}.", install.binDir());
+      log.info("Swapped distribution in {}.", install.binDir().getParent());
     } catch (UpdateException e) {
       log.error("error: {}", e.getMessage());
       if (restart) {
@@ -181,6 +191,7 @@ public final class UpdateCommand implements Callable<Integer> {
       log.info("  daemon:   left running (--no-restart)");
     }
     log.info("  binaries: {}", BinarySource.BINARIES);
+    log.info("  console:  install beside bin/ when present in the distribution");
     if (releaseSource) {
       log.info("  note:     would skip if installed version already matches (unless --force)");
     }

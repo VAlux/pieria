@@ -3,14 +3,19 @@ package dev.alvo.pieria.config;
 import dev.alvo.pieria.config.schema.ConfigField;
 import dev.alvo.pieria.config.schema.ConfigSchemaService;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.support.PropertiesLoaderUtils;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 
 /**
  * Reads and writes the process-global configuration: the effective values the daemon is running
@@ -29,6 +34,17 @@ import java.util.Optional;
 public class GlobalConfigService {
 
   private static final String PROPERTIES_FILE = "pieria.properties";
+
+  /** The daemon's bundled {@code application.properties}: what applies when nothing overrides a key. */
+  private static final Properties SHIPPED_DEFAULTS = loadShippedDefaults();
+
+  private static Properties loadShippedDefaults() {
+    try {
+      return PropertiesLoaderUtils.loadProperties(new ClassPathResource("application.properties"));
+    } catch (IOException e) {
+      throw new UncheckedIOException("cannot read the bundled application.properties", e);
+    }
+  }
 
   private final ConfigSchemaService schema;
   private final Environment environment;
@@ -82,6 +98,7 @@ public class GlobalConfigService {
     for (ConfigField field : schema.forScope("global")) {
       String running = environment.getProperty(field.key());
       String onDisk = file.get(field.key()).orElse(null);
+      boolean secret = "secret".equals(field.kind());
       entries.add(new GlobalConfigEntry(
         field.key(),
         field.section(),
@@ -90,10 +107,12 @@ public class GlobalConfigService {
         field.options(),
         field.label(),
         field.hint(),
-        running,
-        onDisk,
+        secret ? null : running,
+        secret ? null : onDisk,
         onDisk == null ? "default" : "set",
-        onDisk != null && !Objects.equals(onDisk, running)));
+        onDisk != null && !Objects.equals(onDisk, running),
+        secret ? null : SHIPPED_DEFAULTS.getProperty(field.key()),
+        secret ? running != null && !running.isBlank() : null));
     }
     return List.copyOf(entries);
   }

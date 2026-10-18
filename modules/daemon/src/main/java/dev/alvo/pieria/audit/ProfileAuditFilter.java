@@ -84,17 +84,33 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
   }
 
   static String operation(String method, String rest) {
+    if (rest.equals("wiki")) return "wiki.directory";
+    if (rest.equals("wiki/search")) return "wiki.search";
+    if (rest.equals("wiki/status")) return "wiki.status";
+    if (rest.equals("wiki/build")) return "wiki.build";
+    if (rest.startsWith("graph/") && !rest.equals("graph/view")) return "graph." + rest.split("/")[1];
+    if (rest.equals("clusters")) return method.equals("POST") ? "cluster.create" : "cluster.list";
+    if (rest.equals("clusters/links")) return "cluster.links";
+    if (rest.startsWith("clusters/")) return method.equals("GET") ? "cluster.read" : "cluster.update";
+    if (rest.startsWith("clustering/")) return method.equals("GET") ? "clustering.read" : "clustering.update";
+    if (rest.startsWith("wiki/jobs/")) return "wiki.job";
+    if (rest.startsWith("wiki/pages/")) return rest.endsWith("/evaluate") ? "wiki.evaluate"
+      : rest.endsWith("/evidence") ? "wiki.evidence" : "wiki.read";
     return switch (rest) {
       case "" -> method.equals("PUT") ? "profile.create" : method.equals("DELETE") ? "profile.delete" : "profile.read";
       case "ingest" -> "ingest";
       case "ingest/transcript" -> "ingest.transcript";
       case "ingest/async" -> "ingest.async";
       case "memories" -> method.equals("POST") ? "memory.remember" : "memory.list";
+      case "memories/search" -> "memory.search";
+      case "sessions" -> "session.list";
+      case "topic-keys" -> "topic-key.search";
       case "recall" -> "recall";
       case "stats" -> "stats";
       case "graph" -> "graph.read";
       case "graph/view" -> "graph.view";
       case "export" -> "export";
+      case "config/detail" -> "config.detail";
       case "config" -> switch (method) {
         case "PUT" -> "config.update";
         case "DELETE" -> "config.clear";
@@ -106,14 +122,28 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       case "code/status" -> "code.status";
       case "reminisce/async" -> "reminisce.async";
       case "reminisce/orphans" -> "reminisce.orphans";
-      default -> rest.startsWith("memories/") && method.equals("DELETE")
-        ? "memory.forget" : "profile." + method.toLowerCase(Locale.ROOT);
+      default -> rest.startsWith("memories/") ? memoryOperation(method, rest) : "profile." + method.toLowerCase(Locale.ROOT);
+    };
+  }
+
+  private static String memoryOperation(String method, String rest) {
+    if (rest.endsWith("/history")) return "memory.history";
+    if (rest.endsWith("/revisions")) return method.equals("POST") ? "memory.revise" : "memory.revisions";
+    return switch (method) {
+      case "DELETE" -> "memory.forget";
+      case "GET" -> "memory.get";
+      default -> "profile." + method.toLowerCase(Locale.ROOT);
     };
   }
 
   private static String resourceId(String rest) {
-    if (rest.startsWith("memories/") && rest.length() > "memories/".length()) {
-      return URLDecoder.decode(rest.substring("memories/".length()), StandardCharsets.UTF_8);
+    if (rest.startsWith("wiki/pages/") || rest.startsWith("wiki/jobs/")) {
+      String id = rest.split("/", 4)[2];
+      return id.isBlank() ? null : id;
+    }
+    if (rest.startsWith("memories/") && rest.length() > "memories/".length() && !rest.equals("memories/search")) {
+      String id = rest.substring("memories/".length()).split("/", 2)[0];
+      return URLDecoder.decode(id, StandardCharsets.UTF_8);
     }
     return null;
   }
@@ -135,8 +165,9 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
     String requestId = requestId(request.getHeader(AuditHeaders.REQUEST_ID));
     AuditCaller caller = caller(request);
     Instant startedAt = Instant.now();
-    AuditRequestWrapper wrappedRequest = new AuditRequestWrapper(request, maxBodyBytes);
-    AuditResponseWrapper wrappedResponse = new AuditResponseWrapper(response, maxBodyBytes);
+    boolean wiki = rest.equals("wiki") || rest.startsWith("wiki/");
+    AuditRequestWrapper wrappedRequest = new AuditRequestWrapper(request, wiki ? 0 : maxBodyBytes);
+    AuditResponseWrapper wrappedResponse = new AuditResponseWrapper(response, wiki ? 0 : maxBodyBytes);
     wrappedResponse.setHeader(AuditHeaders.REQUEST_ID, requestId);
     Throwable failure = null;
     AuditRequestContext.set(new AuditRequestContext(profile, operation, requestId, caller));
@@ -156,9 +187,10 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       // SqliteMemoryStore, and the filter must not recreate one after the profile is gone.
       if (!(operation.equals("profile.delete") && status >= 200 && status < 300)) {
         recorder.recordHttp(profile, operation, requestId, caller, request.getMethod(),
-          request.getRequestURI(), request.getQueryString(), request.getContentType(),
+          request.getRequestURI(), wiki ? null : request.getQueryString(), request.getContentType(),
           wrappedResponse.getContentType(), startedAt, completedAt, status,
-          wrappedRequest.captured(), wrappedResponse.captured(), resourceId(rest), failure);
+          wiki ? new CapturedPayload("",0,"",false) : wrappedRequest.captured(),
+          wiki ? new CapturedPayload("",0,"",false) : wrappedResponse.captured(), resourceId(rest), wiki ? null : failure);
       }
     }
   }

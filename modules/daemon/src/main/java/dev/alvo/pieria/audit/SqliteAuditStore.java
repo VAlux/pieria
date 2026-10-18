@@ -1,5 +1,6 @@
 package dev.alvo.pieria.audit;
 
+import dev.alvo.pieria.tools.FtsQuery;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -9,8 +10,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -31,16 +36,6 @@ public class SqliteAuditStore implements AuditStore {
       sql.append(" AND ").append(condition);
       params.add(value);
     }
-  }
-
-  private static String toFtsMatch(String query) {
-    List<String> terms = new ArrayList<>();
-    for (String token : query.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}_-]+")) {
-      if (!token.isBlank()) {
-        terms.add("\"" + token.replace("\"", "\"\"") + "\"*");
-      }
-    }
-    return terms.isEmpty() ? null : String.join(" AND ", terms);
   }
 
   private static AuditEvent map(ResultSet rs) throws SQLException {
@@ -92,19 +87,57 @@ public class SqliteAuditStore implements AuditStore {
 
   @Override
   public List<AuditEvent> search(String profileName, AuditQuery q) {
-    boolean fts = q.text() != null && !q.text().isBlank();
     StringBuilder sql = new StringBuilder("SELECT a.* FROM profile_audit_events a");
     List<Object> params = new ArrayList<>();
+    if (!filters(sql, params, profileName, q)) {
+      return List.of();
+    }
+    if (q.cursorTime() != null && q.cursorId() != null) {
+      sql.append(" AND (a.completed_at < ? OR (a.completed_at = ? AND a.id < ?))");
+      params.add(q.cursorTime().toString());
+      params.add(q.cursorTime().toString());
+      params.add(q.cursorId());
+    }
+    sql.append(" ORDER BY a.completed_at DESC, a.id DESC LIMIT ?");
+    params.add(q.limit());
+    return jdbc.sql(sql.toString()).params(params).query(MAPPER).list();
+  }
+
+  private static final List<String> FACET_COLUMNS = List.of("operation", "client", "harness", "channel", "outcome", "profile_name");
+
+  @Override
+  public Map<String, List<Facet>> facets(String profileName, AuditQuery q) {
+    Map<String, List<Facet>> result = new LinkedHashMap<>();
+    for (String column : FACET_COLUMNS) {
+      StringBuilder sql = new StringBuilder("SELECT a." + column + " AS value, COUNT(*) AS n FROM profile_audit_events a");
+      List<Object> params = new ArrayList<>();
+      if (!filters(sql, params, profileName, q)) {
+        return Map.of();
+      }
+      sql.append(" AND a.").append(column).append(" IS NOT NULL AND a.").append(column)
+        .append(" <> '' GROUP BY a.").append(column).append(" ORDER BY n DESC, value LIMIT 50");
+      result.put(column.equals("profile_name") ? "profile" : column, jdbc.sql(sql.toString()).params(params)
+        .query((rs, _) -> new Facet(rs.getString("value"), rs.getLong("n"))).list());
+    }
+    return result;
+  }
+
+  /**
+   * Appends the FROM-joins and WHERE clause for a query. Returns false when the text filter has no
+   * searchable token, meaning nothing can match.
+   */
+  private static boolean filters(StringBuilder sql, List<Object> params, String profileName, AuditQuery q) {
+    boolean fts = q.text() != null && !q.text().isBlank();
+    String match = fts ? FtsQuery.allPrefixTerms(q.text()) : null;
+    if (fts && match == null) {
+      return false;
+    }
     if (fts) {
       sql.append(" JOIN profile_audit_fts f ON f.rowid = a.rowid");
     }
-    sql.append(" WHERE a.profile_name = ?");
-    params.add(profileName);
+    sql.append(" WHERE 1 = 1");
+    add(sql, params, profileName, "a.profile_name = ?");
     if (fts) {
-      String match = toFtsMatch(q.text());
-      if (match == null) {
-        return List.of();
-      }
       sql.append(" AND profile_audit_fts MATCH ?");
       params.add(match);
     }
@@ -130,19 +163,14 @@ public class SqliteAuditStore implements AuditStore {
         ? " AND (a.request_truncated = 1 OR a.response_truncated = 1)"
         : " AND a.request_truncated = 0 AND a.response_truncated = 0");
     }
-    if (q.cursorTime() != null && q.cursorId() != null) {
-      sql.append(" AND (a.completed_at < ? OR (a.completed_at = ? AND a.id < ?))");
-      params.add(q.cursorTime().toString());
-      params.add(q.cursorTime().toString());
-      params.add(q.cursorId());
-    }
-    sql.append(" ORDER BY a.completed_at DESC, a.id DESC LIMIT ?");
-    params.add(q.limit());
-    return jdbc.sql(sql.toString()).params(params).query(MAPPER).list();
+    return true;
   }
 
   @Override
   public Optional<AuditEvent> find(String profileName, String id) {
+    if (profileName == null) {
+      return jdbc.sql("SELECT * FROM profile_audit_events WHERE id = ?").param(id).query(MAPPER).optional();
+    }
     return jdbc.sql("SELECT * FROM profile_audit_events WHERE profile_name = ? AND id = ?")
       .params(profileName, id).query(MAPPER).optional();
   }
@@ -152,5 +180,22 @@ public class SqliteAuditStore implements AuditStore {
   public void deleteForProfile(String profileId, String profileName) {
     jdbc.sql("DELETE FROM profile_audit_events WHERE profile_id = ? OR profile_name = ?")
       .params(profileId, profileName).update();
+  }
+
+  @Override
+  public Map<String, String> harnessBySession(String profileName, Collection<String> sessionIds) {
+    if (sessionIds.isEmpty()) return Map.of();
+    List<Object> params = new ArrayList<>();
+    params.add(profileName);
+    params.addAll(sessionIds);
+    String marks = String.join(",", Collections.nCopies(sessionIds.size(), "?"));
+    Map<String, String> result = new HashMap<>();
+    jdbc.sql("SELECT session_id, harness FROM (SELECT session_id, harness, ROW_NUMBER() OVER"
+        + " (PARTITION BY session_id ORDER BY completed_at DESC, id DESC) AS rn FROM profile_audit_events"
+        + " WHERE profile_name = ? AND harness IS NOT NULL AND harness <> '' AND session_id IN (" + marks + ")) WHERE rn = 1")
+      .params(params)
+      .query((rs, _) -> result.put(rs.getString("session_id"), rs.getString("harness")))
+      .list();
+    return result;
   }
 }

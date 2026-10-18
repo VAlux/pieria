@@ -2,7 +2,7 @@ name: release
 
 # Builds the native daemon + gateway + cli for each supported platform and publishes
 # them as GitHub Release assets in the archive layout the installers expect:
-#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway, bin/pieria)
+#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway, bin/pieria, console/)
 #   pieria-linux-x86_64.tar.gz
 #   pieria-windows-x86_64.zip     (bin\pieria-daemon.exe, ...)
 #   checksums.txt                 (sha256, verified by packaging/install.{sh,ps1})
@@ -76,6 +76,20 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Verify console build
+        run: |
+          cd console
+          npm ci --no-audit --no-fund
+          npm test
+          npm run build
 
       # :daemon:embedVecExtensions stages this onto the test classpath, which is how the vector tests
       # find vec0. They are mandatory (SqliteMemoryStoreVectorTests fails rather than skips when the
@@ -219,8 +233,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # nativeDist compiles nothing in prebuilt mode, but the graalvmNative plugin is applied during
-      # configuration — keep the same JDK as the compile jobs rather than risk a toolchain mismatch.
+      # nativeDist skips native compilation in prebuilt mode but builds the console; the
+      # graalvmNative plugin still needs a matching JDK during configuration.
       - name: Set up GraalVM (JDK 25)
         uses: graalvm/setup-graalvm@v1
         with:
@@ -230,6 +244,13 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
 
       - name: Download this platform's binaries
         uses: actions/download-artifact@v4
@@ -263,15 +284,17 @@ jobs:
         run: |
           mkdir -p dist
           tar -czf "dist/pieria-${{ matrix.platform }}.tar.gz" \
-            -C modules/daemon/build/distributions/pieria-native bin
+            -C modules/daemon/build/distributions/pieria-native bin console
 
       - name: Package archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path modules/daemon/build/distributions/pieria-native/bin `
-            -DestinationPath "dist/pieria-${{ matrix.platform }}.zip" -Force
+          Compress-Archive -Path @(
+            "modules/daemon/build/distributions/pieria-native/bin",
+            "modules/daemon/build/distributions/pieria-native/console"
+          ) -DestinationPath "dist/pieria-${{ matrix.platform }}.zip" -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

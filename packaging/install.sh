@@ -199,11 +199,12 @@ else
 fi
 
 if ((DRY_RUN)); then
-	echo "extract $TARBALL -> $PIERIA_HOME/bin"
+	echo "extract $TARBALL -> $PIERIA_HOME (bin/ and console/)"
 else
 	mkdir -p "$PIERIA_HOME/bin" "$BIN_DIR"
-	# Tarball lays out bin/{pieria,pieria-daemon,pieria-gateway}; strip the bin/.
-	tar -xzf "$WORK/$TARBALL" -C "$PIERIA_HOME/bin" --strip-components=1
+	# The archive has sibling bin/ and console/ directories under the install root.
+	tar -xzf "$WORK/$TARBALL" -C "$PIERIA_HOME"
+	[[ -f "$PIERIA_HOME/console/index.html" ]] || die "release is missing console/index.html"
 	chmod +x "$PIERIA_HOME/bin/pieria" "$PIERIA_HOME/bin/pieria-daemon" "$PIERIA_HOME/bin/pieria-gateway"
 fi
 

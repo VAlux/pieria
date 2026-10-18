@@ -6,6 +6,7 @@ import dev.alvo.pieria.domain.graph.Edge;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -380,6 +381,36 @@ class SqliteMemoryStoreGraphTests {
     assertEquals(1, fromA.size());
     assertTrue(fromA.get(0).outgoing());
     assertEquals("b", fromA.get(0).other().name());
+  }
+
+  @Test
+  void clusterEntitiesFollowMemberMemoriesToTheirEntities() {
+    Profile p = store.getOrCreateProfile("g-clusters");
+    var first = store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    var second = store.store(p.id(), Memory.of(MemoryType.FACT, "b runs c", "s1", null, null), frag("b", "runs", "c"));
+    String now = java.time.Instant.now().toString();
+    for (String cluster : List.of("k1", "k2")) {
+      jdbc.sql("INSERT INTO clusters (id, profile_id, created_at) VALUES (?, ?, ?)").params(cluster, p.id(), now).update();
+    }
+    jdbc.sql("INSERT INTO cluster_dependencies VALUES (?, 'k1', 'memory', ?)").params(p.id(), first.stored().id()).update();
+    jdbc.sql("INSERT INTO cluster_dependencies VALUES (?, 'k2', 'memory', ?)").params(p.id(), second.stored().id()).update();
+
+    var entities = store.clusterEntities(p.id(), List.of("k1", "k2"));
+
+    assertEquals(List.of("a", "b"), entities.get("k1").values().stream().sorted().toList());
+    assertEquals(List.of("b", "c"), entities.get("k2").values().stream().sorted().toList());
+  }
+
+  @Test
+  void relationTotalsCountEveryEdgePerRelationAndDirection() {
+    Profile p = store.getOrCreateProfile("g-totals");
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses b", "s1", null, null), frag("a", "uses", "b"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "a uses c", "s1", null, null), frag("a", "uses", "c"));
+    store.store(p.id(), Memory.of(MemoryType.FACT, "d runs a", "s1", null, null), frag("d", "runs", "a"));
+
+    List<RelationTotal> totals = store.relationTotals(p.id(), entityId(p.id(), "a"));
+
+    assertEquals(List.of(new RelationTotal("uses", true, 2), new RelationTotal("runs", false, 1)), totals);
   }
 
   @Test

@@ -18,6 +18,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -225,5 +226,27 @@ class VectorizationWorkerTests {
     assertEquals(0, worker.drainOnce());
     assertEquals(0, outboxSize());
     assertEquals(0, embeddingCount());
+  }
+
+  @Test
+  void databaseContentionDoesNotConsumeEmbeddingAttempts() throws Exception {
+    enqueueFact("alpha");
+    String id = memoryIdOf("alpha");
+    VectorizationWorker worker = new VectorizationWorker(store, gateway, props(1, 1));
+
+    try (var blocker = DriverManager.getConnection("jdbc:sqlite:" + dbFile.toAbsolutePath());
+         var statement = blocker.createStatement()) {
+      statement.execute("BEGIN IMMEDIATE");
+      // The write must fail promptly while a separate connection owns SQLite's writer slot.
+      jdbc.sql("PRAGMA busy_timeout=1").query(Integer.class).single();
+      assertEquals(0, worker.drainOnce());
+      assertEquals(1, outboxSize());
+      assertEquals(0, jdbc.sql("SELECT attempts FROM vectorization_outbox WHERE memory_id=?")
+        .param(id).query(Integer.class).single());
+      statement.execute("ROLLBACK");
+    }
+
+    assertEquals(1, worker.drainOnce());
+    assertEquals(0, outboxSize());
   }
 }

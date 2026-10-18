@@ -14,14 +14,24 @@ import java.util.List;
  * @param analysis the query analysis used for this recall
  * @param channels per-channel timing/hit/failure records
  * @param rerank   per-rerank-stage records, in the order the stages ran
+ * @param selection explanations for granularity and overlap decisions
  */
 public record RetrievalDiagnostics(QueryAnalysis analysis,
                                    List<ChannelDiagnostics> channels,
-                                   List<RerankDiagnostics> rerank) {
+                                   List<RerankDiagnostics> rerank,
+                                   List<SelectionDecision> selection) {
 
   public RetrievalDiagnostics {
     channels = channels == null ? List.of() : List.copyOf(channels);
     rerank = rerank == null ? List.of() : List.copyOf(rerank);
+    selection = selection == null ? List.of() : List.copyOf(selection);
+  }
+
+  /** Why a candidate was kept, deferred, or suppressed after granularity selection. */
+  public record SelectionDecision(String id,String action,String reason,List<String> evidenceIds) {
+    public SelectionDecision {
+      evidenceIds=evidenceIds==null?List.of():List.copyOf(evidenceIds);
+    }
   }
 
   /**

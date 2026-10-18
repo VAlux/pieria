@@ -12,9 +12,14 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
@@ -39,6 +44,48 @@ import java.util.function.Supplier;
  * All ingestion writes and retrieval channels are defined against this interface.
  */
 public interface MemoryStore {
+  /** Snapshot-aware graph reads; model calls must stay outside the callback. */
+  default <T> T readClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    throw new UnsupportedOperationException("Cluster storage unavailable");
+  }
+
+  /** Serialized SQLite graph edits and synthesis publication. */
+  default <T> T writeClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    throw new UnsupportedOperationException("Cluster storage unavailable");
+  }
+
+  /** Generated cluster memory is usable only while all pinned source evidence is eligible. */
+  default boolean eligibleClusterMemory(String profileId, String memoryId, TemporalSnapshot snapshot,
+                                        boolean excludeCodeDerived) {
+    return true;
+  }
+
+  default java.util.Set<String> clusterCoveredOriginals(String profileId, String memoryId,
+      String query, TemporalSnapshot snapshot) {
+    return java.util.Set.of();
+  }
+  /** Bounded lexical and semantic hits on validated claims, resolved to eligible syntheses. */
+  default List<Memory> searchClusterClaims(String profileId,String query,TemporalSnapshot snapshot,
+                                           boolean excludeCodeDerived,int limit) {
+    return searchClusterClaims(profileId,query,null,snapshot,excludeCodeDerived,limit);
+  }
+  default List<Memory> searchClusterClaims(String profileId,String query,float[] queryEmbedding,
+                                           TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    return List.of();
+  }
+  default List<Memory> relevantClusterParents(String profileId,List<String> seedMemoryIds,String query,
+                                              TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    return List.of();
+  }
+  /** A short snapshot-consistent wiki read. The callback must not perform model/network I/O. */
+  default <T> T readWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    throw new UnsupportedOperationException("Wiki storage unavailable");
+  }
+  /** Atomic wiki mutation/publication. Never retain the repository or call a model in the callback. */
+  default <T> T writeWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    throw new UnsupportedOperationException("Wiki storage unavailable");
+  }
+
   record FactHistory(String factGroup, List<RevisionResponse> revisions,
                      List<TemporalValidity> segments, List<TemporalValidity> selected) {}
 
@@ -450,6 +497,34 @@ public interface MemoryStore {
   List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter, boolean includeSuperseded);
 
   /**
+   * One cursor-paged page of the console's memory list: text search over content, topic key and
+   * session id, optional collapsing of trace outcomes per session, and per-type counts.
+   */
+  default MemorySearchPage searchMemories(
+    String profileId, MemorySearchQuery query) {
+    throw new UnsupportedOperationException("searchMemories(...) not implemented");
+  }
+
+  /** One memory of this profile, superseded ones included; empty when unknown or forgotten. */
+  default Optional<Memory> findMemory(String profileId, String memoryId) {
+    throw new UnsupportedOperationException("findMemory(...) not implemented");
+  }
+
+  /** Sessions seen through memories or raw messages, most recent first, optionally by id prefix. */
+  default List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    throw new UnsupportedOperationException("listSessions(...) not implemented");
+  }
+
+  /**
+   * The visible memory for each (type, topic key) whose key contains {@code text}, prefix matches
+   * first. System namespaces ({@code code:}, {@code trace:}) are left out unless asked for.
+   */
+  default List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type,
+                                              boolean includeSystem, int limit) {
+    throw new UnsupportedOperationException("searchTopicKeys(...) not implemented");
+  }
+
+  /**
    * Mark a memory forgotten independently of temporal state; remove embeddings and queued work.
    * Returns {@code true} if a matching non-forgotten memory was found and updated.
    */
@@ -605,6 +680,19 @@ public interface MemoryStore {
    */
   default List<IncidentEdge> incidentEdges(String profileId, String entityId, int limit) {
     throw new UnsupportedOperationException("incidentEdges(...) not implemented");
+  }
+
+  /**
+   * For each cluster, the entities (id → name) that active edges attach to its current transitive
+   * member memories. Clusters with no such entity are absent.
+   */
+  default Map<String, Map<String, String>> clusterEntities(String profileId, Collection<String> clusterIds) {
+    throw new UnsupportedOperationException("clusterEntities(...) not implemented");
+  }
+
+  /** Active edges touching {@code entityId} counted per relation and direction, largest first. */
+  default List<RelationTotal> relationTotals(String profileId, String entityId) {
+    throw new UnsupportedOperationException("relationTotals(...) not implemented");
   }
 
   /**

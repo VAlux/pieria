@@ -50,7 +50,7 @@ class DataSourceConfigTests {
         setup.execute("CREATE TABLE test_memory (id INTEGER PRIMARY KEY, value TEXT)");
         setup.execute("INSERT INTO test_memory(value) VALUES ('seed')");
       }
-      // Keep the competing-write assertion fast; production connections default to five seconds.
+      // Keep the competing-write assertion fast; production connections wait up to 15 seconds.
       try (Statement timeout = second.createStatement()) {
         timeout.execute("PRAGMA busy_timeout=1");
       }

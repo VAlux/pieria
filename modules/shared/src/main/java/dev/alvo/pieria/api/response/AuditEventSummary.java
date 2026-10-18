@@ -5,6 +5,7 @@ import java.time.Instant;
 /** Compact audit row returned by the paginated list endpoint. */
 public record AuditEventSummary(
   String id,
+  String profile,
   String eventType,
   String operation,
   String requestId,

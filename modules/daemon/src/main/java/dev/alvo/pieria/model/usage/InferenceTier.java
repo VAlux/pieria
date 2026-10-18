@@ -32,7 +32,7 @@ public enum InferenceTier {
       return EXTRACTION;
     }
     return switch (stage) {
-      case "synthesizeRecall", "judgeAnswer", "judgeEvidenceSupport" -> SYNTHESIS;
+      case "synthesizeRecall", "synthesizeWiki", "summarizeCode", "judgeAnswer", "judgeEvidenceSupport" -> SYNTHESIS;
       case "embed" -> EMBEDDING;
       default -> EXTRACTION;
     };

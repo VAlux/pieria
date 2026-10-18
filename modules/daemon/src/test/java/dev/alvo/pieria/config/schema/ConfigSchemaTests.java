@@ -30,10 +30,10 @@ class ConfigSchemaTests {
   @Test
   void profileScopedKeysMatchDaemonOverridesExactly() {
     Set<String> fromCode = new LinkedHashSet<>();
-    kebabComponentNames(DaemonOverrides.Ingestion.class)
-      .forEach(name -> fromCode.add("ingestion." + name));
-    kebabComponentNames(DaemonOverrides.Retrieval.class)
-      .forEach(name -> fromCode.add("retrieval." + name));
+    for (RecordComponent section : DaemonOverrides.class.getRecordComponents()) {
+      kebabComponentNames(section.getType().asSubclass(Record.class))
+        .forEach(name -> fromCode.add(section.getName() + "." + name));
+    }
 
     Set<String> fromSchema = schema.forScope("profile").stream()
       .map(ConfigField::key)
@@ -88,6 +88,17 @@ class ConfigSchemaTests {
     }
     // A List<String> binds from the comma-separated form a properties file can hold.
     return "string";
+  }
+
+  @Test
+  void everyGlobalKeyHasAShippedDefault() throws Exception {
+    java.util.Properties shipped = org.springframework.core.io.support.PropertiesLoaderUtils
+      .loadProperties(new org.springframework.core.io.ClassPathResource("application.properties"));
+    // The console shows each global key's shipped value; a key missing from application.properties
+    // would have no default to show or to reset to.
+    assertThat(schema.forScope("global"))
+      .filteredOn(field -> !"secret".equals(field.kind()))
+      .allSatisfy(field -> assertThat(shipped.getProperty(field.key())).as(field.key()).isNotNull());
   }
 
   @Test

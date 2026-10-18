@@ -2,6 +2,8 @@ package dev.alvo.pieria.task;
 
 import dev.alvo.pieria.audit.AuditRecorder;
 import dev.alvo.pieria.audit.AuditRequestContext;
+import dev.alvo.pieria.domain.error.ConflictException;
+import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.model.ModelFailures;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import jakarta.annotation.PreDestroy;
@@ -15,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -72,19 +75,54 @@ public class TaskRegistry {
    * failure as {@code failure}.
    */
   public UUID submit(String kind, String profile, Function<TaskProgress, JsonNode> work) {
+    return start(kind, profile, work, AuditRequestContext.current());
+  }
+
+  /**
+   * Run a failed or cancelled task's work again as a new task with the same kind, profile and audit
+   * origin. Only possible while the finished task is still held (see {@link #TERMINAL_TTL}); the
+   * work is idempotent for every task kind the daemon submits (content-addressed ingest, code and
+   * graph indexing).
+   *
+   * @throws NotFoundException  when the task is unknown or already evicted
+   * @throws ConflictException when the task is still running or succeeded
+   */
+  public UUID retry(UUID id) {
+    evictExpired();
+    Entry entry = tasks.get(id);
+    if (entry == null) {
+      throw NotFoundException.task(id.toString());
+    }
+    TaskStatus status = entry.ref.get().status();
+    if (status != TaskStatus.FAILED && status != TaskStatus.CANCELLED) {
+      throw new ConflictException("Only failed or cancelled tasks can be retried; this one is " + status.name().toLowerCase(Locale.ROOT));
+    }
+    Function<TaskProgress, JsonNode> work = entry.work;
+    if (work == null) {
+      throw new ConflictException("This task's input is no longer held, so it cannot be retried");
+    }
+    log.info("task {} retried ({})", id, entry.kind);
+    return start(entry.kind, entry.profile, work, entry.auditContext);
+  }
+
+  private UUID start(String kind, String profile, Function<TaskProgress, JsonNode> work, AuditRequestContext origin) {
     UUID id = UUID.randomUUID();
     AtomicReference<TaskSnapshot> ref = new AtomicReference<>(TaskSnapshot.running(Instant.now()));
-    Entry entry = new Entry(ref, kind, profile, AuditRequestContext.current());
+    Entry entry = new Entry(ref, kind, profile, origin, work);
     tasks.put(id, entry);
     evictExpired();
 
     TaskProgress progress = new TaskProgress(ref, () -> entry.cancelRequested);
 
     entry.future = executor.submit(() -> {
-      try {
+      // Tasks the work submits itself (e.g. onboarding's graph pass) inherit this task's origin,
+      // so their completion is audited under the same profile request.
+      try (AuditRequestContext.Scope ignored = AuditRequestContext.bind(origin)) {
         JsonNode result = work.apply(progress);
         ref.updateAndGet(s -> s.succeeded(result, Instant.now()));
         if (ref.get().status() == TaskStatus.SUCCEEDED) {
+          // Only failed or cancelled tasks can be retried; let a finished one's input be collected.
+          entry.work = null;
           log.info("task {} succeeded ({})", id, kind);
         } else {
           log.info("task {} completed after cancellation ({})", id, kind);
@@ -148,7 +186,7 @@ public class TaskRegistry {
   public Optional<TaskInfo> findInfo(UUID id) {
     evictExpired();
     Entry entry = tasks.get(id);
-    return Optional.ofNullable(entry).map(e -> new TaskInfo(id, e.kind, e.profile, e.ref.get()));
+    return Optional.ofNullable(entry).map(e -> e.info(id));
   }
 
   /**
@@ -157,7 +195,7 @@ public class TaskRegistry {
   public List<TaskInfo> all() {
     evictExpired();
     List<TaskInfo> infos = new ArrayList<>(tasks.size());
-    tasks.forEach((id, entry) -> infos.add(new TaskInfo(id, entry.kind, entry.profile, entry.ref.get())));
+    tasks.forEach((id, entry) -> infos.add(entry.info(id)));
     infos.sort(Comparator.comparing((TaskInfo i) -> i.snapshot().startedAt()).reversed());
     return infos;
   }
@@ -213,21 +251,35 @@ public class TaskRegistry {
     final String kind;
     final String profile;
     final AuditRequestContext auditContext;
+    volatile Function<TaskProgress, JsonNode> work;
     final AtomicBoolean auditRecorded = new AtomicBoolean();
     volatile Future<?> future;
     volatile boolean cancelRequested;
 
-    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext) {
+    Entry(AtomicReference<TaskSnapshot> ref, String kind, String profile, AuditRequestContext auditContext,
+          Function<TaskProgress, JsonNode> work) {
       this.ref = ref;
       this.kind = kind;
       this.profile = profile;
       this.auditContext = auditContext;
+      this.work = work;
+    }
+
+    TaskInfo info(UUID id) {
+      TaskSnapshot snapshot = ref.get();
+      boolean retryable = work != null && (snapshot.status() == TaskStatus.FAILED || snapshot.status() == TaskStatus.CANCELLED);
+      return new TaskInfo(id, kind, profile, snapshot, retryable);
     }
   }
 
   /**
-   * Immutable view of a task for listing: its id, display metadata, and current snapshot.
+   * Immutable view of a task for listing: its id, display metadata, current snapshot, and whether
+   * {@link #retry} would accept it.
    */
-  public record TaskInfo(UUID id, String kind, String profile, TaskSnapshot snapshot) {
+  public record TaskInfo(UUID id, String kind, String profile, TaskSnapshot snapshot, boolean retryable) {
+
+    public TaskInfo(UUID id, String kind, String profile, TaskSnapshot snapshot) {
+      this(id, kind, profile, snapshot, false);
+    }
   }
 }

@@ -58,7 +58,7 @@ class OpenAiModelGatewaySynthesisTests {
         .defaultOptions(OpenAiChatOptions.builder().model("extract-model")).build(),
       ChatClient.builder(synthesis)
         .defaultOptions(OpenAiChatOptions.builder().model("synth-model")).build(),
-      null, properties, new OllamaModelProviderAdapter());
+      null, properties, new OllamaModelProviderAdapter(), null);
     return new Harness(gateway, synthesis);
   }
 

@@ -33,4 +33,28 @@ class TaskAuditTests {
       isNull(), isNull());
     tasks.shutdown();
   }
+
+  @Test
+  void childTasksSubmittedByWorkInheritTheOrigin() throws Exception {
+    AuditRecorder recorder = mock(AuditRecorder.class);
+    TaskRegistry tasks = new TaskRegistry(recorder);
+    AuditRequestContext context = new AuditRequestContext("alpha", "onboard.async", "request-2",
+      new AuditCaller("cli", null, "cli", "1", "127.0.0.1"));
+    java.util.concurrent.atomic.AtomicReference<String> child = new java.util.concurrent.atomic.AtomicReference<>();
+    try (AuditRequestContext.Scope ignored = AuditRequestContext.bind(context)) {
+      tasks.submit("onboard", "alpha", _ -> {
+        child.set(tasks.submit("onboard-graph", "alpha", _ -> JsonNodeFactory.instance.objectNode()).toString());
+        return JsonNodeFactory.instance.objectNode();
+      });
+    }
+    long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+    while (child.get() == null && System.nanoTime() < deadline) Thread.sleep(10);
+
+    verify(recorder, timeout(Duration.ofSeconds(2).toMillis())).recordTaskTerminal(
+      eq(context), eq(child.get()), eq("onboard-graph"), org.mockito.ArgumentMatchers.any(),
+      org.mockito.ArgumentMatchers.any(), eq("SUCCEEDED"), org.mockito.ArgumentMatchers.any(),
+      isNull(), isNull());
+    org.assertj.core.api.Assertions.assertThat(AuditRequestContext.current()).isNull();
+    tasks.shutdown();
+  }
 }

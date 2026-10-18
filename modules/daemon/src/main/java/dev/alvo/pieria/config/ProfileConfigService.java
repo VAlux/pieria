@@ -74,7 +74,7 @@ public class ProfileConfigService {
         retrieval.rerankModelEnabled(),
         retrieval.rerankWindow(),
         retrieval.rerankSnippetChars(),
-        retrieval.rerankTimeoutMs()));
+        retrieval.rerankTimeoutMs()), resolved.wiki().overrides());
   }
 
   /**
@@ -82,6 +82,7 @@ public class ProfileConfigService {
    * resulting effective config. An empty {@code overrides} clears the stored overrides.
    */
   public DaemonOverrides put(String profileName, DaemonOverrides overrides) {
+    configResolver.global().wiki().overlay(overrides.wiki()); // Validate before persisting.
     Profile profile = store.getOrCreateProfile(profileName);
     if (overrides.isEmpty()) {
       store.clearProfileConfig(profile.id());

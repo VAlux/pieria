@@ -14,10 +14,29 @@ import java.util.List;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RecallResponse(String answer, List<MemoryResponse> memories,
-                             List<CodeEvidence> codeEvidence, RecallDebug debug, TemporalContext temporal) {
+                             List<CodeEvidence> codeEvidence, RecallDebug debug, TemporalContext temporal,
+                             Timings timings, List<MemorySource> sources, List<ChannelSummary> channels) {
 
   public record TemporalContext(Instant asOf, Instant knownAsOf, long snapshotSequence,
                                 List<String> limitations) {}
+
+  /**
+   * Stage latencies in milliseconds. {@code retrieveMs} is analysis + embedding + channels;
+   * {@code synthesizeMs} is temporal facts + the synthesis call; {@code rerankMs} is part of fusion.
+   */
+  public record Timings(long retrieveMs, long rerankMs, long synthesizeMs, long totalMs, long analysisMs,
+                        long embeddingMs, long channelsMs, long fusionMs) {}
+
+  /** Which retrieval channels surfaced each returned memory, strongest contribution first. */
+  public record MemorySource(String memoryId, int rank, List<String> channels) {}
+
+  /** One channel's raw hits (before fusion) and latency for this recall. */
+  public record ChannelSummary(String channel, int hits, long latencyMs, boolean failed) {}
+
+  public RecallResponse(String answer, List<MemoryResponse> memories, List<CodeEvidence> codeEvidence, RecallDebug debug,
+                        TemporalContext temporal) {
+    this(answer, memories, codeEvidence, debug, temporal, null, null, null);
+  }
 
   public RecallResponse(String answer, List<MemoryResponse> memories, List<CodeEvidence> codeEvidence, RecallDebug debug) {
     this(answer, memories, codeEvidence, debug, null);
@@ -49,12 +68,16 @@ public record RecallResponse(String answer, List<MemoryResponse> memories,
    * @param temporalFacts pre-computed temporal facts injected into synthesis (rendered)
    * @param channels      per-channel latency/hit/failure diagnostics
    * @param rerank        per-rerank-stage diagnostics, in the order the stages ran
+   * @param selection     why clusters and originals were selected, deferred, or suppressed
    */
   public record RecallDebug(
     List<Provenance> candidates,
     List<String> temporalFacts,
     List<ChannelDiagnostic> channels,
-    List<RerankDiagnostic> rerank) {
+    List<RerankDiagnostic> rerank,
+    List<SelectionDecision> selection) {
+
+    public record SelectionDecision(String id,String action,String reason,List<String> evidenceIds) {}
 
     /** One fused candidate's provenance: memory id, RRF score, and the channels that produced it. */
     public record Provenance(String id, double score, String source) {

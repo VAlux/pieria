@@ -27,6 +27,29 @@ import java.util.Set;
  * {@link ModelUnavailableException} so the API can map it to 503.
  */
 public interface ModelGateway {
+  /** Large-model cluster synthesis. Citation IDs refer to original memory IDs in the input. */
+  default dev.alvo.pieria.cluster.ClusterModelInput.Draft synthesizeCluster(
+      dev.alvo.pieria.cluster.ClusterModelInput input) {
+    throw new UnsupportedOperationException("Cluster synthesis unavailable");
+  }
+
+  /** Small-model grounding check over one claim and its cited original evidence. */
+  default boolean validateClusterClaim(String claim, List<String> citedOriginals) {
+    return false;
+  }
+
+  default boolean validateClusterGroup(String title, String scope, List<String> originals) {
+    return false;
+  }
+
+  default boolean validateClusterCoverage(String original, String claim) {
+    return false;
+  }
+  /** One bounded wiki synthesis attempt. Durable wiki jobs own retries and publication. */
+  default String synthesizeWiki(dev.alvo.pieria.wiki.WikiData.Bundle bundle) {
+    throw new UnsupportedOperationException("Wiki synthesis unavailable");
+  }
+
   default List<ConflictDecision> classifyConflicts(String incoming,
       List<RevisionResponse> candidates) {
     return List.of();

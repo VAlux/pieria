@@ -17,7 +17,23 @@ public record StatusResponse(String status,
                              String synthesisModel,
                              String embeddingModel,
                              Long vectorizationOutboxDepth,
-                             Setup setup) {
+                             Setup setup,
+                             String host,
+                             int port,
+                             String providerLabel,
+                             String providerType,
+                             int apiVersion,
+                             String daemonVersion,
+                             Restart restart) {
+
+  /**
+   * Whether the console may restart the daemon: only when a service manager relaunches it after
+   * exit ({@code mechanism} is {@code launchd} or {@code systemd}); otherwise {@code pieria daemon
+   * restart} from a terminal is the way.
+   */
+  public record Restart(boolean supported, String mechanism) {
+  }
+
 
   public record Setup(boolean enabled,
                       boolean directoriesReady,

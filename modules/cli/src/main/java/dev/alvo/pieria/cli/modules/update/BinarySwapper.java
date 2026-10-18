@@ -51,7 +51,72 @@ public final class BinarySwapper {
    * Swap all artifacts of {@code dist} into the install layout. Rolls back on failure.
    */
   public void swap(StagedDist dist, InstallLayout install) {
-    swapNative(dist, install.binDir());
+    Path sourceConsole = dist.consoleDir();
+    if (!Files.isDirectory(sourceConsole)) {
+      // Older, bin-only distributions remain usable when explicitly requested.
+      swapNative(dist, install.binDir());
+      return;
+    }
+    Path target = install.consoleDir();
+    Path staged = target.resolveSibling("console.new");
+    Path backup = target.resolveSibling("console.bak");
+    try {
+      // An interrupted earlier update may have left only the backup behind.
+      if (!Files.exists(target) && Files.exists(backup)) move(backup, target);
+      boolean hadConsole = Files.exists(target);
+      if (!Files.isRegularFile(sourceConsole.resolve("index.html"))) {
+        throw new UpdateException("malformed distribution: missing console/index.html");
+      }
+      deleteTree(staged);
+      deleteTree(backup);
+      copyTree(sourceConsole, staged);
+      if (hadConsole) move(target, backup);
+      move(staged, target);
+      try {
+        swapNative(dist, install.binDir());
+      } catch (RuntimeException failure) {
+        try {
+          deleteTree(target);
+          if (hadConsole) move(backup, target);
+        } catch (IOException restoreFailure) {
+          failure.addSuppressed(restoreFailure);
+        }
+        throw failure;
+      }
+      try { deleteTree(backup); } catch (IOException ignored) { /* clean on the next update */ }
+    } catch (IOException e) {
+      try {
+        if (Files.exists(backup)) {
+          deleteTree(target);
+          move(backup, target);
+        }
+      } catch (IOException restoreFailure) {
+        e.addSuppressed(restoreFailure);
+      }
+      throw new UpdateException("console swap failed: " + e.getMessage(), e);
+    } finally {
+      try { deleteTree(staged); } catch (IOException ignored) { }
+    }
+  }
+
+  private static void copyTree(Path source, Path target) throws IOException {
+    try (Stream<Path> entries = Files.walk(source)) {
+      for (Path path : entries.toList()) {
+        if (Files.isSymbolicLink(path)) throw new IOException("console archive contains a symbolic link: " + path);
+        Path destination = target.resolve(source.relativize(path));
+        if (Files.isDirectory(path)) Files.createDirectories(destination);
+        else Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
+      }
+    }
+  }
+
+  private static void deleteTree(Path root) throws IOException {
+    if (!Files.exists(root)) return;
+    try (Stream<Path> entries = Files.walk(root)) {
+      for (Path path : entries.sorted((a, b) -> b.getNameCount() - a.getNameCount()).toList()) {
+        Files.deleteIfExists(path);
+      }
+    }
   }
 
   private void swapNative(StagedDist dist, Path binDir) {

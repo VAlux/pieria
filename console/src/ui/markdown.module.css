@@ -1,0 +1,35 @@
+.markdown { overflow-wrap: anywhere; }
+.markdown > * + * { margin-top: 0.7em; }
+.markdown p, .markdown ul, .markdown ol, .markdown pre, .markdown blockquote { margin: 0; }
+.markdown * + p, .markdown * + ul, .markdown * + ol, .markdown * + pre { margin-top: 0.7em; }
+.markdown ul, .markdown ol { padding-left: 1.3em; }
+.markdown li + li { margin-top: 0.25em; }
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+  color: var(--code);
+}
+.markdown pre {
+  padding: 10px 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.markdown pre code { color: var(--text-body-2); }
+.markdown blockquote { padding-left: 12px; border-left: 2px solid var(--border-button); color: var(--text-2); }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { font-family: var(--font-sans); font-size: 15px; font-weight: 600; margin: 1.1em 0 0; }
+.markdown table { border-collapse: collapse; font-size: 0.92em; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+.markdown :global(.citation) {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-decoration: none;
+  margin: 0 1px;
+}
+
+.body { font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.answer { font-size: 15px; line-height: 1.65; color: var(--text-strong); }
+.article { font-family: var(--font-serif); font-size: 16px; line-height: 1.65; color: var(--text-body-2); }
+.article > p:first-child { font-size: 17px; color: var(--text); }
+.article code { font-size: 13px; }

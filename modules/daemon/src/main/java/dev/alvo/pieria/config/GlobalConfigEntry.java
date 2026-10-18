@@ -12,9 +12,14 @@ import java.util.List;
  * restart, and {@code restartPending} carries that fact — so the console's banner survives a page
  * reload instead of living only in the session that made the edit.
  *
+ * <p>Secret keys never travel back to the browser: {@code value}, {@code fileValue} and
+ * {@code defaultValue} are null for them and {@code secretSet} says whether one is configured.
+ *
  * @param provenance     {@code set} when the key is assigned in the config-dir properties file,
  *                       {@code default} when the shipped value applies
  * @param restartPending the file and the running process disagree
+ * @param defaultValue   the value shipped in the daemon's own {@code application.properties}
+ * @param secretSet      for secret keys only: whether the running daemon has a non-blank value
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record GlobalConfigEntry(
@@ -28,7 +33,9 @@ public record GlobalConfigEntry(
   String value,
   String fileValue,
   String provenance,
-  boolean restartPending) {
+  boolean restartPending,
+  String defaultValue,
+  Boolean secretSet) {
 
   public GlobalConfigEntry {
     options = options == null ? List.of() : List.copyOf(options);

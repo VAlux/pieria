@@ -17,4 +17,23 @@ public record AuditRequestContext(String profileName, String operation, String r
   public static AuditRequestContext current() {
     return CURRENT.get();
   }
+
+  /**
+   * Makes {@code context} current on this thread until the returned scope closes, restoring what
+   * was there before. Background work uses it so tasks it submits inherit the originating request.
+   */
+  public static Scope bind(AuditRequestContext context) {
+    AuditRequestContext previous = CURRENT.get();
+    CURRENT.set(context);
+    return () -> {
+      if (previous == null) CURRENT.remove();
+      else CURRENT.set(previous);
+    };
+  }
+
+  /** A binding made by {@link #bind}; closing it never throws. */
+  public interface Scope extends AutoCloseable {
+    @Override
+    void close();
+  }
 }

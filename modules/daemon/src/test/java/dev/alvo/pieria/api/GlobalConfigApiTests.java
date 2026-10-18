@@ -38,6 +38,7 @@ class GlobalConfigApiTests {
     environment.setProperty("pieria.model.embedding-dimension", "1024");
     environment.setProperty("pieria.retrieval.rerank-enabled", "true");
     environment.setProperty("pieria.retrieval.rerank-window", "30");
+    environment.setProperty("pieria.provider.api-key", "sk-test-secret");
 
     ConfigSchemaService schema = new ConfigSchemaService();
     AppDataPathResolver paths = new AppDataPathResolver(
@@ -61,6 +62,33 @@ class GlobalConfigApiTests {
     }
     assertThat(hasProfile).isTrue();
     assertThat(hasGlobal).isTrue();
+  }
+
+  @Test
+  void secretsNeverLeaveTheDaemonButTheirPresenceDoes() throws Exception {
+    Files.writeString(configDir.resolve("pieria.properties"), "pieria.provider.api-key=sk-file-secret\n");
+
+    JsonNode key = entry(controller.get(), "pieria.provider.api-key");
+
+    assertThat(key.has("value")).isFalse();
+    assertThat(key.has("file-value")).isFalse();
+    assertThat(key.has("default-value")).isFalse();
+    assertThat(key.get("secret-set").asBoolean()).isTrue();
+    assertThat(key.get("provenance").asString()).isEqualTo("set");
+    assertThat(controller.get().toString()).doesNotContain("sk-test-secret").doesNotContain("sk-file-secret");
+  }
+
+  @Test
+  void entriesCarryTheShippedDefault() {
+    JsonNode body = controller.get();
+    assertThat(entry(body, "pieria.daemon.port").get("default-value").asString()).isEqualTo("8077");
+    assertThat(entry(body, "pieria.retrieval.rerank-window").get("default-value").asString()).isEqualTo("30");
+    assertThat(entry(body, "pieria.daemon.port").has("secret-set")).isFalse();
+  }
+
+  private static JsonNode entry(JsonNode body, String key) {
+    return StreamSupport.stream(body.get("entries").spliterator(), false)
+      .filter(e -> key.equals(e.get("key").asString())).findFirst().orElseThrow();
   }
 
   @Test

@@ -1,3 +1,4 @@
+import { unloadWiki } from "./wiki.js";
 import { $, el, apiFetch } from "../util/dom.js";
 import { state } from "./state.js";
 import { renderBanner, loadActiveView, syncUrl } from "./router.js";
@@ -124,6 +125,7 @@ export function selectProfile(profile) {
 // Drop the selection when the profile it names is gone. Leaving state.profile pointing at a
 // deleted profile would send the next fetch of every view to a 404.
 function clearProfileSelection() {
+  if (state.view === "wiki") unloadWiki();
   state.profile = "";
   $("profileLabel").textContent = "";
   syncProfileActions("", 0);

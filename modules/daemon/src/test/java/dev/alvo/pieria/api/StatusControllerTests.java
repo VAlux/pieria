@@ -56,7 +56,14 @@ class StatusControllerTests {
       .andExpect(jsonPath("$.setup.directoriesReady", is(true)))
       .andExpect(jsonPath("$.setup.configDir", notNullValue()))
       .andExpect(jsonPath("$.setup.logsDir", notNullValue()))
-      .andExpect(jsonPath("$.setup.runtimeDir", notNullValue()));
+      .andExpect(jsonPath("$.setup.runtimeDir", notNullValue()))
+      .andExpect(jsonPath("$.host", is("127.0.0.1")))
+      .andExpect(jsonPath("$.port", is(8077)))
+      .andExpect(jsonPath("$.providerLabel", is("test-provider")))
+      .andExpect(jsonPath("$.providerType", is("openai")))
+      .andExpect(jsonPath("$.apiVersion", is(dev.alvo.pieria.api.ApiVersion.CURRENT)))
+      .andExpect(jsonPath("$.daemonVersion", notNullValue()))
+      .andExpect(jsonPath("$.restart.supported", notNullValue()));
   }
 
   @TestConfiguration
@@ -105,7 +112,8 @@ class StatusControllerTests {
     @Bean
     StatusService statusService(BootstrapService setupService, StorageProperties storage,
                                 PieriaProperties pieria, MemoryStore store) {
-      return new StatusService(setupService, storage, pieria, store);
+      return new StatusService(setupService, storage, pieria, store,
+        new org.springframework.mock.env.MockEnvironment(), new dev.alvo.pieria.daemon.DaemonSupervisor());
     }
 
     private static Path createTempRoot() {

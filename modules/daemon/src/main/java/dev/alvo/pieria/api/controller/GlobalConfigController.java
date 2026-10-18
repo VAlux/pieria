@@ -23,9 +23,10 @@ import java.util.Map;
  * the running daemon; the response reports every written key as restart-required (or locked, for
  * the few that also need an explicit acknowledgement).
  *
- * <p>{@code restartCommand} is served rather than hardcoded in the console: the browser cannot
- * restart the daemon, so the page hands the operator the command instead of offering a button
- * that would not do what it says.
+ * <p>{@code restartCommand} is served rather than hardcoded in the console. Under launchd or
+ * systemd the console can restart the daemon itself ({@code POST /v1/daemon/restart}, advertised by
+ * {@code /pieria-status}); elsewhere it hands the operator this command instead of a button that
+ * would not do what it says.
  */
 @RestController
 @RequestMapping("/v1/config")

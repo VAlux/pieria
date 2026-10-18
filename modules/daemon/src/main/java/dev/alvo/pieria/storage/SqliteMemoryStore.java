@@ -14,10 +14,15 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
@@ -27,6 +32,7 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.tools.FtsQuery;
 import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
@@ -35,10 +41,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -48,6 +54,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -68,6 +75,106 @@ import java.util.stream.Collectors;
  */
 @Repository
 public class SqliteMemoryStore implements MemoryStore {
+
+  @Override
+  public <T> T readClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    return work.apply(new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this));
+  }
+
+  @Override
+  @Transactional
+  public <T> T writeClusters(java.util.function.Function<dev.alvo.pieria.cluster.ClusterRepository,T> work) {
+    jdbc.sql("UPDATE cluster_lock SET id=id WHERE id=1").update();
+    return work.apply(new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this));
+  }
+
+  @Override
+  public boolean eligibleClusterMemory(String profileId,String memoryId,TemporalSnapshot snapshot,
+                                       boolean excludeCodeDerived) {
+    return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+      .eligibleMemory(profileId,memoryId,snapshot,excludeCodeDerived);
+  }
+
+  @Override
+  public Set<String> clusterCoveredOriginals(String profileId,String memoryId,String query,
+                                             TemporalSnapshot snapshot) {
+    return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+      .coveredOriginals(profileId,memoryId,query,snapshot);
+  }
+
+  @Override
+  public List<Memory> searchClusterClaims(String profileId,String query,float[] queryEmbedding,TemporalSnapshot snapshot,
+                                           boolean excludeCodeDerived,int limit) {
+    if(limit<1) return List.of();
+    Set<String> ids=new LinkedHashSet<>();
+    String match=query==null?"":java.util.Arrays.stream(query.toLowerCase(java.util.Locale.ROOT)
+        .split("[^\\p{L}\\p{N}]+"))
+      .filter(term->term.length()>2).distinct().limit(10)
+      .map(term->"\""+term+"\"").collect(java.util.stream.Collectors.joining(" OR "));
+    if(!match.isBlank()) ids.addAll(jdbc.sql("""
+      SELECT s.memory_id FROM cluster_claims_fts
+      JOIN cluster_claims claim ON claim.rowid=cluster_claims_fts.rowid
+      JOIN cluster_syntheses s ON s.id=claim.synthesis_id
+      JOIN clusters c ON c.id=s.cluster_id
+      WHERE cluster_claims_fts MATCH ? AND c.profile_id=?
+      GROUP BY s.memory_id ORDER BY MAX(s.recorded_sequence) DESC,s.memory_id
+      LIMIT ?
+      """).params(match,profileId,Math.min(300,limit*3)).query(String.class).list());
+    if(queryEmbedding!=null && isVectorSearchAvailable()) {
+      try {
+        record ClaimVector(String memoryId,byte[] embedding) {}
+        for(ClaimVector hit:jdbc.sql("""
+          SELECT s.memory_id,claim.embedding FROM cluster_claims claim
+          JOIN cluster_syntheses s ON s.id=claim.synthesis_id
+          JOIN clusters c ON c.id=s.cluster_id
+          WHERE c.profile_id=? AND claim.embedding IS NOT NULL
+          ORDER BY vec_distance_L2(claim.embedding,?),s.recorded_sequence DESC LIMIT ?
+          """).params(profileId,encodeEmbedding(queryEmbedding),Math.min(300,limit*3))
+          .query((rs,_) -> new ClaimVector(rs.getString(1),rs.getBytes(2))).list()) {
+          float[] vector=decodeEmbedding(hit.embedding());
+          if(vector.length==queryEmbedding.length &&
+              dev.alvo.pieria.tools.Vectors.cosine(queryEmbedding,vector)>=.78)
+            ids.add(hit.memoryId());
+        }
+      } catch(RuntimeException e) {
+        // A missing vector extension or changed embedding width cannot break lexical recall.
+      }
+    }
+    List<Memory> result=new ArrayList<>();
+    for(String id:ids) {
+      if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
+      atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+      if(result.size()>=limit) break;
+    }
+    return result;
+  }
+  @Override
+  public List<Memory> relevantClusterParents(String profileId,List<String> seedMemoryIds,String query,
+                                              TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
+    List<Memory> result=new ArrayList<>();
+    for(String id:new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+        .relevantParents(profileId,seedMemoryIds,query,snapshot,limit)) {
+      if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
+      atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+    }
+    return result;
+  }
+
+  @Override
+  public <T> T readWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    // The embedded data source uses BEGIN IMMEDIATE for Spring transactions. A read-only
+    // transaction would still reserve SQLite's sole writer for the entire wiki response.
+    // WikiRepository captures a temporal watermark and its queries are independently scoped.
+    return work.apply(new SqliteWikiStore(jdbc, this));
+  }
+
+  @Override
+  @Transactional
+  public <T> T writeWiki(java.util.function.Function<dev.alvo.pieria.wiki.WikiRepository,T> work) {
+    // Reserve the single writer before reading, avoiding a WAL read-to-write upgrade race.
+    jdbc.sql("UPDATE wiki_lock SET id=id WHERE id=1").update();
+    return work.apply(new SqliteWikiStore(jdbc, this));
+  }
 
   private static final Logger log = LoggerFactory.getLogger(SqliteMemoryStore.class);
 
@@ -94,6 +201,7 @@ public class SqliteMemoryStore implements MemoryStore {
    * duplicate was inside the top 10 every time it existed.
    */
   private static final int NEAR_DUPLICATE_CANDIDATES = 10;
+  private static final ObjectMapper JSON = new ObjectMapper();
   private static final String MEMORY_COLUMNS =
     "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
   private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
@@ -297,23 +405,14 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   private static byte[] encodeEmbedding(float[] embedding) {
-    ByteBuffer buffer = ByteBuffer.allocate(embedding.length * Float.BYTES).order(ByteOrder.LITTLE_ENDIAN);
-    for (float value : embedding) {
-      buffer.putFloat(value);
-    }
-    return buffer.array();
+    return dev.alvo.pieria.tools.EmbeddingCodec.encode(embedding);
   }
 
   /**
    * Inverse of {@link #encodeEmbedding}: decode little-endian float32 bytes back to a float vector.
    */
   private static float[] decodeEmbedding(byte[] blob) {
-    ByteBuffer buffer = ByteBuffer.wrap(blob).order(ByteOrder.LITTLE_ENDIAN);
-    float[] out = new float[blob.length / Float.BYTES];
-    for (int i = 0; i < out.length; i++) {
-      out[i] = buffer.getFloat();
-    }
-    return out;
+    return dev.alvo.pieria.tools.EmbeddingCodec.decode(blob);
   }
 
   /**
@@ -490,6 +589,8 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   @Transactional
   public void deleteProfile(String profileId) {
+    new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this).deleteProfile(profileId);
+    new SqliteWikiStore(jdbc, this).deleteProfile(profileId);
     // Drop the sqlite-vec index rows first (they are not synchronized by triggers) while the
     // owning memory rows still exist to resolve the sub-select. No-op when vector search is off.
     if (isVectorSearchAvailable()) {
@@ -532,8 +633,16 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   public List<ProfileCount> listProfiles() {
-    return jdbc.sql("SELECT p.id, p.name, p.created_at, COUNT(m.id) FILTER (WHERE " + active("m") + ") AS active_count FROM profiles p LEFT JOIN memories m ON m.profile_id = p.id GROUP BY p.id, p.name, p.created_at ORDER BY p.name")
-      .query((rs, _) -> new ProfileCount(mapProfile(rs), rs.getLong("active_count")))
+    // The temporal visibility predicate is evaluated once per memory row, then aggregated per profile.
+    return jdbc.sql("SELECT p.id, p.name, p.created_at, COALESCE(a.n, 0) AS active_count, COALESCE(a.s, 0) AS session_count,"
+        + " a.last_at FROM profiles p LEFT JOIN (SELECT m.profile_id, COUNT(*) AS n, COUNT(DISTINCT m.session_id) AS s,"
+        + " MAX(m.created_at) AS last_at FROM memories m WHERE " + active("m") + " GROUP BY m.profile_id) a"
+        + " ON a.profile_id = p.id ORDER BY p.name")
+      .query((rs, _) -> {
+        String last = rs.getString("last_at");
+        return new ProfileCount(mapProfile(rs), rs.getLong("active_count"), rs.getLong("session_count"),
+          last == null ? null : Instant.parse(last));
+      })
       .list();
   }
 
@@ -1130,10 +1239,197 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     sql.append(" ORDER BY created_at DESC");
 
-    return jdbc.sql(sql.toString())
+    List<Memory> listed = jdbc.sql(sql.toString())
       .params(params)
       .query((rs, _) -> mapMemory(rs))
       .list();
+    return listed.stream().filter(memory -> memory.type()!=MemoryType.CLUSTER ||
+      eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)).toList();
+  }
+
+  @Override
+  public MemorySearchPage searchMemories(String profileId, MemorySearchQuery query) {
+    // W: every filter except the type, shared by the counts and the rows.
+    StringBuilder where = new StringBuilder("m.profile_id = ? AND m.forgotten = 0");
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    if (!query.includeSuperseded()) {
+      where.append(" AND ").append(active("m"));
+    }
+    if (query.session() != null) {
+      where.append(" AND m.session_id = ?");
+      params.add(query.session());
+    }
+    String text = query.text() == null ? null : query.text().strip();
+    if (text != null && !text.isEmpty()) {
+      String like = "%" + escapeLike(text) + "%";
+      String match = FtsQuery.allPrefixTerms(text);
+      where.append(" AND (")
+        .append(match == null ? "m.content LIKE ? ESCAPE '\\'"
+          : "m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?)")
+        .append(" OR m.topic_key LIKE ? ESCAPE '\\' OR m.session_id LIKE ? ESCAPE '\\')");
+      params.add(match == null ? like : match);
+      params.add(like);
+      params.add(like);
+    }
+
+    Map<String, Long> typeCounts = new LinkedHashMap<>();
+    for (MemoryType type : MemoryType.values()) {
+      typeCounts.put(type.wire(), 0L);
+    }
+    jdbc.sql("SELECT m.type, COUNT(*) AS n FROM memories m WHERE " + where + " AND m.type <> 'cluster' GROUP BY m.type")
+      .params(params)
+      .query((rs, _) -> typeCounts.put(rs.getString("type"), rs.getLong("n")))
+      .list();
+    List<String> clusterIds = jdbc.sql("SELECT m.id FROM memories m WHERE " + where + " AND m.type = 'cluster' LIMIT 500")
+      .params(params)
+      .query(String.class)
+      .list();
+    TemporalSnapshot snapshot = SNAPSHOT.isBound() ? SNAPSHOT.get() : null;
+    typeCounts.put(MemoryType.CLUSTER.wire(),
+      clusterIds.stream().filter(id -> eligibleClusterMemory(profileId, id, snapshot, false)).count());
+    long total = query.type() == null
+      ? typeCounts.values().stream().mapToLong(Long::longValue).sum()
+      : typeCounts.getOrDefault(query.type().wire(), 0L);
+
+    String typeClause = query.type() == null ? "" : " AND m.type = ?";
+    List<Object> typeParams = query.type() == null ? List.of() : List.of(query.type().wire());
+    String order = query.newestFirst() ? "DESC" : "ASC";
+    String after = query.newestFirst() ? "<" : ">";
+    String cursorClause = query.cursor() == null ? ""
+      : " WHERE (sort_at " + after + " ? OR (sort_at = ? AND id " + after + " ?))";
+    List<Object> cursorParams = query.cursor() == null ? List.of()
+      : List.of(query.cursor().sortAt(), query.cursor().sortAt(), query.cursor().id());
+
+    // COALESCE: a NULL topic key must make the predicate false, not NULL, or NOT (...) drops the row.
+    String trace = "m.type = 'event' AND COALESCE(m.topic_key, '') LIKE '" + TRACE_OUTCOME_TOPIC_NAMESPACE + "%'";
+    StringBuilder rows = new StringBuilder("SELECT * FROM (SELECT 'memory' AS kind, m.id AS id, m.created_at AS sort_at,"
+      + " NULL AS session_id, 0 AS n, NULL AS tools, NULL AS first_at FROM memories m WHERE " + where + typeClause);
+    List<Object> rowParams = new ArrayList<>(params);
+    rowParams.addAll(typeParams);
+    if (query.groupToolCalls()) {
+      rows.append(" AND NOT (").append(trace).append(")")
+        .append(" UNION ALL SELECT 'tool-calls', 'tool-calls:' || COALESCE(m.session_id, ''), ")
+        .append(query.newestFirst() ? "MAX" : "MIN").append("(m.created_at), m.session_id, COUNT(*),")
+        .append(" json_group_array(DISTINCT json_extract(m.payload, '$.tool')), MIN(m.created_at)")
+        .append(" FROM memories m WHERE ").append(where).append(typeClause).append(" AND ").append(trace)
+        .append(" GROUP BY m.session_id");
+      rowParams.addAll(params);
+      rowParams.addAll(typeParams);
+    }
+    rows.append(")").append(cursorClause).append(" ORDER BY sort_at ").append(order).append(", id ").append(order).append(" LIMIT ?");
+    rowParams.addAll(cursorParams);
+    rowParams.add(query.limit() + 1);
+
+    record Row(String kind, String id, String sortAt, String sessionId, long count, String tools, String firstAt) {
+    }
+    List<Row> fetched = jdbc.sql(rows.toString())
+      .params(rowParams)
+      .query((rs, _) -> new Row(rs.getString("kind"), rs.getString("id"), rs.getString("sort_at"),
+        rs.getString("session_id"), rs.getLong("n"), rs.getString("tools"), rs.getString("first_at")))
+      .list();
+    boolean more = fetched.size() > query.limit();
+    List<Row> page = more ? fetched.subList(0, query.limit()) : fetched;
+
+    List<String> memoryIds = page.stream().filter(r -> r.kind().equals("memory")).map(Row::id).toList();
+    Map<String, Memory> byId = new HashMap<>();
+    if (!memoryIds.isEmpty()) {
+      String marks = String.join(",", Collections.nCopies(memoryIds.size(), "?"));
+      jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE id IN (" + marks + ")")
+        .params(new ArrayList<Object>(memoryIds))
+        .query((rs, _) -> mapMemory(rs))
+        .list()
+        .forEach(memory -> byId.put(memory.id(), memory));
+    }
+    List<MemorySearchPage.Entry> entries = new ArrayList<>();
+    for (Row row : page) {
+      if (row.kind().equals("memory")) {
+        Memory memory = byId.get(row.id());
+        if (memory == null) continue;
+        // Clusters are listed only while they stand for real evidence; the page may come up short.
+        if (memory.type() == MemoryType.CLUSTER && !eligibleClusterMemory(profileId, memory.id(), snapshot, false)) continue;
+        entries.add(new MemorySearchPage.Entry(memory, null));
+      } else {
+        Instant first = row.firstAt() == null ? null : Instant.parse(row.firstAt());
+        Instant last = row.sortAt() == null ? null : Instant.parse(row.sortAt());
+        entries.add(new MemorySearchPage.Entry(null, new MemorySearchPage.ToolCallGroup(row.sessionId(), row.count(),
+          toolNames(row.tools()), query.newestFirst() ? first : last, query.newestFirst() ? last : first)));
+      }
+    }
+    Row tail = page.isEmpty() ? null : page.getLast();
+    MemorySearchQuery.Cursor next = more && tail != null ? new MemorySearchQuery.Cursor(tail.sortAt(), tail.id()) : null;
+    return new MemorySearchPage(entries, typeCounts, total, next);
+  }
+
+  private static List<String> toolNames(String json) {
+    if (json == null || json.isBlank()) return List.of();
+    try {
+      List<String> names = new ArrayList<>();
+      for (JsonNode node : JSON.readTree(json)) {
+        if (node.isString() && !node.asString().isBlank()) names.add(node.asString());
+      }
+      return names;
+    } catch (JacksonException e) {
+      return List.of();
+    }
+  }
+
+  @Override
+  public Optional<Memory> findMemory(String profileId, String memoryId) {
+    return jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE id = ? AND profile_id = ? AND forgotten = 0")
+      .params(memoryId, profileId)
+      .query((rs, _) -> mapMemory(rs))
+      .optional();
+  }
+
+  @Override
+  public List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    String filter = prefix == null || prefix.isBlank() ? "" : " AND session_id LIKE ? ESCAPE '\\'";
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    if (!filter.isEmpty()) params.add(escapeLike(prefix.strip()) + "%");
+    params.add(profileId);
+    if (!filter.isEmpty()) params.add(escapeLike(prefix.strip()) + "%");
+    params.add(limit);
+    return jdbc.sql("SELECT session_id, MIN(first_at) AS first_at, MAX(last_at) AS last_at, SUM(memories) AS memories,"
+        + " SUM(messages) AS messages FROM ("
+        + " SELECT m.session_id, MIN(m.created_at) AS first_at, MAX(m.created_at) AS last_at, COUNT(*) AS memories, 0 AS messages"
+        + " FROM memories m WHERE m.profile_id = ? AND m.forgotten = 0 AND m.session_id IS NOT NULL AND " + active("m")
+        + filter.replace("session_id", "m.session_id") + " GROUP BY m.session_id"
+        + " UNION ALL SELECT session_id, MIN(created_at), MAX(created_at), 0, COUNT(*) FROM messages WHERE profile_id = ?"
+        + filter + " GROUP BY session_id"
+        + ") GROUP BY session_id ORDER BY last_at DESC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> new SessionActivity(rs.getString("session_id"), Instant.parse(rs.getString("first_at")),
+        Instant.parse(rs.getString("last_at")), rs.getLong("memories"), rs.getLong("messages"), null))
+      .list();
+  }
+
+  @Override
+  public List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type, boolean includeSystem, int limit) {
+    String needle = text == null ? "" : escapeLike(text.strip());
+    StringBuilder sql = new StringBuilder("SELECT " + MEMORY_COLUMNS + " FROM (SELECT m.*, ROW_NUMBER() OVER"
+      + " (PARTITION BY m.type, m.topic_key ORDER BY m.created_at DESC, m.id DESC) AS rn FROM memories m"
+      + " WHERE m.profile_id = ? AND m.forgotten = 0 AND m.topic_key IS NOT NULL AND m.type <> 'cluster' AND "
+      + active("m") + " AND m.topic_key LIKE ? ESCAPE '\\'");
+    List<Object> params = new ArrayList<>(List.of(profileId, "%" + needle + "%"));
+    if (type != null) {
+      sql.append(" AND m.type = ?");
+      params.add(type.wire());
+    }
+    if (!includeSystem) {
+      sql.append(" AND m.topic_key NOT LIKE '").append(CODE_TOPIC_NAMESPACE).append("%' AND m.topic_key NOT LIKE 'trace:%'");
+    }
+    sql.append(") WHERE rn = 1 ORDER BY (topic_key LIKE ? ESCAPE '\\') DESC, created_at DESC LIMIT ?");
+    params.add(needle + "%");
+    params.add(limit);
+    return jdbc.sql(sql.toString())
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list()
+      .stream()
+      .map(memory -> new TopicKeyEntry(memory.topicKey(), memory))
+      .toList();
   }
 
   @Override
@@ -1172,6 +1468,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
     List<ExportRow> rows = new ArrayList<>(memories.size());
     for (Memory memory : memories) {
+      if (memory.type()==MemoryType.CLUSTER && !eligibleClusterMemory(profileId,memory.id(),null,false)) continue;
       rows.add(new ExportRow(profileName, memory));
     }
 
@@ -1259,13 +1556,23 @@ public class SqliteMemoryStore implements MemoryStore {
       return List.of();
     }
     // Join FTS rowid back to memories; filter to this profile's active set, rank best-first.
-    return jdbc.sql(
-        "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-          + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
-          + "= ? AND " + active("m") + " ORDER BY f.rank LIMIT ?")
-      .params(match, profileId, limit)
-      .query((rs, _) -> mapMemory(rs))
-      .list();
+    int pageSize=Math.min(100,Math.max(20,limit));
+    List<Memory> eligible=new ArrayList<>();
+    for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
+      List<Memory> page=jdbc.sql(
+          "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
+            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
+            + "= ? AND " + active("m") + " ORDER BY f.rank,m.id LIMIT ? OFFSET ?")
+        .params(match,profileId,Math.min(pageSize,300-offset),offset)
+        .query((rs, _) -> mapMemory(rs)).list();
+      for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
+          eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)) {
+        eligible.add(memory);
+        if(eligible.size()==limit) break;
+      }
+      if(page.size()<pageSize) break;
+    }
+    return List.copyOf(eligible);
   }
 
   @Override
@@ -1338,10 +1645,22 @@ public class SqliteMemoryStore implements MemoryStore {
       return List.of();
     }
     // Rank only eligible stored blobs. KNN-then-filter can starve a historical/profile query.
-    return jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE profile_id = ? AND " + active("")
-        + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ?")
-      .params(profileId, MemoryType.TASK.wire(), encodeEmbedding(queryEmbedding), limit)
-      .query((rs, _) -> mapMemory(rs)).list();
+    int pageSize=Math.min(100,Math.max(20,limit));
+    byte[] encoded=encodeEmbedding(queryEmbedding);
+    List<Memory> eligible=new ArrayList<>();
+    for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
+      List<Memory> page=jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE profile_id = ? AND " + active("")
+          + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ? OFFSET ?")
+        .params(profileId,MemoryType.TASK.wire(),encoded,Math.min(pageSize,300-offset),offset)
+        .query((rs, _) -> mapMemory(rs)).list();
+      for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
+          eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)) {
+        eligible.add(memory);
+        if(eligible.size()==limit) break;
+      }
+      if(page.size()<pageSize) break;
+    }
+    return List.copyOf(eligible);
   }
 
   @Override
@@ -1378,27 +1697,33 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   @Override
-  @Transactional
   public int backfillVectors() {
     if (!isVectorSearchAvailable()) {
       return 0;
     }
-    // Active, vector-eligible memories with a stored BLOB but no vec row yet.
-    record Pending(String id, byte[] embedding) {
-    }
-    List<Pending> rows = jdbc.sql(
-        "SELECT m.id AS id, m.embedding AS embedding FROM memories m WHERE m.forgotten = 0 AND m.type != ? AND m.embedding "
-          + "IS NOT NULL AND NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.memory_id = m.id)")
+    // vec0 does not make the memory_id equality predicate an efficient lookup. A correlated
+    // NOT EXISTS scans the vector table for each embedded memory, which took 38 seconds on a
+    // populated store even when nothing needed backfilling. Scan vec0 once, then find missing
+    // IDs from the ordinary indexed table. Do not hold a write transaction across either scan:
+    // startup backfill must not block HTTP, audit, and outbox writes for its whole duration.
+    Set<String> indexed = new HashSet<>(jdbc.sql("SELECT memory_id FROM memories_vec")
+      .query(String.class).list());
+    List<String> missing = jdbc.sql(
+        "SELECT id FROM memories WHERE forgotten = 0 AND type != ? AND embedding IS NOT NULL")
       .param(MemoryType.TASK.wire())
-      .query((rs, _) -> new Pending(rs.getString("id"), rs.getBytes("embedding")))
-      .list();
-
+      .query(String.class).list().stream()
+      .filter(id -> !indexed.contains(id))
+      .toList();
     int count = 0;
-    for (Pending row : rows) {
-      if (row.embedding() == null || row.embedding().length == 0) {
+    for (String id : missing) {
+      byte[] embedding = jdbc.sql("SELECT embedding FROM memories WHERE id = ? AND forgotten = 0")
+        .param(id).query(byte[].class).optional().orElse(null);
+      if (embedding == null || embedding.length == 0) {
         continue;
       }
-      upsertEmbedding(row.id(), decodeEmbedding(row.embedding()));
+      // The index is derived and idempotent. If interrupted between its delete and insert,
+      // the next startup sees the absent ID and repairs it.
+      upsertEmbedding(id, decodeEmbedding(embedding));
       count++;
     }
     return count;
@@ -1783,9 +2108,12 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public Map<String, Integer> entityTypeCounts(String profileId) {
     Map<String, Integer> counts = new LinkedHashMap<>();
-    jdbc.sql("SELECT type, COUNT(*) AS c FROM entities WHERE profile_id = ? AND " + activeEntity("entities") + " "
+    // One pass over the connected-entity set rather than a correlated EXISTS per entity: the OR'd
+    // endpoint predicate in activeEntity cannot use an index, which made this the slowest part of
+    // the graph overview on profiles with thousands of entities.
+    jdbc.sql("SELECT type, COUNT(*) AS c FROM entities WHERE profile_id = ? AND id IN (" + connectedEntityIds() + ") "
         + "GROUP BY type ORDER BY c DESC, type ASC")
-      .param(profileId)
+      .params(profileId, profileId, profileId)
       .query((rs, _) -> Map.entry(rs.getString("type"), rs.getInt("c")))
       .list()
       .forEach(e -> counts.put(e.getKey(), e.getValue()));
@@ -1952,6 +2280,46 @@ public class SqliteMemoryStore implements MemoryStore {
       .list()
       .forEach(e -> degrees.put(e.getKey(), e.getValue()));
     return degrees;
+  }
+
+  @Override
+  public Map<String, Map<String, String>> clusterEntities(String profileId, Collection<String> clusterIds) {
+    if (clusterIds.isEmpty()) {
+      return Map.of();
+    }
+    String marks = String.join(",", Collections.nCopies(clusterIds.size(), "?"));
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(clusterIds);
+    Map<String, Map<String, String>> result = new LinkedHashMap<>();
+    jdbc.sql("SELECT DISTINCT d.ancestor_id AS cluster_id, n.id AS entity_id, n.name AS entity_name"
+        + " FROM cluster_dependencies d JOIN edges e ON e.memory_id = d.descendant_id"
+        + " JOIN memories m ON m.id = e.memory_id"
+        + " JOIN entities n ON n.id IN (e.source_entity_id, e.target_entity_id)"
+        + " WHERE d.profile_id = ? AND d.descendant_kind = 'memory' AND d.ancestor_id IN (" + marks + ")"
+        + " AND " + known("e") + " AND " + active("m"))
+      .params(params)
+      .query((rs, _) -> result.computeIfAbsent(rs.getString("cluster_id"), _ -> new LinkedHashMap<>())
+        .put(rs.getString("entity_id"), rs.getString("entity_name")))
+      .list();
+    return result;
+  }
+
+  @Override
+  public List<RelationTotal> relationTotals(String profileId, String entityId) {
+    if (entityId == null || entityId.isBlank()) {
+      return List.of();
+    }
+    return jdbc.sql("SELECT relation, outgoing, COUNT(*) AS n FROM ("
+        + "  SELECT e.relation, 1 AS outgoing FROM edges e JOIN memories m ON m.id = e.memory_id"
+        + "    WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " AND e.source_entity_id = ?"
+        + "  UNION ALL"
+        + "  SELECT e.relation, 0 FROM edges e JOIN memories m ON m.id = e.memory_id"
+        + "    WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " AND e.target_entity_id = ?"
+        + ") GROUP BY relation, outgoing ORDER BY n DESC, relation")
+      .params(profileId, entityId, profileId, entityId)
+      .query((rs, _) -> new RelationTotal(rs.getString("relation"), rs.getInt("outgoing") == 1, rs.getLong("n")))
+      .list();
   }
 
   @Override

@@ -65,13 +65,13 @@ check() {  # check <description> <test-expression...>
 
 # --- build the stand-in release ---------------------------------------------
 echo "==> building stand-in release for $PLATFORM"
-mkdir -p "$REL" "$WORK/stage/bin"
+mkdir -p "$REL" "$WORK/stage/bin" "$WORK/stage/console"
 printf '#!/bin/sh\necho "pieria stub $*"\n'         > "$WORK/stage/bin/pieria"
 printf '#!/bin/sh\necho "pieria-daemon stub $*"\n'  > "$WORK/stage/bin/pieria-daemon"
 printf '#!/bin/sh\necho "pieria-gateway stub $*"\n' > "$WORK/stage/bin/pieria-gateway"
 chmod +x "$WORK/stage/bin/"*
-# Entries are "bin/pieria-*"; the installer strips one leading component.
-tar -czf "$REL/$TARBALL" -C "$WORK/stage" bin
+printf '<!doctype html><title>Pieria Console</title>\n' > "$WORK/stage/console/index.html"
+tar -czf "$REL/$TARBALL" -C "$WORK/stage" bin console
 if command -v shasum >/dev/null 2>&1; then
 	( cd "$REL" && shasum -a 256 "$TARBALL" > checksums.txt )
 else
@@ -105,6 +105,7 @@ check "checksum verified line printed"   grep -q "checksum verified" <<<"$INSTAL
 check "cli binary installed"             test -x "$HOME_DIR/bin/pieria"
 check "daemon binary installed"          test -x "$HOME_DIR/bin/pieria-daemon"
 check "gateway binary installed"         test -x "$HOME_DIR/bin/pieria-gateway"
+check "console installed"                test -f "$HOME_DIR/console/index.html"
 check "cli symlinked onto PATH dir"      test -L "$BIN_DIR/pieria"
 check "daemon symlinked onto PATH dir"   test -L "$BIN_DIR/pieria-daemon"
 check "gateway symlinked onto PATH dir"  test -L "$BIN_DIR/pieria-gateway"

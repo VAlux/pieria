@@ -3,22 +3,28 @@ package dev.alvo.pieria.audit;
 import dev.alvo.pieria.api.request.AuditListRequest;
 import dev.alvo.pieria.api.response.AuditEventDetail;
 import dev.alvo.pieria.api.response.AuditEventSummary;
+import dev.alvo.pieria.api.response.AuditFacetsResponse;
 import dev.alvo.pieria.api.response.AuditListResponse;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Validates audit queries and maps persistent events to stable API responses.
  */
 @Service
 public class AuditService {
+  static final Duration FACET_WINDOW = Duration.ofDays(30);
+
   private final AuditStore store;
 
   public AuditService(AuditStore store) {
@@ -26,7 +32,7 @@ public class AuditService {
   }
 
   private static AuditEventSummary summary(AuditEvent e) {
-    return new AuditEventSummary(e.id(), e.eventType(), e.operation(), e.requestId(),
+    return new AuditEventSummary(e.id(), e.profileName(), e.eventType(), e.operation(), e.requestId(),
       e.parentRequestId(), e.taskId(), e.sessionId(), e.resourceId(), e.client(), e.harness(),
       e.channel(), e.startedAt(), e.completedAt(), e.durationMs(), e.httpStatus(), e.outcome(),
       e.errorKind(), e.errorMessage(), e.requestBytes(), e.requestTruncated(), e.responseBytes(),
@@ -34,7 +40,7 @@ public class AuditService {
   }
 
   private static AuditEventDetail detail(AuditEvent e) {
-    return new AuditEventDetail(e.id(), e.eventType(), e.operation(), e.requestId(),
+    return new AuditEventDetail(e.id(), e.profileName(), e.eventType(), e.operation(), e.requestId(),
       e.parentRequestId(), e.taskId(), e.sessionId(), e.resourceId(), e.client(), e.harness(),
       e.channel(), e.clientVersion(), e.serverVersion(), e.remoteAddress(), e.method(), e.path(),
       e.queryString(), e.requestMediaType(), e.responseMediaType(), e.startedAt(), e.completedAt(),
@@ -75,22 +81,13 @@ public class AuditService {
     }
   }
 
+  /** One page of a profile's audit history, or of every profile's when {@code profileName} is null. */
   public AuditListResponse search(String profileName, AuditListRequest request) {
     int limit = request.limit() == null ? 50 : request.limit();
     if (limit < 1 || limit > 200) {
       throw new IllegalArgumentException("limit must be between 1 and 200");
     }
-    Cursor cursor = decodeCursor(request.cursor());
-    Instant from = instant(request.from(), "from");
-    Instant to = instant(request.to(), "to");
-    if (from != null && to != null && from.isAfter(to)) {
-      throw new IllegalArgumentException("from must not be after to");
-    }
-    AuditQuery query = new AuditQuery(request.search(), request.operation(), request.client(),
-      request.harness(), request.channel(), request.outcome(), request.status(), request.session(),
-      request.taskId(), request.requestId(), from, to,
-      request.truncated(), cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(),
-      limit + 1);
+    AuditQuery query = query(request, decodeCursor(request.cursor()), limit + 1, null);
     List<AuditEvent> found = store.search(profileName, query);
     boolean more = found.size() > limit;
     List<AuditEvent> page = more ? new ArrayList<>(found.subList(0, limit)) : found;
@@ -98,6 +95,32 @@ public class AuditService {
     return new AuditListResponse(page.stream().map(AuditService::summary).toList(), next);
   }
 
+  /**
+   * Distinct operations, clients, harnesses, channels, outcomes and profiles with counts under the
+   * request's filters. Without {@code from}, only the last {@link #FACET_WINDOW} is scanned.
+   */
+  public AuditFacetsResponse facets(String profileName, AuditListRequest request) {
+    AuditQuery query = query(request, null, 0, Instant.now().minus(FACET_WINDOW));
+    Map<String, List<AuditFacetsResponse.Value>> facets = new LinkedHashMap<>();
+    store.facets(profileName, query).forEach((dimension, values) -> facets.put(dimension,
+      values.stream().map(v -> new AuditFacetsResponse.Value(v.value(), v.count())).toList()));
+    return new AuditFacetsResponse(facets);
+  }
+
+  private static AuditQuery query(AuditListRequest request, Cursor cursor, int limit, Instant defaultFrom) {
+    Instant from = instant(request.from(), "from");
+    Instant to = instant(request.to(), "to");
+    if (from != null && to != null && from.isAfter(to)) {
+      throw new IllegalArgumentException("from must not be after to");
+    }
+    return new AuditQuery(request.search(), request.operation(), request.client(),
+      request.harness(), request.channel(), request.outcome(), request.status(), request.session(),
+      request.taskId(), request.requestId(), from == null ? defaultFrom : from, to,
+      request.truncated(), cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(),
+      limit);
+  }
+
+  /** {@code profileName} may be null to look the event up across every profile. */
   public AuditEventDetail detail(String profileName, String id) {
     AuditEvent e = store.find(profileName, id)
       .orElseThrow(() -> new NotFoundException("No audit event with id '" + id + "'"));

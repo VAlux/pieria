@@ -62,6 +62,11 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
       DaemonOverrides.class,
       DaemonOverrides.Ingestion.class,
       DaemonOverrides.Retrieval.class,
+      DaemonOverrides.Wiki.class,
+      dev.alvo.pieria.wiki.WikiData.Bundle.class,
+      dev.alvo.pieria.wiki.WikiData.Evidence.class,
+      dev.alvo.pieria.wiki.WikiData.Link.class,
+      dev.alvo.pieria.domain.temporal.TemporalSnapshot.class,
       PieriaConfigFile.class,
       DiscoveryConfig.class,
       // Every config controller method below declares a plain JsonNode return type and serializes
