@@ -4,6 +4,7 @@ import dev.alvo.pieria.cli.log.Logger;
 import dev.alvo.pieria.tools.os.InstallHome;
 import dev.alvo.pieria.tools.os.OsFamily;
 import dev.alvo.pieria.tools.os.PowerShellQuoting;
+import dev.alvo.pieria.tools.os.ServiceNames;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,8 +24,8 @@ import java.util.stream.Stream;
  */
 public final class DaemonProcessController {
 
-  private static final String LAUNCHD_LABEL = "dev.alvo.pieria.daemon";
-  private static final String SYSTEMD_UNIT = "pieria-daemon";
+  private static final String LAUNCHD_LABEL = ServiceNames.LAUNCHD_LABEL;
+  private static final String SYSTEMD_UNIT = ServiceNames.SYSTEMD_UNIT;
 
   /**
    * Windows logon Scheduled Task registered by {@code packaging/install.ps1}. Must stay in sync with

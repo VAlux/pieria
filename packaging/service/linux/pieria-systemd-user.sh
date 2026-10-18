@@ -77,6 +77,7 @@ ExecStart=$(exec_start)
 WorkingDirectory=$(quote_arg "$DATA_DIR")
 Restart=on-failure
 RestartSec=5
+Environment=PIERIA_SUPERVISOR=systemd
 NoNewPrivileges=true
 PrivateTmp=true
 

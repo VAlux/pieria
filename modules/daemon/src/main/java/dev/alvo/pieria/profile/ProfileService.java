@@ -9,6 +9,7 @@ import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.storage.MemoryStore;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,10 @@ public class ProfileService {
 
   public ProfileService(MemoryStore store) {
     this.store = store;
+  }
+
+  public List<ProfileCount> listSummaries() {
+    return store.listProfiles();
   }
 
   public Profile create(String name) {

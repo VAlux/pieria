@@ -236,6 +236,11 @@ class SqliteMemoryStoreTests {
     assertEquals(2, profiles.get(0).activeCount()); // amy
     assertEquals(0, profiles.get(1).activeCount()); // empty
     assertEquals(1, profiles.get(2).activeCount()); // zed (one superseded, one active)
+    assertEquals(1, profiles.get(0).sessionCount()); // amy: both memories from s1
+    assertEquals(0, profiles.get(1).sessionCount());
+    assertEquals(1, profiles.get(2).sessionCount()); // zed: only the active memory's session counts
+    assertNotNull(profiles.get(0).lastMemoryAt());
+    assertNull(profiles.get(1).lastMemoryAt());
   }
 
   @Test

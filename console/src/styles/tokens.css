@@ -1,0 +1,97 @@
+/* Design tokens from the console redesign canvas. Dark only. */
+:root {
+  color-scheme: dark;
+
+  /* Grounds */
+  --bg-app: #111214;
+  --bg-shell: #16171a;
+  --surface: #18191c;
+  --surface-2: #1a1b1f;
+  --surface-3: #1c1d21;
+  --raised: #1f2024;
+  --well: #141518;
+  --overlay-scrim: rgba(8, 8, 10, 0.55);
+  --floating: rgba(24, 25, 28, 0.94);
+
+  /* Lines */
+  --border: #26282d;
+  --divider: #222428;
+  --border-control: #2e3035;
+  --border-button: #34363c;
+  --border-nav: #2a2c31;
+
+  /* Text */
+  --text: #e9e6df;
+  --text-strong: #f3efe7;
+  --text-body-2: #d9d5cd;
+  --text-2: #c9c5bd;
+  --text-nav: #bdb9b1;
+  --text-3: #a9a59d;
+  --text-muted: #9a968e;
+  --text-faint: #8e8a82;
+  --text-disabled: #6e6b65;
+
+  /* Accent */
+  --accent: #e8b062;
+  --accent-hover: #f3c987;
+  --on-accent: #1b1408;
+  --selected: #2a2620;
+  --selected-ring: #4a3d2a;
+  --accent-border: #5a4526;
+  --warm-panel: #1f1c16;
+  --warm-panel-border: #3f3523;
+  --toast: #221f19;
+  --row-selected: #222018;
+
+  /* Memory types: dot / chip background / chip text */
+  --fact: #7db4e8;
+  --fact-bg: #1e2a38;
+  --fact-fg: #a9cdf2;
+  --event: #e8b062;
+  --event-bg: #33291a;
+  --event-fg: #f0c27e;
+  --instruction: #b9a0ee;
+  --instruction-bg: #2a2340;
+  --instruction-fg: #cdb9f5;
+  --task: #7ccb9f;
+  --task-bg: #1d3328;
+  --task-fg: #8fd9b0;
+
+  /* Status */
+  --ok-bg: #1d3328;
+  --ok-fg: #8fd9b0;
+  --ok: #7ccb9f;
+  --ready: #6cc59a;
+  --ready-glow: #1f3a2d;
+  --fail-bg: #3a2220;
+  --fail-fg: #f3b8ac;
+  --fail: #e07a68;
+  --fail-row: #1e1716;
+  --danger-panel: #241a19;
+  --danger-border: #4a2c28;
+  --danger-icon: #f09a8a;
+  --info-bg: #23262e;
+  --info-fg: #afc6e6;
+  --neutral-bg: #26282d;
+  --neutral-fg: #a9a59d;
+
+  /* Code-ish text */
+  --key: #afc6e6;
+  --payload-key: #b9a0ee;
+  --code: #f0c27e;
+
+  /* Type */
+  --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-serif: 'IBM Plex Serif', Georgia, serif;
+
+  /* Shape */
+  --radius-card: 10px;
+  --radius-button: 8px;
+  --radius-input: 7px;
+  --radius-small: 6px;
+  --radius-chip: 4px;
+  --page-padding: 28px clamp(16px, 3vw, 40px) 40px;
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.6);
+}

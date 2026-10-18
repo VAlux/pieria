@@ -318,7 +318,11 @@ class ProfileApiTests {
     mvc.perform(get("/v1/profiles"))
       .andExpect(status().isOk())
       .andExpect(jsonPath("$.profiles[?(@.name=='listtest')].memoryCount",
-        org.hamcrest.Matchers.contains(1)));
+        org.hamcrest.Matchers.contains(1)))
+      .andExpect(jsonPath("$.profiles[?(@.name=='listtest')].sessionCount",
+        org.hamcrest.Matchers.contains(1)))
+      .andExpect(jsonPath("$.profiles[?(@.name=='listtest')].lastMemoryAt",
+        org.hamcrest.Matchers.hasSize(1)));
   }
 
   @Test

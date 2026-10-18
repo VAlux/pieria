@@ -31,6 +31,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -108,7 +109,12 @@ class StubMemoryStore implements MemoryStore {
   public List<ProfileCount> listProfiles() {
     return profilesByName.values().stream()
       .sorted(Comparator.comparing(Profile::name))
-      .map(p -> new ProfileCount(p, listMemories(p.id(), null, null).size()))
+      .map(p -> {
+        List<Memory> active = listMemories(p.id(), null, null);
+        return new ProfileCount(p, active.size(),
+          active.stream().map(Memory::sessionId).filter(Objects::nonNull).distinct().count(),
+          active.stream().map(Memory::createdAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
+      })
       .toList();
   }
 

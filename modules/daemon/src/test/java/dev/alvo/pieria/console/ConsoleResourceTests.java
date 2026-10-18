@@ -71,4 +71,24 @@ class ConsoleResourceTests {
       .andExpect(status().isPermanentRedirect())
       .andExpect(header().string("Location", "/console/"));
   }
+
+  @Test
+  void clientRoutesFallBackToEntryWithoutCaching() throws Exception {
+    mvc.perform(get("/console/p/pieria/memories/abc123"))
+      .andExpect(status().isOk())
+      .andExpect(header().string("Cache-Control", "no-cache"))
+      .andExpect(content().string("<!doctype html><title>Console test</title>"));
+  }
+
+  @Test
+  void missingFilesWithExtensionsStayNotFound() throws Exception {
+    mvc.perform(get("/console/assets/missing.js")).andExpect(status().isNotFound());
+    mvc.perform(get("/console/missing.png")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void apiPathsAreNotServedTheConsole() throws Exception {
+    mvc.perform(get("/v1/nope")).andExpect(status().isNotFound())
+      .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Console test"))));
+  }
 }

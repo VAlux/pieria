@@ -2,7 +2,7 @@ package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.response.ProfileListResponse;
 import dev.alvo.pieria.api.response.ProfileSummary;
-import dev.alvo.pieria.storage.MemoryStore;
+import dev.alvo.pieria.profile.ProfileService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -14,16 +14,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ProfilesController {
 
-  private final MemoryStore store;
+  private final ProfileService profiles;
 
-  public ProfilesController(MemoryStore store) {
-    this.store = store;
+  public ProfilesController(ProfileService profiles) {
+    this.profiles = profiles;
   }
 
   @GetMapping("/v1/profiles")
   public ProfileListResponse list() {
-    return new ProfileListResponse(store.listProfiles().stream()
-      .map(p -> new ProfileSummary(p.profile().name(), p.profile().createdAt(), p.activeCount()))
+    return new ProfileListResponse(profiles.listSummaries().stream()
+      .map(p -> new ProfileSummary(p.profile().name(), p.profile().createdAt(), p.activeCount(),
+        p.sessionCount(), p.lastMemoryAt()))
       .toList());
   }
 }

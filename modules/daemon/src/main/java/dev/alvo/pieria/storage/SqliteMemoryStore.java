@@ -624,8 +624,16 @@ public class SqliteMemoryStore implements MemoryStore {
 
   @Override
   public List<ProfileCount> listProfiles() {
-    return jdbc.sql("SELECT p.id, p.name, p.created_at, COUNT(m.id) FILTER (WHERE " + active("m") + ") AS active_count FROM profiles p LEFT JOIN memories m ON m.profile_id = p.id GROUP BY p.id, p.name, p.created_at ORDER BY p.name")
-      .query((rs, _) -> new ProfileCount(mapProfile(rs), rs.getLong("active_count")))
+    // The temporal visibility predicate is evaluated once per memory row, then aggregated per profile.
+    return jdbc.sql("SELECT p.id, p.name, p.created_at, COALESCE(a.n, 0) AS active_count, COALESCE(a.s, 0) AS session_count,"
+        + " a.last_at FROM profiles p LEFT JOIN (SELECT m.profile_id, COUNT(*) AS n, COUNT(DISTINCT m.session_id) AS s,"
+        + " MAX(m.created_at) AS last_at FROM memories m WHERE " + active("m") + " GROUP BY m.profile_id) a"
+        + " ON a.profile_id = p.id ORDER BY p.name")
+      .query((rs, _) -> {
+        String last = rs.getString("last_at");
+        return new ProfileCount(mapProfile(rs), rs.getLong("active_count"), rs.getLong("session_count"),
+          last == null ? null : Instant.parse(last));
+      })
       .list();
   }
 

@@ -44,6 +44,13 @@ public class StatusController {
         status.setup().modelPullPolicy(),
         status.setup().paths().configDir().toString(),
         status.setup().paths().logsDir().toString(),
-        status.setup().paths().runtimeDir().toString()));
+        status.setup().paths().runtimeDir().toString()),
+      status.host(),
+      status.port(),
+      status.provider(),
+      status.providerType(),
+      status.apiVersion(),
+      status.daemonVersion(),
+      new StatusResponse.Restart(status.restartMechanism() != null, status.restartMechanism()));
   }
 }

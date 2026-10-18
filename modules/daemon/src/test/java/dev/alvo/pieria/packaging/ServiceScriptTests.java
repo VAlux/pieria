@@ -40,6 +40,8 @@ class ServiceScriptTests {
 		assertThat(output).contains("<string>--pieria.daemon.host=127.0.0.1</string>");
 		assertThat(output).contains("<string>--pieria.daemon.port=8077</string>");
 		assertThat(output).contains("<string>--pieria.db.path=/tmp/pieria-data/pieria.db</string>");
+		assertThat(output).contains("<key>PIERIA_SUPERVISOR</key>");
+		assertThat(output).contains("<string>launchd</string>");
 		assertThat(output).contains("Pieria gateway executable for harness MCP configs: /opt/pieria/pieria-gateway");
 
 		String programArguments = substringBetween(output, "<key>ProgramArguments</key>", "</array>");
@@ -70,6 +72,7 @@ class ServiceScriptTests {
 		assertThat(output).contains("\"--pieria.daemon.host=127.0.0.1\"");
 		assertThat(output).contains("\"--pieria.daemon.port=8077\"");
 		assertThat(output).contains("\"--pieria.db.path=/tmp/pieria-data/pieria.db\"");
+		assertThat(output).contains("Environment=PIERIA_SUPERVISOR=systemd");
 		assertThat(output).contains("Pieria gateway executable for harness MCP configs: /opt/pieria/pieria-gateway");
 
 		String execStart = output.lines()
