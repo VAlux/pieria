@@ -91,6 +91,17 @@ class ConfigSchemaTests {
   }
 
   @Test
+  void everyGlobalKeyHasAShippedDefault() throws Exception {
+    java.util.Properties shipped = org.springframework.core.io.support.PropertiesLoaderUtils
+      .loadProperties(new org.springframework.core.io.ClassPathResource("application.properties"));
+    // The console shows each global key's shipped value; a key missing from application.properties
+    // would have no default to show or to reset to.
+    assertThat(schema.forScope("global"))
+      .filteredOn(field -> !"secret".equals(field.kind()))
+      .allSatisfy(field -> assertThat(shipped.getProperty(field.key())).as(field.key()).isNotNull());
+  }
+
+  @Test
   void everyFieldDeclaresAKnownScopeTierAndKind() {
     assertThat(schema.all()).isNotEmpty();
     assertThat(schema.all()).allSatisfy(field -> {
