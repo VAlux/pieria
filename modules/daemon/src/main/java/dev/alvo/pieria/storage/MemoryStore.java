@@ -13,8 +13,12 @@ import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
@@ -490,6 +494,34 @@ public interface MemoryStore {
    * first ({@code created_at} desc).
    */
   List<Memory> listMemories(String profileId, MemoryType typeFilter, String sessionFilter, boolean includeSuperseded);
+
+  /**
+   * One cursor-paged page of the console's memory list: text search over content, topic key and
+   * session id, optional collapsing of trace outcomes per session, and per-type counts.
+   */
+  default MemorySearchPage searchMemories(
+    String profileId, MemorySearchQuery query) {
+    throw new UnsupportedOperationException("searchMemories(...) not implemented");
+  }
+
+  /** One memory of this profile, superseded ones included; empty when unknown or forgotten. */
+  default Optional<Memory> findMemory(String profileId, String memoryId) {
+    throw new UnsupportedOperationException("findMemory(...) not implemented");
+  }
+
+  /** Sessions seen through memories or raw messages, most recent first, optionally by id prefix. */
+  default List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    throw new UnsupportedOperationException("listSessions(...) not implemented");
+  }
+
+  /**
+   * The visible memory for each (type, topic key) whose key contains {@code text}, prefix matches
+   * first. System namespaces ({@code code:}, {@code trace:}) are left out unless asked for.
+   */
+  default List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type,
+                                              boolean includeSystem, int limit) {
+    throw new UnsupportedOperationException("searchTopicKeys(...) not implemented");
+  }
 
   /**
    * Mark a memory forgotten independently of temporal state; remove embeddings and queued work.

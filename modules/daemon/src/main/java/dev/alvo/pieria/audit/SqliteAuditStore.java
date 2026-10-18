@@ -1,5 +1,6 @@
 package dev.alvo.pieria.audit;
 
+import dev.alvo.pieria.tools.FtsQuery;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -9,8 +10,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -31,16 +35,6 @@ public class SqliteAuditStore implements AuditStore {
       sql.append(" AND ").append(condition);
       params.add(value);
     }
-  }
-
-  private static String toFtsMatch(String query) {
-    List<String> terms = new ArrayList<>();
-    for (String token : query.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}_-]+")) {
-      if (!token.isBlank()) {
-        terms.add("\"" + token.replace("\"", "\"\"") + "\"*");
-      }
-    }
-    return terms.isEmpty() ? null : String.join(" AND ", terms);
   }
 
   private static AuditEvent map(ResultSet rs) throws SQLException {
@@ -101,7 +95,7 @@ public class SqliteAuditStore implements AuditStore {
     sql.append(" WHERE a.profile_name = ?");
     params.add(profileName);
     if (fts) {
-      String match = toFtsMatch(q.text());
+      String match = FtsQuery.allPrefixTerms(q.text());
       if (match == null) {
         return List.of();
       }
@@ -152,5 +146,22 @@ public class SqliteAuditStore implements AuditStore {
   public void deleteForProfile(String profileId, String profileName) {
     jdbc.sql("DELETE FROM profile_audit_events WHERE profile_id = ? OR profile_name = ?")
       .params(profileId, profileName).update();
+  }
+
+  @Override
+  public Map<String, String> harnessBySession(String profileName, Collection<String> sessionIds) {
+    if (sessionIds.isEmpty()) return Map.of();
+    List<Object> params = new ArrayList<>();
+    params.add(profileName);
+    params.addAll(sessionIds);
+    String marks = String.join(",", Collections.nCopies(sessionIds.size(), "?"));
+    Map<String, String> result = new HashMap<>();
+    jdbc.sql("SELECT session_id, harness FROM (SELECT session_id, harness, ROW_NUMBER() OVER"
+        + " (PARTITION BY session_id ORDER BY completed_at DESC, id DESC) AS rn FROM profile_audit_events"
+        + " WHERE profile_name = ? AND harness IS NOT NULL AND harness <> '' AND session_id IN (" + marks + ")) WHERE rn = 1")
+      .params(params)
+      .query((rs, _) -> result.put(rs.getString("session_id"), rs.getString("harness")))
+      .list();
+    return result;
   }
 }

@@ -15,9 +15,13 @@ import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
@@ -27,6 +31,7 @@ import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.model.usage.InferenceTier;
 import dev.alvo.pieria.model.usage.TierUsage;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
+import dev.alvo.pieria.tools.FtsQuery;
 import dev.alvo.pieria.tools.TextSimilarity;
 import dev.alvo.pieria.tools.Tokens;
 import org.jspecify.annotations.NonNull;
@@ -35,6 +40,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.sql.ResultSet;
@@ -193,6 +200,7 @@ public class SqliteMemoryStore implements MemoryStore {
    * duplicate was inside the top 10 every time it existed.
    */
   private static final int NEAR_DUPLICATE_CANDIDATES = 10;
+  private static final ObjectMapper JSON = new ObjectMapper();
   private static final String MEMORY_COLUMNS =
     "id, session_id, type, content, topic_key, supersedes, superseded, payload, embed_text, created_at";
   private static final String ENTITY_COLUMNS = "id, profile_id, type, name, payload, created_at";
@@ -1236,6 +1244,191 @@ public class SqliteMemoryStore implements MemoryStore {
       .list();
     return listed.stream().filter(memory -> memory.type()!=MemoryType.CLUSTER ||
       eligibleClusterMemory(profileId,memory.id(),SNAPSHOT.isBound()?SNAPSHOT.get():null,false)).toList();
+  }
+
+  @Override
+  public MemorySearchPage searchMemories(String profileId, MemorySearchQuery query) {
+    // W: every filter except the type, shared by the counts and the rows.
+    StringBuilder where = new StringBuilder("m.profile_id = ? AND m.forgotten = 0");
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    if (!query.includeSuperseded()) {
+      where.append(" AND ").append(active("m"));
+    }
+    if (query.session() != null) {
+      where.append(" AND m.session_id = ?");
+      params.add(query.session());
+    }
+    String text = query.text() == null ? null : query.text().strip();
+    if (text != null && !text.isEmpty()) {
+      String like = "%" + escapeLike(text) + "%";
+      String match = FtsQuery.allPrefixTerms(text);
+      where.append(" AND (")
+        .append(match == null ? "m.content LIKE ? ESCAPE '\\'"
+          : "m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?)")
+        .append(" OR m.topic_key LIKE ? ESCAPE '\\' OR m.session_id LIKE ? ESCAPE '\\')");
+      params.add(match == null ? like : match);
+      params.add(like);
+      params.add(like);
+    }
+
+    Map<String, Long> typeCounts = new LinkedHashMap<>();
+    for (MemoryType type : MemoryType.values()) {
+      typeCounts.put(type.wire(), 0L);
+    }
+    jdbc.sql("SELECT m.type, COUNT(*) AS n FROM memories m WHERE " + where + " AND m.type <> 'cluster' GROUP BY m.type")
+      .params(params)
+      .query((rs, _) -> typeCounts.put(rs.getString("type"), rs.getLong("n")))
+      .list();
+    List<String> clusterIds = jdbc.sql("SELECT m.id FROM memories m WHERE " + where + " AND m.type = 'cluster' LIMIT 500")
+      .params(params)
+      .query(String.class)
+      .list();
+    TemporalSnapshot snapshot = SNAPSHOT.isBound() ? SNAPSHOT.get() : null;
+    typeCounts.put(MemoryType.CLUSTER.wire(),
+      clusterIds.stream().filter(id -> eligibleClusterMemory(profileId, id, snapshot, false)).count());
+    long total = query.type() == null
+      ? typeCounts.values().stream().mapToLong(Long::longValue).sum()
+      : typeCounts.getOrDefault(query.type().wire(), 0L);
+
+    String typeClause = query.type() == null ? "" : " AND m.type = ?";
+    List<Object> typeParams = query.type() == null ? List.of() : List.of(query.type().wire());
+    String order = query.newestFirst() ? "DESC" : "ASC";
+    String after = query.newestFirst() ? "<" : ">";
+    String cursorClause = query.cursor() == null ? ""
+      : " WHERE (sort_at " + after + " ? OR (sort_at = ? AND id " + after + " ?))";
+    List<Object> cursorParams = query.cursor() == null ? List.of()
+      : List.of(query.cursor().sortAt(), query.cursor().sortAt(), query.cursor().id());
+
+    // COALESCE: a NULL topic key must make the predicate false, not NULL, or NOT (...) drops the row.
+    String trace = "m.type = 'event' AND COALESCE(m.topic_key, '') LIKE '" + TRACE_OUTCOME_TOPIC_NAMESPACE + "%'";
+    StringBuilder rows = new StringBuilder("SELECT * FROM (SELECT 'memory' AS kind, m.id AS id, m.created_at AS sort_at,"
+      + " NULL AS session_id, 0 AS n, NULL AS tools, NULL AS first_at FROM memories m WHERE " + where + typeClause);
+    List<Object> rowParams = new ArrayList<>(params);
+    rowParams.addAll(typeParams);
+    if (query.groupToolCalls()) {
+      rows.append(" AND NOT (").append(trace).append(")")
+        .append(" UNION ALL SELECT 'tool-calls', 'tool-calls:' || COALESCE(m.session_id, ''), ")
+        .append(query.newestFirst() ? "MAX" : "MIN").append("(m.created_at), m.session_id, COUNT(*),")
+        .append(" json_group_array(DISTINCT json_extract(m.payload, '$.tool')), MIN(m.created_at)")
+        .append(" FROM memories m WHERE ").append(where).append(typeClause).append(" AND ").append(trace)
+        .append(" GROUP BY m.session_id");
+      rowParams.addAll(params);
+      rowParams.addAll(typeParams);
+    }
+    rows.append(")").append(cursorClause).append(" ORDER BY sort_at ").append(order).append(", id ").append(order).append(" LIMIT ?");
+    rowParams.addAll(cursorParams);
+    rowParams.add(query.limit() + 1);
+
+    record Row(String kind, String id, String sortAt, String sessionId, long count, String tools, String firstAt) {
+    }
+    List<Row> fetched = jdbc.sql(rows.toString())
+      .params(rowParams)
+      .query((rs, _) -> new Row(rs.getString("kind"), rs.getString("id"), rs.getString("sort_at"),
+        rs.getString("session_id"), rs.getLong("n"), rs.getString("tools"), rs.getString("first_at")))
+      .list();
+    boolean more = fetched.size() > query.limit();
+    List<Row> page = more ? fetched.subList(0, query.limit()) : fetched;
+
+    List<String> memoryIds = page.stream().filter(r -> r.kind().equals("memory")).map(Row::id).toList();
+    Map<String, Memory> byId = new HashMap<>();
+    if (!memoryIds.isEmpty()) {
+      String marks = String.join(",", Collections.nCopies(memoryIds.size(), "?"));
+      jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE id IN (" + marks + ")")
+        .params(new ArrayList<Object>(memoryIds))
+        .query((rs, _) -> mapMemory(rs))
+        .list()
+        .forEach(memory -> byId.put(memory.id(), memory));
+    }
+    List<MemorySearchPage.Entry> entries = new ArrayList<>();
+    for (Row row : page) {
+      if (row.kind().equals("memory")) {
+        Memory memory = byId.get(row.id());
+        if (memory == null) continue;
+        // Clusters are listed only while they stand for real evidence; the page may come up short.
+        if (memory.type() == MemoryType.CLUSTER && !eligibleClusterMemory(profileId, memory.id(), snapshot, false)) continue;
+        entries.add(new MemorySearchPage.Entry(memory, null));
+      } else {
+        Instant first = row.firstAt() == null ? null : Instant.parse(row.firstAt());
+        Instant last = row.sortAt() == null ? null : Instant.parse(row.sortAt());
+        entries.add(new MemorySearchPage.Entry(null, new MemorySearchPage.ToolCallGroup(row.sessionId(), row.count(),
+          toolNames(row.tools()), query.newestFirst() ? first : last, query.newestFirst() ? last : first)));
+      }
+    }
+    Row tail = page.isEmpty() ? null : page.getLast();
+    MemorySearchQuery.Cursor next = more && tail != null ? new MemorySearchQuery.Cursor(tail.sortAt(), tail.id()) : null;
+    return new MemorySearchPage(entries, typeCounts, total, next);
+  }
+
+  private static List<String> toolNames(String json) {
+    if (json == null || json.isBlank()) return List.of();
+    try {
+      List<String> names = new ArrayList<>();
+      for (JsonNode node : JSON.readTree(json)) {
+        if (node.isString() && !node.asString().isBlank()) names.add(node.asString());
+      }
+      return names;
+    } catch (JacksonException e) {
+      return List.of();
+    }
+  }
+
+  @Override
+  public Optional<Memory> findMemory(String profileId, String memoryId) {
+    return jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE id = ? AND profile_id = ? AND forgotten = 0")
+      .params(memoryId, profileId)
+      .query((rs, _) -> mapMemory(rs))
+      .optional();
+  }
+
+  @Override
+  public List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    String filter = prefix == null || prefix.isBlank() ? "" : " AND session_id LIKE ? ESCAPE '\\'";
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    if (!filter.isEmpty()) params.add(escapeLike(prefix.strip()) + "%");
+    params.add(profileId);
+    if (!filter.isEmpty()) params.add(escapeLike(prefix.strip()) + "%");
+    params.add(limit);
+    return jdbc.sql("SELECT session_id, MIN(first_at) AS first_at, MAX(last_at) AS last_at, SUM(memories) AS memories,"
+        + " SUM(messages) AS messages FROM ("
+        + " SELECT m.session_id, MIN(m.created_at) AS first_at, MAX(m.created_at) AS last_at, COUNT(*) AS memories, 0 AS messages"
+        + " FROM memories m WHERE m.profile_id = ? AND m.forgotten = 0 AND m.session_id IS NOT NULL AND " + active("m")
+        + filter.replace("session_id", "m.session_id") + " GROUP BY m.session_id"
+        + " UNION ALL SELECT session_id, MIN(created_at), MAX(created_at), 0, COUNT(*) FROM messages WHERE profile_id = ?"
+        + filter + " GROUP BY session_id"
+        + ") GROUP BY session_id ORDER BY last_at DESC LIMIT ?")
+      .params(params)
+      .query((rs, _) -> new SessionActivity(rs.getString("session_id"), Instant.parse(rs.getString("first_at")),
+        Instant.parse(rs.getString("last_at")), rs.getLong("memories"), rs.getLong("messages"), null))
+      .list();
+  }
+
+  @Override
+  public List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type, boolean includeSystem, int limit) {
+    String needle = text == null ? "" : escapeLike(text.strip());
+    StringBuilder sql = new StringBuilder("SELECT " + MEMORY_COLUMNS + " FROM (SELECT m.*, ROW_NUMBER() OVER"
+      + " (PARTITION BY m.type, m.topic_key ORDER BY m.created_at DESC, m.id DESC) AS rn FROM memories m"
+      + " WHERE m.profile_id = ? AND m.forgotten = 0 AND m.topic_key IS NOT NULL AND m.type <> 'cluster' AND "
+      + active("m") + " AND m.topic_key LIKE ? ESCAPE '\\'");
+    List<Object> params = new ArrayList<>(List.of(profileId, "%" + needle + "%"));
+    if (type != null) {
+      sql.append(" AND m.type = ?");
+      params.add(type.wire());
+    }
+    if (!includeSystem) {
+      sql.append(" AND m.topic_key NOT LIKE '").append(CODE_TOPIC_NAMESPACE).append("%' AND m.topic_key NOT LIKE 'trace:%'");
+    }
+    sql.append(") WHERE rn = 1 ORDER BY (topic_key LIKE ? ESCAPE '\\') DESC, created_at DESC LIMIT ?");
+    params.add(needle + "%");
+    params.add(limit);
+    return jdbc.sql(sql.toString())
+      .params(params)
+      .query((rs, _) -> mapMemory(rs))
+      .list()
+      .stream()
+      .map(memory -> new TopicKeyEntry(memory.topicKey(), memory))
+      .toList();
   }
 
   @Override

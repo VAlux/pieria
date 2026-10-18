@@ -11,6 +11,10 @@ import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryType;
+import dev.alvo.pieria.domain.memory.TopicKeyEntry;
+import dev.alvo.pieria.domain.memory.SessionActivity;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.ingestion.model.OutboxEntry;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -315,6 +319,50 @@ class StubMemoryStore implements MemoryStore {
       out.add(m);
     }
     return out;
+  }
+
+  /** Unpaged, ungrouped stand-in: the SQL paging and grouping are covered by SqliteMemoryStoreSearchTests. */
+  @Override
+  public MemorySearchPage searchMemories(String profileId, MemorySearchQuery query) {
+    List<Memory> matching = listMemories(profileId, null, query.session(), query.includeSuperseded()).stream()
+      .filter(m -> query.text() == null || m.content().contains(query.text())
+        || (m.topicKey() != null && m.topicKey().contains(query.text())))
+      .toList();
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (MemoryType t : MemoryType.values()) counts.put(t.wire(), 0L);
+    matching.forEach(m -> counts.merge(m.type().wire(), 1L, Long::sum));
+    List<MemorySearchPage.Entry> entries = matching.stream()
+      .filter(m -> query.type() == null || m.type() == query.type())
+      .limit(query.limit())
+      .map(m -> new MemorySearchPage.Entry(m, null))
+      .toList();
+    return new MemorySearchPage(entries, counts, entries.size(), null);
+  }
+
+  @Override
+  public Optional<Memory> findMemory(String profileId, String memoryId) {
+    return Optional.ofNullable(memories.getOrDefault(profileId, Map.of()).get(memoryId));
+  }
+
+  @Override
+  public List<SessionActivity> listSessions(String profileId, String prefix, int limit) {
+    Map<String, List<Memory>> bySession = new LinkedHashMap<>();
+    listMemories(profileId, null, null, false).stream().filter(m -> m.sessionId() != null)
+      .forEach(m -> bySession.computeIfAbsent(m.sessionId(), _ -> new ArrayList<>()).add(m));
+    return bySession.entrySet().stream()
+      .map(e -> new SessionActivity(e.getKey(), e.getValue().getFirst().createdAt(), e.getValue().getLast().createdAt(),
+        e.getValue().size(), 0, null))
+      .limit(limit)
+      .toList();
+  }
+
+  @Override
+  public List<TopicKeyEntry> searchTopicKeys(String profileId, String text, MemoryType type, boolean includeSystem, int limit) {
+    return listMemories(profileId, type, null, false).stream()
+      .filter(m -> m.topicKey() != null && m.topicKey().contains(text == null ? "" : text))
+      .limit(limit)
+      .map(m -> new TopicKeyEntry(m.topicKey(), m))
+      .toList();
   }
 
   @Override

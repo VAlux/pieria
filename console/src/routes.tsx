@@ -4,6 +4,7 @@ import { lastProfile } from './lib/storage';
 import { legacyTarget, profileUrl } from './lib/routes';
 import { AppShell } from './features/shell/AppShell';
 import { Placeholder } from './features/shell/Placeholder';
+import { MemoriesPage } from './features/memories/MemoriesPage';
 import { EmptyState, ErrorBanner, Page, SkeletonRows } from './ui/display';
 
 /** `/console/` picks the last-used profile; legacy `?view=` links land on the matching screen. */
@@ -38,9 +39,9 @@ export const routes = [
     element: <AppShell />,
     children: [
       { index: true, element: <Placeholder screen="Overview" legacyView="stats" /> },
-      { path: 'memories', element: <Placeholder screen="Memories" legacyView="memories" /> },
-      { path: 'memories/new', element: <Placeholder screen="Add memory" legacyView="add" /> },
-      { path: 'memories/:memoryId', element: <Placeholder screen="Memories" legacyView="memories" /> },
+      { path: 'memories', element: <MemoriesPage /> },
+      { path: 'memories/new', element: <MemoriesPage adding /> },
+      { path: 'memories/:memoryId', element: <MemoriesPage /> },
       { path: 'recall', element: <Placeholder screen="Recall" legacyView="recall" /> },
       { path: 'activity', element: <Placeholder screen="Activity" legacyView="audit" /> },
       { path: 'tasks', element: <Placeholder screen="Background tasks" legacyView="stats" /> },

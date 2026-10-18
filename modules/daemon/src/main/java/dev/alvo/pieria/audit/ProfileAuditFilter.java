@@ -95,6 +95,9 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       case "ingest/transcript" -> "ingest.transcript";
       case "ingest/async" -> "ingest.async";
       case "memories" -> method.equals("POST") ? "memory.remember" : "memory.list";
+      case "memories/search" -> "memory.search";
+      case "sessions" -> "session.list";
+      case "topic-keys" -> "topic-key.search";
       case "recall" -> "recall";
       case "stats" -> "stats";
       case "graph" -> "graph.read";
@@ -111,8 +114,17 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       case "code/status" -> "code.status";
       case "reminisce/async" -> "reminisce.async";
       case "reminisce/orphans" -> "reminisce.orphans";
-      default -> rest.startsWith("memories/") && method.equals("DELETE")
-        ? "memory.forget" : "profile." + method.toLowerCase(Locale.ROOT);
+      default -> rest.startsWith("memories/") ? memoryOperation(method, rest) : "profile." + method.toLowerCase(Locale.ROOT);
+    };
+  }
+
+  private static String memoryOperation(String method, String rest) {
+    if (rest.endsWith("/history")) return "memory.history";
+    if (rest.endsWith("/revisions")) return method.equals("POST") ? "memory.revise" : "memory.revisions";
+    return switch (method) {
+      case "DELETE" -> "memory.forget";
+      case "GET" -> "memory.get";
+      default -> "profile." + method.toLowerCase(Locale.ROOT);
     };
   }
 
@@ -121,8 +133,9 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       String id = rest.split("/", 4)[2];
       return id.isBlank() ? null : id;
     }
-    if (rest.startsWith("memories/") && rest.length() > "memories/".length()) {
-      return URLDecoder.decode(rest.substring("memories/".length()), StandardCharsets.UTF_8);
+    if (rest.startsWith("memories/") && rest.length() > "memories/".length() && !rest.equals("memories/search")) {
+      String id = rest.substring("memories/".length()).split("/", 2)[0];
+      return URLDecoder.decode(id, StandardCharsets.UTF_8);
     }
     return null;
   }

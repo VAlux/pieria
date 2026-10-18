@@ -326,6 +326,46 @@ class ProfileApiTests {
   }
 
   @Test
+  void browsesMemoriesForTheConsole() throws Exception {
+    mvc.perform(post("/v1/profiles/browse/memories").contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"the console lives at /console/\",\"sessionId\":\"s-browse\",\"topicKey\":\"web.console.serving\"}"))
+      .andExpect(status().isCreated());
+    mvc.perform(post("/v1/profiles/browse/memories").contentType("application/json")
+        .content("{\"type\":\"task\",\"content\":\"port the graph\",\"sessionId\":\"s-browse\"}"))
+      .andExpect(status().isCreated());
+
+    String id = com.jayway.jsonpath.JsonPath.read(mvc.perform(get("/v1/profiles/browse/memories/search").param("type", "fact"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(1)))
+      .andExpect(jsonPath("$.items[0].kind", is("memory")))
+      .andExpect(jsonPath("$.items[0].group").doesNotExist())
+      .andExpect(jsonPath("$.typeCounts.fact", is(1)))
+      .andExpect(jsonPath("$.typeCounts.task", is(1)))
+      .andExpect(jsonPath("$.total", is(1)))
+      .andReturn().getResponse().getContentAsString(), "$.items[0].memory.id");
+
+    mvc.perform(get("/v1/profiles/browse/memories/" + id))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.topicKey", is("web.console.serving")))
+      .andExpect(jsonPath("$.assertions").isArray());
+    mvc.perform(get("/v1/profiles/browse/memories/nope")).andExpect(status().isNotFound());
+
+    mvc.perform(get("/v1/profiles/browse/topic-keys").param("q", "console"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.keys[0].topicKey", is("web.console.serving")))
+      .andExpect(jsonPath("$.keys[0].type", is("fact")));
+  }
+
+  @Test
+  void rejectsBadMemoryPaging() throws Exception {
+    storeFact("paging", "a fact");
+    mvc.perform(get("/v1/profiles/paging/memories/search").param("limit", "0")).andExpect(status().isBadRequest());
+    mvc.perform(get("/v1/profiles/paging/memories/search").param("cursor", "%%%")).andExpect(status().isBadRequest());
+    mvc.perform(get("/v1/profiles/paging/memories/search").param("sort", "sideways")).andExpect(status().isBadRequest());
+    mvc.perform(get("/v1/profiles/ghost/memories/search")).andExpect(status().isNotFound());
+  }
+
+  @Test
   void statsReportsCountsForProfile() throws Exception {
     // Dedicated profile (never forgotten elsewhere) keeps the counts deterministic.
     storeFact("statstest", "only fact in statstest");

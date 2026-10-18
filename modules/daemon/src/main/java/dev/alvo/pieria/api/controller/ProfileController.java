@@ -10,6 +10,7 @@ import dev.alvo.pieria.api.response.FactHistoryResponse;
 import dev.alvo.pieria.api.response.IngestResponse;
 import dev.alvo.pieria.api.response.MemoryListResponse;
 import dev.alvo.pieria.api.response.MemoryResponse;
+import dev.alvo.pieria.api.response.MemorySearchResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileImpact;
 import dev.alvo.pieria.api.response.ProfileStatsResponse.ProfileSpend;
@@ -23,8 +24,11 @@ import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.Provenance;
 import dev.alvo.pieria.api.response.RecallResponse.RecallDebug.RerankDiagnostic;
 import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
+import dev.alvo.pieria.api.response.TopicKeyListResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemorySearchPage;
+import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -34,6 +38,7 @@ import dev.alvo.pieria.ingestion.IngestProgressListener;
 import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.trace.TraceIngestionService;
 import dev.alvo.pieria.ingestion.transcript.TranscriptParserRegistry;
+import dev.alvo.pieria.profile.MemoryCursor;
 import dev.alvo.pieria.profile.ProfileService;
 import dev.alvo.pieria.profile.ProfileStatsService;
 import dev.alvo.pieria.profile.ProfileStatsService.ProfileStatsView;
@@ -420,6 +425,52 @@ public class ProfileController {
     // Keep the collection endpoint lightweight. Temporal history is potentially much larger than
     // the memory itself and is loaded only when the caller opens /memories/{id}/history.
     return new MemoryListResponse(memories.stream().map(this.memoryResponseConverter::convert).toList());
+  }
+
+  @GetMapping("/memories/search")
+  public MemorySearchResponse search(@PathVariable String name,
+                                     @RequestParam(name = "q", required = false) String q,
+                                     @RequestParam(name = "type", required = false) String type,
+                                     @RequestParam(name = "session", required = false) String session,
+                                     @RequestParam(name = "sort", defaultValue = "newest") String sort,
+                                     @RequestParam(name = "limit", defaultValue = "50") int limit,
+                                     @RequestParam(name = "cursor", required = false) String cursor,
+                                     @RequestParam(name = "includeSuperseded", defaultValue = "false") boolean includeSuperseded,
+                                     @RequestParam(name = "groupToolCalls", defaultValue = "false") boolean groupToolCalls) {
+    if (!sort.equals("newest") && !sort.equals("oldest")) {
+      throw new IllegalArgumentException("sort must be newest or oldest");
+    }
+    MemorySearchQuery query = new MemorySearchQuery(q, type == null || type.isBlank() ? null : MemoryType.fromWire(type),
+      session == null || session.isBlank() ? null : session, sort.equals("newest"), limit, MemoryCursor.decode(cursor),
+      includeSuperseded, groupToolCalls);
+    MemorySearchPage page = profileService.search(name, query);
+    return new MemorySearchResponse(page.entries().stream()
+      .map(entry -> entry.memory() != null
+        ? new MemorySearchResponse.Item("memory", memoryResponseConverter.convert(entry.memory()), null)
+        : new MemorySearchResponse.Item("tool-calls", null, new MemorySearchResponse.ToolCallGroup(entry.group().sessionId(),
+          entry.group().count(), entry.group().tools(), entry.group().firstAt(), entry.group().lastAt())))
+      .toList(), MemoryCursor.encode(page.next()), page.typeCounts(), page.total());
+  }
+
+  @GetMapping("/memories/{id}")
+  public MemoryResponse memory(@PathVariable String name, @PathVariable String id) {
+    Memory memory = profileService.get(name, id);
+    return memoryResponseConverter.convert(memory)
+      .withValidity(profileService.validity(memory.id(), null))
+      .withAssertions(profileService.revisions(name, memory.id()));
+  }
+
+  @GetMapping("/topic-keys")
+  public TopicKeyListResponse topicKeys(@PathVariable String name,
+                                        @RequestParam(name = "q", defaultValue = "") String q,
+                                        @RequestParam(name = "type", required = false) String type,
+                                        @RequestParam(name = "limit", defaultValue = "20") int limit,
+                                        @RequestParam(name = "includeSystem", defaultValue = "false") boolean includeSystem) {
+    MemoryType typeFilter = type == null || type.isBlank() ? null : MemoryType.fromWire(type);
+    return new TopicKeyListResponse(profileService.topicKeys(name, q, typeFilter, includeSystem, limit).stream()
+      .map(entry -> new TopicKeyListResponse.TopicKey(entry.topicKey(), entry.memory().type().wire(), entry.memory().id(),
+        entry.memory().content(), entry.memory().createdAt()))
+      .toList());
   }
 
   @DeleteMapping("/memories/{id}")

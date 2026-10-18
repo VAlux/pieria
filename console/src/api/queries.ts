@@ -1,5 +1,6 @@
-import { QueryClient, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, QueryClient, useQuery } from '@tanstack/react-query';
 import { ApiError } from './client';
+import { getMemory, listSessions, memoryHistory, searchMemories, type MemorySearchParams } from './memories';
 import { daemonHealth, daemonStatus, listProfiles, profileStats } from './profiles';
 
 export const queryClient = new QueryClient({
@@ -53,4 +54,34 @@ export function useHealth() {
 
 export function useStats(profile: string) {
   return useQuery({ queryKey: qk.stats(profile), queryFn: ({ signal }) => profileStats(profile, signal), enabled: Boolean(profile) });
+}
+
+export function useMemorySearch(profile: string, params: MemorySearchParams) {
+  return useQuery({
+    queryKey: qk.memories(profile, params),
+    queryFn: ({ signal }) => searchMemories(profile, params, signal),
+    placeholderData: keepPreviousData,
+    enabled: Boolean(profile)
+  });
+}
+
+export function useMemory(profile: string, id: string | null | undefined) {
+  return useQuery({
+    queryKey: qk.memory(profile, id ?? ''),
+    queryFn: ({ signal }) => getMemory(profile, id!, signal),
+    enabled: Boolean(profile && id)
+  });
+}
+
+export function useMemoryHistory(profile: string, id: string | null | undefined, at: { asOf?: string | null; knownAsOf?: string | null }) {
+  return useQuery({
+    queryKey: qk.history(profile, id ?? '', at),
+    queryFn: ({ signal }) => memoryHistory(profile, id!, at, signal),
+    enabled: Boolean(profile && id),
+    retry: false
+  });
+}
+
+export function useSessions(profile: string) {
+  return useQuery({ queryKey: qk.sessions(profile), queryFn: ({ signal }) => listSessions(profile, undefined, signal), enabled: Boolean(profile), staleTime: 60_000 });
 }
