@@ -75,13 +75,19 @@ export function MemoriesPage({ adding = false }: { adding?: boolean }) {
   const selectedId = memoryId ?? memories[0]?.id ?? null;
   const selected = memories.find(m => m.id === selectedId) ?? null;
 
-  const open = (id: string) => navigate({ pathname: profileUrl(profile, `memories/${encodeURIComponent(id)}`), search: params.toString() }, { replace: Boolean(memoryId) });
+  const open = (id: string, reveal = true) => {
+    navigate({ pathname: profileUrl(profile, `memories/${encodeURIComponent(id)}`), search: params.toString() }, { replace: Boolean(memoryId) });
+    // When the detail panel sits below the list (narrow screens), bring it into view.
+    if (reveal && window.matchMedia('(max-width: 1099px)').matches) {
+      setTimeout(() => document.getElementById('memory-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  };
   const move = (delta: number) => {
     if (!memories.length) return;
     const index = memories.findIndex(m => m.id === selectedId);
     const next = memories[Math.min(memories.length - 1, Math.max(0, index + delta))];
     if (next) {
-      open(next.id);
+      open(next.id, false);
       document.getElementById(`memory-row-${next.id}`)?.scrollIntoView({ block: 'nearest' });
     }
   };

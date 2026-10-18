@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useProfiles, useStatus } from '../../api/queries';
@@ -47,6 +48,8 @@ export function Sidebar() {
   const summary = profiles.data?.find(p => p.name === profile);
   const badges = useNavBadges(profile);
   const avatar = avatarFor(profile);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
   const url = (sub: string) => profileUrl(profile, sub);
   const memoryCount = summary?.memoryCount;
   const meta = summary
@@ -54,11 +57,15 @@ export function Sidebar() {
     : ' ';
 
   return (
-    <nav aria-label="Console" className={styles.nav}>
-      <Link to={url('')} className={styles.brand}>
-        <span className={styles.brandName}>Pieria</span>
-        <span className={styles.brandSub}>console</span>
-      </Link>
+    <nav aria-label="Console" className={styles.nav} data-open={menuOpen}>
+      <div className={styles.brandRow}>
+        <Link to={url('')} className={styles.brand}>
+          <span className={styles.brandName}>Pieria</span>
+          <span className={styles.brandSub}>console</span>
+        </Link>
+        <button type="button" className={styles.menuButton} aria-expanded={menuOpen} aria-controls="console-menu"
+          onClick={() => setMenuOpen(o => !o)}>{menuOpen ? 'Close' : 'Menu'}</button>
+      </div>
 
       <button type="button" className={styles.profileButton} onClick={openSwitcher}
         aria-label={`Switch profile (current: ${profile}), shortcut ${mod}P`} aria-keyshortcuts="Meta+P Control+P"
@@ -77,6 +84,7 @@ export function Sidebar() {
         <Kbd>{mod}K</Kbd>
       </button>
 
+      <div id="console-menu" className={styles.menu}>
       <Group>
         <NavItem to={url('')} icon="overview" label="Overview" active={section === ''} />
       </Group>
@@ -102,6 +110,7 @@ export function Sidebar() {
         <NavItem to={url('settings')} icon="global" label="Global config" active={section === 'settings'} />
       </Group>
 
+      </div>
       <div className={styles.grow} />
       <DaemonCard />
     </nav>

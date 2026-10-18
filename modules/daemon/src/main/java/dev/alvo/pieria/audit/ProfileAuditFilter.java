@@ -110,6 +110,7 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
       case "graph" -> "graph.read";
       case "graph/view" -> "graph.view";
       case "export" -> "export";
+      case "config/detail" -> "config.detail";
       case "config" -> switch (method) {
         case "PUT" -> "config.update";
         case "DELETE" -> "config.clear";

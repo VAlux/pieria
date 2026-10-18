@@ -88,6 +88,7 @@ jobs:
         run: |
           cd console
           npm ci --no-audit --no-fund
+          npm test
           npm run build
 
       # :daemon:embedVecExtensions stages this onto the test classpath, which is how the vector tests

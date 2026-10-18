@@ -7,6 +7,14 @@ const daemon = process.env.PIERIA_DAEMON_URL ?? 'http://127.0.0.1:8077';
 export default defineConfig({
   plugins: [react()],
   base: '/console/',
+  build: {
+    rollupOptions: {
+      output: {
+        // Libraries change less often than the console, so they get their own long-cached chunk.
+        manualChunks: id => (id.includes('node_modules') && !id.includes('@fontsource') && !id.includes('d3-') ? 'vendor' : undefined)
+      }
+    }
+  },
   server: {
     host: '127.0.0.1',
     proxy: {

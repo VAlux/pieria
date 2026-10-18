@@ -93,11 +93,33 @@ SSR and full-stack React features; Pieria already owns the backend.
    rollback path to the old UI for one release. Then remove old static assets,
    old string-based asset tests, and the compatibility path when safe.
 
-The first implementation slice now exists: `console/` builds a React shell,
-profile selector, daemon status, and paginated memories view. The daemon serves
-its external assets at `/console/`, and the release/installer/updater paths stage
-the console directory. Other views still link to the existing console. The
-root URL remains on the existing UI until the migration reaches parity.
+Status: every view has been rebuilt in `console/` to the redesign canvas — the
+sidebar with the ⌘P profile switcher and ⌘K command palette, Overview, Memories
+(server-paged list, detail with bi-temporal validity history, correct / end
+validity / forget), Add memory, Recall, Activity, Background tasks, Profile and
+Global config, the Entity graph and the Wiki. Routes are profile-scoped
+(`/console/p/{profile}/{view}`); the daemon falls back to `index.html` for
+extensionless `/console/**` paths, and legacy `?view=&profile=` links redirect to
+the matching route. The root URL remains on the existing UI until cutover.
+
+Endpoints added for the console (all under `/v1`):
+
+- `profiles/{name}/memories/search` (search, type counts, cursor paging, grouped
+  tool calls), `memories/{id}`, `sessions`, `topic-keys`
+- `audit` and `audit/{id}` across profiles, `audit/facets`
+- `tasks?profile=`, `tasks/{id}/retry`; task summaries carry finish time,
+  duration, a result summary and retryability
+- `config/provider/test`, `daemon/restart` (launchd/systemd only); secret config
+  values are no longer returned, entries carry the shipped default
+- `profiles/{name}/wiki/status`, `wiki/build` (a `wiki-build` task),
+  `clusters/links`; entity responses carry relation totals; recall responses
+  always carry timings and per-memory channels
+- `/pieria-status` reports host, bound port, `apiVersion`, daemon version and
+  whether a restart is possible
+
+Console checks: `npm ci && npm run typecheck && npm test && npm run build` in
+`console/`. `PIERIA_DAEMON_URL=http://127.0.0.1:8078 npm run dev` points the dev
+server at a daemon other than the default.
 
 ## Release gates
 

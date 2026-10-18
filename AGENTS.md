@@ -76,6 +76,10 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 | DELETE | `/memories/{id}` | Forget a memory |
 | GET | `/export` | Export all memories (NDJSON) |
 
+The web console uses further read/control endpoints (memory search and paging, sessions, topic keys,
+daemon-wide audit and facets, task retry, provider test, restart, wiki status/build, cluster links);
+`docs/WEB_CONSOLE_REBUILD.md` lists them.
+
 ### Package structure (use as the codebase grows)
 
 Keep all code under `dev.alvo.pieria`, with module boundaries enforced by Gradle:
