@@ -67,6 +67,36 @@ class WikiIntegrationTests {
     assertTrue(store.<Boolean>writeWiki(w->w.publish(job,bundle,WikiEvidenceSelector.validate(ARTICLE,bundle))));
     return store.readWiki(w->w.page(profile,page.id()).orElseThrow().currentVersion());
   }
+  @Test void statusCountsArticlesAndBuildQueuesThemUntilWritten() throws Exception {
+    var page=seed();
+    var before=service.status("wiki-test");
+    assertTrue(before.pagesTotal()>=1);assertEquals(0,before.articlesReady());assertEquals(before.pagesTotal(),before.articlesAbsent());
+
+    var tasks=new dev.alvo.pieria.task.TaskRegistry();
+    var build=new WikiBuildService(service,tasks);
+    java.util.UUID id=build.start("wiki-test","missing");
+    // Play the wiki worker: claim the queued article and publish it.
+    long deadline=System.nanoTime()+java.time.Duration.ofSeconds(20).toNanos();
+    while(store.readWiki(w->w.liveJob(profile,page.id())).isEmpty() && System.nanoTime()<deadline) Thread.sleep(20);
+    Job job=claim();Bundle bundle=bundle(page);
+    assertTrue(store.<Boolean>writeWiki(w->w.publish(job,bundle,WikiEvidenceSelector.validate(ARTICLE,bundle))));
+    while(tasks.find(id).orElseThrow().status()==dev.alvo.pieria.task.TaskStatus.RUNNING && System.nanoTime()<deadline) Thread.sleep(50);
+
+    var done=tasks.find(id).orElseThrow();
+    assertEquals(dev.alvo.pieria.task.TaskStatus.SUCCEEDED,done.status());
+    assertTrue(done.result().get("enqueued").asInt()>=1);assertEquals(done.result().get("enqueued").asInt(),done.result().get("published").asInt());
+    assertEquals(1,service.status("wiki-test").articlesReady());
+    tasks.shutdown();
+  }
+  @Test void buildRefusesWhenTheWikiIsDisabledOrTheScopeIsUnknown() {
+    var props=new PieriaProperties(null,null,null,new PieriaProperties.Model("small","large","embedding",3,1,null,null),null,null,null);
+    var off=new WikiProperties(false,200,5000,100,180,2,40,8000,1500,.8,.75,.35,.25,.20,80,16000,.80,.90,.60,10);
+    var disabled=new WikiService(store,new EffectiveConfigResolver(props,store,off),null,props);
+    var tasks=new dev.alvo.pieria.task.TaskRegistry();
+    assertEquals(409,assertThrows(WikiException.class,()->new WikiBuildService(disabled,tasks).start("wiki-test","missing")).status());
+    assertEquals(400,assertThrows(WikiException.class,()->new WikiBuildService(service,tasks).start("wiki-test","everything")).status());
+    tasks.shutdown();
+  }
   @Test void descriptorAndEvidenceSearchNeedNoModelAndTasksRemainDiscoverable() {
     var page=seed();source("Prepare the release checklist for packaging.",null);
     store.insertMemory(profile,Memory.of(MemoryType.TASK,"Review daemon certificates","t",null,null));project();

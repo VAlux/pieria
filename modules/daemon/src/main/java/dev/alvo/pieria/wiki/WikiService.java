@@ -140,6 +140,78 @@ public class WikiService {
       return new WikiResponse.Evaluation(job.status(),null,job(job),null);
     });
   }
+  /** Article-bearing pages: active topic and entity pages that are not suppressed. */
+  private static boolean articlePage(Page page) {
+    return !page.kind().equals("directory") && page.lifecycle().equals("active") && !page.suppressed();
+  }
+  private List<Page> allPages(WikiRepository w,String p) {
+    List<Page> all=new ArrayList<>();String after="";
+    while(true) {
+      var batch=w.pages(p,after,500);all.addAll(batch);
+      if(batch.size()<500) return all;
+      after=batch.getLast().id();
+    }
+  }
+  public WikiResponse.Status status(String name) {
+    String p=profile(name);
+    return store.readWiki(w->{
+      var state=state(w,p);
+      int total=0,ready=0,stale=0,queued=0,generating=0,failed=0;
+      for(Page page:allPages(w,p)) {
+        if(!articlePage(page)) continue;
+        total++;
+        var version=w.version(p,page.currentVersion());
+        if(version.isPresent()) { ready++; if(version.get().bundle().scopeRevision()!=page.scopeRevision()) stale++; }
+        var job=w.latestJob(p,page.id()).map(Job::status).orElse("");
+        if(job.equals("queued")) queued++; else if(job.equals("generating")) generating++; else if(job.equals("failed")) failed++;
+      }
+      int unassigned=w.anchor(p,"directory:Unassigned Evidence").map(a->w.evidenceCount(p,a.id(),w.snapshot())).orElse(0);
+      return new WikiResponse.Status(state,Math.max(0,state.corpusWatermark()-state.projectionWatermark()),unassigned,total,ready,total-ready,stale,
+        queued,generating,failed);
+    });
+  }
+  /** Pages a wiki-wide build should evaluate: those without an article, plus stale ones when asked. */
+  public List<String> buildPlan(String profileId,boolean includeStale) {
+    return store.readWiki(w->allPages(w,profileId).stream().filter(WikiService::articlePage).filter(page->{
+      var version=w.version(profileId,page.currentVersion());
+      return version.isEmpty() || includeStale && version.get().bundle().scopeRevision()!=page.scopeRevision();
+    }).map(Page::id).toList());
+  }
+  /**
+   * Evaluates one page for a build, against the page as it is now rather than a version the caller
+   * saw: the same selection and queueing as {@link #evaluate}, without the optimistic-concurrency check.
+   */
+  public WikiResponse.Evaluation evaluateForBuild(String profileId,String pageId,String intent) {
+    WikiProperties cfg=settings(profileId);
+    return store.writeWiki(w->{
+      Page page=w.page(profileId,pageId).orElse(null);
+      if(page==null || !articlePage(page)) return new WikiResponse.Evaluation("skipped","page_unavailable",null,null);
+      var previous=w.version(profileId,page.currentVersion());
+      if(intent.equals("initial") && previous.isPresent()) return new WikiResponse.Evaluation("ready",null,null,previous.get().id());
+      Bundle bundle=WikiEvidenceSelector.select(w,profileId,page,cfg,rendering(profileId));
+      if(bundle.evidence().size()<2) return new WikiResponse.Evaluation("evidence-only","insufficient_sources",null,null);
+      if(previous.isPresent() && previous.get().fingerprint().equals(bundle.fingerprint())) return new WikiResponse.Evaluation("ready",null,null,previous.get().id());
+      Job job=w.enqueue(profileId,bundle,cfg.queueLimit());
+      return new WikiResponse.Evaluation(job.status(),null,job(job),null);
+    });
+  }
+  /** Projection has caught up with the corpus under the current policy. */
+  public boolean projectionReady(String profileId) {
+    return store.readWiki(w->state(w,profileId).initialized() && w.state(profileId).checkpoint()==w.watermark(profileId));
+  }
+  public long[] projectionProgress(String profileId) {
+    return store.readWiki(w->new long[]{w.state(profileId).checkpoint(),w.watermark(profileId)});
+  }
+  public String jobStatus(String profileId,String jobId) {
+    return store.readWiki(w->w.job(profileId,jobId).map(Job::status).orElse("obsolete"));
+  }
+  /** Withdraws jobs a cancelled build queued but no worker has started. */
+  public void withdrawQueued(String profileId,List<String> jobIds) {
+    store.writeWiki(w->{
+      for(String id:jobIds) w.job(profileId,id).filter(j->j.status().equals("queued")).ifPresent(j->w.finish(j,"obsolete","cancelled",null));
+      return null;
+    });
+  }
   public WikiResponse.Job job(String name,String id) {
     String p=profile(name);return store.readWiki(w->job(w.job(p,id).orElseThrow(()->new WikiException(404,"job_not_found"))));
   }

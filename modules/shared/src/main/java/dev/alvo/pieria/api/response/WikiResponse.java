@@ -26,4 +26,12 @@ public final class WikiResponse {
   public record EvidencePage(List<Evidence> evidence,String nextCursor) {}
   public record Search(State state,List<Card> pages,List<Evidence> unassigned,boolean degraded,boolean truncated) {}
   public record Evaluation(String status,String reason,Job job,String versionId) {}
+  /**
+   * Whole-wiki progress for the console: how far projection trails the corpus, how many topic and
+   * entity pages have a written article, and what the article queue holds.
+   */
+  public record Status(State state,long projectionLag,int unassignedEvidence,int pagesTotal,int articlesReady,int articlesAbsent,
+                       int articlesStale,int jobsQueued,int jobsGenerating,int jobsFailed) {}
+  /** A wiki-wide build request: write missing articles, or also refresh stale ones. */
+  public record BuildRequest(String scope) {}
 }

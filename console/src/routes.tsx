@@ -3,7 +3,6 @@ import { useProfiles } from './api/queries';
 import { lastProfile } from './lib/storage';
 import { legacyTarget, profileUrl } from './lib/routes';
 import { AppShell } from './features/shell/AppShell';
-import { Placeholder } from './features/shell/Placeholder';
 import { ActivityPage } from './features/activity/ActivityPage';
 import { GlobalConfigPage } from './features/config/GlobalConfigPage';
 import { ProfileConfigPage } from './features/config/ProfileConfigPage';
@@ -12,6 +11,7 @@ import { MemoriesPage } from './features/memories/MemoriesPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { RecallPage } from './features/recall/RecallPage';
 import { TasksPage } from './features/tasks/TasksPage';
+import { WikiPage } from './features/wiki/WikiPage';
 import { EmptyState, ErrorBanner, Page, SkeletonRows } from './ui/display';
 
 /** `/console/` picks the last-used profile; legacy `?view=` links land on the matching screen. */
@@ -53,8 +53,8 @@ export const routes = [
       { path: 'activity', element: <ActivityPage /> },
       { path: 'activity/:eventId', element: <ActivityPage /> },
       { path: 'tasks', element: <TasksPage /> },
-      { path: 'wiki', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
-      { path: 'wiki/:pageId', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
+      { path: 'wiki', element: <WikiPage /> },
+      { path: 'wiki/:pageId', element: <WikiPage /> },
       { path: 'graph', element: <GraphPage /> },
       { path: 'config', element: <ProfileConfigPage /> },
       { path: 'settings', element: <GlobalConfigPage /> },
