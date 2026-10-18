@@ -54,6 +54,7 @@ export function ActivityPage() {
     client: filters.get('client') || undefined,
     harness: filters.get('harness') || undefined,
     requestId: filters.get('requestId') || undefined,
+    taskId: filters.get('taskId') || undefined,
     from
   };
   const query: AuditQuery = { ...base, outcome: outcome === 'all' ? undefined : outcome, limit: 50 };
@@ -106,6 +107,9 @@ export function ActivityPage() {
         <FacetFilter label="Client" values={facets.data?.facets.client} value={filters.get('client')} onChange={v => filters.set({ client: v })} />
         <FacetFilter label="Harness" values={facets.data?.facets.harness} value={filters.get('harness')} onChange={v => filters.set({ harness: v })} />
         <RangeFilter value={range.id} onChange={v => filters.set({ range: v === '24h' ? null : v })} />
+        {filters.get('taskId') && (
+          <Button size="sm" onClick={() => filters.set({ taskId: null })}>Task {filters.get('taskId').slice(0, 8)}… ×</Button>
+        )}
         {filters.get('requestId') && (
           <Button size="sm" onClick={() => filters.set({ requestId: null })}>Request {filters.get('requestId').slice(0, 18)}… ×</Button>
         )}

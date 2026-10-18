@@ -8,6 +8,7 @@ import { ActivityPage } from './features/activity/ActivityPage';
 import { MemoriesPage } from './features/memories/MemoriesPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { RecallPage } from './features/recall/RecallPage';
+import { TasksPage } from './features/tasks/TasksPage';
 import { EmptyState, ErrorBanner, Page, SkeletonRows } from './ui/display';
 
 /** `/console/` picks the last-used profile; legacy `?view=` links land on the matching screen. */
@@ -48,7 +49,7 @@ export const routes = [
       { path: 'recall', element: <RecallPage /> },
       { path: 'activity', element: <ActivityPage /> },
       { path: 'activity/:eventId', element: <ActivityPage /> },
-      { path: 'tasks', element: <Placeholder screen="Background tasks" legacyView="stats" /> },
+      { path: 'tasks', element: <TasksPage /> },
       { path: 'wiki', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
       { path: 'wiki/:pageId', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
       { path: 'graph', element: <Placeholder screen="Entity graph" legacyView="graph" /> },

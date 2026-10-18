@@ -4,7 +4,7 @@ export type TaskStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
 export interface TaskLane {
   name: string;
-  state: 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | string;
+  state: 'QUEUED' | 'RUNNING' | 'WAITING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | string;
   phase: string | null;
   done: number;
   total: number;

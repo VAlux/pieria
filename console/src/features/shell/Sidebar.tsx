@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useProfiles, useStatus } from '../../api/queries';
 import { avatarFor } from '../../lib/avatar';
-import { integer } from '../../lib/format';
+import { integer, plural } from '../../lib/format';
 import { mod } from '../../lib/hotkeys';
 import { profileUrl, subPath } from '../../lib/routes';
 import { Kbd } from '../../ui/controls';
@@ -50,7 +50,7 @@ export function Sidebar() {
   const url = (sub: string) => profileUrl(profile, sub);
   const memoryCount = summary?.memoryCount;
   const meta = summary
-    ? [`${integer(summary.memoryCount)} memories`, summary.sessionCount !== undefined ? `${integer(summary.sessionCount)} sessions` : null].filter(Boolean).join(' · ')
+    ? [plural(summary.memoryCount, 'memory', 'memories'), summary.sessionCount !== undefined ? plural(summary.sessionCount, 'session') : null].filter(Boolean).join(' · ')
     : ' ';
 
   return (

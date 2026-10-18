@@ -148,10 +148,10 @@ interface LaneProps {
 
 /** Progress lane: dashed when waiting, amber while running, green when done. */
 export function ProgressLane({ name, phase, done, total, state }: LaneProps) {
-  const pending = state === 'QUEUED' || (done === 0 && state !== 'DONE' && state !== 'RUNNING');
-  const finished = state === 'DONE' || (total > 0 && done >= total);
+  const finished = state === 'COMPLETED' || (total > 0 && done >= total);
+  const pending = !finished && (state === 'QUEUED' || state === 'WAITING' || (done === 0 && state !== 'RUNNING'));
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : finished ? 100 : 0;
-  const count = pending ? 'waiting' : finished ? `${integer(total || done)} · done` : total > 0 ? `${integer(done)} / ${integer(total)} · ${pct}%` : `${integer(done)}`;
+  const count = state === 'FAILED' ? 'failed' : state === 'CANCELLED' ? 'cancelled' : pending ? 'waiting' : finished ? `${integer(total || done)} · done` : total > 0 ? `${integer(done)} / ${integer(total)} · ${pct}%` : `${integer(done)}`;
   return (
     <div className={styles.lane}>
       <span className={styles.laneName}>

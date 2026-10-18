@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { auditFacets } from '../../api/audit';
+import { listTasks } from '../../api/tasks';
 import { qk } from '../../api/queries';
 import { integer } from '../../lib/format';
 import styles from './shell.module.css';
@@ -22,8 +23,15 @@ export function useNavBadges(profile: string): NavBadges {
     refetchInterval: 60_000,
     retry: false
   });
+  const tasks = useQuery({
+    queryKey: qk.tasks(null),
+    queryFn: ({ signal }) => listTasks(null, signal),
+    refetchInterval: query => (query.state.data?.some(t => t.status === 'RUNNING') ? 2_000 : 15_000)
+  });
   const failed = failures.data?.facets.outcome?.find(f => f.value === 'failure')?.count ?? 0;
+  const running = tasks.data?.filter(t => t.status === 'RUNNING').length ?? 0;
   return {
-    activity: failed > 0 ? <span className={styles.badgeFail}>{integer(failed)} failed</span> : undefined
+    activity: failed > 0 ? <span className={styles.badgeFail}>{integer(failed)} failed</span> : undefined,
+    tasks: running > 0 ? <span className={styles.badgeRunning}>{integer(running)} running</span> : undefined
   };
 }

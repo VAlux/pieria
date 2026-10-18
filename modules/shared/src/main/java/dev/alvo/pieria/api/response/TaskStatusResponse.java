@@ -24,5 +24,9 @@ public record TaskStatusResponse(
   long startedAtEpochMs,
   String errorKind,
   String errorMessage,
-  JsonNode result) {
+  JsonNode result,
+  long finishedAtEpochMs,
+  long durationMs,
+  String resultSummary,
+  boolean retryable) {
 }
