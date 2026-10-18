@@ -233,7 +233,11 @@ public class GraphExplorerService {
         .map(memoryResponseConverter::convert)
         .toList();
 
-    return new GraphEntityResponse(node(entity, degree, 0), relations, memories);
+    List<GraphEntityResponse.RelationTotal> totals = store.relationTotals(profile.id(), entityId).stream()
+      .map(t -> new GraphEntityResponse.RelationTotal(t.relation(), t.outgoing() ? "out" : "in", t.count()))
+      .toList();
+
+    return new GraphEntityResponse(node(entity, degree, 0), relations, memories, totals);
   }
 
   /**

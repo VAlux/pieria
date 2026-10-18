@@ -14,6 +14,7 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
@@ -2107,9 +2108,12 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public Map<String, Integer> entityTypeCounts(String profileId) {
     Map<String, Integer> counts = new LinkedHashMap<>();
-    jdbc.sql("SELECT type, COUNT(*) AS c FROM entities WHERE profile_id = ? AND " + activeEntity("entities") + " "
+    // One pass over the connected-entity set rather than a correlated EXISTS per entity: the OR'd
+    // endpoint predicate in activeEntity cannot use an index, which made this the slowest part of
+    // the graph overview on profiles with thousands of entities.
+    jdbc.sql("SELECT type, COUNT(*) AS c FROM entities WHERE profile_id = ? AND id IN (" + connectedEntityIds() + ") "
         + "GROUP BY type ORDER BY c DESC, type ASC")
-      .param(profileId)
+      .params(profileId, profileId, profileId)
       .query((rs, _) -> Map.entry(rs.getString("type"), rs.getInt("c")))
       .list()
       .forEach(e -> counts.put(e.getKey(), e.getValue()));
@@ -2276,6 +2280,46 @@ public class SqliteMemoryStore implements MemoryStore {
       .list()
       .forEach(e -> degrees.put(e.getKey(), e.getValue()));
     return degrees;
+  }
+
+  @Override
+  public Map<String, Map<String, String>> clusterEntities(String profileId, Collection<String> clusterIds) {
+    if (clusterIds.isEmpty()) {
+      return Map.of();
+    }
+    String marks = String.join(",", Collections.nCopies(clusterIds.size(), "?"));
+    List<Object> params = new ArrayList<>();
+    params.add(profileId);
+    params.addAll(clusterIds);
+    Map<String, Map<String, String>> result = new LinkedHashMap<>();
+    jdbc.sql("SELECT DISTINCT d.ancestor_id AS cluster_id, n.id AS entity_id, n.name AS entity_name"
+        + " FROM cluster_dependencies d JOIN edges e ON e.memory_id = d.descendant_id"
+        + " JOIN memories m ON m.id = e.memory_id"
+        + " JOIN entities n ON n.id IN (e.source_entity_id, e.target_entity_id)"
+        + " WHERE d.profile_id = ? AND d.descendant_kind = 'memory' AND d.ancestor_id IN (" + marks + ")"
+        + " AND " + known("e") + " AND " + active("m"))
+      .params(params)
+      .query((rs, _) -> result.computeIfAbsent(rs.getString("cluster_id"), _ -> new LinkedHashMap<>())
+        .put(rs.getString("entity_id"), rs.getString("entity_name")))
+      .list();
+    return result;
+  }
+
+  @Override
+  public List<RelationTotal> relationTotals(String profileId, String entityId) {
+    if (entityId == null || entityId.isBlank()) {
+      return List.of();
+    }
+    return jdbc.sql("SELECT relation, outgoing, COUNT(*) AS n FROM ("
+        + "  SELECT e.relation, 1 AS outgoing FROM edges e JOIN memories m ON m.id = e.memory_id"
+        + "    WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " AND e.source_entity_id = ?"
+        + "  UNION ALL"
+        + "  SELECT e.relation, 0 FROM edges e JOIN memories m ON m.id = e.memory_id"
+        + "    WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " AND e.target_entity_id = ?"
+        + ") GROUP BY relation, outgoing ORDER BY n DESC, relation")
+      .params(profileId, entityId, profileId, entityId)
+      .query((rs, _) -> new RelationTotal(rs.getString("relation"), rs.getInt("outgoing") == 1, rs.getLong("n")))
+      .list();
   }
 
   @Override

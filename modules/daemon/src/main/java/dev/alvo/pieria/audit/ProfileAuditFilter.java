@@ -86,6 +86,13 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
   static String operation(String method, String rest) {
     if (rest.equals("wiki")) return "wiki.directory";
     if (rest.equals("wiki/search")) return "wiki.search";
+    if (rest.equals("wiki/status")) return "wiki.status";
+    if (rest.equals("wiki/build")) return "wiki.build";
+    if (rest.startsWith("graph/") && !rest.equals("graph/view")) return "graph." + rest.split("/")[1];
+    if (rest.equals("clusters")) return method.equals("POST") ? "cluster.create" : "cluster.list";
+    if (rest.equals("clusters/links")) return "cluster.links";
+    if (rest.startsWith("clusters/")) return method.equals("GET") ? "cluster.read" : "cluster.update";
+    if (rest.startsWith("clustering/")) return method.equals("GET") ? "clustering.read" : "clustering.update";
     if (rest.startsWith("wiki/jobs/")) return "wiki.job";
     if (rest.startsWith("wiki/pages/")) return rest.endsWith("/evaluate") ? "wiki.evaluate"
       : rest.endsWith("/evidence") ? "wiki.evidence" : "wiki.read";

@@ -12,6 +12,7 @@ import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
@@ -679,6 +680,19 @@ public interface MemoryStore {
    */
   default List<IncidentEdge> incidentEdges(String profileId, String entityId, int limit) {
     throw new UnsupportedOperationException("incidentEdges(...) not implemented");
+  }
+
+  /**
+   * For each cluster, the entities (id → name) that active edges attach to its current transitive
+   * member memories. Clusters with no such entity are absent.
+   */
+  default Map<String, Map<String, String>> clusterEntities(String profileId, Collection<String> clusterIds) {
+    throw new UnsupportedOperationException("clusterEntities(...) not implemented");
+  }
+
+  /** Active edges touching {@code entityId} counted per relation and direction, largest first. */
+  default List<RelationTotal> relationTotals(String profileId, String entityId) {
+    throw new UnsupportedOperationException("relationTotals(...) not implemented");
   }
 
   /**

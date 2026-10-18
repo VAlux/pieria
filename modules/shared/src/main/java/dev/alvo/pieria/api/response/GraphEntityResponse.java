@@ -19,7 +19,17 @@ import java.util.List;
 public record GraphEntityResponse(
   GraphNode entity,
   List<Relation> relations,
-  List<MemoryResponse> memories) {
+  List<MemoryResponse> memories,
+  List<RelationTotal> relationTotals) {
+
+  public GraphEntityResponse(GraphNode entity, List<Relation> relations, List<MemoryResponse> memories) {
+    this(entity, relations, memories, List.of());
+  }
+
+  /** Every active edge of one relation and direction ({@code out} or {@code in}); not capped like {@code relations}. */
+  public record RelationTotal(String relation, String direction, long count) {
+  }
+
 
   /**
    * One edge as the inspector reads it: always "<em>this entity</em> {@code relation}

@@ -7,6 +7,7 @@ import { Placeholder } from './features/shell/Placeholder';
 import { ActivityPage } from './features/activity/ActivityPage';
 import { GlobalConfigPage } from './features/config/GlobalConfigPage';
 import { ProfileConfigPage } from './features/config/ProfileConfigPage';
+import { GraphPage } from './features/graph/GraphPage';
 import { MemoriesPage } from './features/memories/MemoriesPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { RecallPage } from './features/recall/RecallPage';
@@ -54,7 +55,7 @@ export const routes = [
       { path: 'tasks', element: <TasksPage /> },
       { path: 'wiki', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
       { path: 'wiki/:pageId', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
-      { path: 'graph', element: <Placeholder screen="Entity graph" legacyView="graph" /> },
+      { path: 'graph', element: <GraphPage /> },
       { path: 'config', element: <ProfileConfigPage /> },
       { path: 'settings', element: <GlobalConfigPage /> },
       { path: '*', element: <Navigate to="." replace /> }

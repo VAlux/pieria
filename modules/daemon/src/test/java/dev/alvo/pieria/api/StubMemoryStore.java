@@ -7,6 +7,7 @@ import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.graph.GraphCounts;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.graph.IncidentEdge;
+import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -666,6 +667,17 @@ class StubMemoryStore implements MemoryStore {
       }
     });
     return out;
+  }
+
+  @Override
+  public List<RelationTotal> relationTotals(String profileId, String entityId) {
+    Map<String, Long> counts = new LinkedHashMap<>();
+    for (IncidentEdge edge : incidentEdges(profileId, entityId, Integer.MAX_VALUE)) {
+      counts.merge(edge.edge().relation() + (edge.outgoing() ? "\u0000out" : "\u0000in"), 1L, Long::sum);
+    }
+    return counts.entrySet().stream()
+      .map(e -> new RelationTotal(e.getKey().split("\u0000")[0], e.getKey().endsWith("out"), e.getValue()))
+      .toList();
   }
 
   @Override
