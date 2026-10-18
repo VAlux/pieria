@@ -4,6 +4,7 @@ import { lastProfile } from './lib/storage';
 import { legacyTarget, profileUrl } from './lib/routes';
 import { AppShell } from './features/shell/AppShell';
 import { Placeholder } from './features/shell/Placeholder';
+import { ActivityPage } from './features/activity/ActivityPage';
 import { MemoriesPage } from './features/memories/MemoriesPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { RecallPage } from './features/recall/RecallPage';
@@ -45,7 +46,8 @@ export const routes = [
       { path: 'memories/new', element: <MemoriesPage adding /> },
       { path: 'memories/:memoryId', element: <MemoriesPage /> },
       { path: 'recall', element: <RecallPage /> },
-      { path: 'activity', element: <Placeholder screen="Activity" legacyView="audit" /> },
+      { path: 'activity', element: <ActivityPage /> },
+      { path: 'activity/:eventId', element: <ActivityPage /> },
       { path: 'tasks', element: <Placeholder screen="Background tasks" legacyView="stats" /> },
       { path: 'wiki', element: <Placeholder screen="Wiki" legacyView="wiki" /> },
       { path: 'wiki/:pageId', element: <Placeholder screen="Wiki" legacyView="wiki" /> },

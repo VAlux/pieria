@@ -5,6 +5,7 @@ import java.time.Instant;
 /** Full retained audit event returned by the detail endpoint. */
 public record AuditEventDetail(
   String id,
+  String profile,
   String eventType,
   String operation,
   String requestId,

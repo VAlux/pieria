@@ -50,6 +50,38 @@ class AuditApiTests {
   }
 
   @Test
+  void daemonWideFeedSpansProfilesAndIsNotItselfAudited() throws Exception {
+    String first = "activity-a-" + UUID.randomUUID();
+    String second = "activity-b-" + UUID.randomUUID();
+    for (String profile : new String[] {first, second}) {
+      mvc.perform(post("/v1/profiles/" + profile + "/memories").header(AuditHeaders.CLIENT, "console")
+          .contentType("application/json").content("{\"type\":\"fact\",\"content\":\"activity " + profile + "\"}"))
+        .andExpect(status().isCreated());
+    }
+    String list = mvc.perform(get("/v1/audit").param("operation", "memory.remember").param("limit", "200"))
+      .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    JsonNode events = json.readTree(list).get("events");
+    java.util.Set<String> profiles = new java.util.HashSet<>();
+    events.forEach(e -> profiles.add(e.get("profile").asText()));
+    org.assertj.core.api.Assertions.assertThat(profiles).contains(first, second);
+
+    mvc.perform(get("/v1/audit").param("profile", first))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.events[0].profile", is(first)));
+    String id = json.readTree(mvc.perform(get("/v1/audit").param("profile", second))
+      .andReturn().getResponse().getContentAsString()).get("events").get(0).get("id").asText();
+    mvc.perform(get("/v1/audit/" + id)).andExpect(status().isOk()).andExpect(jsonPath("$.profile", is(second)));
+
+    mvc.perform(get("/v1/audit/facets").param("profile", first))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.facets.operation[0].value", is("memory.remember")))
+      .andExpect(jsonPath("$.facets.client[0].value", is("console")));
+    // Reading the feed is not recorded as profile activity.
+    mvc.perform(get("/v1/audit").param("profile", first).param("operation", "audit.list"))
+      .andExpect(jsonPath("$.events", org.hamcrest.Matchers.hasSize(0)));
+  }
+
+  @Test
   void capturesCallerRequestResponseAndSupportsDetailSearch() throws Exception {
     String profile = "audit-" + UUID.randomUUID();
     mvc.perform(post("/v1/profiles/" + profile + "/memories")

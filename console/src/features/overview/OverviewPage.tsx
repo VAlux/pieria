@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { listAudit, type AuditEventSummary } from '../../api/audit';
+import { listAudit } from '../../api/audit';
 import { errorMessage } from '../../api/client';
 import { listClusters } from '../../api/clusters';
 import { exportProfile } from '../../api/profiles';
@@ -10,26 +10,15 @@ import { buildWiki, wikiDirectory, wikiStatus } from '../../api/wiki';
 import { clock, compact, dateShort, dayTime, duration, integer, plural, relativeTime } from '../../lib/format';
 import { profileUrl } from '../../lib/routes';
 import { Button, LinkButton } from '../../ui/controls';
-import { Badge, Card, CardHeader, Dot, ErrorBanner, Kpi, Page, PageHeader, Skeleton, TYPE_COLORS, type Tone } from '../../ui/display';
+import { Badge, Card, CardHeader, Dot, ErrorBanner, Kpi, Page, PageHeader, Skeleton, TYPE_COLORS } from '../../ui/display';
 import { Icon } from '../../ui/icons';
 import { DisabledHint, useToast } from '../../ui/overlay';
+import { clientLabel, statusBadge } from '../activity/labels';
 import { useProfile } from '../shell/context';
 import styles from './overview.module.css';
 
 const MIX_TYPES = ['fact', 'event', 'instruction', 'task'] as const;
 const DAY = 86_400_000;
-
-export function statusBadge(event: Pick<AuditEventSummary, 'httpStatus' | 'outcome' | 'eventType'>): { label: string; tone: Tone } {
-  if (event.outcome === 'failure') return { label: event.eventType === 'task_terminal' ? 'failure' : String(event.httpStatus ?? 'failure'), tone: 'fail' };
-  if (event.outcome === 'cancelled') return { label: 'cancelled', tone: 'neutral' };
-  if (event.eventType === 'task_terminal') return { label: 'success', tone: 'ok' };
-  if (event.httpStatus === 202) return { label: '202', tone: 'info' };
-  return { label: String(event.httpStatus ?? event.outcome), tone: 'ok' };
-}
-
-export function clientLabel(event: Pick<AuditEventSummary, 'client' | 'harness'>): string {
-  return [event.client, event.harness].filter(Boolean).join(' · ') || 'unknown';
-}
 
 export function OverviewPage() {
   const profile = useProfile();
