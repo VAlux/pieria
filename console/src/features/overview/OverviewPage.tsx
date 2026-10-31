@@ -43,7 +43,7 @@ export function OverviewPage() {
   const doExport = () => exportProfile(profile).catch(e => toast.show('Export failed', errorMessage(e), 'error'));
 
   return (
-    <Page>
+    <Page className={styles.page}>
       <PageHeader large crumb={<>Profiles / <strong>{profile}</strong></>} title={profile}
         meta={(
           <div className={styles.meta}>
@@ -77,7 +77,7 @@ export function OverviewPage() {
         ) : Array.from({ length: 5 }, (_, i) => <Skeleton key={i} height={96} />)}
       </section>
 
-      <div className={styles.pair}>
+      <div className={styles.dashboard}>
         <Card>
           <CardHeader title="Memory mix" sub="active, by type" actions={<Link to={profileUrl(profile, 'memories')} className={styles.more}>Browse →</Link>} />
           {s && (
@@ -124,9 +124,6 @@ export function OverviewPage() {
         </Card>
 
         <NeedsAttention profile={profile} factCount={s?.byType.fact ?? 0} memoryCount={s?.totalActive ?? 0} />
-      </div>
-
-      <div className={styles.pair}>
         <Card className={styles.listCard}>
           <CardHeader title="Recently learned" sub="facts & instructions, newest first"
             actions={<Link to={profileUrl(profile, 'memories')} className={styles.more}>All →</Link>} />

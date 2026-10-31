@@ -162,10 +162,10 @@ class GraphApiTests {
   }
 
   @Test
-  void graphViewRedirectsToStaticViewerWithProfile() throws Exception {
+  void graphViewRedirectsToConsoleGraphForProfile() throws Exception {
     mvc.perform(get("/v1/profiles/graphtest/graph/view"))
       .andExpect(status().isFound())
-      .andExpect(redirectedUrl("/index.html?view=graph&profile=graphtest"));
+      .andExpect(redirectedUrl("/console/p/graphtest/graph"));
   }
 
   @TestConfiguration

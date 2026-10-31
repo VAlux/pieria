@@ -266,10 +266,9 @@ Once installed, the daemon listens on `http://127.0.0.1:8077`. On first start it
 initializes the embedded database, runs migrations, and prints guidance for pulling the
 default Ollama models if they are absent.
 
-The new React console is served from `http://127.0.0.1:8077/console/` when the
-release includes its `console/` directory. The existing console remains at the
-root URL while its remaining views are migrated. The browser needs no Node.js
-installation or external asset host.
+The web console is served from `http://127.0.0.1:8077/console/` out of the
+release's `console/` directory; the root URL and old `/index.html?view=…` links
+redirect there. The browser needs no Node.js installation or external asset host.
 
 For console development, run `npm ci` and `npm run dev` in `console/`; Vite
 proxies `/v1`, `/pieria-health`, and `/pieria-status` to the local daemon. Run

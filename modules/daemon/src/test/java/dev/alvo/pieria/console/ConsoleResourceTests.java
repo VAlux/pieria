@@ -73,6 +73,26 @@ class ConsoleResourceTests {
   }
 
   @Test
+  void rootRedirectsToConsole() throws Exception {
+    mvc.perform(get("/"))
+      .andExpect(status().isFound())
+      .andExpect(header().string("Location", "/console/"));
+  }
+
+  @Test
+  void legacyIndexLinksKeepTheirQueryForTheConsoleToMap() throws Exception {
+    mvc.perform(get("/index.html?view=wiki&profile=pieria&page=p1"))
+      .andExpect(status().isFound())
+      .andExpect(header().string("Location", "/console/?view=wiki&profile=pieria&page=p1"));
+  }
+
+  @Test
+  void legacyStaticAssetsAreGone() throws Exception {
+    mvc.perform(get("/js/console/main.js")).andExpect(status().isNotFound());
+    mvc.perform(get("/css/console.css")).andExpect(status().isNotFound());
+  }
+
+  @Test
   void clientRoutesFallBackToEntryWithoutCaching() throws Exception {
     mvc.perform(get("/console/p/pieria/memories/abc123"))
       .andExpect(status().isOk())
