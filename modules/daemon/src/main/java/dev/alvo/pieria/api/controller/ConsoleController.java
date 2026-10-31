@@ -1,7 +1,9 @@
 package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.config.ConsoleResourceConfig;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +26,17 @@ public class ConsoleController {
   @GetMapping("/console")
   public ResponseEntity<Void> redirect() {
     return ResponseEntity.status(308).header("Location", "/console/").build();
+  }
+
+  /**
+   * The console used to live at the root. Old bookmarks ({@code /}, {@code /index.html?view=wiki&profile=x&page=y})
+   * keep working: the query string is carried over and the console maps legacy {@code ?view=} links onto its routes.
+   */
+  @GetMapping({"/", "/index.html"})
+  public ResponseEntity<Void> legacyRoot(HttpServletRequest request) {
+    String query = request.getQueryString();
+    String location = query == null || query.isBlank() ? "/console/" : "/console/?" + query;
+    return ResponseEntity.status(HttpStatus.FOUND).header("Location", location).build();
   }
 
   @GetMapping("/console/")

@@ -84,8 +84,8 @@ public class GraphController {
    */
   @GetMapping("/view")
   public ResponseEntity<Void> view(@PathVariable String name) {
-    var viewer = URI.create("/index.html?view=graph&profile=%s"
-      .formatted(URLEncoder.encode(name, StandardCharsets.UTF_8)));
+    var viewer = URI.create("/console/p/%s/graph"
+      .formatted(URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20")));
     return ResponseEntity.status(HttpStatus.FOUND).location(viewer).build();
   }
 }

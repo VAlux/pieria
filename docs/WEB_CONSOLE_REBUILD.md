@@ -100,7 +100,13 @@ validity / forget), Add memory, Recall, Activity, Background tasks, Profile and
 Global config, the Entity graph and the Wiki. Routes are profile-scoped
 (`/console/p/{profile}/{view}`); the daemon falls back to `index.html` for
 extensionless `/console/**` paths, and legacy `?view=&profile=` links redirect to
-the matching route. The root URL remains on the existing UI until cutover.
+the matching route.
+
+Cutover is done: the old vanilla-JS console (`modules/daemon/src/main/resources/static`)
+and its string-based asset tests are removed, with no rollback path to it. `/` and
+`/index.html` redirect to `/console/` carrying the query string, so old bookmarks land
+on the matching screen, and `/v1/profiles/{name}/graph/view` redirects to
+`/console/p/{name}/graph`. The daemon no longer serves any UI from its classpath.
 
 Endpoints added for the console (all under `/v1`):
 
