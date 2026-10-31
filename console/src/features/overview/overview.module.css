@@ -1,7 +1,18 @@
 .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--text-3); }
 
+.page { min-height: 100vh; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; }
-.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; align-items: start; }
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(auto, 1fr));
+  gap: 16px;
+  flex: 1;
+}
+
+@media (max-width: 1200px) {
+  .dashboard { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto; flex: none; }
+}
 
 .more { font-size: 12.5px; }
 .note { font-size: 12px; color: var(--text-muted); }
