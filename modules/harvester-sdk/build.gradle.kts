@@ -18,3 +18,18 @@ dependencies {
 	testImplementation("org.assertj:assertj-core")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
+
+// A single runnable jar, so authors of harvesters in any language can run the conformance kit.
+tasks.register<Jar>("conformanceJar") {
+	group = "build"
+	description = "Assemble the runnable harvester conformance kit."
+	archiveFileName = "harvester-conformance.jar"
+	manifest {
+		attributes["Main-Class"] = "dev.alvo.pieria.harvester.conformance.ConformanceMain"
+	}
+	from(sourceSets.main.get().output)
+	dependsOn(configurations.runtimeClasspath)
+	from({ configurations.runtimeClasspath.get().map { zipTree(it) } })
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+}

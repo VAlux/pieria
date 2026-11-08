@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phase 1 (origin-aware ingest and recall) is in progress on `harvesters-phase-1`. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall) and 2 (protocol, SDK and conformance kit) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -189,3 +189,11 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
 - **Open item, required before phase 5.** Cluster and wiki generation build new memories from existing ones, so harvested text could lose its untrusted label on the way through. Phase 3 must exclude harvested memories from those inputs or carry the label forward. Until clusters can be attributed to sources, any recall with a source filter leaves clusters out.
 - **Conflict scope.** Conflict candidates are limited to the incoming memory's own scope in every candidate query. Conversation memories count as one scope, so a user's statement can't retire a harvested fact automatically. The alternative lets the user's fact join the harvested fact group, where the next harvest on that key would close it.
 - **Temporal block.** Synthesis treats this block as authoritative, so harvested memories contribute no source payload to validity lines, and harvested events are named by origin label instead of their text.
+- **Protocol details settled in phase 2.**
+  - Exit codes are `0` success, `1` harvester failure and `2` usage or bad envelope.
+  - `check` reports through its exit code and, on failure, an `error` record. It emits nothing else.
+  - `command` in the manifest is an array, never a shell string. Its program is a bare name on `PATH` or a `./` path inside the harvester's directory.
+  - Size limits are in `ProtocolLimits`: 16 MiB per line, 1 MiB for the envelope, and 2,000,000 characters of text per document or thread.
+  - An unknown record `type` is a violation. Unknown fields on a known record are ignored.
+  - A run that was resumed or stopped by a limit must not emit `sweep`, because `sweep` means every live item was reported. The conformance kit enforces this.
+  - The SDK encodes through Jackson's JSON tree, so its types need no reflection configuration in a native image.

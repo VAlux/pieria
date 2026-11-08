@@ -100,6 +100,8 @@ All modules live under `modules/`:
 - `gateway`: stdio MCP tools and the HTTP client that forwards to the daemon.
 - `eval`: the LoCoMo benchmark harness — dataset adapter, runner, and JSON/HTML report writers. Run it
   with `./gradlew :eval:locomo --args="--help"`; see `modules/eval/README.md`.
+- `harvester-sdk`: the harvester protocol, Java runner, manifest parser and conformance kit. It
+  deliberately depends on no other Pieria module, because outside developers consume it.
 
 ## Utility code: no duplication across modules
 
