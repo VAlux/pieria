@@ -27,6 +27,7 @@ import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.api.response.TopicKeyListResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
@@ -141,8 +142,10 @@ public class ProfileController {
       .append("(recalled memories — verify against current code before relying on them):\n");
     for (RecallCandidate candidate : candidates) {
       Memory memory = candidate.memory();
-      block.append("- (").append(memory.type().wire()).append(") ")
-        .append(oneLine(memory.content(), 200)).append('\n');
+      block.append("- (").append(memory.type().wire()).append(") ");
+      MemoryOrigins.parse(memory.payload())
+        .ifPresent(origin -> block.append('[').append(origin.renderLabel()).append("] "));
+      block.append(oneLine(memory.content(), 200)).append('\n');
     }
     return block.toString();
   }

@@ -11,7 +11,7 @@ The pre-computed temporal facts are authoritative: use them verbatim and never p
 own date or duration arithmetic. A memory may still contain a relative reference such as
 "next month" or "last summer"; resolve it only if a temporal fact below resolves it, and
 otherwise repeat it as the memory words it. Never combine a relative reference with a date
-taken from elsewhere to work out when something happened.
+taken from elsewhere to work out when something happened.{{sourceGuidance}}
 
 Query:
 {{query}}

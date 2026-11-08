@@ -6,6 +6,8 @@ import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.EntityNormalizer;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.memory.IngestOrigin;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.temporal.ConflictDecision;
 import dev.alvo.pieria.ingestion.model.Chunk;
@@ -782,6 +784,10 @@ public class OpenAiModelGateway implements ModelGateway {
     return "\n" + PromptTemplateLoader.render(template, Map.of()).strip();
   }
 
+  private static String originPrefix(Memory memory) {
+    return MemoryOrigins.parse(memory.payload()).map(origin -> "[" + origin.renderLabel() + "] ").orElse("");
+  }
+
   private String candidateLimitInstruction() {
     int cap = maxExtractedCandidatesPerChunk();
     return cap > 0
@@ -1186,8 +1192,10 @@ public class OpenAiModelGateway implements ModelGateway {
                                  List<TemporalFact> temporalFacts, List<GraphEvidence> graphEvidence) {
     List<RecallCandidate> safeCandidates = candidates == null ? List.of() : candidates;
     String context = safeCandidates.stream()
-      .map(c -> "- " + c.memory().content())
+      .map(c -> "- " + originPrefix(c.memory()) + c.memory().content())
       .collect(Collectors.joining("\n"));
+    boolean anyHarvested = safeCandidates.stream()
+      .anyMatch(c -> MemoryOrigins.parse(c.memory().payload()).isPresent());
     if (context.isBlank()) {
       context = "(no candidate memories were retrieved)";
     }
@@ -1210,6 +1218,7 @@ public class OpenAiModelGateway implements ModelGateway {
       "query", query,
       "temporalFacts", temporalBlock,
       "graphEvidence", graphBlock,
+      "sourceGuidance", anyHarvested ? promptAddition("source-synthesis-guidance") : "",
       "memories", context));
 
     try {

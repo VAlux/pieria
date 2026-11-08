@@ -1,5 +1,7 @@
 package dev.alvo.pieria.api.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -21,17 +23,29 @@ public record MemoryResponse(
   String payload,
   Instant createdAt,
   List<TemporalValidity> validity,
-  List<RevisionResponse> assertions) {
+  List<RevisionResponse> assertions,
+  @JsonInclude(JsonInclude.Include.NON_NULL) MemoryOrigin origin) {
+
+  public MemoryResponse(String id, String type, String content, String topicKey, String sessionId,
+                        boolean superseded, String payload, Instant createdAt,
+                        List<TemporalValidity> validity, List<RevisionResponse> assertions) {
+    this(id, type, content, topicKey, sessionId, superseded, payload, createdAt, validity, assertions, null);
+  }
+
   public MemoryResponse(String id, String type, String content, String topicKey, String sessionId,
                         boolean superseded, String payload, Instant createdAt) {
-    this(id, type, content, topicKey, sessionId, superseded, payload, createdAt, List.of(), List.of());
+    this(id, type, content, topicKey, sessionId, superseded, payload, createdAt, List.of(), List.of(), null);
+  }
+
+  public MemoryResponse withOrigin(MemoryOrigin memoryOrigin) {
+    return new MemoryResponse(id, type, content, topicKey, sessionId, superseded, payload, createdAt, validity, assertions, memoryOrigin);
   }
 
   public MemoryResponse withAssertions(List<RevisionResponse> history) {
-    return new MemoryResponse(id, type, content, topicKey, sessionId, superseded, payload, createdAt, validity, history);
+    return new MemoryResponse(id, type, content, topicKey, sessionId, superseded, payload, createdAt, validity, history, origin);
   }
 
   public MemoryResponse withValidity(List<TemporalValidity> segments) {
-    return new MemoryResponse(id, type, content, topicKey, sessionId, superseded, payload, createdAt, segments, assertions);
+    return new MemoryResponse(id, type, content, topicKey, sessionId, superseded, payload, createdAt, segments, assertions, origin);
   }
 }

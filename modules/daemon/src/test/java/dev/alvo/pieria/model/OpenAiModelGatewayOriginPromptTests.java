@@ -2,8 +2,12 @@ package dev.alvo.pieria.model;
 
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.memory.IngestOrigin;
+import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
+import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.model.provider.OllamaModelProviderAdapter;
+import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.tools.PromptTemplateLoader;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -15,6 +19,7 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -73,5 +78,34 @@ class OpenAiModelGatewayOriginPromptTests {
     assertThat(plain).doesNotContain(guidance);
     assertThat(withOrigin).contains(guidance);
     assertThat(withOrigin.replace("\n" + guidance, "")).isEqualTo(plain);
+  }
+
+  private static RecallCandidate candidate(String content, String payload) {
+    Memory memory = new Memory("m1", "s1", MemoryType.FACT, content, null, null, false, payload, null,
+      Instant.parse("2026-01-01T00:00:00Z"));
+    return new RecallCandidate(memory, 1.0, "fts_memory");
+  }
+
+  private static String synthesisPrompt(RecallCandidate... candidates) {
+    CapturingChatModel synthesis = new CapturingChatModel("an answer");
+    gateway(new CapturingChatModel("[]"), synthesis).synthesizeRecall("query", List.of(candidates), List.of(), List.of());
+    return synthesis.lastPrompt;
+  }
+
+  @Test
+  void harvestedMemoryIsLabelledAndGuidanceAdded() {
+    String prompt = synthesisPrompt(candidate("the db is mysql", MemoryOrigins.withOrigin("{}", ORIGIN)));
+
+    assertThat(prompt).contains("- [untrusted · jira · ACME-12 · https://a/12] the db is mysql");
+    assertThat(prompt).contains(PromptTemplateLoader.render("source-synthesis-guidance", Map.of()).strip());
+  }
+
+  @Test
+  void conversationOnlyRecallPromptIsUnchanged() {
+    String prompt = synthesisPrompt(candidate("the db is postgres", "{}"));
+
+    assertThat(prompt).contains("- the db is postgres");
+    assertThat(prompt).doesNotContain(PromptTemplateLoader.render("source-synthesis-guidance", Map.of()).strip());
+    assertThat(prompt).contains("work out when something happened.\n\nQuery:");
   }
 }

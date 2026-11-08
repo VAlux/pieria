@@ -436,6 +436,51 @@ class ProfileApiTests {
       .andExpect(status().isBadRequest());
   }
 
+  // Its own profile: the stub store is shared across tests, and alice must stay free of harvested memories.
+  private void rememberHarvested() throws Exception {
+    String payload = "{\\\"origin\\\":{\\\"source_id\\\":\\\"jira-acme\\\",\\\"harvester\\\":\\\"jira\\\","
+      + "\\\"external_id\\\":\\\"ACME-12\\\",\\\"trust\\\":\\\"untrusted\\\"}}";
+    mvc.perform(post("/v1/profiles/harvested/memories")
+        .contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"Bob likes tea\",\"sessionId\":\"s1\",\"payload\":\"" + payload + "\"}"))
+      .andExpect(status().isCreated());
+  }
+
+  @Test
+  void recallJsonCarriesOriginForHarvestedMemories() throws Exception {
+    rememberHarvested();
+
+    mvc.perform(post("/v1/profiles/harvested/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories[0].origin.harvester", is("jira")))
+      .andExpect(jsonPath("$.memories[0].origin.trust", is("untrusted")));
+  }
+
+  @Test
+  void recallJsonOmitsOriginForOwnMemories() throws Exception {
+    remember();
+
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.memories[0].origin").doesNotExist());
+  }
+
+  @Test
+  void recallTextLabelsHarvestedMemories() throws Exception {
+    rememberHarvested();
+
+    mvc.perform(post("/v1/profiles/harvested/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .accept(MediaType.TEXT_PLAIN)
+        .content("{\"query\":\"tea\"}"))
+      .andExpect(status().isOk())
+      .andExpect(content().string(containsString("- (fact) [untrusted · jira · ACME-12] Bob likes tea")));
+  }
+
   @Test
   void recallTextPlainReturnsInjectableBlock() throws Exception {
     remember(); // stores "Bob likes tea" in profile alice
