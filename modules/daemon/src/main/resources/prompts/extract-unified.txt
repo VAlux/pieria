@@ -16,7 +16,7 @@ For each candidate set:
   "period" means the entire named calendar period is explicitly applicable (e.g. "March 2026 only").
   An uncertain change "sometime in May" is NOT a whole-period assertion. Preserve the phrase exactly;
   never calculate dates, infer a month start, or borrow dates from another turn.
-{{graphInstruction}}
+{{graphInstruction}}{{sourceInstruction}}
 
 Do not invent information not present in the chunk. If nothing is worth remembering,
 return an empty array.

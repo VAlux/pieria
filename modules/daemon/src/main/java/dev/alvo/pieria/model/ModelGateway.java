@@ -1,5 +1,6 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.domain.memory.IngestOrigin;
 import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.domain.graph.GraphFragment;
 import dev.alvo.pieria.domain.temporal.ConflictDecision;
@@ -65,6 +66,14 @@ public interface ModelGateway {
    */
   default List<UnifiedCandidate> extractUnified(Chunk chunk) {
     throw new UnsupportedOperationException("extractUnified(Chunk) not implemented");
+  }
+
+  /**
+   * As {@link #extractUnified(Chunk)}, telling the extractor the chunk is third-party data when
+   * {@code origin} is non-null.
+   */
+  default List<UnifiedCandidate> extractUnified(Chunk chunk, IngestOrigin origin) {
+    return extractUnified(chunk);
   }
 
   /**

@@ -1,6 +1,7 @@
 package dev.alvo.pieria.domain.memory;
 
 import dev.alvo.pieria.api.response.MemoryOrigin;
+import dev.alvo.pieria.ingestion.model.Classification;
 
 /**
  * Identifies external-source content entering the ingest pipeline. A null origin means the content
@@ -23,5 +24,19 @@ public record IngestOrigin(String sourceId, String harvester, String externalId,
     if (externalId == null || externalId.isBlank()) {
       throw new IllegalArgumentException("externalId must not be blank");
     }
+  }
+
+  /**
+   * Applies the limits on harvested content. Only {@code fact} and {@code event} are allowed, because
+   * a web page or ticket must never become a standing instruction or an item on the user's to-do
+   * list. Topic keys are namespaced to this source so a keyed fact supersedes only within it.
+   */
+  public Classification govern(Classification classification) {
+    MemoryType type = classification.type() == MemoryType.INSTRUCTION || classification.type() == MemoryType.TASK
+      ? MemoryType.FACT
+      : classification.type();
+    String key = classification.topicKey();
+    String namespaced = key == null || key.isBlank() ? key : "source:" + sourceId + ":" + key;
+    return new Classification(type, namespaced, classification.interrogativeQueries(), classification.payload());
   }
 }

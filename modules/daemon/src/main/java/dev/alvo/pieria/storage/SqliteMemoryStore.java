@@ -16,6 +16,7 @@ import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
@@ -375,8 +376,22 @@ public class SqliteMemoryStore implements MemoryStore {
           + "AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?) LIMIT ?")
         .params(profileId, incoming.type().wire(), encodeEmbedding(embedding), channelLimit).query(String.class).list());
     }
+    MemoryOrigins.parse(incoming.payload())
+      .ifPresent(origin -> ids.retainAll(sameSourceIds(profileId, origin.sourceId(), ids)));
     return ids.stream().flatMap(id -> revisions(profileId, id).stream())
       .filter(r -> r.recordedTo() == null && !r.invalidated()).distinct().limit(limit).toList();
+  }
+
+  /** The subset of {@code ids} harvested from {@code sourceId}. */
+  private List<String> sameSourceIds(String profileId, String sourceId, Set<String> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    var params = new ArrayList<Object>(List.of(profileId, sourceId));
+    params.addAll(ids);
+    return jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND origin_source_id = ? AND id IN ("
+        + String.join(",", Collections.nCopies(ids.size(), "?")) + ")")
+      .params(params).query(String.class).list();
   }
 
   @Override

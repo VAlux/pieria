@@ -4,7 +4,9 @@ import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.config.VerifyMode;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.IngestOrigin;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
@@ -363,6 +365,19 @@ public class IngestionService {
                                         Integer extractionSamplesOverride, GraphMode graphMode,
                                         ChunkLedgerMode chunkLedgerMode,
                                         IngestProgressListener progress) {
+    return ingestDetailed(profileName, sessionId, messages, extractionSamplesOverride, graphMode,
+      chunkLedgerMode, progress, null);
+  }
+
+  /**
+   * As above, for content from an external source when {@code origin} is non-null: the stored
+   * memories are governed by {@link IngestOrigin#govern} and stamped with the origin, and the
+   * extractor is told the chunk is third-party data. A null origin is the user's own conversation.
+   */
+  public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
+                                        Integer extractionSamplesOverride, GraphMode graphMode,
+                                        ChunkLedgerMode chunkLedgerMode,
+                                        IngestProgressListener progress, IngestOrigin origin) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
     log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
@@ -421,7 +436,7 @@ public class IngestionService {
 
     Timed<Extraction> extract = Timed.measure(
       () -> extractCandidates(plan.pending(), extractionSamples,
-        Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress));
+        Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress, origin));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
@@ -440,7 +455,7 @@ public class IngestionService {
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
       extraction.merged(), chunks, plan, profile.id(), sessionId, tuning.verifyMode(),
       Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage,
-      graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress));
+      graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress, origin));
     VerifyStoreResult result = verifyStore.value();
     log.info("ingest verified profile={} session={} passed={} autoPassed={} corrected={} dropped={} stored={} verifyStoreMs={}",
       profileName, sessionId, result.passed(), result.autoPassed(), result.corrected(),
@@ -573,9 +588,10 @@ public class IngestionService {
    */
   private Extraction extractCandidates(List<Chunk> chunks, int extractionSamples,
                                        int maxExtractionConcurrency,
-                                       InferenceUsageAccumulator usage, IngestProgressListener progress) {
+                                       InferenceUsageAccumulator usage, IngestProgressListener progress,
+                                       IngestOrigin origin) {
     List<UnifiedCandidate> extracted =
-      runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress);
+      runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress, origin);
     List<UnifiedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -676,7 +692,7 @@ public class IngestionService {
                                         String profileId, String sessionId, VerifyMode verifyMode,
                                         int maxConcurrency,
                                         InferenceUsageAccumulator usage, GraphMode graphMode,
-                                        IngestProgressListener progress) {
+                                        IngestProgressListener progress, IngestOrigin origin) {
     int total = merged.size();
     if (total == 0) {
       // Extraction ran and produced nothing to store, so every pending chunk is finished. Ledger
@@ -775,7 +791,7 @@ public class IngestionService {
 
         for (UnifiedCandidate candidate : part.autoPassed()) {
           autoPassed++;
-          survivors.add(new Survivor(candidate.content(), candidate.classification(), candidate.graph()));
+          survivors.add(new Survivor(candidate.content(), governed(candidate.classification(), origin), candidate.graph()));
           log.debug("ingest verification chunk={} verdict=AUTO_PASS (grounded)", chunkIndex);
           progress.onPhase("verify", ++done, total);
         }
@@ -800,7 +816,7 @@ public class IngestionService {
               }
               case PASS -> {
                 passed++;
-                survivors.add(new Survivor(candidate.content(), candidate.classification(), candidate.graph()));
+                survivors.add(new Survivor(candidate.content(), governed(candidate.classification(), origin), candidate.graph()));
                 log.debug("ingest verification chunk={} verdict=PASS reason={}", chunkIndex, result.reason());
               }
               case CORRECT -> {
@@ -812,7 +828,7 @@ public class IngestionService {
                 Classification classification = reclassify(content, candidate.classification());
                 reclassificationNanos += System.nanoTime() - reclassifyStart;
                 // A corrected statement invalidates graph fragments extracted for the original.
-                survivors.add(new Survivor(content, classification, GraphFragment.empty()));
+                survivors.add(new Survivor(content, governed(classification, origin), GraphFragment.empty()));
                 log.debug("ingest verification chunk={} verdict=CORRECT reason={}", chunkIndex, result.reason());
               }
             }
@@ -880,7 +896,7 @@ public class IngestionService {
             StoredOne s = storeMemory(profileId, sessionId, survivor.content(), survivor.classification(),
               graph, graphOutcome, perMemorySourceTokens, statedAtByChunk.get(chunkIndex),
               chunks.stream().filter(c -> c.index() == chunkIndex).findFirst().orElse(null),
-              k + 1, survivors.size());
+              k + 1, survivors.size(), origin);
             sqliteStoreNanos += System.nanoTime() - storeStart;
             stored.add(s.stored());
             if (s.superseded()) {
@@ -920,6 +936,10 @@ public class IngestionService {
       nanosToMillis(reclassificationNanos), nanosToMillis(sqliteStoreNanos));
   }
 
+  private static Classification governed(Classification classification, IngestOrigin origin) {
+    return origin == null ? classification : origin.govern(classification);
+  }
+
   /**
    * Re-classify content the verifier corrected: the original enrichment (type, topic key,
    * interrogative queries) was computed for the uncorrected statement. Degradable — on a model
@@ -948,15 +968,17 @@ public class IngestionService {
    */
   private StoredOne storeMemory(String profileId, String sessionId, String content,
                                 Classification classification, GraphFragment graph, GraphOutcome graphOutcome,
-                                long sourceTokens, Instant statedAt, Chunk sourceChunk, int index, int total) {
+                                long sourceTokens, Instant statedAt, Chunk sourceChunk, int index, int total,
+                                IngestOrigin origin) {
     log.debug("ingest classified candidate={}/{} type={} hasTopicKey={} interrogativeQueries={} graph={}",
       index, total, classification.type(), classification.topicKey() != null,
       classification.interrogativeQueries() == null ? 0 : classification.interrogativeQueries().size(),
       graphOutcome);
 
     String embedText = buildEmbedText(classification.interrogativeQueries(), content);
-    String payload = MemoryPayloads.withStatedAt(
+    String statedPayload = MemoryPayloads.withStatedAt(
       classification.payload() == null ? "{}" : classification.payload(), statedAt);
+    String payload = origin == null ? statedPayload : MemoryOrigins.withOrigin(statedPayload, origin);
     Memory candidate = new Memory(
       null, sessionId, classification.type(), content, classification.topicKey(),
       null, false, payload, embedText, null);
@@ -981,7 +1003,8 @@ public class IngestionService {
    */
   private List<UnifiedCandidate> runExtraction(List<Chunk> chunks, int extractionSamples,
                                                int maxExtractionConcurrency,
-                                               InferenceUsageAccumulator usage, IngestProgressListener progress) {
+                                               InferenceUsageAccumulator usage, IngestProgressListener progress,
+                                               IngestOrigin origin) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
@@ -998,7 +1021,7 @@ public class IngestionService {
       for (Chunk chunk : chunks) {
         for (int sample = 0; sample < samples; sample++) {
           futures.add(exec.submit(tracked(usage,
-            () -> extractWithTiming(gate, chunk, () -> modelGateway.extractUnified(chunk)))));
+            () -> extractWithTiming(gate, chunk, () -> modelGateway.extractUnified(chunk, origin)))));
         }
       }
       int total = futures.size();

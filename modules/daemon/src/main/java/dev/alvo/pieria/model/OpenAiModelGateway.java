@@ -5,6 +5,7 @@ import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
 import dev.alvo.pieria.domain.graph.EntityNormalizer;
 import dev.alvo.pieria.domain.graph.GraphFragment;
+import dev.alvo.pieria.domain.memory.IngestOrigin;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.temporal.ConflictDecision;
 import dev.alvo.pieria.ingestion.model.Chunk;
@@ -417,6 +418,11 @@ public class OpenAiModelGateway implements ModelGateway {
 
   @Override
   public List<UnifiedCandidate> extractUnified(Chunk chunk) {
+    return extractUnified(chunk, null);
+  }
+
+  @Override
+  public List<UnifiedCandidate> extractUnified(Chunk chunk, IngestOrigin origin) {
     if (chunk == null || chunk.transcript() == null || chunk.transcript().isBlank()) {
       return List.of();
     }
@@ -425,7 +431,8 @@ public class OpenAiModelGateway implements ModelGateway {
       "transcript", chunk.transcript(),
       "queryCountInstruction", queryCountInstruction(),
       "candidateLimitInstruction", candidateLimitInstruction(),
-      "graphInstruction", graphInstruction()));
+      "graphInstruction", graphInstruction(),
+      "sourceInstruction", origin == null ? "" : promptAddition("source-extraction-guidance")));
     LOGGER.debug("model call start stage={} chunk={} model={} promptChars={}",
       stage, chunk.index(), properties.model().extractionModel(), prompt.length());
     long start = System.nanoTime();
@@ -765,6 +772,14 @@ public class OpenAiModelGateway implements ModelGateway {
     return exact > 0
       ? "exactly " + exact + " natural-language questions a user might ask that this memory answers"
       : "3 to 5 natural-language questions a user might ask that this memory answers";
+  }
+
+  /**
+   * An optional prompt section, led by a newline so a template's slot can sit at the end of an
+   * existing line and leave the prompt byte-identical when the section is absent.
+   */
+  private static String promptAddition(String template) {
+    return "\n" + PromptTemplateLoader.render(template, Map.of()).strip();
   }
 
   private String candidateLimitInstruction() {
