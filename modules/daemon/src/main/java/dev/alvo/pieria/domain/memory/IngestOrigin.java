@@ -32,9 +32,7 @@ public record IngestOrigin(String sourceId, String harvester, String externalId,
    * list. Topic keys are namespaced to this source so a keyed fact supersedes only within it.
    */
   public Classification govern(Classification classification) {
-    MemoryType type = classification.type() == MemoryType.INSTRUCTION || classification.type() == MemoryType.TASK
-      ? MemoryType.FACT
-      : classification.type();
+    MemoryType type = classification.type() == MemoryType.EVENT ? MemoryType.EVENT : MemoryType.FACT;
     String key = classification.topicKey();
     String namespaced = key == null || key.isBlank() ? key : "source:" + sourceId + ":" + key;
     return new Classification(type, namespaced, classification.interrogativeQueries(), classification.payload());

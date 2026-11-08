@@ -1,5 +1,6 @@
 package dev.alvo.pieria.model;
 
+import dev.alvo.pieria.api.response.MemoryOrigin;
 import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.graph.Entity;
@@ -784,8 +785,10 @@ public class OpenAiModelGateway implements ModelGateway {
     return "\n" + PromptTemplateLoader.render(template, Map.of()).strip();
   }
 
-  private static String originPrefix(Memory memory) {
-    return MemoryOrigins.parse(memory.payload()).map(origin -> "[" + origin.renderLabel() + "] ").orElse("");
+  private static String promptLine(Memory memory) {
+    return MemoryOrigins.parse(memory.payload())
+      .map(origin -> "[" + origin.renderLabel() + "] " + MemoryOrigin.oneLine(memory.content()))
+      .orElse(memory.content());
   }
 
   private String candidateLimitInstruction() {
@@ -1192,7 +1195,7 @@ public class OpenAiModelGateway implements ModelGateway {
                                  List<TemporalFact> temporalFacts, List<GraphEvidence> graphEvidence) {
     List<RecallCandidate> safeCandidates = candidates == null ? List.of() : candidates;
     String context = safeCandidates.stream()
-      .map(c -> "- " + originPrefix(c.memory()) + c.memory().content())
+      .map(c -> "- " + promptLine(c.memory()))
       .collect(Collectors.joining("\n"));
     boolean anyHarvested = safeCandidates.stream()
       .anyMatch(c -> MemoryOrigins.parse(c.memory().payload()).isPresent());

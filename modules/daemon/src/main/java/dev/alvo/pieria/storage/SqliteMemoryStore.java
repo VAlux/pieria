@@ -1,5 +1,6 @@
 package dev.alvo.pieria.storage;
 
+import dev.alvo.pieria.api.response.MemoryOrigin;
 import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TemporalValidity;
@@ -375,25 +376,30 @@ public class SqliteMemoryStore implements MemoryStore {
   public List<RevisionResponse> conflictCandidates(String profileId, Memory incoming,
                                                    GraphFragment graph, int limit) {
     int channelLimit = Math.max(1, limit / 3);
+    // Scoped in each query so other sources can't use up the per-channel limits. Conversation
+    // memories (a null origin) are one scope too: joining a harvested memory's fact group would let
+    // that source's next harvest close the user's own fact.
+    String originId = MemoryOrigins.parse(incoming.payload()).map(MemoryOrigin::sourceId).orElse(null);
     Set<String> ids = new LinkedHashSet<>();
     if (incoming.topicKey() != null) {
-      ids.addAll(jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND type = ? AND topic_key = ? AND forgotten = 0 ORDER BY created_at DESC LIMIT ?")
-        .params(profileId, incoming.type().wire(), incoming.topicKey(), channelLimit).query(String.class).list());
+      ids.addAll(jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND type = ? AND topic_key = ? AND forgotten = 0 AND origin_source_id IS ? ORDER BY created_at DESC LIMIT ?")
+        .params(profileId, incoming.type().wire(), incoming.topicKey(), originId, channelLimit).query(String.class).list());
     }
     String match = toFtsMatch(incoming.content());
     if (match != null) ids.addAll(jdbc.sql("SELECT m.id FROM memories_fts f JOIN memories m ON m.rowid = f.rowid "
         + "WHERE memories_fts MATCH ? AND m.profile_id = ? AND m.type = ? AND m.forgotten = 0 "
-        + "AND (m.topic_key IS NULL OR m.topic_key NOT LIKE 'code:%') ORDER BY f.rank LIMIT ?")
-      .params(match, profileId, incoming.type().wire(), channelLimit).query(String.class).list());
+        + "AND m.origin_source_id IS ? AND (m.topic_key IS NULL OR m.topic_key NOT LIKE 'code:%') ORDER BY f.rank LIMIT ?")
+      .params(match, profileId, incoming.type().wire(), originId, channelLimit).query(String.class).list());
     if (graph != null && !graph.entities().isEmpty()) {
       var names = graph.entities().stream().map(Entity::name).distinct().limit(channelLimit).toList();
       var params = new ArrayList<Object>();
       params.add(profileId);
       params.add(incoming.type().wire());
+      params.add(originId);
       params.addAll(names);
       params.add(channelLimit);
       ids.addAll(jdbc.sql("SELECT DISTINCT m.id FROM entities en JOIN edges e ON en.id IN (e.source_entity_id, e.target_entity_id) "
-          + "JOIN memories m ON m.id = e.memory_id WHERE m.profile_id = ? AND m.type = ? AND m.forgotten = 0 "
+          + "JOIN memories m ON m.id = e.memory_id WHERE m.profile_id = ? AND m.type = ? AND m.forgotten = 0 AND m.origin_source_id IS ? "
           + "AND en.name IN (" + String.join(",", Collections.nCopies(names.size(), "?")) + ") LIMIT ?")
         .params(params).query(String.class).list());
     }
@@ -401,26 +407,12 @@ public class SqliteMemoryStore implements MemoryStore {
     String existingId = resolveMemoryId(profileId, incoming);
     var embedding = embeddingsFor(profileId, List.of(existingId)).get(existingId);
     if (embedding != null && isVectorSearchAvailable()) {
-      ids.addAll(jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND type = ? AND forgotten = 0 "
+      ids.addAll(jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND type = ? AND forgotten = 0 AND origin_source_id IS ? "
           + "AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?) LIMIT ?")
-        .params(profileId, incoming.type().wire(), encodeEmbedding(embedding), channelLimit).query(String.class).list());
+        .params(profileId, incoming.type().wire(), originId, encodeEmbedding(embedding), channelLimit).query(String.class).list());
     }
-    MemoryOrigins.parse(incoming.payload())
-      .ifPresent(origin -> ids.retainAll(sameSourceIds(profileId, origin.sourceId(), ids)));
     return ids.stream().flatMap(id -> revisions(profileId, id).stream())
       .filter(r -> r.recordedTo() == null && !r.invalidated()).distinct().limit(limit).toList();
-  }
-
-  /** The subset of {@code ids} harvested from {@code sourceId}. */
-  private List<String> sameSourceIds(String profileId, String sourceId, Set<String> ids) {
-    if (ids.isEmpty()) {
-      return List.of();
-    }
-    var params = new ArrayList<Object>(List.of(profileId, sourceId));
-    params.addAll(ids);
-    return jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND origin_source_id = ? AND id IN ("
-        + String.join(",", Collections.nCopies(ids.size(), "?")) + ")")
-      .params(params).query(String.class).list();
   }
 
   @Override

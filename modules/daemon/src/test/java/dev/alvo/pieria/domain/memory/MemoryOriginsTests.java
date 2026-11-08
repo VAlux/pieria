@@ -1,6 +1,7 @@
 package dev.alvo.pieria.domain.memory;
 
 import dev.alvo.pieria.api.response.MemoryOrigin;
+import dev.alvo.pieria.ingestion.model.Classification;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -63,6 +64,15 @@ class MemoryOriginsTests {
 
     assertThat(label).doesNotContainPattern("\\p{Cntrl}");
     assertThat(label.length()).isLessThanOrEqualTo(500);
+  }
+
+  @Test
+  void governAllowsOnlyFactAndEvent() {
+    for (MemoryType type : MemoryType.values()) {
+      Classification governed = ORIGIN.govern(new Classification(type, null, List.of(), "{}"));
+      assertThat(governed.type()).as(type.wire())
+        .isEqualTo(type == MemoryType.EVENT ? MemoryType.EVENT : MemoryType.FACT);
+    }
   }
 
   @Test

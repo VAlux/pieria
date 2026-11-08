@@ -74,10 +74,40 @@ class ConflictCandidateScopeTests {
   }
 
   @Test
-  void conversationIncomingIsUnchanged() {
-    insert("own postgres fact", "{}");
+  void conversationIncomingSeesOnlyOwnMemories() {
+    // A conversation fact joining a harvested memory's fact group would let the next harvest close it.
+    Memory own = insert("own postgres fact", "{}");
     insert("postgres from jira", stamped("jira-acme"));
 
-    assertThat(store.conflictCandidates(profileId, memory("postgres now", "{}"), 12)).hasSize(2);
+    var ids = store.conflictCandidates(profileId, memory("postgres now", "{}"), 12)
+      .stream().map(RevisionResponse::memoryId).toList();
+
+    assertThat(ids).containsExactly(own.id());
+  }
+
+  @Test
+  void otherSourcesCannotCrowdOutHarvestedIncoming() {
+    for (int i = 0; i < 20; i++) {
+      insert("postgres from wiki " + i, stamped("wiki"));
+    }
+    Memory sameSource = insert("a much longer note that mentions postgres among many other unrelated words so it ranks below shorter rows", stamped("jira-acme"));
+
+    var ids = store.conflictCandidates(profileId, memory("postgres now", stamped("jira-acme")), 12)
+      .stream().map(RevisionResponse::memoryId).toList();
+
+    assertThat(ids).containsExactly(sameSource.id());
+  }
+
+  @Test
+  void harvestedRowsCannotCrowdOutConversationIncoming() {
+    for (int i = 0; i < 20; i++) {
+      insert("postgres from jira " + i, stamped("jira-acme"));
+    }
+    Memory own = insert("own postgres fact", "{}");
+
+    var ids = store.conflictCandidates(profileId, memory("postgres now", "{}"), 12)
+      .stream().map(RevisionResponse::memoryId).toList();
+
+    assertThat(ids).containsExactly(own.id());
   }
 }

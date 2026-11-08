@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.retrieval.model.TemporalFact;
@@ -369,7 +370,11 @@ public final class TemporalExtractor {
         if (occurred == null) {
           continue;
         }
-        String label = memory.content() == null ? "" : memory.content();
+        // These facts are authoritative to synthesis, so a harvested event is named by its origin
+        // label and its third-party text stays in the labelled memories block.
+        String label = MemoryOrigins.parse(memory.payload())
+          .map(origin -> "[" + origin.renderLabel() + "]")
+          .orElse(memory.content() == null ? "" : memory.content());
         add(facts, seen, new TemporalFact(
           "days since event (" + occurred + "): " + label, signedSpan(occurred, today)));
       }

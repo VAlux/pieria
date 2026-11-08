@@ -442,6 +442,75 @@ class RetrievalServiceTests {
       .doesNotContain("j1");
   }
 
+  private static dev.alvo.pieria.api.response.TemporalValidity validityWith(String sourcePayload) {
+    return new dev.alvo.pieria.api.response.TemporalValidity("a", "r", T0, null, T0, null, T0, "o", "g", sourcePayload);
+  }
+
+  private static String stampedJira() {
+    return dev.alvo.pieria.domain.memory.MemoryOrigins.withOrigin("{\"note\":\"model authored\"}",
+      new dev.alvo.pieria.domain.memory.IngestOrigin("jira", "jira", "1", null));
+  }
+
+  @Test
+  void harvestedSourcePayloadStaysOutOfTheValidityFacts() {
+    Memory jira = new Memory("j1", "s", MemoryType.FACT, "cost from jira", null, null, false, stampedJira(), null, T0);
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(jira);
+    store.validity = List.of(validityWith(jira.payload()));
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "cost", 10, false, RecallMode.EVIDENCE, false);
+
+    assertThat(result.temporalFacts()).extracting(f -> f.render())
+      .anyMatch(line -> line.startsWith("Validity of j1"))
+      .noneMatch(line -> line.contains("model authored"));
+  }
+
+  @Test
+  void ownSourcePayloadStaysInTheValidityFacts() {
+    Memory own = mem("m1", "cost from me", MemoryType.FACT, "cost.own", T0);
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(own);
+    store.validity = List.of(validityWith("{\"note\":\"kept\"}"));
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "cost", 10, false, RecallMode.EVIDENCE, false);
+
+    assertThat(result.temporalFacts()).extracting(f -> f.render()).anyMatch(line -> line.contains("kept"));
+  }
+
+  private RecallResult recallFiltered(FakeStore store, dev.alvo.pieria.domain.memory.SourceFilter filter) {
+    return service(store, new FakeModelGateway()).recall("p", "cost", 10, false, RecallMode.EVIDENCE, false, null, null, filter);
+  }
+
+  @Test
+  void sourceFilterSkipsClusterExpansion() {
+    Memory cluster = new Memory("c1", "s", MemoryType.CLUSTER, "cost cluster claim", null, null, false, "{}", null, T0);
+    FakeStore store = new FakeStore();
+    store.clusterClaims = List.of(cluster);
+
+    assertThat(recallFiltered(store, dev.alvo.pieria.domain.memory.SourceFilter.of(List.of("nope"), List.of())).candidates()).isEmpty();
+  }
+
+  @Test
+  void sourceFilterDropsClusterHits() {
+    Memory cluster = new Memory("c1", "s", MemoryType.CLUSTER, "cost cluster", null, null, false, "{}", null, T0);
+    Memory own = mem("m1", "cost from me", MemoryType.FACT, "cost.own", T0.plusSeconds(10));
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(cluster, own);
+
+    assertThat(recallFiltered(store, dev.alvo.pieria.domain.memory.SourceFilter.of(List.of(), List.of("jira"))).candidates())
+      .extracting(c -> c.memory().id()).contains("m1").doesNotContain("c1");
+  }
+
+  @Test
+  void clusterExpansionRunsWithoutAFilter() {
+    Memory cluster = new Memory("c1", "s", MemoryType.CLUSTER, "cost cluster claim", null, null, false, "{}", null, T0);
+    FakeStore store = new FakeStore();
+    store.clusterClaims = List.of(cluster);
+
+    assertThat(recallFiltered(store, dev.alvo.pieria.domain.memory.SourceFilter.NONE).candidates())
+      .extracting(c -> c.memory().id()).contains("c1");
+  }
+
   @Test
   void evidenceModeAloneKeepsCodeIndexedMemories() {
     Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
@@ -1019,6 +1088,21 @@ class RetrievalServiceTests {
     Map<String, float[]> embeddings = Map.of();
     Map<String, java.util.Set<String>> clusterCoverage = Map.of();
     RuntimeException embeddingsError;
+    List<dev.alvo.pieria.api.response.TemporalValidity> validity = List.of();
+    List<Memory> clusterClaims = List.of();
+
+    @Override
+    public List<dev.alvo.pieria.api.response.TemporalValidity> selectedValidity(String memoryId,
+                                                                                dev.alvo.pieria.domain.temporal.TemporalSnapshot snapshot) {
+      return validity;
+    }
+
+    @Override
+    public List<Memory> searchClusterClaims(String profileId, String query, float[] queryEmbedding,
+                                            dev.alvo.pieria.domain.temporal.TemporalSnapshot snapshot,
+                                            boolean excludeCodeDerived, int limit) {
+      return clusterClaims;
+    }
 
     @Override
     public Optional<Profile> findProfile(String name) {

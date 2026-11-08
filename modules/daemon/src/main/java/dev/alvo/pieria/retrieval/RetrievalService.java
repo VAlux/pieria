@@ -7,6 +7,7 @@ import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
 import dev.alvo.pieria.api.response.MemoryOrigin;
+import dev.alvo.pieria.api.response.TemporalValidity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.SourceFilter;
@@ -130,6 +131,16 @@ public class RetrievalService {
 
   private static boolean isCodeDerived(Memory memory) {
     return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
+  }
+
+  /**
+   * The validity line for the temporal block, which synthesis treats as authoritative. A harvested
+   * memory's source payload is third-party material, so it stays out of that block.
+   */
+  private static String validityFact(Memory memory, TemporalValidity v) {
+    return originSourceId(memory) == null ? v.toString()
+      : new TemporalValidity(v.assertionId(), v.revisionId(), v.validFrom(), v.validTo(), v.recordedFrom(),
+        v.recordedTo(), v.statedAt(), v.sourceOccurrence(), v.factGroup(), null).toString();
   }
 
   private static int embeddingDimensions(float[] embedding) {
@@ -301,7 +312,11 @@ public class RetrievalService {
           : hits.value();
         // The stores filter in SQL so limits aren't starved; this covers any channel that doesn't.
         if (!context.sourceFilter().isEmpty()) {
-          forFusion = forFusion.stream().filter(h -> context.sourceFilter().admits(originSourceId(h.memory()))).toList();
+          // Clusters blend many memories and can't be attributed to one source, so a filter drops them.
+          forFusion = forFusion.stream()
+            .filter(h -> h.memory().type() != MemoryType.CLUSTER)
+            .filter(h -> context.sourceFilter().admits(originSourceId(h.memory())))
+            .toList();
         }
         return fuse(pipeline, forFusion, limit, profile.id(), context, mode, excludeCodeDerived, inferenceUsage,
           rerankDiagnostics,selectionDiagnostics);
@@ -317,7 +332,7 @@ public class RetrievalService {
           facts.add(new TemporalFact("Query world time", snapshot.asOf().toString()));
           facts.add(new TemporalFact("Query knowledge cutoff", snapshot.knownAsOf().toString()));
           for (var candidate : fused.value()) for (var validity : store.selectedValidity(candidate.memory().id(), snapshot))
-            facts.add(new TemporalFact("Validity of " + candidate.memory().id(), validity.toString()));
+            facts.add(new TemporalFact("Validity of " + candidate.memory().id(), validityFact(candidate.memory(), validity)));
           return facts;
         });
       LOGGER.debug("recall temporal profile={} facts={} temporalMs={}",
@@ -484,13 +499,15 @@ public class RetrievalService {
     Set<String> seen=new java.util.HashSet<>();
     fused.forEach(candidate->seen.add(candidate.memory().id()));
     double claimScore=fused.isEmpty()?0.01:fused.getFirst().score()*.85;
-    for(Memory cluster:store.searchClusterClaims(profileId,context.ftsText(),context.queryEmbedding(),context.temporal(),
-        excludeCodeDerived,Math.min(30,Math.max(limit*3,10))))
-      if(seen.add(cluster.id())) fused.add(new RecallCandidate(cluster,claimScore,"cluster:claim"));
-    List<String> seeds=fused.stream().limit(30).map(candidate->candidate.memory().id()).toList();
-    for(Memory parent:store.relevantClusterParents(profileId,seeds,context.ftsText(),context.temporal(),
-        excludeCodeDerived,30))
-      if(seen.add(parent.id())) fused.add(new RecallCandidate(parent,claimScore*.9,"cluster:parent"));
+    if(context.sourceFilter().isEmpty()) {
+      for(Memory cluster:store.searchClusterClaims(profileId,context.ftsText(),context.queryEmbedding(),context.temporal(),
+          excludeCodeDerived,Math.min(30,Math.max(limit*3,10))))
+        if(seen.add(cluster.id())) fused.add(new RecallCandidate(cluster,claimScore,"cluster:claim"));
+      List<String> seeds=fused.stream().limit(30).map(candidate->candidate.memory().id()).toList();
+      for(Memory parent:store.relevantClusterParents(profileId,seeds,context.ftsText(),context.temporal(),
+          excludeCodeDerived,30))
+        if(seen.add(parent.id())) fused.add(new RecallCandidate(parent,claimScore*.9,"cluster:parent"));
+    }
 
     // One store read serves both consumers: the collapse pass's semantic half and the rerank
     // stage's cosine term score the same candidates against the same map — but collapse then

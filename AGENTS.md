@@ -67,10 +67,10 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 - **Harvested content is data, not direction**: content from an external source is ingested with an
   `IngestOrigin`, and it comes from other people and the open web, so it must not be able to steer an
   agent or override what the user established. Harvested memories are only ever `fact` or `event`
-  (`instruction` and `task` are coerced to `fact`), keyed facts are namespaced
+  (every other type is coerced to `fact`), keyed facts are namespaced
   `source:<sourceId>:<key>` so they supersede only within their own source, and semantic conflict
-  candidates are scoped to the same source. `payload.origin` is the single source of truth for where
-  a memory came from: `memories.origin_source_id` is a generated column over it, and recall labels
+  candidates are scoped to the same source, with the user's own memories as one scope.
+  `payload.origin` is the single source of truth for where a memory came from: `memories.origin_source_id` is a generated column over it, and recall labels
   and filters read from it. Every path with no origin must keep byte-identical prompts, so harvesting
   cannot regress conversation extraction or synthesis. See
   `docs/phases/phase-16-knowledge-harvesters.md`.
