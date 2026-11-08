@@ -6,7 +6,10 @@ import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.PieriaProperties.Retrieval;
 import dev.alvo.pieria.config.TraceProperties;
 import dev.alvo.pieria.domain.code.EdgeConfidence;
+import dev.alvo.pieria.api.response.MemoryOrigin;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.model.ModelGateway;
@@ -121,6 +124,10 @@ public class RetrievalService {
    * the stable {@link CodeIndexingService#CODE_SESSION} session id every code-index memory carries.
    * Such memories are valuable for the code-graph channels but noise for prompt-context injection.
    */
+  private static String originSourceId(Memory memory) {
+    return MemoryOrigins.parse(memory.payload()).map(MemoryOrigin::sourceId).orElse(null);
+  }
+
   private static boolean isCodeDerived(Memory memory) {
     return CodeIndexingService.CODE_SESSION.equals(memory.sessionId());
   }
@@ -222,6 +229,14 @@ public class RetrievalService {
 
   public RecallResult recall(String profileName, String query, int limit, boolean debug, RecallMode requestMode,
                              boolean excludeCodeDerived, String asOf, String knownAsOf) {
+    return recall(profileName, query, limit, debug, requestMode, excludeCodeDerived, asOf, knownAsOf, SourceFilter.NONE);
+  }
+
+  /**
+   * As above, limited to memories {@code sourceFilter} admits.
+   */
+  public RecallResult recall(String profileName, String query, int limit, boolean debug, RecallMode requestMode,
+                             boolean excludeCodeDerived, String asOf, String knownAsOf, SourceFilter sourceFilter) {
     var snapshot = store.temporalSnapshot(asOf, knownAsOf);
     long totalStart = System.nanoTime();
 
@@ -268,7 +283,8 @@ public class RetrievalService {
 
       RetrievalContext context = new RetrievalContext(
         profile.id(), query, analysis.value(),
-        embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit()).withTemporal(snapshot);
+        embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit())
+        .withTemporal(snapshot).withSourceFilter(sourceFilter);
 
       List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
       List<GraphEvidence> graphEvidence = new ArrayList<>();
@@ -283,6 +299,10 @@ public class RetrievalService {
         List<RetrievalCandidate> forFusion = excludeCodeDerived
           ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
           : hits.value();
+        // The stores filter in SQL so limits aren't starved; this covers any channel that doesn't.
+        if (!context.sourceFilter().isEmpty()) {
+          forFusion = forFusion.stream().filter(h -> context.sourceFilter().admits(originSourceId(h.memory()))).toList();
+        }
         return fuse(pipeline, forFusion, limit, profile.id(), context, mode, excludeCodeDerived, inferenceUsage,
           rerankDiagnostics,selectionDiagnostics);
       });
@@ -783,7 +803,8 @@ public class RetrievalService {
           channel.type(), channel.critical(), ctx.limit(), ctx.seedCandidates().size());
         futures.put(channel, exec.submit(() -> {
           LOGGER.debug("retrieval channel {} started", channel.type());
-          return Timed.measure(() -> store.atSnapshot(ctx.temporal(), () -> channel.retrieveWithEvidence(ctx)));
+          return Timed.measure(() -> store.atSourceFilter(ctx.sourceFilter(),
+            () -> store.atSnapshot(ctx.temporal(), () -> channel.retrieveWithEvidence(ctx))));
         }));
       }
 

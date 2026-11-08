@@ -27,6 +27,7 @@ import dev.alvo.pieria.api.response.TaskSubmitResponse;
 import dev.alvo.pieria.api.response.TopicKeyListResponse;
 import dev.alvo.pieria.domain.ExportRow;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -384,7 +385,8 @@ public class ProfileController {
   public RecallResponse recall(@PathVariable String name, @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
     boolean debug = Boolean.TRUE.equals(request.debug());
-    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode(), false, request.asOf(), request.knownAsOf());
+    RecallResult result = retrievalService.recall(name, request.query(), limit, debug, request.mode(), false, request.asOf(), request.knownAsOf(),
+      SourceFilter.of(request.includeSources(), request.excludeSources()));
 
     List<MemoryResponse> memories = result.candidates().stream()
       .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()).withValidity(profileService.validity(candidate.memory().id(), result.snapshot())))
@@ -409,7 +411,8 @@ public class ProfileController {
   public ResponseEntity<String> recallContext(@PathVariable String name,
                                               @Valid @RequestBody RecallRequest request) {
     int limit = request.limit() == null ? 10 : request.limit();
-    RecallResult result = retrievalService.recall(name, request.query(), limit, false, RecallMode.EVIDENCE, true, request.asOf(), request.knownAsOf());
+    RecallResult result = retrievalService.recall(name, request.query(), limit, false, RecallMode.EVIDENCE, true, request.asOf(), request.knownAsOf(),
+      SourceFilter.of(request.includeSources(), request.excludeSources()));
 
     String block = renderContextBlock(name, result.candidates());
     return block.isEmpty() ? ResponseEntity.noContent().build() : ResponseEntity.ok(block);

@@ -429,6 +429,14 @@ class ProfileApiTests {
   }
 
   @Test
+  void malformedSourceIdIsRejected() throws Exception {
+    mvc.perform(post("/v1/profiles/alice/recall")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"query\":\"tea\",\"includeSources\":[\"bad id!\"]}"))
+      .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void recallTextPlainReturnsInjectableBlock() throws Exception {
     remember(); // stores "Bob likes tea" in profile alice
 

@@ -14,6 +14,7 @@ import dev.alvo.pieria.domain.graph.NeighborHop;
 import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
@@ -106,6 +107,14 @@ public interface MemoryStore {
   }
 
   default <T> T atSnapshot(TemporalSnapshot snapshot, Supplier<T> action) {
+    return action.get();
+  }
+
+  /**
+   * Runs {@code action} with retrieval queries limited to memories {@code filter} admits. Backends
+   * that do not implement this rely on the recall service's own filter over the returned hits.
+   */
+  default <T> T atSourceFilter(SourceFilter filter, Supplier<T> action) {
     return action.get();
   }
 

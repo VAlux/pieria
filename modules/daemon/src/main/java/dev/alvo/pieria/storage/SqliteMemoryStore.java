@@ -17,6 +17,7 @@ import dev.alvo.pieria.domain.graph.RankedEntity;
 import dev.alvo.pieria.domain.graph.RelationTotal;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryOrigins;
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
 import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
@@ -221,11 +222,34 @@ public class SqliteMemoryStore implements MemoryStore {
   }
 
   private static final ScopedValue<TemporalSnapshot> SNAPSHOT = ScopedValue.newInstance();
+  private static final ScopedValue<SourceFilter> SOURCES = ScopedValue.newInstance();
 
   private static String active(String alias) {
     var snapshot = SNAPSHOT.isBound() ? SNAPSHOT.get() :
       new TemporalSnapshot(Instant.now(), Instant.now(), Long.MAX_VALUE, false);
-    return SqliteTemporalStore.visible(alias, snapshot);
+    return SqliteTemporalStore.visible(alias, snapshot) + sourceClause(alias);
+  }
+
+  /** The bound source filter as SQL; {@link SourceFilter} guarantees the ids are safe to inline. */
+  private static String sourceClause(String alias) {
+    if (!SOURCES.isBound() || SOURCES.get().isEmpty()) {
+      return "";
+    }
+    String column = (alias.isEmpty() ? "memories" : alias) + ".origin_source_id";
+    SourceFilter filter = SOURCES.get();
+    StringBuilder clause = new StringBuilder();
+    if (!filter.include().isEmpty()) {
+      clause.append(" AND ").append(column).append(" IN (").append(quotedList(filter.include())).append(")");
+    }
+    if (!filter.exclude().isEmpty()) {
+      clause.append(" AND (").append(column).append(" IS NULL OR ").append(column)
+        .append(" NOT IN (").append(quotedList(filter.exclude())).append("))");
+    }
+    return clause.toString();
+  }
+
+  private static String quotedList(Set<String> ids) {
+    return ids.stream().map(id -> "'" + id + "'").collect(Collectors.joining(","));
   }
 
   private static String activeEntity(String alias) {
@@ -257,6 +281,11 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public <T> T atSnapshot(TemporalSnapshot snapshot, Supplier<T> action) {
     return ScopedValue.where(SNAPSHOT, snapshot).call(action::get);
+  }
+
+  @Override
+  public <T> T atSourceFilter(SourceFilter filter, Supplier<T> action) {
+    return ScopedValue.where(SOURCES, filter).call(action::get);
   }
 
   private final JdbcClient jdbc;

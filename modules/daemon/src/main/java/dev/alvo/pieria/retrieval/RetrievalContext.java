@@ -1,5 +1,6 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
@@ -22,6 +23,7 @@ import java.util.List;
  * @param hydeEmbedding  embedding of the HyDE statement for the HyDE vector channel, or {@code null}
  * @param limit          max hits each channel should return
  * @param seedCandidates first-wave hits used to seed the graph channel (empty for the first wave)
+ * @param sourceFilter   limits channels to memories from the requested sources; never null
  */
 public record RetrievalContext(
   String profileId,
@@ -31,7 +33,13 @@ public record RetrievalContext(
   float[] hydeEmbedding,
   int limit,
   List<RetrievalCandidate> seedCandidates,
-  TemporalSnapshot temporal) {
+  TemporalSnapshot temporal,
+  SourceFilter sourceFilter) {
+
+  public RetrievalContext(String profileId, String query, QueryAnalysis analysis, float[] queryEmbedding,
+                          float[] hydeEmbedding, int limit, List<RetrievalCandidate> seeds, TemporalSnapshot temporal) {
+    this(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal, SourceFilter.NONE);
+  }
 
   public RetrievalContext(String profileId, String query, QueryAnalysis analysis, float[] queryEmbedding,
                           float[] hydeEmbedding, int limit, List<RetrievalCandidate> seeds) {
@@ -39,11 +47,16 @@ public record RetrievalContext(
   }
 
   public RetrievalContext withTemporal(TemporalSnapshot snapshot) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, snapshot);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, snapshot, sourceFilter);
+  }
+
+  public RetrievalContext withSourceFilter(SourceFilter filter) {
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, temporal, filter);
   }
 
   public RetrievalContext {
     seedCandidates = seedCandidates == null ? List.of() : List.copyOf(seedCandidates);
+    sourceFilter = sourceFilter == null ? SourceFilter.NONE : sourceFilter;
   }
 
   /**
@@ -58,7 +71,7 @@ public record RetrievalContext(
    * A copy of this context carrying the given first-wave hits as graph seeds.
    */
   public RetrievalContext withSeedCandidates(List<RetrievalCandidate> seeds) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal, sourceFilter);
   }
 
   /**

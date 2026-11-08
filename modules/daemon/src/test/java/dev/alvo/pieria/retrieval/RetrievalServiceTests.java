@@ -424,6 +424,25 @@ class RetrievalServiceTests {
   }
 
   @Test
+  void sourceFilterAppliesEvenWhenAChannelIgnoresIt() {
+    // FakeStore does not implement atSourceFilter, so this exercises the service-level net.
+    String stamped = dev.alvo.pieria.domain.memory.MemoryOrigins.withOrigin("{}",
+      new dev.alvo.pieria.domain.memory.IngestOrigin("jira", "jira", "1", null));
+    Memory jira = new Memory("j1", "s", MemoryType.FACT, "cost from jira", null, null, false, stamped, null, T0);
+    Memory own = mem("m1", "cost from me", MemoryType.FACT, "cost.own", T0.plusSeconds(10));
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(jira, own);
+
+    RecallResult result = service(store, new FakeModelGateway()).recall("p", "cost", 10, false,
+      RecallMode.EVIDENCE, false, null, null,
+      dev.alvo.pieria.domain.memory.SourceFilter.of(List.of(), List.of("jira")));
+
+    assertThat(result.candidates()).extracting(c -> c.memory().id())
+      .contains("m1")
+      .doesNotContain("j1");
+  }
+
+  @Test
   void evidenceModeAloneKeepsCodeIndexedMemories() {
     Memory codeFact = new Memory("c1", CodeIndexingService.CODE_SESSION, MemoryType.FACT,
       "Source file Tokens.java defines class Tokens", "code:file:Tokens.java", null, false,
