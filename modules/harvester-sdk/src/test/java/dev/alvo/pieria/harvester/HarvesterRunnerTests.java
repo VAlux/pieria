@@ -30,8 +30,8 @@ class HarvesterRunnerTests {
   private static Harvester harvesting(Work work) {
     return new Harvester() {
       @Override
-      public void check(HarvestRequest request) throws HarvesterException {
-        work.run(null);
+      public void check(HarvestRequest request, RecordSink sink) throws HarvesterException {
+        work.run(sink);
       }
 
       @Override
@@ -101,6 +101,63 @@ class HarvesterRunnerTests {
     assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
     assertThat(((HarvestRecord.Failure) records().getFirst()).errorClass()).isEqualTo(ErrorClass.FATAL);
     assertThat(err.toString(StandardCharsets.UTF_8)).contains("IllegalStateException");
+  }
+
+  @Test
+  void errorBecomesFatalAndStillExits() {
+    int exit = run(harvesting(sink -> {
+      throw new Error("simulated");
+    }), "harvest");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    assertThat(((HarvestRecord.Failure) records().getFirst()).errorClass()).isEqualTo(ErrorClass.FATAL);
+  }
+
+  @Test
+  void negativeRetryAfterIsClampedToZero() {
+    int exit = run(harvesting(sink -> {
+      throw new HarvesterException(ErrorClass.RATE_LIMITED, "slow", -5L);
+    }), "harvest");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    assertThat(records()).containsExactly(new HarvestRecord.Failure(ErrorClass.RATE_LIMITED, "slow", 0L));
+  }
+
+  private static final String SECRET_ENVELOPE = "{\"protocol\":1,\"config\":{},\"secrets\":{\"token\":\"hunter2\"}}\n";
+
+  @Test
+  void secretsAreScrubbedFromErrorRecords() {
+    run(harvesting(sink -> {
+      throw new HarvesterException(ErrorClass.AUTH, "rejected token hunter2");
+    }), SECRET_ENVELOPE, out, "harvest");
+
+    assertThat(((HarvestRecord.Failure) records().getFirst()).message()).doesNotContain("hunter2").contains("rejected token");
+  }
+
+  @Test
+  void secretsAreScrubbedFromStackTraces() {
+    run(harvesting(sink -> {
+      throw new IllegalStateException("failed with hunter2");
+    }), SECRET_ENVELOPE, out, "harvest");
+
+    assertThat(err.toString(StandardCharsets.UTF_8)).doesNotContain("hunter2").contains("IllegalStateException");
+    assertThat(((HarvestRecord.Failure) records().getFirst()).message()).doesNotContain("hunter2");
+  }
+
+  @Test
+  void checkMayReportARotatedSecret() {
+    int exit = run(harvesting(sink -> sink.emit(new HarvestRecord.SecretUpdate("token", "new"))), "check");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_OK);
+    assertThat(records()).containsExactly(new HarvestRecord.SecretUpdate("token", "new"));
+  }
+
+  @Test
+  void checkCannotEmitOtherRecords() {
+    int exit = run(harvesting(sink -> sink.emit(new HarvestRecord.Sweep())), "check");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    assertThat(records()).hasSize(1).first().isInstanceOf(HarvestRecord.Failure.class);
   }
 
   @Test

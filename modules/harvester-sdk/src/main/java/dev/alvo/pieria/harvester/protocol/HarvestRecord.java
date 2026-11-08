@@ -85,8 +85,9 @@ public sealed interface HarvestRecord {
   }
 
   /**
-   * Every live item was reported in this run, so anything else is gone. A run that was resumed or cut
-   * short by a limit has not seen everything and must never emit this.
+   * Every live item was reported in this run, as an item or in {@link Seen}, so anything else is gone.
+   * It can follow any cursor, but a run that covers only part of the source must not emit it. It must
+   * be the last record apart from {@link Progress}, and takes effect only if the run exits 0.
    */
   record Sweep() implements HarvestRecord {
   }

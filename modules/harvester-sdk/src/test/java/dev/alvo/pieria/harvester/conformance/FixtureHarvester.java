@@ -15,7 +15,9 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,7 +41,10 @@ public final class FixtureHarvester implements Harvester {
   }
 
   @Override
-  public void check(HarvestRequest request) throws HarvesterException {
+  public void check(HarvestRequest request, RecordSink sink) throws HarvesterException {
+    if (mode.equals("check-emits-items")) {
+      sink.emit(new HarvestRecord.Sweep());
+    }
     if (!mode.equals("accepts-anything") && !request.config().path("valid").asBoolean()) {
       throw new HarvesterException(ErrorClass.AUTH, "bad credentials");
     }
@@ -82,6 +87,20 @@ public final class FixtureHarvester implements Harvester {
         return;
       }
       case "noisy" -> System.out.println("a library printing to stdout");
+      case "leaks-secret" -> System.err.println("using " + request.secrets().get("token"));
+      case "sweep-first" -> {
+        if (request.cursor() == null) {
+          sink.emit(new HarvestRecord.Sweep());
+        }
+      }
+      case "orphan-holds-stdout" -> {
+        try {
+          new ProcessBuilder("sleep", "15").inheritIO().start();
+        } catch (IOException e) {
+          throw new HarvesterException(ErrorClass.FATAL, e.toString());
+        }
+        return;
+      }
       default -> { }
     }
 
@@ -90,19 +109,42 @@ public final class FixtureHarvester implements Harvester {
     if (mode.equals("loses-on-resume") && resumed) {
       start++;
     }
+    if (mode.equals("crashes-on-end-cursor") && start == ITEMS) {
+      throw new IllegalStateException("nothing past the end");
+    }
+    boolean limitedRun = request.limits().maxItemsPerRun() != null;
+    if (mode.equals("limited-no-items") && limitedRun) {
+      return;
+    }
     Integer maxItems = mode.equals("ignores-limit") ? null : request.limits().maxItemsPerRun();
+    Long maxChars = mode.equals("ignores-char-limit") ? null : request.limits().maxCharsPerRun();
+    if (mode.equals("full-pass-on-resume") && start > 0) {
+      List<String> earlier = new ArrayList<>();
+      for (int i = 0; i < start; i++) {
+        earlier.add("item-" + i);
+      }
+      sink.emit(new HarvestRecord.Seen(earlier));
+    }
 
     int emitted = 0;
+    long chars = 0;
     boolean limited = false;
     for (int i = start; i < ITEMS; i++) {
-      if (maxItems != null && emitted == maxItems) {
+      long size = document("item-" + i).text().length();
+      if ((maxItems != null && emitted == maxItems)
+        || (maxChars != null && emitted > 0 && chars + size > maxChars)) {
         limited = true;
         break;
+      }
+      chars += size;
+      if (mode.equals("slow-ok")) {
+        pause(300);
       }
       String id = mode.equals("unstable-ids") ? UUID.randomUUID().toString() : "item-" + i;
       emit(sink, document(id));
       emitted++;
-      if (!mode.equals("no-checkpoints")) {
+      if (!mode.equals("no-checkpoints") && !(mode.equals("limited-no-checkpoint") && limitedRun)
+        && !(mode.equals("limited-stalls") && limitedRun && resumed)) {
         emit(sink, new HarvestRecord.Checkpoint(MAPPER.createObjectNode().put("next", i + 1)));
       }
     }
@@ -111,7 +153,7 @@ public final class FixtureHarvester implements Harvester {
       sink.emit(new HarvestRecord.Tombstone("item-0"));
       return;
     }
-    boolean sweepAllowed = !resumed && !limited;
+    boolean sweepAllowed = (!resumed || mode.equals("full-pass-on-resume")) && !limited && !mode.equals("sweep-first");
     if (sweepAllowed || mode.equals("sweeps-on-resume") || mode.equals("sweeps-when-limited")) {
       sink.emit(new HarvestRecord.Sweep());
     }

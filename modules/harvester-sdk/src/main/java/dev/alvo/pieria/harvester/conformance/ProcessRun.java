@@ -17,14 +17,17 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 /** Launches the harvester the way the daemon will: scrubbed environment, envelope on stdin. */
 final class ProcessRun {
 
   private static final int MAX_STDERR_BYTES = 64 * 1024;
+  private static final long REAP_MILLIS = 2_000;
   private static final List<String> KEPT_ENVIRONMENT = List.of("PATH", "HOME", "SystemRoot");
 
   /** What one launch produced. {@code violation} is null when every line was valid. */
@@ -51,6 +54,9 @@ final class ProcessRun {
       return "exit " + exitCode + reason + (stderr.isBlank() ? "" : ", stderr: " + stderr.strip());
     }
   }
+
+  /** What happened after the kit closed the harvester's stdout. */
+  enum CloseResult { EXITED, STILL_RUNNING, ALREADY_FINISHED, NO_OUTPUT }
 
   private ProcessRun() {
   }
@@ -86,34 +92,47 @@ final class ProcessRun {
     process.destroyForcibly();
   }
 
-  /** Destroys the process at the deadline, which unblocks a reader waiting on its output. */
-  private static Thread watchdog(Process process, Duration timeout, AtomicBoolean timedOut) {
-    return Thread.startVirtualThread(() -> {
-      try {
-        if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-          timedOut.set(true);
-          destroyTree(process);
-        }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-    });
-  }
-
-  private static Thread drain(InputStream stderr, ByteArrayOutputStream sink) {
-    return Thread.startVirtualThread(() -> {
+  private static void drain(InputStream stderr, ByteArrayOutputStream sink) {
+    Thread.startVirtualThread(() -> {
       byte[] buffer = new byte[4096];
       try {
         for (int read = stderr.read(buffer); read != -1; read = stderr.read(buffer)) {
           synchronized (sink) {
-            int room = MAX_STDERR_BYTES - sink.size();
-            sink.write(buffer, 0, Math.max(0, Math.min(room, read)));
+            sink.write(buffer, 0, Math.max(0, Math.min(MAX_STDERR_BYTES - sink.size(), read)));
           }
         }
       } catch (IOException e) {
         // The process is gone; keep what was captured.
       }
     });
+  }
+
+  /**
+   * Reads on a separate thread, because a descendant that inherited stdout can hold the pipe open
+   * after the harvester exits. At the deadline the kit abandons that thread and moves on.
+   */
+  private static String readRecords(Process process, List<HarvestRecord> records, long timeoutMillis)
+    throws TimeoutException, InterruptedException {
+    CompletableFuture<String> reading = new CompletableFuture<>();
+    Thread.startVirtualThread(() -> {
+      try {
+        BoundedLineReader reader = new BoundedLineReader(process.getInputStream(), ProtocolLimits.MAX_LINE_BYTES);
+        for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+          HarvestRecord record = RecordCodec.decode(line);
+          synchronized (records) {
+            records.add(record);
+          }
+        }
+        reading.complete(null);
+      } catch (ProtocolViolation e) {
+        reading.complete(e.getMessage());
+      }
+    });
+    try {
+      return reading.get(timeoutMillis, TimeUnit.MILLISECONDS);
+    } catch (ExecutionException e) {
+      return String.valueOf(e.getCause());
+    }
   }
 
   static Outcome execute(ConformanceTarget target, String command, HarvestRequest request, Duration timeout) {
@@ -123,67 +142,82 @@ final class ProcessRun {
     } catch (IOException e) {
       return new Outcome(false, -1, List.of(), "could not start: " + e.getMessage(), "");
     }
-    AtomicBoolean timedOut = new AtomicBoolean();
-    Thread watchdog = watchdog(process, timeout, timedOut);
+    long deadline = System.nanoTime() + timeout.toNanos();
     ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-    Thread stderrDrain = drain(process.getErrorStream(), stderr);
+    drain(process.getErrorStream(), stderr);
 
     List<HarvestRecord> records = new ArrayList<>();
     String violation = null;
-    try (BoundedLineReader reader = new BoundedLineReader(process.getInputStream(), ProtocolLimits.MAX_LINE_BYTES)) {
-      for (String line = reader.readLine(); line != null; line = reader.readLine()) {
-        records.add(RecordCodec.decode(line));
+    boolean timedOut = false;
+    try {
+      violation = readRecords(process, records, timeout.toMillis());
+      if (violation != null) {
+        destroyTree(process);
+      } else {
+        timedOut = !process.waitFor(Math.max(0, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())), TimeUnit.MILLISECONDS);
       }
-    } catch (ProtocolViolation e) {
-      violation = e.getMessage();
+    } catch (TimeoutException e) {
+      timedOut = true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      violation = "interrupted";
+    }
+    if (timedOut) {
       destroyTree(process);
-    } catch (IOException e) {
-      violation = e.getMessage();
     }
 
+    int exitCode = awaitExit(process);
+    String captured;
+    synchronized (stderr) {
+      captured = stderr.toString(StandardCharsets.UTF_8);
+    }
+    List<HarvestRecord> snapshot;
+    synchronized (records) {
+      snapshot = List.copyOf(records);
+    }
+    return new Outcome(timedOut, exitCode, snapshot, timedOut ? null : violation, captured);
+  }
+
+  private static int awaitExit(Process process) {
     try {
-      int exitCode = process.waitFor();
-      watchdog.interrupt();
-      stderrDrain.join(1_000);
-      String captured;
-      synchronized (stderr) {
-        captured = stderr.toString(StandardCharsets.UTF_8);
-      }
-      return new Outcome(timedOut.get(), exitCode, List.copyOf(records), timedOut.get() ? null : violation, captured);
+      return process.waitFor(REAP_MILLIS, TimeUnit.MILLISECONDS) ? process.exitValue() : -1;
     } catch (InterruptedException e) {
-      destroyTree(process);
       Thread.currentThread().interrupt();
-      return new Outcome(false, -1, List.copyOf(records), "interrupted", "");
+      return -1;
     }
   }
 
-  /** Reads one record, closes the harvester's stdout and reports whether it exits within {@code grace}. */
-  static boolean exitsWhenStdoutCloses(ConformanceTarget target, HarvestRequest request, Duration timeout, Duration grace) {
+  /** Reads one line, closes the harvester's stdout and reports whether it exits within {@code grace}. */
+  static CloseResult exitsWhenStdoutCloses(ConformanceTarget target, HarvestRequest request, Duration timeout, Duration grace) {
     Process process;
     try {
       process = start(target, "harvest", request);
     } catch (IOException e) {
-      return false;
+      return CloseResult.NO_OUTPUT;
     }
-    AtomicBoolean timedOut = new AtomicBoolean();
-    Thread watchdog = watchdog(process, timeout, timedOut);
     drain(process.getErrorStream(), new ByteArrayOutputStream());
     try {
-      new BoundedLineReader(process.getInputStream(), ProtocolLimits.MAX_LINE_BYTES).readLine();
-    } catch (ProtocolViolation e) {
-      destroyTree(process);
-      return false;
-    }
-    try {
+      CompletableFuture<Boolean> firstLine = CompletableFuture.supplyAsync(() -> {
+        try {
+          return new BoundedLineReader(process.getInputStream(), ProtocolLimits.MAX_LINE_BYTES).readLine() != null;
+        } catch (ProtocolViolation e) {
+          return false;
+        }
+      }, command -> Thread.startVirtualThread(command));
+      if (!firstLine.get(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+        return CloseResult.NO_OUTPUT;
+      }
+      if (!process.isAlive()) {
+        return CloseResult.ALREADY_FINISHED;
+      }
       process.getInputStream().close();
-      return process.waitFor(grace.toMillis(), TimeUnit.MILLISECONDS) && !timedOut.get();
-    } catch (IOException e) {
-      return false;
+      return process.waitFor(grace.toMillis(), TimeUnit.MILLISECONDS) ? CloseResult.EXITED : CloseResult.STILL_RUNNING;
+    } catch (TimeoutException | ExecutionException | IOException e) {
+      return CloseResult.NO_OUTPUT;
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return false;
+      return CloseResult.NO_OUTPUT;
     } finally {
-      watchdog.interrupt();
       destroyTree(process);
     }
   }

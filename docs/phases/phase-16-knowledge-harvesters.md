@@ -191,9 +191,16 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
 - **Temporal block.** Synthesis treats this block as authoritative, so harvested memories contribute no source payload to validity lines, and harvested events are named by origin label instead of their text.
 - **Protocol details settled in phase 2.**
   - Exit codes are `0` success, `1` harvester failure and `2` usage or bad envelope.
-  - `check` reports through its exit code and, on failure, an `error` record. It emits nothing else.
-  - `command` in the manifest is an array, never a shell string. Its program is a bare name on `PATH` or a `./` path inside the harvester's directory.
+  - `check` reports through its exit code and, on failure, an `error` record. It may also emit `secret_update`, and nothing else.
+  - `command` in the manifest is an array, never a shell string. Its program is a bare name on `PATH` or a `./` path inside the harvester's directory, and no argument may contain a `..` segment.
+  - `entrypoint` names the file an install pins by SHA-256. A `./` program is its own entrypoint. A bare interpreter must declare one, and it must appear in `command`.
   - Size limits are in `ProtocolLimits`: 16 MiB per line, 1 MiB for the envelope, and 2,000,000 characters of text per document or thread.
   - An unknown record `type` is a violation. Unknown fields on a known record are ignored.
-  - A run that was resumed or stopped by a limit must not emit `sweep`, because `sweep` means every live item was reported. The conformance kit enforces this.
+  - `sweep` means every live item was reported in this run, as an item or in `seen`, whatever cursor the run started from. It must be the last record apart from `progress`, and takes effect only if the run exits 0. A run that covers only part of the source must not emit it. The conformance kit enforces all of this.
+  - A run succeeded only if it exits 0 with no `error` record. `error` is the last record of a failed run. A non-zero exit with no `error` counts as `fatal`.
+  - Checkpoints from a failed run still stand, because everything before them was stored. A run with no checkpoint keeps the previous cursor.
+  - `maxItemsPerRun` is a hard cap on documents and threads; `seen` and tombstones don't count. `maxCharsPerRun` stops the run before an item that would exceed it, except the run's first item, so one large item can't stall a source. A run stopped by a limit must leave a checkpoint that lets the next run continue.
+  - Character limits count UTF-16 code units. `retryAfter` is whole seconds.
+  - The SDK removes secret values from `error` messages and stack traces. The daemon still redacts stderr.
   - The SDK encodes through Jackson's JSON tree, so its types need no reflection configuration in a native image.
+- **Phase 3 process runner.** It should share the conformance kit's launch and deadline logic, including reading on a thread it can abandon at the deadline, because a descendant that inherits stdout can hold the pipe open after the harvester exits.

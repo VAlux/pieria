@@ -28,12 +28,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ConformanceKitTests {
 
+  private static final String SECRET = "s3cr3t-value-for-tests";
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final ObjectNode CONFIG = MAPPER.createObjectNode().put("valid", true);
   private static final ObjectNode INVALID_CONFIG = MAPPER.createObjectNode().put("valid", false);
 
   private static HarvesterManifest manifest(Capability... capabilities) {
-    return new HarvesterManifest("fixture", "Fixture", "1", 1, List.of("unused"), Set.of(capabilities), List.of(), List.of());
+    return new HarvesterManifest("fixture", "Fixture", "1", 1, List.of("unused"), "unused", Set.of(capabilities), List.of(), List.of());
   }
 
   private static final HarvesterManifest FULL = manifest(Capability.INCREMENTAL, Capability.DELETES);
@@ -45,7 +46,7 @@ class ConformanceKitTests {
 
   private static ConformanceReport run(String mode, HarvesterManifest manifest, ObjectNode invalid, Duration timeout) {
     ConformanceTarget target = new ConformanceTarget(manifest, javaCommand(mode), Path.of(".").toAbsolutePath());
-    return ConformanceKit.run(target, new ConformanceOptions(CONFIG, Map.of("token", "t"), invalid, timeout));
+    return ConformanceKit.run(target, new ConformanceOptions(CONFIG, Map.of("token", SECRET), invalid, timeout));
   }
 
   private static ConformanceReport runMode(String mode) {
@@ -63,10 +64,12 @@ class ConformanceKitTests {
 
     assertThat(report.passed()).as(report.render()).isTrue();
     assertThat(report.results()).extracting(ConformanceReport.Result::check).containsExactly(
-      "check-accepts-valid-config", "check-rejects-invalid-config", "harvest-completes", "harvest-emits-items",
+      "check-accepts-valid-config", "check-rejects-invalid-config", "harvest-completes", "secrets-stay-private",
+      "harvest-emits-items",
       "capabilities-declared", "ids-stable-across-runs", "resume-loses-nothing", "sweep-is-complete",
       "limit-respected", "exits-when-stdout-closes");
-    assertThat(report.results()).allMatch(r -> r.status() == ConformanceReport.Status.PASS, report.render());
+    assertThat(report.results()).filteredOn(r -> !r.check().equals("exits-when-stdout-closes"))
+      .allMatch(r -> r.status() == ConformanceReport.Status.PASS, report.render());
   }
 
   @Test
@@ -76,8 +79,41 @@ class ConformanceKitTests {
     assertThat(report.passed()).as(report.render()).isTrue();
   }
 
+  @Test
+  void aCompletePassFromACursorMaySweep() {
+    ConformanceReport report = runMode("full-pass-on-resume");
+
+    assertThat(report.passed()).as(report.render()).isTrue();
+  }
+
+  @Test
+  void aHarvesterThatOutlastsItsFirstRecordProvesItExits() {
+    ConformanceReport report = runMode("slow-ok");
+
+    assertThat(status(report, "exits-when-stdout-closes")).as(report.render()).isEqualTo(ConformanceReport.Status.PASS);
+  }
+
+  @Test
+  @DisabledOnOs(OS.WINDOWS)
+  void aDescendantHoldingStdoutCannotOutliveTheTimeout() {
+    long start = System.nanoTime();
+
+    ConformanceReport report = run("orphan-holds-stdout", FULL, null, Duration.ofSeconds(3));
+
+    assertThat(status(report, "harvest-completes")).as(report.render()).isEqualTo(FAIL);
+    assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(10));
+  }
+
   @ParameterizedTest
   @CsvSource({
+    "check-emits-items, check-accepts-valid-config",
+    "leaks-secret, secrets-stay-private",
+    "sweep-first, sweep-is-complete",
+    "crashes-on-end-cursor, resume-loses-nothing",
+    "limited-no-items, limit-respected",
+    "limited-no-checkpoint, limit-respected",
+    "limited-stalls, limit-respected",
+    "ignores-char-limit, limit-respected",
     "crash, harvest-completes",
     "garbage-stdout, harvest-completes",
     "accepts-anything, check-rejects-invalid-config",

@@ -55,8 +55,34 @@ public final class ManifestParser {
     Set<Capability> capabilities = EnumSet.noneOf(Capability.class);
     stringList(root, "capabilities").forEach(capability -> capabilities.add(Capability.fromWire(capability)));
 
+    List<String> command = command(root);
     return new HarvesterManifest(id, requiredString(root, "name"), requiredString(root, "version"), protocol.intValue(),
-      command(root), capabilities, stringList(root, "network"), configFields(root));
+      command, entrypoint(root, command), capabilities, stringList(root, "network"), configFields(root));
+  }
+
+  /**
+   * The file an install pins. A {@code ./} program is its own entrypoint. A bare interpreter would
+   * otherwise pin nothing that matters, so it must name the script it runs.
+   */
+  private static String entrypoint(JsonNode root, List<String> command) {
+    String declared = optionalString(root, "entrypoint");
+    if (declared == null) {
+      if (!command.getFirst().startsWith("./")) {
+        throw new ManifestException("a bare interpreter needs an entrypoint naming its ./ script");
+      }
+      return command.getFirst();
+    }
+    if (!declared.startsWith("./") || escapes(declared)) {
+      throw new ManifestException("entrypoint must be a ./ path inside the harvester: " + declared);
+    }
+    if (!command.contains(declared)) {
+      throw new ManifestException("entrypoint must appear in command: " + declared);
+    }
+    return declared;
+  }
+
+  private static boolean escapes(String path) {
+    return Arrays.stream(path.split("[/\\\\]")).anyMatch(segment -> segment.equals(".."));
   }
 
   private static List<String> command(JsonNode root) {
@@ -69,18 +95,20 @@ public final class ManifestParser {
       throw new ManifestException("command entries must not be blank");
     }
     requireSafeProgram(command.getFirst());
+    if (command.stream().anyMatch(ManifestParser::escapes)) {
+      throw new ManifestException("command must not leave the harvester's directory");
+    }
     return command;
   }
 
   /**
-   * A program is a bare name or a {@code ./} path inside the harvester's directory. Anything else
-   * would make the executable that install pinned differ from the one that runs.
+   * A program is a bare name found on {@code PATH}, such as an interpreter, or a {@code ./} path
+   * inside the harvester's directory. Absolute paths would break when an installed harvester moves.
    */
   private static void requireSafeProgram(String program) {
     boolean bare = !program.contains("/");
     boolean local = program.startsWith("./");
-    boolean escapes = Arrays.stream(program.split("/")).anyMatch(segment -> segment.equals(".."));
-    if (program.contains("\\") || program.equals(".") || escapes || !(bare || local)) {
+    if (program.contains("\\") || program.equals(".") || escapes(program) || !(bare || local)) {
       throw new ManifestException("command program must be a bare name or a ./ path inside the harvester: " + program);
     }
   }

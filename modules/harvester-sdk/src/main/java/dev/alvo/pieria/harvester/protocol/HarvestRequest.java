@@ -19,7 +19,14 @@ public record HarvestRequest(int protocol, ObjectNode config, Map<String, String
 
   public static final int PROTOCOL_VERSION = 1;
 
-  /** Run limits. A harvester that reaches one stops, leaves a checkpoint and exits 0 with no sweep. */
+  /**
+   * Run limits. A harvester that reaches one stops, leaves a checkpoint so the next run can continue,
+   * and exits 0 without a sweep.
+   *
+   * @param maxItemsPerRun hard cap on documents and threads; {@code seen} and tombstones don't count
+   * @param maxCharsPerRun stop before an item that would exceed this, except the run's first item, so
+   *                       one large item can't stall a source. Counted in UTF-16 code units
+   */
   public record Limits(Integer maxItemsPerRun, Long maxCharsPerRun) {
     public static final Limits NONE = new Limits(null, null);
 

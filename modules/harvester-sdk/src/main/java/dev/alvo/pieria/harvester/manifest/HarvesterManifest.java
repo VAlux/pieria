@@ -10,10 +10,11 @@ import java.util.Set;
  *
  * @param command the program and its arguments; the program is a bare name found on {@code PATH}, or
  *                a {@code ./} path inside the harvester's directory
+ * @param entrypoint the {@code ./} file an install pins by SHA-256
  * @param network hosts the harvester says it contacts, shown when it is installed
  */
 public record HarvesterManifest(String id, String name, String version, int protocol, List<String> command,
-                                Set<Capability> capabilities, List<String> network, List<ConfigFieldSpec> config) {
+                                String entrypoint, Set<Capability> capabilities, List<String> network, List<ConfigFieldSpec> config) {
 
   public HarvesterManifest {
     command = List.copyOf(command);
@@ -24,6 +25,11 @@ public record HarvesterManifest(String id, String name, String version, int prot
 
   public boolean has(Capability capability) {
     return capabilities.contains(capability);
+  }
+
+  /** The file an install pins by SHA-256 and re-checks before each launch. */
+  public Path entrypointFile(Path manifestDir) {
+    return manifestDir.resolve(entrypoint).normalize();
   }
 
   /** The command to launch, with a {@code ./} program made absolute against {@code manifestDir}. */

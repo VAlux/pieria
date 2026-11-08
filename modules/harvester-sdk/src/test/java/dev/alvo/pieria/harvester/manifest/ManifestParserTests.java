@@ -48,7 +48,8 @@ class ManifestParserTests {
     name = "X"
     version = "1"
     protocol = 1
-    command = ["python3", "h.py"]
+    command = ["python3", "./h.py"]
+    entrypoint = "./h.py"
     """;
 
   @Test
@@ -102,7 +103,17 @@ class ManifestParserTests {
 
   @Test
   void leavesABareProgramForPathLookup() {
-    assertThat(ManifestParser.parse(MINIMAL).resolvedCommand(Path.of("/opt/h"))).containsExactly("python3", "h.py");
+    assertThat(ManifestParser.parse(MINIMAL).resolvedCommand(Path.of("/opt/h"))).containsExactly("python3", "./h.py");
+  }
+
+  @Test
+  void entrypointDefaultsToALocalProgram() {
+    assertThat(ManifestParser.parse(VALID).entrypoint()).isEqualTo("./bin/jira");
+  }
+
+  @Test
+  void entrypointNamesTheScriptOfAnInterpreter() {
+    assertThat(ManifestParser.parse(MINIMAL).entrypointFile(Path.of("/opt/h"))).isEqualTo(Path.of("/opt/h/h.py"));
   }
 
   @Test
@@ -153,6 +164,11 @@ class ManifestParserTests {
       replacing("command", "[\"./a/../../x\"]"),
       replacing("command", "[\"sub/x\"]"),
       replacing("command", "[\".\\\\x\"]"),
+      without("entrypoint"),
+      replacing("entrypoint", "\"h.py\""),
+      replacing("entrypoint", "\"./other.py\""),
+      replacing("entrypoint", "\"./a/../h.py\""),
+      replacing("command", "[\"python3\", \"./h.py\", \"../../evil.py\"]"),
       MINIMAL + "capabilities = [\"teleport\"]\n",
       withField("key = \"a\"\nkind = \"blob\"\nlabel = \"A\""),
       withField("key = \"a\"\nkind = \"string\"\nlabel = \"A\"\nrequired = \"yes\""),

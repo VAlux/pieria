@@ -15,7 +15,8 @@ public final class HarvesterException extends Exception {
   public HarvesterException(ErrorClass errorClass, String message, Long retryAfterSeconds) {
     super(message);
     this.errorClass = errorClass;
-    this.retryAfterSeconds = retryAfterSeconds;
+    // A computed Retry-After can go negative; it must not turn this failure into a protocol violation.
+    this.retryAfterSeconds = retryAfterSeconds == null ? null : Long.valueOf(Math.max(0, retryAfterSeconds));
   }
 
   public ErrorClass errorClass() {
