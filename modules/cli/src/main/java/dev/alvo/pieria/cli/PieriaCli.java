@@ -42,7 +42,9 @@ import picocli.CommandLine.Command;
     DaemonLogsCommand.class,
     UpdateCommand.class,
     ConfigCommand.class,
-    HookCommand.class
+    HookCommand.class,
+    dev.alvo.pieria.cli.command.harvest.HarvesterCommand.class,
+    dev.alvo.pieria.cli.command.harvest.SourceCommand.class
   }
 )
 public final class PieriaCli implements Runnable {

@@ -97,6 +97,10 @@ final class DaemonTransport {
     return sendJson(builder(path, timeout), "PUT", body, kebab);
   }
 
+  String patch(String path, Object body, Duration timeout) {
+    return sendJson(builder(path, timeout), "PATCH", body, false);
+  }
+
   String post(String path, Object body, Duration timeout) {
     return sendJson(builder(path, timeout), "POST", body, false);
   }
