@@ -51,6 +51,7 @@ public class HarvestRunService {
   private final HarvestItemIngestor ingestor;
   private final HarvestProperties properties;
   private final EffectiveConfigResolver configResolver;
+  private volatile boolean shuttingDown;
 
   public HarvestRunService(HarvestStore store, HarvesterRegistry registry, HarvestSecretStore secretStore,
                            HarvestItemIngestor ingestor, HarvestProperties properties, EffectiveConfigResolver configResolver) {
@@ -60,6 +61,11 @@ public class HarvestRunService {
     this.ingestor = ingestor;
     this.properties = properties;
     this.configResolver = configResolver;
+  }
+
+  /** Runs stopped from now on are left to resume after the restart rather than counted as cancelled. */
+  public void beginShutdown() {
+    shuttingDown = true;
   }
 
   public HarvestRunSummary run(String sourceId, boolean dryRun, TaskProgress progress) {
@@ -92,6 +98,7 @@ public class HarvestRunService {
     private final Set<String> sessions = new LinkedHashSet<>();
 
     private long itemsSeen;
+    private long itemsReported;
     private long itemsChanged;
     private long itemsDeleted;
     private long memoriesStored;
@@ -122,19 +129,32 @@ public class HarvestRunService {
       } catch (RunFailure e) {
         return failed(e.errorClass, e.getMessage(), e.retryAfterSeconds);
       } catch (TaskCancelledException e) {
-        finish(RunStatus.CANCELLED, null, null, null);
+        finish(stoppedStatus(), null, null, null);
         throw e;
       } catch (ModelUnavailableException e) {
+        rethrowIfStopped();
         return failed(ErrorClass.TRANSIENT, e.getMessage(), null);
       } catch (RuntimeException e) {
-        try {
-          progress.checkCancelled();
-        } catch (TaskCancelledException cancelled) {
-          finish(RunStatus.CANCELLED, null, null, null);
-          throw cancelled;
-        }
+        rethrowIfStopped();
         log.warn("harvest run failed source={}", source.id(), e);
         return failed(ErrorClass.FATAL, e.toString(), null);
+      }
+    }
+
+    private RunStatus stoppedStatus() {
+      return shuttingDown ? RunStatus.INTERRUPTED : RunStatus.CANCELLED;
+    }
+
+    /** A cancel or shutdown during a model call surfaces as that call failing. */
+    private void rethrowIfStopped() {
+      try {
+        if (shuttingDown) {
+          throw new TaskCancelledException();
+        }
+        progress.checkCancelled();
+      } catch (TaskCancelledException stopped) {
+        finish(stoppedStatus(), null, null, null);
+        throw stopped;
       }
     }
 
@@ -224,7 +244,7 @@ public class HarvestRunService {
       }
     }
 
-    private void apply(HarvestRecord record) {
+    private void apply(HarvestRecord record) throws RunFailure {
       switch (record) {
         case HarvestRecord.Item item -> applyItem(item);
         case HarvestRecord.Seen seen -> {
@@ -253,7 +273,33 @@ public class HarvestRunService {
       }
     }
 
-    private void applyItem(HarvestRecord.Item item) {
+    private void requireLive() throws RunFailure {
+      if (store.findSource(source.id()).isEmpty()) {
+        throw new RunFailure(ErrorClass.CONFIG, "the source was removed during the run", null);
+      }
+    }
+
+    /** The harvester is asked to honour its limits; this holds it to them, as the daemon pays for extraction. */
+    private void enforceLimits(HarvestRecord.Item item) throws RunFailure {
+      if (source.maxItemsPerRun() != null && itemsReported >= source.maxItemsPerRun()) {
+        throw new RunFailure(ErrorClass.FATAL, "the harvester exceeded maxItemsPerRun", null);
+      }
+      if (source.maxCharsPerRun() != null && itemsReported > 0 && chars + itemChars(item) > source.maxCharsPerRun()) {
+        throw new RunFailure(ErrorClass.FATAL, "the harvester exceeded maxCharsPerRun", null);
+      }
+    }
+
+    private static long itemChars(HarvestRecord.Item item) {
+      return switch (item) {
+        case HarvestRecord.Document document -> document.text().length();
+        case HarvestRecord.ConversationThread thread -> thread.turns().stream().mapToLong(turn -> turn.text().length()).sum();
+      };
+    }
+
+    private void applyItem(HarvestRecord.Item item) throws RunFailure {
+      requireLive();
+      enforceLimits(item);
+      itemsReported++;
       ItemOutcome outcome = dryRun
         ? ingestor.preview(source, item)
         : ingestor.ingest(source, profileName, item, runId, lane);
@@ -282,7 +328,8 @@ public class HarvestRunService {
     private void applySweep() {
       List<HarvestItem> unseen = store.unseenItems(source.id(), runId);
       long live = store.liveItemCount(source.id());
-      if (unseen.size() > Math.max(properties.sweepGuardFloor(), properties.sweepGuardShare() * live)) {
+      boolean wouldEmptySource = !unseen.isEmpty() && unseen.size() == live;
+      if (wouldEmptySource || unseen.size() > Math.max(properties.sweepGuardFloor(), properties.sweepGuardShare() * live)) {
         log.warn("harvest source={} sweep would delete {} of {} items; holding it back", source.id(), unseen.size(), live);
         sweepBlockedCount = (long) unseen.size();
         store.setSweepBlocked(source.id(), sweepBlockedCount);

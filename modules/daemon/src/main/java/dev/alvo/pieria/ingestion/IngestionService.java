@@ -16,6 +16,7 @@ import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.ingestion.model.VerificationResult;
 import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.ModelGateway;
+import dev.alvo.pieria.model.UnparseableExtractionException;
 import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.model.usage.InferenceUsageAccumulator;
 import dev.alvo.pieria.model.usage.InferenceUsageSink;
@@ -36,7 +37,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -209,6 +212,16 @@ public class IngestionService {
     });
     List<UnifiedCandidate> candidates = timed.value() == null ? List.of() : timed.value();
     return new ExtractionPassResult(chunk.index(), candidates, timed.millis());
+  }
+
+  /** An unreadable chunk yields nothing, and is left out of the ledger so a later ingest tries it again. */
+  private List<UnifiedCandidate> extractNotingUnreadable(Chunk chunk, IngestOrigin origin, Set<Integer> unparseable) {
+    try {
+      return modelGateway.extractUnified(chunk, origin);
+    } catch (UnparseableExtractionException e) {
+      unparseable.add(chunk.index());
+      return List.of();
+    }
   }
 
   private static <T> T bounded(Semaphore gate, Callable<T> task) throws Exception {
@@ -449,8 +462,9 @@ public class IngestionService {
     // whether on this thread or a virtual-thread worker, reports its real provider token usage here.
     InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
 
+    Set<Integer> unparseable = ConcurrentHashMap.newKeySet();
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(plan.pending(), extractionSamples, maxConcurrency, inferenceUsage, progress, origin));
+      () -> extractCandidates(plan.pending(), extractionSamples, maxConcurrency, inferenceUsage, progress, origin, unparseable));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
@@ -469,7 +483,7 @@ public class IngestionService {
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
       extraction.merged(), chunks, plan, profile.id(), sessionId, tuning.verifyMode(),
       maxConcurrency, inferenceUsage,
-      graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress, origin));
+      graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress, origin, unparseable));
     VerifyStoreResult result = verifyStore.value();
     log.info("ingest verified profile={} session={} passed={} autoPassed={} corrected={} dropped={} stored={} verifyStoreMs={}",
       profileName, sessionId, result.passed(), result.autoPassed(), result.corrected(),
@@ -536,7 +550,7 @@ public class IngestionService {
     recordUsage(profile.id(), normalized, result.stored());
     recordInferenceUsage(profile.id(), inferenceUsage);
 
-    return new IngestionResult(result.stored(), result.graphDeferred());
+    return new IngestionResult(result.stored(), result.graphDeferred(), unparseable.size());
   }
 
   /**
@@ -603,9 +617,9 @@ public class IngestionService {
   private Extraction extractCandidates(List<Chunk> chunks, int extractionSamples,
                                        int maxExtractionConcurrency,
                                        InferenceUsageAccumulator usage, IngestProgressListener progress,
-                                       IngestOrigin origin) {
+                                       IngestOrigin origin, Set<Integer> unparseable) {
     List<UnifiedCandidate> extracted =
-      runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress, origin);
+      runExtraction(chunks, extractionSamples, maxExtractionConcurrency, usage, progress, origin, unparseable);
     List<UnifiedCandidate> merged = mergeCandidates(extracted);
     return new Extraction(extracted.size(), merged);
   }
@@ -706,13 +720,15 @@ public class IngestionService {
                                         String profileId, String sessionId, VerifyMode verifyMode,
                                         int maxConcurrency,
                                         InferenceUsageAccumulator usage, GraphMode graphMode,
-                                        IngestProgressListener progress, IngestOrigin origin) {
+                                        IngestProgressListener progress, IngestOrigin origin, Set<Integer> unparseable) {
     int total = merged.size();
     if (total == 0) {
       // Extraction ran and produced nothing to store, so every pending chunk is finished. Ledger
       // them here or they would be re-extracted on every future ingest of this session.
       for (Chunk pending : plan.pending()) {
-        recordChunkProcessed(plan, profileId, sessionId, pending.index());
+        if (!unparseable.contains(pending.index())) {
+          recordChunkProcessed(plan, profileId, sessionId, pending.index());
+        }
       }
       return new VerifyStoreResult(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0);
@@ -931,14 +947,16 @@ public class IngestionService {
         // Checkpoint only now, after this chunk's memories are durably stored — same discipline as
         // ContentIngestor's per-batch checkpoint. An interrupted run keeps every chunk it finished
         // and re-extracts only the rest.
-        recordChunkProcessed(plan, profileId, sessionId, chunkIndex);
+        if (!unparseable.contains(chunkIndex)) {
+          recordChunkProcessed(plan, profileId, sessionId, chunkIndex);
+        }
       }
 
       // Pending chunks that contributed no candidate of their own are finished too: extraction ran
       // for them and mergeCandidates folded whatever they found into an earlier chunk's candidate.
       // Without this they would never be ledgered and so re-extract on every future ingest.
       for (Chunk pending : plan.pending()) {
-        if (!partitions.containsKey(pending.index())) {
+        if (!partitions.containsKey(pending.index()) && !unparseable.contains(pending.index())) {
           recordChunkProcessed(plan, profileId, sessionId, pending.index());
         }
       }
@@ -1018,7 +1036,7 @@ public class IngestionService {
   private List<UnifiedCandidate> runExtraction(List<Chunk> chunks, int extractionSamples,
                                                int maxExtractionConcurrency,
                                                InferenceUsageAccumulator usage, IngestProgressListener progress,
-                                               IngestOrigin origin) {
+                                               IngestOrigin origin, Set<Integer> unparseable) {
     if (chunks.isEmpty()) {
       log.debug("ingest extraction skipped because there are no chunks");
       return List.of();
@@ -1035,7 +1053,7 @@ public class IngestionService {
       for (Chunk chunk : chunks) {
         for (int sample = 0; sample < samples; sample++) {
           futures.add(exec.submit(tracked(usage,
-            () -> extractWithTiming(gate, chunk, () -> modelGateway.extractUnified(chunk, origin)))));
+            () -> extractWithTiming(gate, chunk, () -> extractNotingUnreadable(chunk, origin, unparseable)))));
         }
       }
       int total = futures.size();

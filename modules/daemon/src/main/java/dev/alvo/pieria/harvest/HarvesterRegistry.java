@@ -82,14 +82,21 @@ public class HarvesterRegistry {
    */
   public void requirePinned(RegisteredHarvester harvester) {
     String id = harvester.manifest().id();
-    String expected = pins().path(id).asString("");
-    if (expected.isEmpty()) {
+    JsonNode pin = pins().path(id);
+    String expectedEntrypoint = pin.path("entrypoint").asString("");
+    String expectedManifest = pin.path("manifest").asString("");
+    if (expectedEntrypoint.isEmpty() || expectedManifest.isEmpty()) {
       throw new HarvesterIntegrityException("harvester " + id + " has no pinned checksum");
     }
-    Path entrypoint = harvester.manifest().entrypointFile(harvester.directory());
-    if (!Files.isRegularFile(entrypoint) || !expected.equals(Hash.sha256Hex(entrypoint))) {
+    // The manifest is pinned too, because it decides what runs and which hosts were shown at install.
+    if (!matches(harvester.manifest().entrypointFile(harvester.directory()), expectedEntrypoint)
+      || !matches(harvester.directory().resolve(MANIFEST), expectedManifest)) {
       throw new HarvesterIntegrityException("harvester " + id + " does not match its pinned checksum");
     }
+  }
+
+  private static boolean matches(Path file, String expected) {
+    return Files.isRegularFile(file) && expected.equals(Hash.sha256Hex(file));
   }
 
   private JsonNode pins() {

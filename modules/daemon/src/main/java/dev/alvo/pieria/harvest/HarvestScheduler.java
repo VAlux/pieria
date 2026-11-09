@@ -1,11 +1,13 @@
 package dev.alvo.pieria.harvest;
 
 import dev.alvo.pieria.config.HarvestProperties;
+import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.reminiscence.ReminiscenceService;
 import dev.alvo.pieria.task.TaskCancelledException;
 import dev.alvo.pieria.task.TaskLane;
 import dev.alvo.pieria.task.TaskProgress;
 import dev.alvo.pieria.task.TaskRegistry;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -22,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Starts harvest runs when sources come due, up to the configured number at a time. */
 @Component
@@ -36,6 +39,7 @@ public class HarvestScheduler {
   private final HarvestProperties properties;
   private final ReminiscenceService reminiscence;
   private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+  private volatile boolean shuttingDown;
 
   public HarvestScheduler(HarvestStore store, HarvestRunService runs, TaskRegistry tasks, HarvestProperties properties,
                           ReminiscenceService reminiscence) {
@@ -66,24 +70,44 @@ public class HarvestScheduler {
     }
   }
 
+  /** Runs this interrupts are made due at once, to resume from their last checkpoint after the restart. */
+  @PreDestroy
+  public void shutdown() {
+    shuttingDown = true;
+    runs.beginShutdown();
+  }
+
   /** Starts a run, or returns empty when the source is unknown or running, or capacity is full. */
   public synchronized Optional<UUID> launch(String sourceId, boolean dryRun) {
     Optional<HarvestSource> found = store.findSource(sourceId);
-    if (found.isEmpty() || inFlight.size() >= properties.maxConcurrentRuns() || !inFlight.add(sourceId)) {
+    if (found.isEmpty() || !claim(sourceId)) {
       return Optional.empty();
     }
-    HarvestSource source = found.get();
-    String profile = store.profileName(source.profileId());
-    return Optional.of(tasks.submit("harvest", profile, progress -> execute(source, profile, dryRun, progress)));
+    String profile = store.profileName(found.get().profileId());
+    AtomicBoolean claimedByLaunch = new AtomicBoolean(true);
+    return Optional.of(tasks.submit("harvest", profile, progress -> {
+      // A retry of this task re-enters here, and must take its own claim.
+      if (!claimedByLaunch.getAndSet(false) && !claim(sourceId)) {
+        throw new ConflictException("harvest source " + sourceId + " is already running, or no run slot is free");
+      }
+      return execute(sourceId, profile, dryRun, progress);
+    }));
   }
 
-  private JsonNode execute(HarvestSource source, String profile, boolean dryRun, TaskProgress progress) {
+  private synchronized boolean claim(String sourceId) {
+    return inFlight.size() < properties.maxConcurrentRuns() && inFlight.add(sourceId);
+  }
+
+  private JsonNode execute(String sourceId, String profile, boolean dryRun, TaskProgress progress) {
+    HarvestSource source = null;
     try {
+      source = store.findSource(sourceId).orElseThrow(() -> new IllegalArgumentException("unknown harvest source: " + sourceId));
       HarvestRunSummary summary = runs.run(source.id(), dryRun, progress);
       if (!dryRun) {
         boolean succeeded = summary.status() == RunStatus.SUCCEEDED;
         reschedule(source, succeeded ? 0 : source.consecutiveFailures() + 1, summary.retryAfterSeconds());
-        if (succeeded && source.mode() == SourceMode.FULL && summary.memoriesStored() > 0 && !summary.sessions().isEmpty()) {
+        // Whatever a failed run wrote still counts, and those items will read as unchanged next time.
+        if (source.mode() == SourceMode.FULL && !summary.sessions().isEmpty()) {
           submitGraphAdoption(profile, summary.sessions());
         }
       }
@@ -93,17 +117,21 @@ public class HarvestScheduler {
         .put("itemsDeleted", summary.itemsDeleted()).put("memoriesStored", summary.memoriesStored())
         .put("estimatedChunks", summary.estimatedChunks());
     } catch (TaskCancelledException e) {
-      if (!dryRun) {
-        reschedule(source, source.consecutiveFailures(), null);
+      if (!dryRun && source != null) {
+        if (shuttingDown) {
+          store.scheduleNext(source.id(), Instant.now(), source.consecutiveFailures());
+        } else {
+          reschedule(source, source.consecutiveFailures(), null);
+        }
       }
       throw e;
     } catch (RuntimeException e) {
-      if (!dryRun) {
+      if (!dryRun && source != null) {
         reschedule(source, source.consecutiveFailures() + 1, null);
       }
       throw e;
     } finally {
-      inFlight.remove(source.id());
+      inFlight.remove(sourceId);
     }
   }
 

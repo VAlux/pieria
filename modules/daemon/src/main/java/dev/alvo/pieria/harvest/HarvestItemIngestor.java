@@ -2,6 +2,7 @@ package dev.alvo.pieria.harvest;
 
 import dev.alvo.pieria.api.request.RevisionRequest;
 import dev.alvo.pieria.api.response.MemoryOrigin;
+import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.config.HarvestProperties;
 import dev.alvo.pieria.domain.memory.IngestOrigin;
 import dev.alvo.pieria.domain.memory.Memory;
@@ -51,6 +52,10 @@ public class HarvestItemIngestor {
     this.memories = memories;
     this.ingestion = ingestion;
     this.properties = properties;
+  }
+
+  /** {@code complete} is false when some model output could not be read, so the item must be retried. */
+  private record Extracted(int memoriesStored, boolean complete) {
   }
 
   /** What an item's text and identity hash to, and how much of it there is. */
@@ -163,28 +168,37 @@ public class HarvestItemIngestor {
       harvest.upsertItem(new HarvestItem(source.id(), item.id(), session, PENDING_VERSION, null, 0, runId));
     }
     List<Message> messages = messages(source, item, session);
-    int memoriesStored = source.mode() == SourceMode.RAW
+    Extracted extracted = source.mode() == SourceMode.RAW
       ? stageRaw(source, profileName, item, stored, session, messages, fingerprint)
       : extract(source, profileName, item, stored, session, messages, fingerprint, progress);
 
-    harvest.upsertItem(new HarvestItem(source.id(), item.id(), session, fingerprint.version(), fingerprint.prefix(),
-      fingerprint.turnCount(), runId));
-    return new ItemOutcome(true, memoriesStored, fingerprint.chars(), session);
+    if (extracted.complete()) {
+      harvest.upsertItem(new HarvestItem(source.id(), item.id(), session, fingerprint.version(), fingerprint.prefix(),
+        fingerprint.turnCount(), runId));
+    } else {
+      log.warn("harvest source={} item={}: the model output could not be read; retrying when the item is next reported",
+        source.id(), item.id());
+      harvest.markSeen(source.id(), List.of(item.id()), runId);
+    }
+    return new ItemOutcome(true, extracted.memoriesStored(), fingerprint.chars(), session);
   }
 
-  private int stageRaw(HarvestSource source, String profileName, HarvestRecord.Item item, HarvestItem stored, String session,
+  private Extracted stageRaw(HarvestSource source, String profileName, HarvestRecord.Item item, HarvestItem stored, String session,
                        List<Message> messages, Fingerprint fingerprint) {
     if (stored != null) {
       memories.deleteSessionMessages(source.profileId(), session);
       retire(source, item.id(), Set.of(), fingerprint.changedAt());
     }
     ingestion.preStageMessages(profileName, session, messages);
-    return 0;
+    return new Extracted(0, true);
   }
 
-  private int extract(HarvestSource source, String profileName, HarvestRecord.Item item, HarvestItem stored, String session,
+  private Extracted extract(HarvestSource source, String profileName, HarvestRecord.Item item, HarvestItem stored, String session,
                       List<Message> messages, Fingerprint fingerprint, IngestProgressListener progress) {
     boolean append = onlyNewTurns(source, item, stored);
+    adoptSessionMemories(source, item.id(), session);
+    List<MemoryLink> before = harvest.links(source.id(), item.id());
+    Set<String> correctedByUser = correctedByUser(source.profileId(), before);
     if (!append) {
       if (stored != null) {
         memories.deleteSessionMessages(source.profileId(), session);
@@ -199,11 +213,14 @@ public class HarvestItemIngestor {
       progress, origin, properties.extractionConcurrency());
 
     Set<String> produced = result.memories().stream().map(Memory::id).collect(Collectors.toCollection(LinkedHashSet::new));
-    if (!append) {
+    // Unreadable model output says nothing about the source, so it can't justify retiring anything.
+    boolean complete = result.unparseableChunks() == 0;
+    if (!append && complete) {
       retire(source, item.id(), produced, fingerprint.changedAt());
     }
-    harvest.addLinks(source.id(), item.id(), links(source.profileId(), produced));
-    return produced.size();
+    keepUserCorrections(source.profileId(), before, correctedByUser, produced, fingerprint.changedAt());
+    adoptSessionMemories(source, item.id(), session);
+    return new Extracted(produced.size(), complete);
   }
 
   private static String url(HarvestRecord.Item item) {
@@ -213,40 +230,108 @@ public class HarvestItemIngestor {
     };
   }
 
-  private List<MemoryLink> links(String profileId, Set<String> memoryIds) {
+  /**
+   * Links everything live in the item's session. An ingest stores memories chunk by chunk, so one that
+   * was interrupted leaves memories that the retry's result won't list.
+   */
+  private void adoptSessionMemories(HarvestSource source, String externalId, String session) {
     List<MemoryLink> links = new ArrayList<>();
-    for (String memoryId : memoryIds) {
-      memories.revisions(profileId, memoryId).stream()
-        .filter(revision -> revision.recordedTo() == null && !revision.invalidated())
+    for (String memoryId : memories.activeMemoryIdsInSession(source.profileId(), session)) {
+      if (isUsersOwnText(source.profileId(), memoryId)) {
+        continue;
+      }
+      memories.revisions(source.profileId(), memoryId).stream()
+        .filter(HarvestItemIngestor::inForce)
         .forEach(revision -> links.add(new MemoryLink(memoryId, revision.assertionId(), revision.revisionId())));
     }
-    return links;
+    harvest.addLinks(source.id(), externalId, links);
+  }
+
+  /**
+   * Whether this memory only exists because the user corrected another one. A correction stores its
+   * text as a new memory in the same session, and every revision of that memory corrects an earlier one.
+   */
+  private boolean isUsersOwnText(String profileId, String memoryId) {
+    List<RevisionResponse> own = memories.revisions(profileId, memoryId).stream()
+      .filter(revision -> revision.memoryId().equals(memoryId))
+      .toList();
+    return !own.isEmpty() && own.stream().allMatch(revision -> revision.corrects() != null);
+  }
+
+  private static boolean inForce(RevisionResponse revision) {
+    return revision.recordedTo() == null && !revision.invalidated() && revision.validTo() == null;
+  }
+
+  /** Memories whose current revision is no longer the one harvested: the user has changed them. */
+  private Set<String> correctedByUser(String profileId, List<MemoryLink> links) {
+    Set<String> corrected = new LinkedHashSet<>();
+    for (MemoryLink link : links) {
+      boolean unchanged = memories.revisions(profileId, link.memoryId()).stream()
+        .anyMatch(revision -> revision.recordedTo() == null && revision.revisionId().equals(link.revisionId()));
+      if (!unchanged) {
+        corrected.add(link.memoryId());
+      }
+    }
+    return corrected;
+  }
+
+  /**
+   * Re-extracting a sentence the user corrected adds a new assertion of the original wording. Ending it
+   * here keeps an edit elsewhere in the item from bringing back what the user removed.
+   */
+  private void keepUserCorrections(String profileId, List<MemoryLink> before, Set<String> correctedByUser, Set<String> produced,
+                                   Instant changedAt) {
+    Set<String> known = before.stream().map(MemoryLink::assertionId).collect(Collectors.toSet());
+    for (String memoryId : correctedByUser) {
+      if (!produced.contains(memoryId)) {
+        continue;
+      }
+      memories.revisions(profileId, memoryId).stream()
+        .filter(HarvestItemIngestor::inForce)
+        .filter(revision -> !known.contains(revision.assertionId()))
+        .forEach(revision -> {
+          try {
+            memories.revise(profileId, memoryId,
+              new RevisionRequest(revision.assertionId(), revision.revisionId(), null, null, null, changedAt.toString()));
+          } catch (TemporalConflictException e) {
+            log.debug("harvest: memory {} changed while its correction was being kept", memoryId);
+          }
+        });
+    }
   }
 
   /**
    * Ends the validity of linked memories the new version no longer says, keeping them visible to
    * historical queries. A revision conflict means the user has changed the memory since it was
-   * harvested, which makes it theirs, so it is kept and no longer tracked.
+   * harvested, which makes it theirs, so it is left alone and its link is kept to record that.
    */
   private void retire(HarvestSource source, String externalId, Set<String> produced, Instant changedAt) {
     List<MemoryLink> stale = harvest.links(source.id(), externalId).stream()
       .filter(link -> !produced.contains(link.memoryId()))
       .toList();
+    Set<String> keep = new LinkedHashSet<>();
     for (MemoryLink link : stale) {
       try {
         memories.revise(source.profileId(), link.memoryId(),
           new RevisionRequest(link.assertionId(), link.revisionId(), null, null, null, changedAt.toString()));
       } catch (TemporalConflictException e) {
         log.debug("harvest: memory {} was revised since it was harvested; leaving it", link.memoryId());
+        keep.add(link.memoryId());
       }
     }
-    harvest.removeLinks(source.id(), externalId, stale.stream().map(MemoryLink::memoryId).collect(Collectors.toSet()));
+    harvest.removeLinks(source.id(), externalId,
+      stale.stream().map(MemoryLink::memoryId).filter(id -> !keep.contains(id)).collect(Collectors.toSet()));
   }
 
-  /** Deleted at the source means gone: memories, raw text and all tracking of the item. */
+  /**
+   * Deleted at the source means gone: memories, raw text and all tracking of the item. Memories are
+   * found by session, not by link, so earlier versions and interrupted ingests go too. Text the user
+   * wrote as a correction stays, because it is theirs rather than the source's.
+   */
   public void delete(HarvestSource source, String externalId) {
     harvest.findItem(source.id(), externalId).ifPresent(item -> {
-      harvest.links(source.id(), externalId).stream().map(MemoryLink::memoryId).distinct()
+      memories.activeMemoryIdsInSession(source.profileId(), item.sessionId()).stream()
+        .filter(memoryId -> !isUsersOwnText(source.profileId(), memoryId))
         .forEach(memoryId -> memories.forgetMemory(source.profileId(), memoryId));
       memories.deleteSessionMessages(source.profileId(), item.sessionId());
       memories.clearChunkLedger(source.profileId(), item.sessionId());

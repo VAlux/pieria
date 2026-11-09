@@ -5,6 +5,7 @@ import dev.alvo.pieria.code.CodePayload;
 import dev.alvo.pieria.cluster.ClusterRepository.Member;
 import dev.alvo.pieria.cluster.ClusterRepository.Topic;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.SourceFilter;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.storage.MemoryStore;
 import dev.alvo.pieria.tools.Hash;
@@ -31,12 +32,13 @@ final class ClusterDiscoveryService {
     if(seed==null || seed.type()==MemoryType.CLUSTER || seed.type()==MemoryType.TASK) return null;
     Map<String,Memory> neighbors=new LinkedHashMap<>();
     neighbors.put(seed.id(),seed);
-    for(Memory candidate:store.searchMemoriesFts(profileId,
-        seed.content().substring(0,Math.min(500,seed.content().length())),15))
+    // Limited in the query, so harvested memories can't use up the neighbour limit.
+    for(Memory candidate:store.atSourceFilter(SourceFilter.OWN_ONLY,()->store.searchMemoriesFts(profileId,
+        seed.content().substring(0,Math.min(500,seed.content().length())),15)))
       if(candidate.type()!=MemoryType.CLUSTER && candidate.type()!=MemoryType.TASK)
         neighbors.putIfAbsent(candidate.id(),candidate);
     float[] seedVector=store.embeddingsFor(profileId,List.of(seed.id())).get(seed.id());
-    if(seedVector!=null) for(Memory candidate:store.vectorSearch(profileId,seedVector,15))
+    if(seedVector!=null) for(Memory candidate:store.atSourceFilter(SourceFilter.OWN_ONLY,()->store.vectorSearch(profileId,seedVector,15)))
       if(candidate.type()!=MemoryType.CLUSTER && candidate.type()!=MemoryType.TASK)
         neighbors.putIfAbsent(candidate.id(),candidate);
     Map<String,float[]> vectors=seedVector==null?Map.of():store.embeddingsFor(profileId,neighbors.keySet());

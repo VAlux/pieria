@@ -168,6 +168,11 @@ public interface MemoryStore {
     throw new UnsupportedOperationException("deleteSessionMessages(...) not implemented");
   }
 
+  /** Ids of the session's memories that have not been forgotten, including ended ones. */
+  default List<String> activeMemoryIdsInSession(String profileId, String sessionId) {
+    throw new UnsupportedOperationException("activeMemoryIdsInSession(...) not implemented");
+  }
+
   /** Forgets which of a session's chunks were extracted, so the next ingest processes them again. */
   default void clearChunkLedger(String profileId, String sessionId) {
     throw new UnsupportedOperationException("clearChunkLedger(...) not implemented");

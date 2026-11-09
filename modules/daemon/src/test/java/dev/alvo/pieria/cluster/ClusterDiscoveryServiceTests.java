@@ -16,6 +16,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class ClusterDiscoveryServiceTests {
+
+  /** A mock that still runs the source-filter wrapper, which only scopes real SQL. */
+  private static MemoryStore mockStore() {
+    MemoryStore store = org.mockito.Mockito.mock(MemoryStore.class);
+    org.mockito.Mockito.when(store.atSourceFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+      .thenAnswer(invocation -> ((java.util.function.Supplier<?>) invocation.getArgument(1)).get());
+    return store;
+  }
+
   private Memory memory(String id,String text) {
     return new Memory(id,"fixture",MemoryType.EVENT,text,null,null,false,"{}",null,Instant.parse("2026-01-01T00:00:00Z"));
   }
@@ -26,7 +35,7 @@ class ClusterDiscoveryServiceTests {
   }
 
   @Test void vectorNeighborsCanConnectLexicallyDifferentOriginals() {
-    MemoryStore store=mock(MemoryStore.class);
+    MemoryStore store=mockStore();
     Memory a=memory("a","The storage writer serializes commits.");
     Memory b=memory("b","Jobs resume after restart.");
     Memory c=memory("c","A durable queue tracks progress.");
@@ -41,7 +50,7 @@ class ClusterDiscoveryServiceTests {
   }
 
   @Test void oversizedNeighborSetIsRejectedWithoutTruncatingMembership() {
-    MemoryStore store=mock(MemoryStore.class);
+    MemoryStore store=mockStore();
     Memory seed=memory("seed","A distinctive system subject.");
     float[] vector={1,0,0};
     List<Memory> neighbors=new ArrayList<>();
@@ -61,7 +70,7 @@ class ClusterDiscoveryServiceTests {
   }
 
   @Test void traceNeighborsNeedAConcreteSharedSubject() {
-    MemoryStore store=mock(MemoryStore.class);
+    MemoryStore store=mockStore();
     Memory unrelated=sourced("unrelated","Command completed after retry.","trace-b",
       "{\"source\":\"trace\",\"command\":\"git fetch\"}");
     Memory linked=sourced("linked","Command completed after retry.","trace-c",
@@ -84,7 +93,7 @@ class ClusterDiscoveryServiceTests {
   }
 
   @Test void codeSummariesCanGroupWithinNamedModule() {
-    MemoryStore store=mock(MemoryStore.class);
+    MemoryStore store=mockStore();
     String codeSession=dev.alvo.pieria.code.CodeIndexingService.CODE_SESSION;
     Memory seed=sourced("seed","Storage state overview",codeSession,
       "{\"source\":\"code-summary\",\"path\":\"modules/daemon/storage/A.java\"}");

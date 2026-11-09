@@ -7,8 +7,12 @@ import java.util.List;
 /**
  * Detailed internal ingest outcome used by onboarding observability.
  */
-public record IngestionResult(List<Memory> memories, int graphDeferred) {
+public record IngestionResult(List<Memory> memories, int graphDeferred, int unparseableChunks) {
   public IngestionResult {
     memories = memories == null ? List.of() : List.copyOf(memories);
+  }
+
+  public IngestionResult(List<Memory> memories, int graphDeferred) {
+    this(memories, graphDeferred, 0);
   }
 }

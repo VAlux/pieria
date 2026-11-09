@@ -13,6 +13,7 @@ import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
 import dev.alvo.pieria.model.FakeModelGateway;
+import dev.alvo.pieria.model.ModelUnavailableException;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import dev.alvo.pieria.task.TaskCancelledException;
 import dev.alvo.pieria.task.TaskRegistry;
@@ -54,10 +55,12 @@ class HarvestRunServiceTests {
 
   private static final class CountingGateway extends FakeModelGateway {
     final AtomicInteger extractions = new AtomicInteger();
+    volatile java.util.function.Consumer<Chunk> beforeExtract = chunk -> { };
 
     @Override
     public List<UnifiedCandidate> extractUnified(Chunk chunk) {
       extractions.incrementAndGet();
+      beforeExtract.accept(chunk);
       return super.extractUnified(chunk);
     }
   }
@@ -126,7 +129,8 @@ class HarvestRunServiceTests {
       kind = "secret"
       label = "Token"
       """);
-    Files.writeString(paths.pinsFile(), "{\"scripted\":\"" + Hash.sha256Hex(script) + "\"}");
+    Files.writeString(paths.pinsFile(), "{\"scripted\":{\"entrypoint\":\"" + Hash.sha256Hex(script)
+      + "\",\"manifest\":\"" + Hash.sha256Hex(dir.resolve("harvester.toml")) + "\"}}");
   }
 
   private HarvestRunService service(Duration timeout) {
@@ -175,7 +179,11 @@ class HarvestRunServiceTests {
   }
 
   private void createSource(String id, ObjectNode config, SourceMode mode) {
-    store.createSource(new HarvestSource(id, profileId, "scripted", config.toString(), mode, 3600, null, null,
+    createSource(id, config, mode, null, null);
+  }
+
+  private void createSource(String id, ObjectNode config, SourceMode mode, Integer maxItems, Long maxChars) {
+    store.createSource(new HarvestSource(id, profileId, "scripted", config.toString(), mode, 3600, maxItems, maxChars,
       SourceStatus.ACTIVE, null, T0, 0, null, T0));
   }
 
@@ -538,6 +546,132 @@ class HarvestRunServiceTests {
       Thread.sleep(100);
     }
     assertThat(ProcessHandle.of(Long.parseLong(pid.strip()))).isEmpty();
+  }
+
+  @Test
+  void aSweepCannotDeleteEveryItem() throws Exception {
+    seedItems("a", "b");
+    reconfigure("s", withRecords(sweep()));
+
+    HarvestRunSummary summary = run("s");
+
+    assertThat(summary.sweepApplied()).isFalse();
+    assertThat(summary.sweepBlockedCount()).isEqualTo(2L);
+    assertThat(live()).isEqualTo(2);
+  }
+
+  @Test
+  void aModelFailureFailsTheRunAndKeepsTheCursorBehindIt() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT first"), checkpoint(1), document("b", "EVENT poison"), checkpoint(2)), SourceMode.FULL);
+    model.beforeExtract = chunk -> {
+      if (chunk.transcript().contains("poison")) {
+        throw new ModelUnavailableException("model is down");
+      }
+    };
+
+    HarvestRunSummary summary = run("s");
+
+    assertThat(summary.status()).isEqualTo(RunStatus.FAILED);
+    assertThat(summary.errorClass()).isEqualTo(ErrorClass.TRANSIENT);
+    assertThat(source().cursorJson()).isEqualTo("{\"next\":1}");
+  }
+
+  @Test
+  void anInterruptedRunResumesFromItsLastCheckpoint() throws Exception {
+    createSource("s", config().put("echoCursor", true), SourceMode.FULL);
+    store.saveCursor("s", "{\"next\":7}");
+    store.startRun("s", false);
+
+    store.interruptRunningRuns(T0);
+    run("s");
+
+    assertThat(search("next").getFirst().content()).contains("7");
+  }
+
+  @Test
+  void aHarvesterOverItsItemLimitFailsBeforeTheExtraItemIsIngested() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT allowed"), document("b", "EVENT excess")), SourceMode.FULL, 1, null);
+
+    HarvestRunSummary summary = run("s");
+
+    assertThat(summary.status()).isEqualTo(RunStatus.FAILED);
+    assertThat(summary.errorClass()).isEqualTo(ErrorClass.FATAL);
+    assertThat(search("allowed")).hasSize(1);
+    assertThat(search("excess")).isEmpty();
+  }
+
+  @Test
+  void aHarvesterOverItsCharLimitFailsBeforeTheExtraItemIsIngested() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT allowed"), document("b", "EVENT excess")), SourceMode.FULL, null, 5L);
+
+    HarvestRunSummary summary = run("s");
+
+    assertThat(summary.status()).isEqualTo(RunStatus.FAILED);
+    assertThat(search("allowed")).as("the first item may exceed the limit").hasSize(1);
+    assertThat(search("excess")).isEmpty();
+  }
+
+  @Test
+  void aRemovedSourceStopsTheRun() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT first"), document("b", "EVENT second")), SourceMode.FULL);
+    model.beforeExtract = chunk -> store.deleteSource("s");
+
+    HarvestRunSummary summary = run("s");
+
+    assertThat(summary.status()).isEqualTo(RunStatus.FAILED);
+    assertThat(search("second")).isEmpty();
+  }
+
+  private UUID submitBlockedOnTheModel(CompletableFuture<Void> finished, AtomicReference<Throwable> failure,
+                                       HarvestRunService service, java.util.concurrent.CountDownLatch inModel) {
+    model.beforeExtract = chunk -> {
+      inModel.countDown();
+      try {
+        Thread.sleep(60_000);
+      } catch (InterruptedException e) {
+        throw new ModelUnavailableException("interrupted during the model call");
+      }
+    };
+    return tasks.submit("harvest", "p", progress -> {
+      try {
+        service.run("s", false, progress);
+      } catch (RuntimeException e) {
+        failure.set(e);
+      } finally {
+        finished.complete(null);
+      }
+      return MAPPER.createObjectNode();
+    });
+  }
+
+  @Test
+  void cancelDuringAModelCallIsRecordedAsCancelled() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT text")), SourceMode.FULL);
+    java.util.concurrent.CountDownLatch inModel = new java.util.concurrent.CountDownLatch(1);
+    CompletableFuture<Void> finished = new CompletableFuture<>();
+    UUID task = submitBlockedOnTheModel(finished, new AtomicReference<>(), service(Duration.ofSeconds(60)), inModel);
+    assertThat(inModel.await(30, TimeUnit.SECONDS)).isTrue();
+
+    tasks.cancel(task);
+    finished.get(30, TimeUnit.SECONDS);
+
+    assertThat(lastRun().status()).isEqualTo(RunStatus.CANCELLED);
+  }
+
+  @Test
+  void aShutdownLeavesTheRunInterrupted() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT text")), SourceMode.FULL);
+    java.util.concurrent.CountDownLatch inModel = new java.util.concurrent.CountDownLatch(1);
+    CompletableFuture<Void> finished = new CompletableFuture<>();
+    HarvestRunService service = service(Duration.ofSeconds(60));
+    UUID task = submitBlockedOnTheModel(finished, new AtomicReference<>(), service, inModel);
+    assertThat(inModel.await(30, TimeUnit.SECONDS)).isTrue();
+
+    service.beginShutdown();
+    tasks.cancel(task);
+    finished.get(30, TimeUnit.SECONDS);
+
+    assertThat(lastRun().status()).isEqualTo(RunStatus.INTERRUPTED);
   }
 
   @Test

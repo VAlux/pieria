@@ -210,4 +210,10 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - Each life of an item has its own session id, saved in `harvest_items`, because memory ids hash the session and a forgotten memory stays forgotten. An item deleted at the source that later returns would otherwise never reappear.
   - A run's graph adoption covers only the sessions that run wrote.
   - Failing sources back off exponentially up to `pieria.harvest.max-backoff`. Only an `auth` error pauses a source.
+  - `pins.json` holds both an `entrypoint` and a `manifest` checksum per harvester, because the manifest decides what runs.
+  - A sweep that would delete every item is also held back, however small the source.
+  - The daemon enforces `maxItemsPerRun` and `maxCharsPerRun` itself, and a harvester that exceeds them fails the run before the extra item is ingested.
+  - Deleting an item forgets every memory in its session, including earlier versions and anything from an interrupted ingest. Edits retire what the new version no longer says, except when the model's output for the item could not be read, in which case nothing is retired and the item is retried when next reported.
+  - A memory the user has corrected is theirs: an edit neither retires it nor brings back the wording they removed, and the text they wrote survives the item's deletion.
+  - A failed run still adopts the graph for the sessions it wrote. A graceful daemon shutdown leaves runs `interrupted` and due immediately.
   - The per-profile recall weight for harvested memories is deferred to phase 5, where real data exists to tune it.

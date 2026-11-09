@@ -197,7 +197,8 @@ class SqliteHarvestStoreTests {
     assertThat(store.links("s", "item")).containsExactlyInAnyOrder(first, second);
 
     store.addLinks("s", "item", List.of(new MemoryLink("m1", "a1", "r1b")));
-    assertThat(store.links("s", "item")).contains(new MemoryLink("m1", "a1", "r1b")).hasSize(2);
+    assertThat(store.links("s", "item")).as("a link keeps the revision it was made from")
+      .contains(new MemoryLink("m1", "a1", "r1")).hasSize(2);
 
     store.removeLinks("s", "item", List.of("m1"));
     assertThat(store.links("s", "item")).containsExactly(second);

@@ -238,6 +238,9 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     String column = (alias.isEmpty() ? "memories" : alias) + ".origin_source_id";
     SourceFilter filter = SOURCES.get();
+    if (filter.ownOnly()) {
+      return " AND " + column + " IS NULL";
+    }
     StringBuilder clause = new StringBuilder();
     if (!filter.include().isEmpty()) {
       clause.append(" AND ").append(column).append(" IN (").append(quotedList(filter.include())).append(")");
@@ -868,6 +871,12 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public void deleteSessionMessages(String profileId, String sessionId) {
     jdbc.sql("DELETE FROM messages WHERE profile_id = ? AND session_id = ?").params(profileId, sessionId).update();
+  }
+
+  @Override
+  public List<String> activeMemoryIdsInSession(String profileId, String sessionId) {
+    return jdbc.sql("SELECT id FROM memories WHERE profile_id = ? AND session_id = ? AND forgotten = 0")
+      .params(profileId, sessionId).query(String.class).list();
   }
 
   @Override

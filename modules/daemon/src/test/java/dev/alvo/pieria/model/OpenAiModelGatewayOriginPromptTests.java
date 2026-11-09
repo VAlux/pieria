@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Prompt assembly for external-source content, through a prompt-capturing fake {@link ChatModel}. */
 class OpenAiModelGatewayOriginPromptTests {
@@ -78,6 +79,14 @@ class OpenAiModelGatewayOriginPromptTests {
     assertThat(plain).doesNotContain(guidance);
     assertThat(withOrigin).contains(guidance);
     assertThat(withOrigin.replace("\n" + guidance, "")).isEqualTo(plain);
+  }
+
+  @Test
+  void unreadableOutputIsReportedForHarvestedContentOnly() {
+    OpenAiModelGateway gateway = gateway(new CapturingChatModel("not json at all"), new CapturingChatModel("an answer"));
+
+    assertThat(gateway.extractUnified(CHUNK)).isEmpty();
+    assertThatThrownBy(() -> gateway.extractUnified(CHUNK, ORIGIN)).isInstanceOf(UnparseableExtractionException.class);
   }
 
   private static RecallCandidate candidate(String content, String payload) {

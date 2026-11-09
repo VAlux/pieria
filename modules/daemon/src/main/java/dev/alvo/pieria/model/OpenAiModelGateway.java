@@ -458,7 +458,7 @@ public class OpenAiModelGateway implements ModelGateway {
       ? chatResponse.getResult().getOutput().getText() : null;
 
     List<UnifiedCandidate> candidates = new ArrayList<>();
-    for (UnifiedCandidateDto raw : parseUnifiedResilient(rawText, chunk.index())) {
+    for (UnifiedCandidateDto raw : parseUnifiedResilient(rawText, chunk.index(), origin != null)) {
       if (raw == null || raw.content() == null || raw.content().isBlank()) {
         continue;
       }
@@ -476,7 +476,7 @@ public class OpenAiModelGateway implements ModelGateway {
     return candidates;
   }
 
-  private List<UnifiedCandidateDto> parseUnifiedResilient(String rawText, int chunkIndex) {
+  private List<UnifiedCandidateDto> parseUnifiedResilient(String rawText, int chunkIndex, boolean reportUnreadable) {
     if (rawText == null || rawText.isBlank()) {
       return List.of();
     }
@@ -525,6 +525,10 @@ public class OpenAiModelGateway implements ModelGateway {
 
     LOGGER.warn("stage=extract chunk={} model returned unparseable candidates output; treating as empty. Raw response: {}",
       chunkIndex, rawText);
+    if (reportUnreadable) {
+      // For harvested content an empty result would retire whatever the item used to say.
+      throw new UnparseableExtractionException(chunkIndex);
+    }
     return List.of();
   }
 

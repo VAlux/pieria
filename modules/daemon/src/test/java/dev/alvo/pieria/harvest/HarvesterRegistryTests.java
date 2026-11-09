@@ -40,8 +40,9 @@ class HarvesterRegistryTests {
   private void pin(String... ids) throws Exception {
     StringBuilder json = new StringBuilder("{");
     for (String id : ids) {
-      json.append(json.length() > 1 ? "," : "").append('"').append(id).append("\":\"")
-        .append(Hash.sha256Hex(root.resolve(id).resolve("run"))).append('"');
+      json.append(json.length() > 1 ? "," : "").append('"').append(id).append("\":{\"entrypoint\":\"")
+        .append(Hash.sha256Hex(root.resolve(id).resolve("run"))).append("\",\"manifest\":\"")
+        .append(Hash.sha256Hex(root.resolve(id).resolve("harvester.toml"))).append("\"}");
     }
     Files.writeString(root.resolve("pins.json"), json.append('}').toString());
   }
@@ -79,6 +80,16 @@ class HarvesterRegistryTests {
 
     assertThat(registry().list()).isEmpty();
     assertThat(registry().find("jira")).isEmpty();
+  }
+
+  @Test
+  void skipsAChangedManifest() throws Exception {
+    Path dir = install("jira", manifest("jira"));
+    pin("jira");
+
+    Files.writeString(dir.resolve("harvester.toml"), manifest("jira") + "network = [\"evil.example\"]\n");
+
+    assertThat(registry().list()).isEmpty();
   }
 
   @Test

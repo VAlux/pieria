@@ -19,7 +19,11 @@ import dev.alvo.pieria.ingestion.IngestionService;
 import dev.alvo.pieria.ingestion.TranscriptNormalizer;
 import dev.alvo.pieria.ingestion.model.Chunk;
 import dev.alvo.pieria.ingestion.model.UnifiedCandidate;
+import dev.alvo.pieria.ingestion.model.VerificationResult;
+import dev.alvo.pieria.ingestion.model.VerificationVerdict;
 import dev.alvo.pieria.model.FakeModelGateway;
+import dev.alvo.pieria.model.ModelUnavailableException;
+import dev.alvo.pieria.model.UnparseableExtractionException;
 import dev.alvo.pieria.onboarding.ContentIngestor;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
 import org.flywaydb.core.Flyway;
@@ -37,6 +41,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class HarvestItemIngestorTests {
 
@@ -46,11 +51,31 @@ class HarvestItemIngestorTests {
 
   private static final class CountingGateway extends FakeModelGateway {
     final AtomicInteger extractions = new AtomicInteger();
+    volatile boolean unparseable;
+    volatile String failVerifyOn;
+    volatile String fixedSentence;
 
     @Override
     public List<UnifiedCandidate> extractUnified(Chunk chunk) {
       extractions.incrementAndGet();
+      if (unparseable) {
+        throw new UnparseableExtractionException(chunk.index());
+      }
+      if (fixedSentence != null) {
+        return List.of(new UnifiedCandidate(fixedSentence, classify(fixedSentence), chunk.index(), "extract"));
+      }
       return super.extractUnified(chunk);
+    }
+
+    @Override
+    public VerificationResult verify(String content, String transcript) {
+      if (failVerifyOn != null && content.contains(failVerifyOn)) {
+        throw new ModelUnavailableException("model is down");
+      }
+      if (fixedSentence != null) {
+        return new VerificationResult(VerificationVerdict.PASS, content, "supported");
+      }
+      return super.verify(content, transcript);
     }
   }
 
@@ -297,6 +322,103 @@ class HarvestItemIngestorTests {
     assertThat(messageSearch("zanzibar")).isEmpty();
     assertThat(store.findItem(source.id(), "doc-1")).isEmpty();
     assertThat(store.links(source.id(), "doc-1")).isEmpty();
+  }
+
+  @Test
+  void anEditedThenDeletedItemTakesItsHistoryWithIt() {
+    ingest(doc("Page", T0, "EVENT first version zanzibar"));
+    ingest(doc("Page", T1, "EVENT second version timbuktu"));
+
+    ingestor.delete(source, "doc-1");
+
+    TemporalSnapshot before = memories.temporalSnapshot(T0.plusSeconds(60).toString(), null);
+    assertThat(memories.atSnapshot(before, () -> search("zanzibar"))).isEmpty();
+  }
+
+  @Test
+  void aUsersCorrectionSurvivesTheItemsDeletion() {
+    ingest(doc("Page", T0, "EVENT first version zanzibar"));
+    Memory memory = search("zanzibar").getFirst();
+    RevisionResponse current = memories.revisions(profileId, memory.id()).getLast();
+    memories.revise(profileId, memory.id(), new RevisionRequest(current.assertionId(), current.revisionId(),
+      "the user corrected this", null, null, null));
+
+    ingestor.delete(source, "doc-1");
+
+    assertThat(search("zanzibar")).isEmpty();
+    assertThat(search("corrected")).hasSize(1);
+  }
+
+  @Test
+  void anInterruptedIngestLeavesNothingBehindWhenTheItemIsDeleted() {
+    HarvestRecord.ConversationThread thread = thread(turn(1, "Ann", T0, padded("EVENT alpha")), turn(2, "Bob", T0, padded("EVENT bravo")));
+    model.failVerifyOn = "bravo";
+    assertThatThrownBy(() -> ingest(thread)).isInstanceOf(ModelUnavailableException.class);
+    assertThat(search("alpha")).as("the first chunk was stored before the failure").isNotEmpty();
+    model.failVerifyOn = null;
+    ingest(thread);
+
+    ingestor.delete(source, "t-1");
+
+    assertThat(search("alpha")).isEmpty();
+  }
+
+  @Test
+  void aFailedFirstIngestCanStillBeDeleted() {
+    HarvestRecord.ConversationThread thread = thread(turn(1, "Ann", T0, padded("EVENT alpha")), turn(2, "Bob", T0, padded("EVENT bravo")));
+    model.failVerifyOn = "bravo";
+    assertThatThrownBy(() -> ingest(thread)).isInstanceOf(ModelUnavailableException.class);
+
+    ingestor.delete(source, "t-1");
+
+    assertThat(search("alpha")).isEmpty();
+  }
+
+  @Test
+  void anUnreadableExtractionRetiresNothingAndIsRetried() {
+    ingest(doc("Page", T0, "EVENT first version zanzibar"));
+    model.unparseable = true;
+    ingest(doc("Page", T1, "EVENT second version timbuktu"));
+    assertThat(search("zanzibar")).as("unreadable output says nothing about the source").hasSize(1);
+
+    model.unparseable = false;
+    ItemOutcome retried = ingest(doc("Page", T1, "EVENT second version timbuktu"));
+
+    assertThat(retried.changed()).isTrue();
+    assertThat(search("timbuktu")).hasSize(1);
+    assertThat(search("zanzibar")).isEmpty();
+  }
+
+  @Test
+  void anUnreadableThreadChunkIsExtractedAgain() {
+    HarvestRecord.ConversationThread thread = thread(turn(1, "Ann", T0, "EVENT about zanzibar"));
+    model.unparseable = true;
+    ingest(thread);
+    model.unparseable = false;
+
+    ingest(thread);
+
+    assertThat(search("zanzibar")).hasSize(1);
+  }
+
+  @Test
+  void aUsersCorrectionSurvivesRepeatedEdits() {
+    model.fixedSentence = "EVENT the sentence stays zanzibar";
+    ingest(doc("Page", T0, "one"));
+    Memory memory = search("zanzibar").getFirst();
+    RevisionResponse current = memories.revisions(profileId, memory.id()).getLast();
+    memories.revise(profileId, memory.id(), new RevisionRequest(current.assertionId(), current.revisionId(),
+      "the user corrected this", null, null, null));
+
+    ingest(doc("Page", T1, "two"));
+    ingest(doc("Page", T1.plusSeconds(3600), "three"));
+    model.fixedSentence = "EVENT a different sentence";
+    ingest(doc("Page", T1.plusSeconds(7200), "four"));
+
+    assertThat(memories.revisions(profileId, memory.id()))
+      .filteredOn(revision -> revision.recordedTo() == null && !revision.invalidated() && revision.validTo() == null)
+      .singleElement()
+      .satisfies(revision -> assertThat(revision.content()).isEqualTo("the user corrected this"));
   }
 
   @Test

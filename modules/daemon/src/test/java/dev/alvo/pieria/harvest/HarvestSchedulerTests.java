@@ -249,14 +249,54 @@ class HarvestSchedulerTests {
   }
 
   @Test
-  void resumesFromTheLastCheckpointAfterRecovery() {
-    store.createSource(new HarvestSource("s", profileId, "jira", "{}", SourceMode.FULL, 3600, null, null, SourceStatus.ACTIVE, "{\"next\":7}",
-      Instant.now().plusSeconds(9999), 0, null, PAST));
-    store.startRun("s", false);
+  void aRetriedTaskCannotRunASourceThatIsAlreadyRunning() throws Exception {
+    source("s", 0, null);
+    java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw new IllegalStateException("boom");
+      }
+      started.countDown();
+      release.await(10, TimeUnit.SECONDS);
+      return success();
+    });
+    HarvestScheduler scheduler = scheduler(true, 5);
+    java.util.UUID crashed = scheduler.launch("s", false).orElseThrow();
+    await(() -> tasks.find(crashed).map(task -> task.status() == dev.alvo.pieria.task.TaskStatus.FAILED).orElse(false));
+    assertThat(scheduler.launch("s", false)).isPresent();
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
 
-    scheduler(true, 1).recover();
+    tasks.retry(crashed);
+    Thread.sleep(300);
 
-    assertThat(find("s").cursorJson()).isEqualTo("{\"next\":7}");
+    assertThat(calls.get()).isEqualTo(2);
+    release.countDown();
+  }
+
+  @Test
+  void aShutdownMakesTheSourceDueImmediately() throws Exception {
+    source("s", 2, null);
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenAnswer(invocation -> {
+      started.countDown();
+      release.await(10, TimeUnit.SECONDS);
+      throw new dev.alvo.pieria.task.TaskCancelledException();
+    });
+    HarvestScheduler scheduler = scheduler(true, 1);
+    assertThat(scheduler.launch("s", false)).isPresent();
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+    Instant before = Instant.now();
+
+    scheduler.shutdown();
+    release.countDown();
+
+    awaitRescheduled("s");
+    verify(runs).beginShutdown();
+    assertThat(find("s").nextRunAt()).isBetween(before.minusSeconds(1), Instant.now().plusSeconds(1));
+    assertThat(find("s").consecutiveFailures()).isEqualTo(2);
   }
 
   @Test
@@ -282,14 +322,12 @@ class HarvestSchedulerTests {
   }
 
   @Test
-  void failedRunSkipsGraphAdoption() throws Exception {
+  void aFailedRunStillAdoptsTheSessionsItWrote() throws Exception {
     source("s", 0, null);
     returns(summary(RunStatus.FAILED, ErrorClass.FATAL, 3, List.of("session-1")));
 
     scheduler(true, 1).tick();
 
-    awaitRescheduled("s");
-    Thread.sleep(200);
-    verify(reminiscence, never()).adoptSessionOrphans(any(), anyList(), any(IngestProgressListener.class));
+    verify(reminiscence, timeout(5_000)).adoptSessionOrphans(eq("p"), eq(List.of("session-1")), any(IngestProgressListener.class));
   }
 }

@@ -215,6 +215,7 @@ public class SqliteHarvestStore implements HarvestStore {
     jdbc.sql("DELETE FROM harvest_items WHERE source_id = ? AND external_id = ?").params(sourceId, externalId).update();
   }
 
+  /** A link keeps the revision it was made from, which is how a later user correction is recognized. */
   @Override
   @Transactional
   public void addLinks(String sourceId, String externalId, List<MemoryLink> links) {
@@ -222,7 +223,7 @@ public class SqliteHarvestStore implements HarvestStore {
       jdbc.sql("""
           INSERT INTO harvest_item_memories (source_id, external_id, memory_id, assertion_id, revision_id)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT (source_id, external_id, memory_id, assertion_id) DO UPDATE SET revision_id = excluded.revision_id""")
+          ON CONFLICT (source_id, external_id, memory_id, assertion_id) DO NOTHING""")
         .params(sourceId, externalId, link.memoryId(), link.assertionId(), link.revisionId())
         .update();
     }
