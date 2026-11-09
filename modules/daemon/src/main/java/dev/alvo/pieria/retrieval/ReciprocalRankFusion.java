@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemoryTimes;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
@@ -77,6 +78,7 @@ public final class ReciprocalRankFusion {
   private final int k;
   private final Map<RetrievalChannelType, Double> weights;
   private final double traceBoost;
+  private final double harvestedWeight;
 
   /**
    * @param k       the RRF rank-smoothing constant (default approximately 60); must be {@code >= 1}
@@ -95,12 +97,22 @@ public final class ReciprocalRankFusion {
    * @throws IllegalArgumentException if {@code k < 1}
    */
   public ReciprocalRankFusion(int k, Map<RetrievalChannelType, Double> weights, double traceBoost) {
+    this(k, weights, traceBoost, 1.0);
+  }
+
+  /**
+   * @param harvestedWeight multiplier applied to memories from an external source; {@code 1.0}
+   *                        leaves ordering untouched and doesn't read any payload
+   * @throws IllegalArgumentException if {@code k < 1}
+   */
+  public ReciprocalRankFusion(int k, Map<RetrievalChannelType, Double> weights, double traceBoost, double harvestedWeight) {
     if (k < 1) {
       throw new IllegalArgumentException("RRF k must be >= 1, was " + k);
     }
     this.k = k;
     this.weights = getWeights(weights);
     this.traceBoost = traceBoost <= 0 ? 1.0 : traceBoost;
+    this.harvestedWeight = harvestedWeight;
   }
 
   private static Map<RetrievalChannelType, Double> getWeights(Map<RetrievalChannelType, Double> weights) {
@@ -159,7 +171,7 @@ public final class ReciprocalRankFusion {
 
     List<RecallCandidate> fused = new ArrayList<>(byMemory.size());
     for (FusionAccumulator acc : byMemory.values()) {
-      double score = acc.score(k, weights) * boostFor(acc.memory);
+      double score = acc.score(k, weights) * boostFor(acc.memory) * harvestedWeightFor(acc.memory);
       fused.add(new RecallCandidate(acc.memory, score, acc.source(k, weights)));
     }
 
@@ -177,6 +189,10 @@ public final class ReciprocalRankFusion {
       return 1.0;
     }
     return memory.payload().contains("\"source\":\"trace\"") ? traceBoost : 1.0;
+  }
+
+  private double harvestedWeightFor(Memory memory) {
+    return harvestedWeight != 1.0 && MemoryOrigins.parse(memory.payload()).isPresent() ? harvestedWeight : 1.0;
   }
 
   /**

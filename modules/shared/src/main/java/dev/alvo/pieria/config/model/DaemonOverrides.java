@@ -70,7 +70,8 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval, Wiki wik
     Boolean rerankModelEnabled,
     Integer rerankWindow,
     Integer rerankSnippetChars,
-    Long rerankTimeoutMs) {
+    Long rerankTimeoutMs,
+    Double harvestedWeight) {
   }
 
   /**
@@ -94,7 +95,7 @@ public record DaemonOverrides(Ingestion ingestion, Retrieval retrieval, Wiki wik
       retrieval.codeGraphFanout(), retrieval.codeGraphSeedLimit(), retrieval.codeGraphMinConfidence(),
       retrieval.recallMode(), retrieval.nearDuplicateThreshold(), retrieval.semanticDuplicateThreshold(),
       retrieval.rerankEnabled(), retrieval.rerankSemanticWeight(), retrieval.rerankModelEnabled(),
-      retrieval.rerankWindow(), retrieval.rerankSnippetChars(), retrieval.rerankTimeoutMs()))
+      retrieval.rerankWindow(), retrieval.rerankSnippetChars(), retrieval.rerankTimeoutMs(), retrieval.harvestedWeight()))
       && (wiki == null || allNull(wiki.enabled(),wiki.maxSources(),wiki.inputTokens(),wiki.outputTokens(),
         wiki.semanticAdmit(),wiki.semanticRetain(),wiki.lexicalAdmit(),wiki.lexicalRetain(),wiki.subjectLexical(),
         wiki.splitSources(),wiki.splitTokens(),wiki.mergeOverlap(),wiki.mergeCosine(),wiki.mergeLexical()));

@@ -74,7 +74,8 @@ public class ProfileConfigService {
         retrieval.rerankModelEnabled(),
         retrieval.rerankWindow(),
         retrieval.rerankSnippetChars(),
-        retrieval.rerankTimeoutMs()), resolved.wiki().overrides());
+        retrieval.rerankTimeoutMs(),
+        retrieval.harvestedWeight()), resolved.wiki().overrides());
   }
 
   /**

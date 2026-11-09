@@ -80,7 +80,7 @@ class EffectiveConfigResolverTests {
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, true, 5000, true, 0.70),
       new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 1.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-        false, 0.4, true, 30, 400, 4000L),
+        false, 0.4, true, 30, 400, 4000L, 1.0),
       null);
   }
 
@@ -97,7 +97,7 @@ class EffectiveConfigResolverTests {
                                                           int snippetChars, long timeoutMs) {
     return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
       1.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-      rerankEnabled, semanticWeight, modelEnabled, window, snippetChars, timeoutMs);
+      rerankEnabled, semanticWeight, modelEnabled, window, snippetChars, timeoutMs, 1.0);
   }
 
   private static PieriaProperties.Retrieval overlayFor(PieriaProperties global, DaemonOverrides overrides) {
@@ -175,6 +175,29 @@ class EffectiveConfigResolverTests {
     assertThat(resolver.resolve("p2").retrieval().rrfK()).isEqualTo(60);
   }
 
+  private static double harvestedWeightFrom(String json) {
+    ConfigOnlyStore store = new ConfigOnlyStore();
+    store.configs.put("p1", json);
+    return new EffectiveConfigResolver(propertiesWith(retrievalWith(true, 0.4, true, 30, 400, 4000L)), store)
+      .resolve("p1").retrieval().harvestedWeight();
+  }
+
+  @Test
+  void aProfileCanOverrideTheHarvestedWeight() {
+    assertThat(harvestedWeightFrom("{\"retrieval\":{\"harvested-weight\":0.25}}")).isEqualTo(0.25);
+  }
+
+  @Test
+  void theHarvestedWeightInheritsTheGlobalValue() {
+    assertThat(harvestedWeightFrom("{\"retrieval\":{\"rrf-k\":30}}")).isEqualTo(1.0);
+  }
+
+  @Test
+  void theHarvestedWeightIsClamped() {
+    assertThat(harvestedWeightFrom("{\"retrieval\":{\"harvested-weight\":5.0}}")).isEqualTo(1.0);
+    assertThat(harvestedWeightFrom("{\"retrieval\":{\"harvested-weight\":-1.0}}")).isEqualTo(0.0);
+  }
+
   @Test
   void rerankOverridesOverlayFieldByFieldAndNullsInherit() {
     PieriaProperties global = propertiesWith(retrievalWith(true, 0.4, true, 30, 400, 4000L));
@@ -182,7 +205,7 @@ class EffectiveConfigResolverTests {
     DaemonOverrides overrides = new DaemonOverrides(null, new DaemonOverrides.Retrieval(
       null, null, null, null, null, null, null, null, null, null, null, null, null,
       null, null, null, null, null, null, null, null, null,
-      false, null, null, 12, null, null));
+      false, null, null, 12, null, null, null));
 
     PieriaProperties.Retrieval effective = overlayFor(global, overrides);
 

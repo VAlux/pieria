@@ -311,6 +311,8 @@ public record PieriaProperties(
    *                                   with no stored embedding (never vectorized, still queued, or
    *                                   {@code task} type) fall back to the lexical check alone.
    * @param rerankEnabled              master switch for the reranking stage (off ⇒ fused order is final)
+   * @param harvestedWeight            multiplies harvested memories' fusion score, in [0,1]. It stops at 1
+   *                                   so settings can only demote untrusted text, never promote it
    * @param rerankSemanticWeight       the cosine term's share of the blended score, in [0,1]; 0
    *                                   disables the deterministic re-scorer alone
    * @param rerankModelEnabled         whether the model-backed reranker runs (off ⇒ heuristic reranker only)
@@ -346,12 +348,14 @@ public record PieriaProperties(
                           @DefaultValue("true") boolean rerankModelEnabled,
                           @DefaultValue("30") int rerankWindow,
                           @DefaultValue("400") int rerankSnippetChars,
-                          @DefaultValue("4000") long rerankTimeoutMs) {
+                          @DefaultValue("4000") long rerankTimeoutMs,
+                          @DefaultValue("1.0") double harvestedWeight) {
 
     public Retrieval {
       nearDuplicateThreshold = Math.clamp(nearDuplicateThreshold, 0.0, 1.0);
       semanticDuplicateThreshold = Math.clamp(semanticDuplicateThreshold, 0.0, 1.0);
       rerankSemanticWeight = Math.clamp(rerankSemanticWeight, 0.0, 1.0);
+      harvestedWeight = Math.clamp(harvestedWeight, 0.0, 1.0);
     }
   }
 }

@@ -103,7 +103,7 @@ class PieriaConfigBindingTests {
       new DaemonOverrides.Ingestion(8000, null, null, null, null, null),
       new DaemonOverrides.Retrieval(null, null, null, null, null, null, null, 0.0,
         null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-        null, null, null, null, null, null));
+        null, null, null, null, null, null, null));
 
     String json = ConfigCodec.toJson(overrides);
     assertThat(json).contains("chunk-size-chars").contains("weight-graph");

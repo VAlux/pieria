@@ -67,3 +67,4 @@
 # rerank-window = 30
 # rerank-snippet-chars = 400
 # rerank-timeout-ms = 4000
+# harvested-weight = 1.0

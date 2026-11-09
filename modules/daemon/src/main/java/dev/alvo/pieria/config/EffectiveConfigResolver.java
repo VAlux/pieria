@@ -117,7 +117,8 @@ public class EffectiveConfigResolver {
       nvl(o.rerankModelEnabled(), g.rerankModelEnabled()),
       nvl(o.rerankWindow(), g.rerankWindow()),
       nvl(o.rerankSnippetChars(), g.rerankSnippetChars()),
-      nvl(o.rerankTimeoutMs(), g.rerankTimeoutMs()));
+      nvl(o.rerankTimeoutMs(), g.rerankTimeoutMs()),
+      nvl(o.harvestedWeight(), g.harvestedWeight()));
   }
 
   private static <T> T nvl(T override, T global) {

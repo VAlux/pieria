@@ -55,7 +55,7 @@ final class TraceTestSupport {
         1, 0, 0, false, 3, 3, 32, 5, true, 5000, true, 0.70),
       new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
         0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-        false, 0.4, true, 30, 400, 4000L),
+        false, 0.4, true, 30, 400, 4000L, 1.0),
       null);
   }
 }

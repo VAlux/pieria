@@ -162,7 +162,7 @@ public class RetrievalService {
   private Pipeline buildPipeline(Retrieval cfg) {
     ReciprocalRankFusion fusion =
       new ReciprocalRankFusion(cfg.rrfK(), getWeightsForRetrievalChannels(cfg),
-        traceProperties.recallBoost());
+        traceProperties.recallBoost(), cfg.harvestedWeight());
 
     // Wave 1: the primary channels run in a fixed fan-out order; fusion + tie-breaking make results
     // deterministic. The code SymbolFtsChannel joins wave 1 when enabled (weight > 0).

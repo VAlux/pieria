@@ -207,6 +207,15 @@
     "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
   },
   {
+    "key": "retrieval.harvested-weight",
+    "scope": "profile",
+    "section": "rerank",
+    "tier": "live",
+    "kind": "double",
+    "label": "Harvested memory weight",
+    "hint": "Multiplies the fusion score of harvested memories. 1 changes nothing; lower values favour your own memories."
+  },
+  {
     "key": "retrieval.rerank-model-enabled",
     "scope": "profile",
     "section": "rerank",
@@ -580,6 +589,15 @@
     "kind": "double",
     "label": "Semantic blend weight",
     "hint": "Share of the score taken from cosine-to-query rather than fusion rank. 0 disables the blend."
+  },
+  {
+    "key": "pieria.retrieval.harvested-weight",
+    "scope": "global",
+    "section": "rerank",
+    "tier": "restart",
+    "kind": "double",
+    "label": "Harvested memory weight",
+    "hint": "Multiplies the fusion score of harvested memories. 1 changes nothing; lower values favour your own memories."
   },
   {
     "key": "pieria.retrieval.rerank-model-enabled",

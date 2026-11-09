@@ -1,6 +1,8 @@
 package dev.alvo.pieria.retrieval;
 
+import dev.alvo.pieria.domain.memory.IngestOrigin;
 import dev.alvo.pieria.domain.memory.Memory;
+import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.retrieval.model.RecallCandidate;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
@@ -37,6 +39,64 @@ class ReciprocalRankFusionTests {
 
   private static ReciprocalRankFusion rrf() {
     return new ReciprocalRankFusion(K, WEIGHTS);
+  }
+
+  private static Memory harvested(String id, Instant createdAt) {
+    return new Memory(id, "s1", MemoryType.FACT, "content-" + id, null, null, false,
+      MemoryOrigins.withOrigin("{}", new IngestOrigin("site", "html", id, null)), null, createdAt);
+  }
+
+  private static List<RetrievalCandidate> harvestedFirst(Instant t) {
+    return List.of(hit(harvested("h", t), RetrievalChannelType.FTS_MEMORY, 1), hit(mem("own", t), RetrievalChannelType.FTS_MEMORY, 2));
+  }
+
+  private static ReciprocalRankFusion weighted(double harvestedWeight) {
+    return new ReciprocalRankFusion(K, WEIGHTS, 1.0, harvestedWeight);
+  }
+
+  private static double score(List<RecallCandidate> fused, String id) {
+    return fused.stream().filter(candidate -> candidate.memory().id().equals(id)).findFirst().orElseThrow().score();
+  }
+
+  @Test
+  void aWeightOfOneChangesNothing() {
+    Instant t = Instant.parse("2026-01-01T00:00:00Z");
+
+    assertThat(weighted(1.0).fuse(harvestedFirst(t))).isEqualTo(rrf().fuse(harvestedFirst(t)));
+  }
+
+  @Test
+  void lowersHarvestedMemories() {
+    Instant t = Instant.parse("2026-01-01T00:00:00Z");
+
+    assertThat(weighted(0.1).fuse(harvestedFirst(t))).extracting(candidate -> candidate.memory().id()).containsExactly("own", "h");
+  }
+
+  @Test
+  void zeroSinksButKeepsHarvestedMemories() {
+    Instant t = Instant.parse("2026-01-01T00:00:00Z");
+
+    List<RecallCandidate> fused = weighted(0.0).fuse(harvestedFirst(t));
+
+    assertThat(fused).extracting(candidate -> candidate.memory().id()).containsExactly("own", "h");
+    assertThat(score(fused, "h")).isZero();
+  }
+
+  @Test
+  void leavesOwnMemoriesAlone() {
+    Instant t = Instant.parse("2026-01-01T00:00:00Z");
+
+    assertThat(score(weighted(0.5).fuse(harvestedFirst(t)), "own")).isEqualTo(score(weighted(1.0).fuse(harvestedFirst(t)), "own"));
+  }
+
+  @Test
+  void anOpaquePayloadIsNotHarvested() {
+    Instant t = Instant.parse("2026-01-01T00:00:00Z");
+    Memory opaque = new Memory("o", "s1", MemoryType.FACT, "c", null, null, false, "not json", null, t);
+
+    double score = weighted(0.1).fuse(List.of(hit(opaque, RetrievalChannelType.FTS_MEMORY, 1))).getFirst().score();
+
+    assertThat(score).isEqualTo(rrf().fuse(List.of(hit(opaque, RetrievalChannelType.FTS_MEMORY, 1))).getFirst().score());
   }
 
   @Test

@@ -65,14 +65,14 @@ class RetrievalServiceTests {
 
   private static PieriaProperties.Retrieval retrievalCfg() {
     return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-      false, 0.4, true, 30, 400, 4000L);
+      false, 0.4, true, 30, 400, 4000L, 1.0);
   }
 
   /** As {@link #retrievalCfg()} but with the rerank stage on and the given semantic weight. */
   private static PieriaProperties.Retrieval rerankCfg(double semanticWeight, boolean modelEnabled) {
     return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
       0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.0, 0.0,
-      true, semanticWeight, modelEnabled, 30, 400, 4000L);
+      true, semanticWeight, modelEnabled, 30, 400, 4000L, 1.0);
   }
 
   /**
@@ -83,7 +83,7 @@ class RetrievalServiceTests {
   private static PieriaProperties.Retrieval rerankCfgWithTimeout(long timeoutMs) {
     return new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
       0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.0, 0.0,
-      true, 0.0, true, 30, 400, timeoutMs);
+      true, 0.0, true, 30, 400, timeoutMs, 1.0);
   }
 
   private RetrievalService serviceWithRerank(MemoryStore store, FakeModelGateway model,
@@ -110,7 +110,7 @@ class RetrievalServiceTests {
   private RetrievalService serviceWithCodeGraph(MemoryStore store, FakeModelGateway model, CodeIndexStore codeStore) {
     PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(
       true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000, 0.0, 1.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.60, 0.78,
-      false, 0.4, true, 30, 400, 4000L);
+      false, 0.4, true, 30, 400, 4000L, 1.0);
     PieriaProperties props = new PieriaProperties(null, null, null, null,
       new PieriaProperties.Ingestion(10000, 2, 4, VerifyMode.ALWAYS,
         1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70), cfg, null);
@@ -421,6 +421,22 @@ class RetrievalServiceTests {
     assertThat(result.candidates()).extracting(c -> c.memory().id())
       .contains("m1")
       .doesNotContain("c1");
+  }
+
+  @Test
+  void aProfilesHarvestedWeightReordersItsRecall() {
+    Memory page = new Memory("page", "s1", MemoryType.FACT, "tea from a web page", null, null, false,
+      dev.alvo.pieria.domain.memory.MemoryOrigins.withOrigin("{}", new dev.alvo.pieria.domain.memory.IngestOrigin("site", "html", "1", null)), null, T0);
+    Memory own = mem("own", "tea you told me about", MemoryType.FACT, null, T0);
+    FakeStore store = new FakeStore();
+    store.ftsMemory = List.of(page, own);
+    PieriaProperties.Retrieval cfg = new PieriaProperties.Retrieval(true, 60, 3.0, 1.0, 1.0, 1.0, 0.5, 1.0, 2, 20, 8, 10, 3000,
+      0.0, 0.0, 2, 20, 8, "heuristic", RecallMode.SYNTHESIZED, 0.0, 0.0, false, 0.4, true, 30, 400, 4000L, 0.1);
+
+    assertThat(service(store, new FakeModelGateway()).recall("p", "tea", 2, false, RecallMode.EVIDENCE).candidates().getFirst().memory().id())
+      .isEqualTo("page");
+    assertThat(serviceWithRerank(store, new FakeModelGateway(), cfg).recall("p", "tea", 2, false, RecallMode.EVIDENCE).candidates().getFirst().memory().id())
+      .isEqualTo("own");
   }
 
   @Test
