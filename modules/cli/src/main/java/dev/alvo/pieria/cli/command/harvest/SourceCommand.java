@@ -10,7 +10,20 @@ import picocli.CommandLine.Spec;
   name = "source",
   description = "Configure and run harvest sources.",
   mixinStandardHelpOptions = true,
-  subcommands = {}
+  subcommands = {
+    SourceAddCommand.class,
+    SourceListCommand.class,
+    SourceShowCommand.class,
+    SourceUpdateCommand.class,
+    SourceCheckCommand.class,
+    SourceRunCommand.class,
+    SourceRunsCommand.class,
+    SourcePauseCommand.class,
+    SourceResumeCommand.class,
+    SourceAcceptSweepCommand.class,
+    SourceSecretCommand.class,
+    SourceRemoveCommand.class
+  }
 )
 public final class SourceCommand implements Runnable {
 

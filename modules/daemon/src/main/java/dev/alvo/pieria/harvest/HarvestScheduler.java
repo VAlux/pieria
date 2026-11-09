@@ -143,7 +143,7 @@ public class HarvestScheduler {
         .put("status", summary.status().name().toLowerCase(java.util.Locale.ROOT))
         .put("itemsSeen", summary.itemsSeen()).put("itemsChanged", summary.itemsChanged())
         .put("itemsDeleted", summary.itemsDeleted()).put("memoriesStored", summary.memoriesStored())
-        .put("estimatedChunks", summary.estimatedChunks());
+        .put("chars", summary.chars()).put("estimatedChunks", summary.estimatedChunks());
     } catch (TaskCancelledException e) {
       if (!dryRun && source != null) {
         if (shuttingDown) {
