@@ -627,6 +627,7 @@ public class SqliteMemoryStore implements MemoryStore {
   public void deleteProfile(String profileId) {
     new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this).deleteProfile(profileId);
     new SqliteWikiStore(jdbc, this).deleteProfile(profileId);
+    new dev.alvo.pieria.harvest.SqliteHarvestStore(jdbc).deleteProfile(profileId);
     // Drop the sqlite-vec index rows first (they are not synchronized by triggers) while the
     // owning memory rows still exist to resolve the sub-select. No-op when vector search is off.
     if (isVectorSearchAvailable()) {
@@ -862,6 +863,19 @@ public class SqliteMemoryStore implements MemoryStore {
     jdbc.sql("DELETE FROM profile_config WHERE profile_id = ?")
       .param(profileId)
       .update();
+  }
+
+  @Override
+  public void deleteSessionMessages(String profileId, String sessionId) {
+    jdbc.sql("DELETE FROM messages WHERE profile_id = ? AND session_id = ?").params(profileId, sessionId).update();
+  }
+
+  @Override
+  public void clearChunkLedger(String profileId, String sessionId) {
+    // substr rather than LIKE, because session ids can contain the LIKE wildcard _.
+    String prefix = sessionId + "#";
+    jdbc.sql("DELETE FROM ingest_ledger WHERE profile_id = ? AND scope = 'chunk' AND substr(item_key, 1, length(?)) = ?")
+      .params(profileId, prefix, prefix).update();
   }
 
   @Override

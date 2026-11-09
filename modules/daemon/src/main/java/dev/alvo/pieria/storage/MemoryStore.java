@@ -163,6 +163,16 @@ public interface MemoryStore {
     throw new UnsupportedOperationException("deleteProfile(...) not implemented");
   }
 
+  /** Physically removes a session's raw messages, which also takes them out of full-text search. */
+  default void deleteSessionMessages(String profileId, String sessionId) {
+    throw new UnsupportedOperationException("deleteSessionMessages(...) not implemented");
+  }
+
+  /** Forgets which of a session's chunks were extracted, so the next ingest processes them again. */
+  default void clearChunkLedger(String profileId, String sessionId) {
+    throw new UnsupportedOperationException("clearChunkLedger(...) not implemented");
+  }
+
   /**
    * Find a profile by name, or {@code null} if it does not exist.
    */
