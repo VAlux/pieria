@@ -14,7 +14,9 @@ import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
+import dev.alvo.pieria.harvest.HarvestSourceService;
 import dev.alvo.pieria.storage.MemoryStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -28,9 +30,11 @@ import java.util.List;
 public class ProfileService {
 
   private final MemoryStore store;
+  private final ObjectProvider<HarvestSourceService> harvestSources;
 
-  public ProfileService(MemoryStore store) {
+  public ProfileService(MemoryStore store, ObjectProvider<HarvestSourceService> harvestSources) {
     this.store = store;
+    this.harvestSources = harvestSources;
   }
 
   public List<ProfileCount> listSummaries() {
@@ -43,6 +47,7 @@ public class ProfileService {
 
   public void delete(String name) {
     Profile profile = findOrThrow(name);
+    harvestSources.ifAvailable(sources -> sources.removeAllFor(profile.id()));
     store.deleteProfile(profile.id());
   }
 

@@ -223,6 +223,12 @@ public class SqliteHarvestStore implements HarvestStore {
   }
 
   @Override
+  public List<HarvestItem> items(String sourceId) {
+    return jdbc.sql("SELECT * FROM harvest_items WHERE source_id = ? ORDER BY external_id").param(sourceId)
+      .query((rs, _) -> mapItem(rs)).list();
+  }
+
+  @Override
   public List<HarvestItem> unseenItems(String sourceId, String runId) {
     return jdbc.sql("SELECT * FROM harvest_items WHERE source_id = ? AND last_seen_run IS NOT ? ORDER BY external_id")
       .params(sourceId, runId)

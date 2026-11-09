@@ -574,7 +574,7 @@ class ProfileApiTests {
 
     @Bean("profileApiProfileService")
     dev.alvo.pieria.profile.ProfileService profileService(MemoryStore store) {
-      return new dev.alvo.pieria.profile.ProfileService(store);
+      return new dev.alvo.pieria.profile.ProfileService(store, new org.springframework.beans.factory.support.StaticListableBeanFactory().getBeanProvider(dev.alvo.pieria.harvest.HarvestSourceService.class));
     }
 
     @Bean("profileApiProfileStatsService")

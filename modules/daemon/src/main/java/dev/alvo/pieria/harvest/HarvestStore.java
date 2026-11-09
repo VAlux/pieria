@@ -54,6 +54,8 @@ public interface HarvestStore {
 
   void markSeen(String sourceId, Collection<String> externalIds, String runId);
 
+  List<HarvestItem> items(String sourceId);
+
   /** Items that were not reported in {@code runId}. */
   List<HarvestItem> unseenItems(String sourceId, String runId);
 

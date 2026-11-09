@@ -316,7 +316,8 @@ class ApiContractTests {
 
     @Bean("apiContractProfileService")
     ProfileService profileService(MemoryStore store) {
-      return new ProfileService(store);
+      return new ProfileService(store, new org.springframework.beans.factory.support.StaticListableBeanFactory()
+        .getBeanProvider(dev.alvo.pieria.harvest.HarvestSourceService.class));
     }
 
     @Bean("apiContractProfileStatsService")
