@@ -1,5 +1,6 @@
 package dev.alvo.pieria.config;
 
+import dev.alvo.pieria.harvest.BundledHarvesters;
 import dev.alvo.pieria.code.PieriaTreeSitterLibraryLookup;
 import dev.alvo.pieria.config.model.DaemonOverrides;
 import dev.alvo.pieria.config.model.DiscoveryConfig;
@@ -82,6 +83,7 @@ public class DaemonNativeHints implements RuntimeHintsRegistrar {
 
   @Override
   public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+    BundledHarvesters.IDS.forEach(id -> hints.resources().registerPattern(BundledHarvesters.resourcePath(id)));
     for (Class<?> type : configModelTypes()) {
       hints.reflection().registerType(type,
         MemberCategory.INVOKE_PUBLIC_CONSTRUCTORS,

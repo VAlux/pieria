@@ -9,9 +9,16 @@ import java.nio.file.Path;
 public final class HarvestPaths {
 
   private final Path root;
+  private final Path bundledBin;
 
-  public HarvestPaths(Path root) {
+  /** @param bundledBin the install's {@code bin} directory, which holds the bundled harvesters' binary */
+  public HarvestPaths(Path root, Path bundledBin) {
     this.root = root;
+    this.bundledBin = bundledBin;
+  }
+
+  public Path bundledBin() {
+    return bundledBin;
   }
 
   public Path root() {

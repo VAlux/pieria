@@ -24,28 +24,7 @@ public class ConsoleResourceConfig implements WebMvcConfigurer {
       consoleDir = Path.of(override).toAbsolutePath().normalize();
       return;
     }
-    String configuredHome = System.getenv("PIERIA_HOME");
-    Path installHome = configuredHome != null && !configuredHome.isBlank()
-      ? Path.of(configuredHome)
-      : executableInstallHome();
-    if (installHome == null) {
-      installHome = InstallHome.defaultHome(System::getenv, Path.of(System.getProperty("user.home")),
-        System.getProperty("os.name", "").toLowerCase().contains("win"));
-    }
-    consoleDir = installHome.resolve("console").toAbsolutePath().normalize();
-  }
-
-  private static Path executableInstallHome() {
-    return ProcessHandle.current().info().command().map(Path::of).map(command -> {
-      String name = command.getFileName().toString();
-      if (!name.equals("pieria-daemon") && !name.equals("pieria-daemon.exe")) return null;
-      try {
-        Path bin = command.toRealPath().getParent();
-        return bin != null && bin.getFileName().toString().equals("bin") ? bin.getParent() : null;
-      } catch (IOException ignored) {
-        return null;
-      }
-    }).orElse(null);
+    consoleDir = InstallHome.ofDaemon().resolve("console").toAbsolutePath().normalize();
   }
 
   @Override

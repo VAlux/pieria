@@ -99,7 +99,7 @@ class HarvestItemIngestorTests {
   }
 
   private static HarvestProperties harvestProperties() {
-    return new HarvestProperties(true, 30_000, 1, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), "");
+    return new HarvestProperties(true, 30_000, 1, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), "", "");
   }
 
   @BeforeEach

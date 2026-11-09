@@ -16,8 +16,11 @@ class HarvesterRegistryTests {
   @TempDir
   Path root;
 
+  @TempDir
+  Path bin;
+
   private HarvesterRegistry registry() {
-    return new HarvesterRegistry(new HarvestPaths(root));
+    return new HarvesterRegistry(new HarvestPaths(root, bin));
   }
 
   private static String manifest(String id) {
@@ -49,6 +52,91 @@ class HarvesterRegistryTests {
 
   private static List<String> ids(List<RegisteredHarvester> harvesters) {
     return harvesters.stream().map(harvester -> harvester.manifest().id()).toList();
+  }
+
+  private void shipBinary() throws Exception {
+    Files.writeString(bin.resolve("pieria-harvest"), "binary");
+  }
+
+  @Test
+  void aBundledHarvesterIsListedWhenItsBinaryExists() throws Exception {
+    shipBinary();
+
+    RegisteredHarvester found = registry().find("html").orElseThrow();
+
+    assertThat(ids(registry().list())).containsExactly("html");
+    assertThat(found.bundled()).isTrue();
+    assertThat(found.command()).containsExactly(bin.resolve("pieria-harvest").toString(), "html");
+  }
+
+  @Test
+  void aWindowsBinaryCounts() throws Exception {
+    Files.writeString(bin.resolve("pieria-harvest.exe"), "binary");
+
+    assertThat(registry().find("html")).isPresent();
+  }
+
+  @Test
+  void aBundledHarvesterIsHiddenWithoutItsBinary() {
+    assertThat(registry().find("html")).isEmpty();
+    assertThat(registry().list()).isEmpty();
+  }
+
+  @Test
+  void bundledNeedsNoPin() throws Exception {
+    shipBinary();
+
+    registry().requirePinned(registry().find("html").orElseThrow());
+  }
+
+  @Test
+  void aBundledBinaryThatDisappearsFailsTheLaunchCheck() throws Exception {
+    shipBinary();
+    RegisteredHarvester found = registry().find("html").orElseThrow();
+    Files.delete(bin.resolve("pieria-harvest"));
+
+    assertThatThrownBy(() -> registry().requirePinned(found)).isInstanceOf(HarvesterIntegrityException.class);
+  }
+
+  @Test
+  void bundledWorksBeforeTheRootExists() throws Exception {
+    shipBinary();
+    HarvesterRegistry registry = new HarvesterRegistry(new HarvestPaths(root.resolve("absent"), bin));
+
+    assertThat(ids(registry.list())).containsExactly("html");
+    assertThat(registry.diagnose()).extracting(HarvesterDiagnosis::directory).containsExactly("html");
+  }
+
+  @Test
+  void bundledWinsOverAnInstalledDirectoryOfTheSameId() throws Exception {
+    shipBinary();
+    install("html", manifest("html"));
+    pin("html");
+
+    assertThat(registry().find("html").orElseThrow().bundled()).isTrue();
+    assertThat(ids(registry().list())).containsExactly("html");
+    assertThat(registry().diagnose()).filteredOn(entry -> !entry.ok()).extracting(HarvesterDiagnosis::detail)
+      .singleElement().asString().contains("bundled");
+  }
+
+  @Test
+  void doctorReportsABundledHarvester() throws Exception {
+    shipBinary();
+
+    HarvesterDiagnosis entry = registry().diagnose().getFirst();
+
+    assertThat(entry.directory()).isEqualTo("html");
+    assertThat(entry.ok()).isTrue();
+    assertThat(entry.detail()).isEqualTo("bundled");
+  }
+
+  @Test
+  void doctorReportsAMissingBundledBinary() {
+    HarvesterDiagnosis entry = registry().diagnose().getFirst();
+
+    assertThat(entry.directory()).isEqualTo("html");
+    assertThat(entry.ok()).isFalse();
+    assertThat(entry.detail()).contains("missing");
   }
 
   @Test
@@ -185,12 +273,12 @@ class HarvesterRegistryTests {
   void diagnoseSkipsWorkingDirectories() throws Exception {
     Files.createDirectories(root.resolve(".staging-1"));
 
-    assertThat(registry().diagnose()).isEmpty();
+    assertThat(registry().diagnose().stream().filter(entry -> !entry.directory().equals("html")).toList()).isEmpty();
   }
 
   @Test
   void missingRootIsEmpty() {
-    assertThat(new HarvesterRegistry(new HarvestPaths(root.resolve("absent"))).list()).isEmpty();
+    assertThat(new HarvesterRegistry(new HarvestPaths(root.resolve("absent"), bin)).list()).isEmpty();
   }
 
   @Test

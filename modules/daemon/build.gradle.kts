@@ -549,6 +549,17 @@ val buildConsole by tasks.registering(Exec::class) {
 	commandLine(npmCommand, "run", "build")
 }
 
+// Bundled harvesters' manifests are built into the daemon, so an install needs nothing beside the binary.
+val stageBundledHarvesters by tasks.registering(Sync::class) {
+	description = "Stage the bundled harvester manifests as classpath resources (bundled-harvesters/...)."
+	into(layout.buildDirectory.dir("generated/bundled-harvesters"))
+	from(rootProject.layout.projectDirectory.dir("modules/harvesters/manifests")) {
+		into("bundled-harvesters")
+	}
+}
+
+sourceSets["main"].resources.srcDir(stageBundledHarvesters)
+
 val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
 	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."

@@ -93,7 +93,7 @@ class HarvestRunServiceTests {
     memories = new SqliteMemoryStore(jdbc);
     store = new SqliteHarvestStore(jdbc);
     model = new CountingGateway();
-    paths = new HarvestPaths(root);
+    paths = new HarvestPaths(root, root.resolve("no-bin"));
     registry = new HarvesterRegistry(paths);
     secrets = new HarvestSecretStore(paths);
     tasks = new TaskRegistry();
@@ -134,7 +134,7 @@ class HarvestRunServiceTests {
   }
 
   private HarvestRunService service(Duration timeout) {
-    HarvestProperties properties = new HarvestProperties(true, 30_000, 1, 1, timeout, 0.2, 2, Duration.ofHours(24), "");
+    HarvestProperties properties = new HarvestProperties(true, 30_000, 1, 1, timeout, 0.2, 2, Duration.ofHours(24), "", "");
     PieriaProperties pieria = new PieriaProperties(null, null, null,
       new PieriaProperties.Model("small", "large", "embed", 1024, 4, null, null),
       new PieriaProperties.Ingestion(1000, 0, 4, VerifyMode.ALWAYS, 1, 0, 0, false, 3, 3, 32, 5, false, 5000, true, 0.70),

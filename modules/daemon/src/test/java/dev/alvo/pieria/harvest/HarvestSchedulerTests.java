@@ -76,7 +76,7 @@ class HarvestSchedulerTests {
 
   private HarvestScheduler scheduler(boolean enabled, int maxRuns) {
     return new HarvestScheduler(store, runs, tasks,
-      new HarvestProperties(enabled, 30_000, maxRuns, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), ""), reminiscence);
+      new HarvestProperties(enabled, 30_000, maxRuns, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), "", ""), reminiscence);
   }
 
   private void source(String id, int failures, String cursor) {

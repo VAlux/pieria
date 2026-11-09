@@ -21,7 +21,7 @@ class HarvestSecretStoreTests {
   Path root;
 
   private HarvestPaths paths() {
-    return new HarvestPaths(root.resolve("harvesters"));
+    return new HarvestPaths(root.resolve("harvesters"), root.resolve("no-bin"));
   }
 
   private HarvestSecretStore store() {

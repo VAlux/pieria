@@ -44,7 +44,7 @@ class HarvesterInstallerTests {
   @BeforeEach
   void setUp() {
     root = temp.resolve("harvesters");
-    paths = new HarvestPaths(root);
+    paths = new HarvestPaths(root, temp.resolve("no-bin"));
     store = mock(HarvestStore.class);
     installer = new HarvesterInstaller(paths, store);
   }
@@ -358,6 +358,28 @@ class HarvesterInstallerTests {
 
     assertThatThrownBy(() -> installer.remove("jira")).isInstanceOf(ConflictException.class);
     assertThat(root.resolve("jira")).exists();
+  }
+
+  @Test
+  void cannotInstallOverABundledId() throws Exception {
+    Path source = packageDir("pkg", "x");
+    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"jira\"", "\"html\""));
+
+    assertThatThrownBy(() -> installer.install(source, null, null, true)).isInstanceOf(ConflictException.class).hasMessageContaining("ships with Pieria");
+    assertThat(root.resolve("html")).doesNotExist();
+  }
+
+  @Test
+  void aBundledIdCanStillBeInspected() throws Exception {
+    Path source = packageDir("pkg", "x");
+    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"jira\"", "\"html\""));
+
+    assertThat(installer.inspect(source).manifest().id()).isEqualTo("html");
+  }
+
+  @Test
+  void cannotRemoveABundledHarvester() {
+    assertThatThrownBy(() -> installer.remove("html")).isInstanceOf(ConflictException.class).hasMessageContaining("ships with Pieria");
   }
 
   @Test

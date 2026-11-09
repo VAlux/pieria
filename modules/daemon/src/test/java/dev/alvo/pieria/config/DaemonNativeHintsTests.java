@@ -27,6 +27,14 @@ class DaemonNativeHintsTests {
     "META-INF/native-image/dev.alvo/pieria-daemon/native-image.properties";
 
   @Test
+  void bundledManifestsAreRegisteredAsResources() {
+    RuntimeHints hints = new RuntimeHints();
+    new DaemonNativeHints().registerHints(hints, getClass().getClassLoader());
+
+    assertThat(RuntimeHintsPredicates.resource().forResource("bundled-harvesters/html/harvester.toml").test(hints)).isTrue();
+  }
+
+  @Test
   void everyStructuredOutputRecordIsRegisteredForNativeReflection() {
     RuntimeHints hints = new RuntimeHints();
     new DaemonNativeHints().registerHints(hints, getClass().getClassLoader());

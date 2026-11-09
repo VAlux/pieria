@@ -63,6 +63,27 @@ class HarvesterCommandTests {
   }
 
   @Test
+  void listLabelsBundledHarvesters() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters", 200, "{\"harvesters\":[" + HARVESTER.replace("\"fields\":[]", "\"fields\":[],\"bundled\":true") + "]}");
+
+      assertThat(run("harvester", "list", "--daemon-url", daemon.baseUrl()).stdout).contains("(bundled)");
+    }
+  }
+
+  @Test
+  void listReadsAnOlderDaemonWithoutTheField() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters", 200, "{\"harvesters\":[" + HARVESTER + "]}");
+
+      Captured out = run("harvester", "list", "--daemon-url", daemon.baseUrl());
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(out.stdout).doesNotContain("(bundled)");
+    }
+  }
+
+  @Test
   void doctorExitsOneOnAProblem() {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/v1/harvesters/doctor", 200, "{\"entries\":[{\"directory\":\"jira\",\"ok\":false,\"detail\":\"no pin\"}]}");

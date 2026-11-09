@@ -17,7 +17,7 @@ public final class HarvesterListCommand extends AbstractHarvestCommand {
       return 0;
     }
     for (HarvesterResponse harvester : harvesters) {
-      log.info("{}  {} {}", harvester.id(), harvester.name(), harvester.version());
+      log.info("{}  {} {}{}", harvester.id(), harvester.name(), harvester.version(), Boolean.TRUE.equals(harvester.bundled()) ? " (bundled)" : "");
     }
     return 0;
   }

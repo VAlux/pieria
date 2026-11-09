@@ -16,7 +16,7 @@ class SourceOptionsTests {
   }
 
   private static final HarvesterResponse HARVESTER = new HarvesterResponse("jira", "Jira", "1", List.of(), List.of(),
-    List.of(field("url", "string"), field("count", "int"), field("on", "bool"), field("tags", "list"), field("mode", "enum"), field("token", "secret")));
+    List.of(field("url", "string"), field("count", "int"), field("on", "bool"), field("tags", "list"), field("mode", "enum"), field("token", "secret")), null);
 
   @Test
   void parsesIntervals() {

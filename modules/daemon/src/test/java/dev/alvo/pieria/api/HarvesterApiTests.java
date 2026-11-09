@@ -64,7 +64,7 @@ class HarvesterApiTests {
 
   @Test
   void listsHarvesters() throws Exception {
-    when(registry.list()).thenReturn(List.of(new RegisteredHarvester(MANIFEST, Path.of("/h/jira"))));
+    when(registry.list()).thenReturn(List.of(new RegisteredHarvester(MANIFEST, Path.of("/h/jira"), false)));
 
     mvc.perform(get("/v1/harvesters"))
       .andExpect(status().isOk())
@@ -75,6 +75,13 @@ class HarvesterApiTests {
       .andExpect(jsonPath("$.harvesters[0].fields[0].key", is("baseUrl")))
       .andExpect(jsonPath("$.harvesters[0].fields[0].kind", is("string")))
       .andExpect(jsonPath("$.harvesters[0].fields[0].required", is(true)));
+  }
+
+  @Test
+  void listMarksBundledHarvesters() throws Exception {
+    when(registry.list()).thenReturn(List.of(new RegisteredHarvester(MANIFEST, Path.of("/bin"), true)));
+
+    mvc.perform(get("/v1/harvesters")).andExpect(jsonPath("$.harvesters[0].bundled", is(true)));
   }
 
   @Test

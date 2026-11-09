@@ -40,10 +40,10 @@ public class HarvesterController {
     this.installer = installer;
   }
 
-  private static HarvesterResponse toResponse(HarvesterManifest manifest) {
+  private static HarvesterResponse toResponse(HarvesterManifest manifest, boolean bundled) {
     return new HarvesterResponse(manifest.id(), manifest.name(), manifest.version(),
       manifest.capabilities().stream().map(Capability::wire).sorted().toList(), manifest.network(),
-      manifest.config().stream().map(HarvesterController::toField).toList());
+      manifest.config().stream().map(HarvesterController::toField).toList(), bundled);
   }
 
   private static HarvesterResponse.Field toField(ConfigFieldSpec field) {
@@ -53,7 +53,7 @@ public class HarvesterController {
 
   @GetMapping
   public HarvesterListResponse list() {
-    return new HarvesterListResponse(registry.list().stream().map(RegisteredHarvester::manifest).map(HarvesterController::toResponse).toList());
+    return new HarvesterListResponse(registry.list().stream().map(harvester -> toResponse(harvester.manifest(), harvester.bundled())).toList());
   }
 
   @GetMapping("/doctor")
@@ -67,14 +67,14 @@ public class HarvesterController {
   public HarvesterPackageResponse inspect(@Valid @RequestBody HarvesterPathRequest request) {
     HarvesterPackage inspected = installer.inspect(Path.of(request.path()));
     HarvesterManifest manifest = inspected.manifest();
-    return new HarvesterPackageResponse(toResponse(manifest), List.copyOf(manifest.command()), manifest.entrypoint(),
+    return new HarvesterPackageResponse(toResponse(manifest, false), List.copyOf(manifest.command()), manifest.entrypoint(),
       inspected.entrypointSha256(), inspected.manifestSha256());
   }
 
   @PostMapping
   @ResponseStatus(HttpStatus.CREATED)
   public HarvesterResponse install(@Valid @RequestBody InstallHarvesterRequest request) {
-    return toResponse(installer.install(Path.of(request.path()), request.entrypointSha256(), request.manifestSha256(), Boolean.TRUE.equals(request.replace())).manifest());
+    return toResponse(installer.install(Path.of(request.path()), request.entrypointSha256(), request.manifestSha256(), Boolean.TRUE.equals(request.replace())).manifest(), false);
   }
 
   @DeleteMapping("/{id}")

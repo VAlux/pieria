@@ -18,6 +18,7 @@ import java.time.Duration;
  * @param sweepGuardFloor       deletions always allowed regardless of share, so a tiny site can lose a page
  * @param maxBackoff            the longest wait between retries of a failing source
  * @param root                  where harvesters, pins and secrets live; blank means under the app-data root
+ * @param bundledBin            the directory holding {@code pieria-harvest}; blank means the install's {@code bin}
  */
 @ConfigurationProperties(prefix = "pieria.harvest")
 public record HarvestProperties(
@@ -29,5 +30,6 @@ public record HarvestProperties(
   @DefaultValue("0.2") double sweepGuardShare,
   @DefaultValue("2") int sweepGuardFloor,
   @DefaultValue("PT24H") Duration maxBackoff,
-  @DefaultValue("") String root) {
+  @DefaultValue("") String root,
+  @DefaultValue("") String bundledBin) {
 }

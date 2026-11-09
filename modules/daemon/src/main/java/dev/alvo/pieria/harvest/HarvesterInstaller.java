@@ -75,6 +75,9 @@ public class HarvesterInstaller {
         throw new ConflictException("the package changed after it was inspected");
       }
       String id = described.manifest().id();
+      if (BundledHarvesters.isBundled(id)) {
+        throw new ConflictException("harvester " + id + " ships with Pieria and can't be replaced");
+      }
       Path target = paths.harvesterDir(id);
       if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !replace) {
         throw new ConflictException("harvester " + id + " is already installed");
@@ -88,6 +91,9 @@ public class HarvesterInstaller {
   }
 
   public synchronized void remove(String id) {
+    if (id != null && BundledHarvesters.isBundled(id)) {
+      throw new ConflictException("harvester " + id + " ships with Pieria and can't be removed");
+    }
     if (id == null || !id.matches(ID_REGEX) || !Files.isDirectory(paths.harvesterDir(id), LinkOption.NOFOLLOW_LINKS)) {
       throw new NotFoundException("harvester not installed: " + id);
     }

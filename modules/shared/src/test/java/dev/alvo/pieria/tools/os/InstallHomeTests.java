@@ -14,6 +14,20 @@ class InstallHomeTests {
   }
 
   @Test
+  void prefersPieriaHomeForExecutable() {
+    assertThat(InstallHome.forExecutable("pieria-daemon", env(Map.of("PIERIA_HOME", "/opt/pieria")), Path.of("/home/alex"), false))
+      .isEqualTo(Path.of("/opt/pieria"));
+  }
+
+  @Test
+  void fallsBackToTheDefaultWhenNotRunningFromAnInstall() {
+    Path home = Path.of("/home/alex");
+
+    assertThat(InstallHome.forExecutable("pieria-daemon", env(Map.of("PIERIA_HOME", " ")), home, false))
+      .isEqualTo(InstallHome.defaultHome(env(Map.of()), home, false));
+  }
+
+  @Test
   void unixDefaultIsUnconditionalLocalShare() {
     Path home = Path.of("/home/alex");
     Path result = InstallHome.defaultHome(env(Map.of()), home, false);

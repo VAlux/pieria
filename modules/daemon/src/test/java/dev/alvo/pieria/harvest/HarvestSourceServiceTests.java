@@ -87,7 +87,7 @@ class HarvestSourceServiceTests {
     JdbcClient jdbc = JdbcClient.create(dataSource);
     memories = new SqliteMemoryStore(jdbc);
     store = new SqliteHarvestStore(jdbc);
-    HarvestPaths paths = new HarvestPaths(temp.resolve("harvesters"));
+    HarvestPaths paths = new HarvestPaths(temp.resolve("harvesters"), temp.resolve("no-bin"));
     Path pkg = Files.createDirectories(temp.resolve("pkg"));
     Files.writeString(pkg.resolve("harvester.toml"), MANIFEST);
     Files.writeString(pkg.resolve("run"), "x");
@@ -107,7 +107,7 @@ class HarvestSourceServiceTests {
   private HarvestSourceService service(String baseUrl, HarvestScheduler usedScheduler) {
     PieriaProperties properties = new PieriaProperties(null, null,
       new PieriaProperties.Provider(baseUrl, "key", "name", "openai", "v"), null, null, null, null);
-    return new HarvestSourceService(store, memories, new HarvesterRegistry(new HarvestPaths(temp.resolve("harvesters"))), secrets,
+    return new HarvestSourceService(store, memories, new HarvesterRegistry(new HarvestPaths(temp.resolve("harvesters"), temp.resolve("no-bin"))), secrets,
       ingestor, usedScheduler, runs, properties);
   }
 
@@ -305,7 +305,7 @@ class HarvestSourceServiceTests {
 
   private HarvestScheduler realScheduler(TaskRegistry tasks) {
     return new HarvestScheduler(store, runs, tasks,
-      new HarvestProperties(true, 30_000, 1, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), ""), mock(ReminiscenceService.class));
+      new HarvestProperties(true, 30_000, 1, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), "", ""), mock(ReminiscenceService.class));
   }
 
   @Test
