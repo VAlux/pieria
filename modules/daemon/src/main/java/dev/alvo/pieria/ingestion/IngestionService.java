@@ -378,6 +378,18 @@ public class IngestionService {
                                         Integer extractionSamplesOverride, GraphMode graphMode,
                                         ChunkLedgerMode chunkLedgerMode,
                                         IngestProgressListener progress, IngestOrigin origin) {
+    return ingestDetailed(profileName, sessionId, messages, extractionSamplesOverride, graphMode, chunkLedgerMode,
+      progress, origin, null);
+  }
+
+  /**
+   * As above, with {@code maxConcurrencyOverride} lowering this ingest's parallel model calls when
+   * non-null, so background work can't starve interactive ingest and recall.
+   */
+  public IngestionResult ingestDetailed(String profileName, String sessionId, List<Message> messages,
+                                        Integer extractionSamplesOverride, GraphMode graphMode,
+                                        ChunkLedgerMode chunkLedgerMode, IngestProgressListener progress,
+                                        IngestOrigin origin, Integer maxConcurrencyOverride) {
     long totalStart = System.nanoTime();
     int inputMessages = messages == null ? 0 : messages.size();
     log.info("ingest start profile={} session={} inputMessages={}", profileName, sessionId, inputMessages);
@@ -403,6 +415,9 @@ public class IngestionService {
 
     // Per-profile effective tuning: global properties overlaid with any pushed overrides.
     PieriaProperties.Ingestion tuning = configResolver.resolve(profile.id()).ingestion();
+    int maxConcurrency = Math.max(1, maxConcurrencyOverride == null
+      ? tuning.maxExtractionConcurrency()
+      : Math.min(maxConcurrencyOverride, tuning.maxExtractionConcurrency()));
 
     int extractionSamples = Math.max(1,
       extractionSamplesOverride != null ? extractionSamplesOverride : tuning.extractionSamples());
@@ -435,8 +450,7 @@ public class IngestionService {
     InferenceUsageAccumulator inferenceUsage = new InferenceUsageAccumulator();
 
     Timed<Extraction> extract = Timed.measure(
-      () -> extractCandidates(plan.pending(), extractionSamples,
-        Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage, progress, origin));
+      () -> extractCandidates(plan.pending(), extractionSamples, maxConcurrency, inferenceUsage, progress, origin));
     Extraction extraction = extract.value();
     log.info("ingest extracted profile={} session={} rawCandidates={} mergedCandidates={} duplicatesOrBlank={} extractionMs={}",
       profileName, sessionId, extraction.rawCount(), extraction.merged().size(),
@@ -454,7 +468,7 @@ public class IngestionService {
     // verification calls run bounded-parallel; the store write stays single-threaded.
     Timed<VerifyStoreResult> verifyStore = Timed.measure(() -> verifyStore(
       extraction.merged(), chunks, plan, profile.id(), sessionId, tuning.verifyMode(),
-      Math.max(1, tuning.maxExtractionConcurrency()), inferenceUsage,
+      maxConcurrency, inferenceUsage,
       graphMode == null ? GraphMode.SYNCHRONOUS : graphMode, progress, origin));
     VerifyStoreResult result = verifyStore.value();
     log.info("ingest verified profile={} session={} passed={} autoPassed={} corrected={} dropped={} stored={} verifyStoreMs={}",

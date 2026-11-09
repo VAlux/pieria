@@ -53,7 +53,7 @@ public class ContentIngestor {
   /**
    * Per-message ceiling, under the pipeline's ~10K chunk boundary so it never re-splits a message.
    */
-  static final int MAX_MESSAGE_CHARS = 8_000;
+  public static final int MAX_MESSAGE_CHARS = 8_000;
   /**
    * Target total text per ingest batch (~4 chunks): big enough to keep cross-document chunk
    * packing for corpora of tiny files, small enough that an interrupted run loses little work.
@@ -113,7 +113,7 @@ public class ContentIngestor {
    * Split one document into provenance-prefixed message bodies. Blank sections are dropped; oversize
    * sections are hard-split on paragraph boundaries.
    */
-  static List<String> toMessageContents(ContentDocument doc) {
+  public static List<String> toMessageContents(ContentDocument doc) {
     String prefix = doc.provenance() + ":\n\n";
     List<String> out = new ArrayList<>();
     for (String section : splitIntoSections(doc.text())) {
@@ -160,7 +160,7 @@ public class ContentIngestor {
    * ({@code "\n\n"}) boundaries and falling back to a hard character cut for a single huge
    * paragraph. Sections already within the limit are returned as-is.
    */
-  static List<String> hardSplit(String section, int maxChars) {
+  public static List<String> hardSplit(String section, int maxChars) {
     int limit = Math.max(1, maxChars);
     if (section.length() <= limit) {
       return List.of(section);
