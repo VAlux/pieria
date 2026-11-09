@@ -11,6 +11,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UriUtils;
 
 import java.io.IOException;
 import java.net.URLDecoder;
@@ -141,6 +142,27 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
     };
   }
 
+  /**
+   * Source requests carry credentials, so their bodies are never kept. Segments are compared as the
+   * router reads them, so an encoded or parameterized spelling of the path can't keep a body either.
+   */
+  private static boolean omitsPayload(String rest) {
+    if (rest.equals("wiki") || rest.startsWith("wiki/")) {
+      return true;
+    }
+    for (String segment : rest.split("/")) {
+      int params = segment.indexOf(';');
+      try {
+        if (UriUtils.decode(params < 0 ? segment : segment.substring(0, params), StandardCharsets.UTF_8).equals("sources")) {
+          return true;
+        }
+      } catch (IllegalArgumentException e) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static String memoryOperation(String method, String rest) {
     if (rest.endsWith("/history")) return "memory.history";
     if (rest.endsWith("/revisions")) return method.equals("POST") ? "memory.revise" : "memory.revisions";
@@ -183,8 +205,7 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
     String requestId = requestId(request.getHeader(AuditHeaders.REQUEST_ID));
     AuditCaller caller = caller(request);
     Instant startedAt = Instant.now();
-    // Source requests carry credentials, so their bodies are never kept.
-    boolean noPayload = rest.equals("wiki") || rest.startsWith("wiki/") || rest.equals("sources") || rest.startsWith("sources/");
+    boolean noPayload = omitsPayload(rest);
     AuditRequestWrapper wrappedRequest = new AuditRequestWrapper(request, noPayload ? 0 : maxBodyBytes);
     AuditResponseWrapper wrappedResponse = new AuditResponseWrapper(response, noPayload ? 0 : maxBodyBytes);
     wrappedResponse.setHeader(AuditHeaders.REQUEST_ID, requestId);

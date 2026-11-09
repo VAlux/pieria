@@ -236,6 +236,61 @@ class HarvestSchedulerTests {
   }
 
   @Test
+  void aHeldSourceCannotStartUntilReleased() throws Exception {
+    source("a", 0, null);
+    returns(success());
+    HarvestScheduler scheduler = scheduler(true, 1);
+
+    scheduler.hold("a");
+    assertThat(scheduler.launch("a", false)).isEmpty();
+    scheduler.tick();
+    Thread.sleep(100);
+    verify(runs, never()).run(any(), anyBoolean(), any(TaskProgress.class));
+
+    scheduler.release("a");
+    assertThat(scheduler.launch("a", false)).isPresent();
+  }
+
+  @Test
+  void aRetryCannotStartWhileTheSourceIsHeld() throws Exception {
+    source("a", 0, null);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenThrow(new IllegalStateException("boom"));
+    HarvestScheduler scheduler = scheduler(true, 1);
+    java.util.UUID crashed = scheduler.launch("a", false).orElseThrow();
+    await(() -> tasks.find(crashed).map(task -> task.status() == dev.alvo.pieria.task.TaskStatus.FAILED).orElse(false));
+
+    scheduler.hold("a");
+    java.util.UUID retried = tasks.retry(crashed);
+    await(() -> tasks.find(retried).map(task -> task.status() == dev.alvo.pieria.task.TaskStatus.FAILED).orElse(false));
+
+    verify(runs, times(1)).run(any(), anyBoolean(), any(TaskProgress.class));
+  }
+
+  @Test
+  void aRetriedRunCanBeStopped() throws Exception {
+    source("a", 0, null);
+    java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+    CountDownLatch started = new CountDownLatch(1);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw new IllegalStateException("boom");
+      }
+      started.countDown();
+      Thread.sleep(30_000);
+      return success();
+    });
+    HarvestScheduler scheduler = scheduler(true, 1);
+    java.util.UUID crashed = scheduler.launch("a", false).orElseThrow();
+    await(() -> tasks.find(crashed).map(task -> task.status() == dev.alvo.pieria.task.TaskStatus.FAILED).orElse(false));
+    tasks.retry(crashed);
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(scheduler.stopAndWait("a", Duration.ofSeconds(3))).isTrue();
+
+    assertThat(scheduler.isRunning("a")).isFalse();
+  }
+
+  @Test
   void unknownSourceIsNotLaunched() {
     assertThat(scheduler(true, 1).launch("absent", false)).isEmpty();
   }

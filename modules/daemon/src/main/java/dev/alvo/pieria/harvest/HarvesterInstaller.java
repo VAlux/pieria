@@ -35,6 +35,7 @@ import java.util.zip.ZipInputStream;
 public class HarvesterInstaller {
 
   private static final String MANIFEST = "harvester.toml";
+  private static final String MAC_METADATA = "__MACOSX";
   private static final String ID_REGEX = "^[a-z0-9][a-z0-9_-]{0,63}$";
   private static final int MAX_FILES = 20_000;
   private static final long MAX_UNPACKED_BYTES = 256L * 1024 * 1024;
@@ -209,6 +210,9 @@ public class HarvesterInstaller {
       }
     } catch (ZipException e) {
       throw new IllegalArgumentException("the file is not a valid zip archive", e);
+    } catch (IOException e) {
+      // A truncated archive or entries that collide; the staging path in the cause means nothing to the user.
+      throw new IllegalArgumentException("the zip could not be unpacked", e);
     }
   }
 
@@ -222,13 +226,13 @@ public class HarvesterInstaller {
     return target;
   }
 
-  /** A zip may hold the package at its root, or inside one top-level directory. */
+  /** A zip may hold the package at its root, or inside one top-level directory. Finder adds a metadata folder beside it. */
   private static Path packageRootOf(Path staging) throws IOException {
     if (Files.isRegularFile(staging.resolve(MANIFEST))) {
       return staging;
     }
     try (Stream<Path> entries = Files.list(staging)) {
-      List<Path> top = entries.toList();
+      List<Path> top = entries.filter(entry -> !entry.getFileName().toString().equals(MAC_METADATA)).toList();
       return top.size() == 1 && Files.isDirectory(top.getFirst()) ? top.getFirst() : staging;
     }
   }

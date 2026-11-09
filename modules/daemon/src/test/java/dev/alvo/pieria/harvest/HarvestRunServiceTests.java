@@ -570,13 +570,13 @@ class HarvestRunServiceTests {
   void anAcceptedSweepBypassesTheGuardOnce() throws Exception {
     seedItems("a", "b", "c", "d", "e", "f", "g", "h", "i", "j");
     reconfigure("s", withRecords(sevenOfTenSeen(), sweep()));
-    store.setAcceptNextSweep("s", true);
+    store.setAcceptedSweepCount("s", 3L);
 
     HarvestRunSummary accepted = run("s");
 
     assertThat(accepted.sweepApplied()).isTrue();
     assertThat(live()).isEqualTo(7);
-    assertThat(store.acceptNextSweep("s")).isFalse();
+    assertThat(store.acceptedSweepCount("s")).isNull();
     assertThat(source().sweepBlockedCount()).isNull();
 
     reconfigure("s", withRecords(sweep()));
@@ -585,13 +585,26 @@ class HarvestRunServiceTests {
   }
 
   @Test
+  void anAcceptanceDoesNotCoverALargerSweep() throws Exception {
+    seedItems("a", "b", "c", "d", "e", "f", "g", "h", "i", "j");
+    reconfigure("s", withRecords(sweep()));
+    store.setAcceptedSweepCount("s", 3L);
+
+    HarvestRunSummary held = run("s");
+
+    assertThat(held.sweepApplied()).isFalse();
+    assertThat(live()).isEqualTo(10);
+    assertThat(source().sweepBlockedCount()).isEqualTo(10L);
+  }
+
+  @Test
   void acceptanceIsKeptUntilASweepHappens() throws Exception {
     createSource("s", withRecords(document("a", "EVENT text")), SourceMode.FULL);
-    store.setAcceptNextSweep("s", true);
+    store.setAcceptedSweepCount("s", 3L);
 
     run("s");
 
-    assertThat(store.acceptNextSweep("s")).isTrue();
+    assertThat(store.acceptedSweepCount("s")).isEqualTo(3L);
   }
 
   @Test

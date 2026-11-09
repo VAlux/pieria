@@ -209,6 +209,60 @@ class HarvesterInstallerTests {
   }
 
   @Test
+  void rejectsATruncatedZip() throws Exception {
+    byte[] noise = new byte[64 * 1024];
+    new java.util.Random(7).nextBytes(noise);
+    Path whole = temp.resolve("whole.zip");
+    try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(whole))) {
+      out.putNextEntry(new ZipEntry("harvester.toml"));
+      out.write(noise);
+      out.closeEntry();
+    }
+    byte[] bytes = Files.readAllBytes(whole);
+    Path truncated = Files.write(temp.resolve("truncated.zip"), java.util.Arrays.copyOf(bytes, bytes.length / 2));
+
+    assertThatThrownBy(() -> installer.inspect(truncated)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(rootEntries()).isEmpty();
+  }
+
+  @Test
+  void rejectsZipEntriesThatCollide() throws Exception {
+    Path file = zip("p.zip", new Entry("a", "x"), new Entry("a/b", "y"));
+
+    assertThatThrownBy(() -> installer.inspect(file)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(rootEntries()).isEmpty();
+  }
+
+  @Test
+  void rejectsAFileEntryNamedForTheRoot() throws Exception {
+    Path file = zip("p.zip", new Entry(".", "x"));
+
+    assertThatThrownBy(() -> installer.inspect(file)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(rootEntries()).isEmpty();
+  }
+
+  @Test
+  void installsAZipThatFinderAddedMetadataTo() throws Exception {
+    installer.install(zip("p.zip", new Entry("pkg/harvester.toml", MANIFEST), new Entry("pkg/run", "x"),
+      new Entry("__MACOSX/pkg/._run", "resource fork")), null, null, false);
+
+    assertThat(registry().find("jira")).isPresent();
+    assertThat(root.resolve("jira/run")).exists();
+  }
+
+  @Test
+  void aReplaceThatCannotPinRestoresTheOldHarvester() throws Exception {
+    installer.install(packageDir("pkg", "one"), null, null, false);
+    Files.delete(paths.pinsFile());
+    Files.createDirectories(paths.pinsFile().resolve("in-the-way"));
+
+    assertThatThrownBy(() -> installer.install(packageDir("pkg2", "two"), null, null, true)).isInstanceOf(RuntimeException.class);
+
+    assertThat(Files.readString(root.resolve("jira/run"))).isEqualTo("one");
+    assertThat(rootEntries()).containsExactly("jira", "pins.json");
+  }
+
+  @Test
   void rejectsAMissingManifest() throws Exception {
     Path source = Files.createDirectories(temp.resolve("empty"));
 

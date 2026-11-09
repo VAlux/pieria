@@ -123,15 +123,15 @@ class SqliteHarvestStoreTests {
   }
 
   @Test
-  void acceptNextSweepRoundTrips() {
+  void acceptedSweepCountRoundTrips() {
     created("s");
-    assertThat(store.acceptNextSweep("s")).isFalse();
+    assertThat(store.acceptedSweepCount("s")).isNull();
 
-    store.setAcceptNextSweep("s", true);
-    assertThat(store.acceptNextSweep("s")).isTrue();
+    store.setAcceptedSweepCount("s", 3L);
+    assertThat(store.acceptedSweepCount("s")).isEqualTo(3L);
 
-    store.setAcceptNextSweep("s", false);
-    assertThat(store.acceptNextSweep("s")).isFalse();
+    store.setAcceptedSweepCount("s", null);
+    assertThat(store.acceptedSweepCount("s")).isNull();
   }
 
   @Test

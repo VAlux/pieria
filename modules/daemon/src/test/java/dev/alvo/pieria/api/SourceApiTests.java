@@ -220,6 +220,13 @@ class SourceApiTests {
   }
 
   @Test
+  void aRequestNamingAnotherHostNeverReachesTheController() throws Exception {
+    mvc.perform(get(BASE + "/s").header("Host", "evil.example")).andExpect(status().isForbidden());
+
+    org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).get(any(), any());
+  }
+
+  @Test
   void pauseResumeAndAcceptSweep() throws Exception {
     mvc.perform(post(BASE + "/s/pause")).andExpect(status().isOk());
     mvc.perform(post(BASE + "/s/resume")).andExpect(status().isOk());

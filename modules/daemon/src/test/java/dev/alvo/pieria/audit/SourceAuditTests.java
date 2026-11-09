@@ -1,8 +1,8 @@
 package dev.alvo.pieria.audit;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -36,14 +36,21 @@ class SourceAuditTests {
     assertThat(ProfileAuditFilter.operation(method, rest)).isEqualTo(expected);
   }
 
-  @Test
-  void sourceBodiesAreNeverCaptured() throws Exception {
+  @ParameterizedTest
+  @ValueSource(strings = {
+    "/v1/profiles/p/sources/s/secrets",
+    "/v1/profiles/p/sources;x=1/s/secrets",
+    "/v1/profiles/p/%73ources/s/secrets",
+    "/v1/profiles/p/%73ources;x=1/s/secrets",
+    "/v1/profiles/p/sourc%zz/s/secrets"
+  })
+  void sourceBodiesAreNeverCaptured(String uri) throws Exception {
     AuditRecorder recorder = mock(AuditRecorder.class);
     StaticListableBeanFactory beans = new StaticListableBeanFactory();
     beans.addBean("recorder", recorder);
     ProfileAuditFilter filter = new ProfileAuditFilter(beans.getBeanProvider(AuditRecorder.class),
       beans.getBeanProvider(dev.alvo.pieria.config.AuditProperties.class));
-    MockHttpServletRequest request = new MockHttpServletRequest("PUT", "/v1/profiles/p/sources/s/secrets");
+    MockHttpServletRequest request = new MockHttpServletRequest("PUT", uri);
     request.setContentType("application/json");
     request.setContent("{\"secrets\":{\"token\":\"hunter2\"}}".getBytes(StandardCharsets.UTF_8));
 

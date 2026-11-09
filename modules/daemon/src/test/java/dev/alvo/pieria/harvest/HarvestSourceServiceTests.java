@@ -1,10 +1,13 @@
 package dev.alvo.pieria.harvest;
 
 import com.zaxxer.hikari.HikariDataSource;
+import dev.alvo.pieria.config.HarvestProperties;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.reminiscence.ReminiscenceService;
 import dev.alvo.pieria.storage.SqliteMemoryStore;
+import dev.alvo.pieria.task.TaskRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,16 +20,20 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -94,10 +101,14 @@ class HarvestSourceServiceTests {
   }
 
   private HarvestSourceService service(String baseUrl) {
+    return service(baseUrl, scheduler);
+  }
+
+  private HarvestSourceService service(String baseUrl, HarvestScheduler usedScheduler) {
     PieriaProperties properties = new PieriaProperties(null, null,
       new PieriaProperties.Provider(baseUrl, "key", "name", "openai", "v"), null, null, null, null);
     return new HarvestSourceService(store, memories, new HarvesterRegistry(new HarvestPaths(temp.resolve("harvesters"))), secrets,
-      ingestor, scheduler, runs, properties);
+      ingestor, usedScheduler, runs, properties);
   }
 
   @AfterEach
@@ -288,6 +299,35 @@ class HarvestSourceServiceTests {
 
     assertThat(store.findSource("s")).isPresent();
     assertThat(secrets.secrets("s")).isNotEmpty();
+    verify(scheduler).hold("s");
+    verify(scheduler).release("s");
+  }
+
+  private HarvestScheduler realScheduler(TaskRegistry tasks) {
+    return new HarvestScheduler(store, runs, tasks,
+      new HarvestProperties(true, 30_000, 1, 1, Duration.ofHours(6), 0.2, 2, Duration.ofHours(24), ""), mock(ReminiscenceService.class));
+  }
+
+  @Test
+  void noRunCanStartWhileTheSourceIsBeingForgotten() {
+    TaskRegistry tasks = new TaskRegistry();
+    try {
+      HarvestScheduler real = realScheduler(tasks);
+      service.create("p", draft("s", true));
+      item("a");
+      AtomicReference<Optional<UUID>> launched = new AtomicReference<>();
+      doAnswer(invocation -> {
+        launched.set(real.launch("s", false));
+        return null;
+      }).when(ingestor).delete(any(), eq("a"));
+
+      service("http://localhost:11434", real).remove("p", "s", true);
+
+      assertThat(launched.get()).isEmpty();
+      assertThat(store.findSource("s")).isEmpty();
+    } finally {
+      tasks.shutdown();
+    }
   }
 
   private void item(String id) {
@@ -367,12 +407,22 @@ class HarvestSourceServiceTests {
   }
 
   @Test
-  void acceptSweepSetsTheFlag() {
+  void acceptSweepRecordsHowManyDeletionsWereHeldBack() {
     created("s");
+    store.setSweepBlocked("s", 3L);
 
     service.acceptNextSweep("p", "s");
 
-    assertThat(store.acceptNextSweep("s")).isTrue();
+    assertThat(store.acceptedSweepCount("s")).isEqualTo(3L);
+  }
+
+  @Test
+  void acceptSweepIsRefusedWhenNothingIsHeldBack() {
+    created("s");
+
+    assertThatThrownBy(() -> service.acceptNextSweep("p", "s")).isInstanceOf(ConflictException.class);
+
+    assertThat(store.acceptedSweepCount("s")).isNull();
   }
 
   @Test
@@ -390,6 +440,44 @@ class HarvestSourceServiceTests {
     service.setSecrets("p", "s", Map.of("token", "new"));
 
     assertThat(secrets.secrets("s")).containsEntry("token", "new");
+  }
+
+  @Test
+  void createRejectsABlankSecretAndWritesNothing() {
+    SourceDraft bad = new SourceDraft("s", "jira", config(), Map.of("token", "   "), SourceMode.FULL, 3600, null, null, false);
+
+    assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("token");
+
+    assertThat(sourceRows()).isZero();
+    assertThat(secrets.secrets("s")).isEmpty();
+  }
+
+  @Test
+  void createRejectsANullSecretAndWritesNothing() {
+    SourceDraft bad = new SourceDraft("s", "jira", config(), Collections.singletonMap("token", null), SourceMode.FULL, 3600, null, null, false);
+
+    assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("token");
+
+    assertThat(sourceRows()).isZero();
+    assertThat(secrets.secrets("s")).isEmpty();
+  }
+
+  @Test
+  void setSecretsRejectsABlankValueAndKeepsTheOldOne() {
+    created("s");
+
+    assertThatThrownBy(() -> service.setSecrets("p", "s", Map.of("token", ""))).isInstanceOf(IllegalArgumentException.class);
+
+    assertThat(secrets.secrets("s")).containsEntry("token", "hunter2");
+  }
+
+  @Test
+  void setSecretsRejectsANullValueAndKeepsTheOldOne() {
+    created("s");
+
+    assertThatThrownBy(() -> service.setSecrets("p", "s", Collections.singletonMap("token", null))).isInstanceOf(IllegalArgumentException.class);
+
+    assertThat(secrets.secrets("s")).containsEntry("token", "hunter2");
   }
 
   @Test
@@ -421,12 +509,56 @@ class HarvestSourceServiceTests {
   }
 
   @Test
-  void removeAllForStopsAndClearsSecrets() {
+  void removeAllForStopsDeletesAndClearsSecrets() {
     created("s");
+    AtomicBoolean deleted = new AtomicBoolean();
 
-    service.removeAllFor(pid());
+    service.removeAllFor(pid(), () -> deleted.set(true));
 
     verify(scheduler).stopAndWait(eq("s"), any());
+    assertThat(deleted).isTrue();
     assertThat(secrets.secrets("s")).isEmpty();
+    verify(scheduler).release("s");
+  }
+
+  @Test
+  void removeAllForRefusesWhenARunWillNotStop() {
+    created("s");
+    when(scheduler.stopAndWait(eq("s"), any())).thenReturn(false);
+    AtomicBoolean deleted = new AtomicBoolean();
+
+    assertThatThrownBy(() -> service.removeAllFor(pid(), () -> deleted.set(true))).isInstanceOf(ConflictException.class);
+
+    assertThat(deleted).isFalse();
+    assertThat(secrets.secrets("s")).isNotEmpty();
+    verify(scheduler).release("s");
+  }
+
+  @Test
+  void removeAllForKeepsSecretsWhenTheDeleteFails() {
+    created("s");
+
+    assertThatThrownBy(() -> service.removeAllFor(pid(), () -> {
+      throw new IllegalStateException("boom");
+    })).isInstanceOf(IllegalStateException.class);
+
+    assertThat(secrets.secrets("s")).isNotEmpty();
+    verify(scheduler).release("s");
+  }
+
+  @Test
+  void noRunCanStartWhileTheProfileIsBeingDeleted() {
+    TaskRegistry tasks = new TaskRegistry();
+    try {
+      HarvestScheduler real = realScheduler(tasks);
+      service.create("p", draft("s", true));
+      AtomicReference<Optional<UUID>> launched = new AtomicReference<>();
+
+      service("http://localhost:11434", real).removeAllFor(pid(), () -> launched.set(real.launch("s", false)));
+
+      assertThat(launched.get()).isEmpty();
+    } finally {
+      tasks.shutdown();
+    }
   }
 }

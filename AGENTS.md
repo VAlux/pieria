@@ -126,4 +126,4 @@ file I/O, retry/backoff, time formatting) belongs in `shared`, not reimplemented
 
 ## Configuration
 
-The daemon binds to `127.0.0.1` by default and must never bind a public interface in local mode. Key properties to add in `application.properties` as implementation progresses: database path, daemon host/port, Ollama base URL, chat model name, embedding model name, and embedding dimension (fixes the `FLOAT[n]` column width — decide this once and avoid re-embedding later).
+The daemon binds to `127.0.0.1` by default and must never bind a public interface in local mode. While bound to loopback, `LoopbackRequestFilter` refuses any request whose `Host` or `Origin` isn't loopback, so a web page can't reach the API. Key properties to add in `application.properties` as implementation progresses: database path, daemon host/port, Ollama base URL, chat model name, embedding model name, and embedding dimension (fixes the `FLOAT[n]` column width — decide this once and avoid re-embedding later).

@@ -142,14 +142,14 @@ public class SqliteHarvestStore implements HarvestStore {
   }
 
   @Override
-  public void setAcceptNextSweep(String sourceId, boolean accept) {
-    jdbc.sql("UPDATE harvest_sources SET accept_next_sweep = ? WHERE id = ?").params(accept ? 1 : 0, sourceId).update();
+  public void setAcceptedSweepCount(String sourceId, Long count) {
+    jdbc.sql("UPDATE harvest_sources SET accepted_sweep_count = ? WHERE id = ?").params(count, sourceId).update();
   }
 
   @Override
-  public boolean acceptNextSweep(String sourceId) {
-    return jdbc.sql("SELECT accept_next_sweep FROM harvest_sources WHERE id = ?").param(sourceId)
-      .query(Integer.class).optional().orElse(0) != 0;
+  public Long acceptedSweepCount(String sourceId) {
+    return jdbc.sql("SELECT accepted_sweep_count FROM harvest_sources WHERE id = ?").param(sourceId)
+      .query(Long.class).optional().orElse(null);
   }
 
   @Override

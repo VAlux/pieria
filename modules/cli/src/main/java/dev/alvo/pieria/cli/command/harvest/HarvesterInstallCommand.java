@@ -2,6 +2,7 @@ package dev.alvo.pieria.cli.command.harvest;
 
 import dev.alvo.pieria.api.request.InstallHarvesterRequest;
 import dev.alvo.pieria.api.response.HarvesterPackageResponse;
+import dev.alvo.pieria.api.response.MemoryOrigin;
 import dev.alvo.pieria.client.HarvestClient;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -38,10 +39,13 @@ public final class HarvesterInstallCommand extends AbstractHarvestCommand {
   }
 
   private HarvesterPackage show(HarvesterPackageResponse inspected) {
-    log.info("{} {} ({})", inspected.harvester().name(), inspected.harvester().version(), inspected.harvester().id());
-    log.info("  command:  {}", String.join(" ", inspected.command()));
-    log.info("  network:  {}", inspected.harvester().network().isEmpty() ? "(none declared)" : String.join(", ", inspected.harvester().network()));
-    log.info("  entrypoint {}: {}", inspected.entrypoint(), inspected.entrypointSha256());
+    // Manifest text comes from the package being judged, so it must not be able to redraw this prompt.
+    log.info("{} {} ({})", MemoryOrigin.oneLine(inspected.harvester().name()), MemoryOrigin.oneLine(inspected.harvester().version()),
+      MemoryOrigin.oneLine(inspected.harvester().id()));
+    log.info("  command:  {}", MemoryOrigin.oneLine(String.join(" ", inspected.command())));
+    log.info("  network:  {}", inspected.harvester().network().isEmpty() ? "(none declared)"
+      : MemoryOrigin.oneLine(String.join(", ", inspected.harvester().network())));
+    log.info("  entrypoint {}: {}", MemoryOrigin.oneLine(inspected.entrypoint()), inspected.entrypointSha256());
     log.info("  manifest: {}", inspected.manifestSha256());
     log.info("Harvesters run with your user's permissions and are not sandboxed. Install only ones you trust.");
     return new HarvesterPackage(inspected.harvester().id(), inspected.entrypointSha256(), inspected.manifestSha256());

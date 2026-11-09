@@ -95,6 +95,21 @@ class HarvesterCommandTests {
   }
 
   @Test
+  void installPromptCannotBeForgedByManifestText() {
+    String forged = PACKAGE.replace("\"name\":\"Jira\"", "\"name\":\"Jira\\n  network:  (none declared)\\u001b[2K\"")
+      .replace("\"*.atlassian.net\"", "\"host\\r\\nsecond\"");
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters/inspect", 200, forged);
+      daemon.stub("/v1/harvesters", 201, HARVESTER);
+
+      Captured out = run("harvester", "install", temp.toString(), "--yes", "--daemon-url", daemon.baseUrl());
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(out.stdout).doesNotContain("Jira\n").doesNotContain("\u001b[2K").doesNotContain("host\r").contains("host second");
+    }
+  }
+
+  @Test
   void installWarnsItIsNotSandboxed() {
     try (StubDaemon daemon = installable()) {
       assertThat(run("harvester", "install", temp.toString(), "--yes", "--daemon-url", daemon.baseUrl()).stdout)

@@ -222,5 +222,8 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - The daemon does all installing. The CLI only sends a local path.
   - `.zip` is the only archive format in v1. Symlinks, unsafe zip paths, more than 20,000 files, and more than 256 MiB unpacked are rejected.
   - `harvester install --replace` covers upgrades. `source update` changes settings without losing progress, and `source secret` replaces credentials.
-  - `source accept-sweep` lets the next complete sweep delete what the mass-delete guard held back.
+  - `source accept-sweep` lets the next complete sweep delete as many items as the mass-delete guard held back, and no more. It is refused when nothing is held back, and a larger sweep is held back again.
+  - A secret value may not be null or blank.
+  - A daemon bound to loopback refuses any request whose `Host` or `Origin` names something else, on every route. These routes install and run programs, and a web page could otherwise reach them through DNS rebinding or a cross-site request.
+  - Removing a source or its profile stops any run and keeps new ones from starting until it finishes. A run that won't stop refuses the removal with a conflict.
   - Secret values reach the CLI only through an environment variable or a hidden prompt, and source request bodies are never audited.

@@ -6,8 +6,6 @@ import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.storage.MemoryStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -27,7 +25,6 @@ import java.util.UUID;
 @Service
 public class HarvestSourceService {
 
-  private static final Logger log = LoggerFactory.getLogger(HarvestSourceService.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final long MIN_INTERVAL_SECONDS = 60;
   private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -64,6 +61,7 @@ public class HarvestSourceService {
     Map<String, String> suppliedSecrets = draft.secrets() == null ? Map.of() : draft.secrets();
     ObjectNode config = draft.config() == null ? MAPPER.createObjectNode() : draft.config();
     SourceConfigValidator.validate(harvester.manifest(), config, suppliedSecrets.keySet(), true);
+    requireSecretValues(suppliedSecrets);
     requireValidSchedule(draft.intervalSeconds(), draft.maxItemsPerRun(), draft.maxCharsPerRun());
     if (store.findSource(draft.id()).isPresent()) {
       throw new ConflictException("source already exists: " + draft.id());
@@ -76,6 +74,14 @@ public class HarvestSourceService {
     store.createSource(source);
     suppliedSecrets.forEach((name, value) -> secrets.put(draft.id(), name, value));
     return source;
+  }
+
+  private static void requireSecretValues(Map<String, String> values) {
+    values.forEach((name, value) -> {
+      if (value == null || value.isBlank()) {
+        throw new IllegalArgumentException("secret " + name + " must not be blank");
+      }
+    });
   }
 
   private static void requireValidSchedule(Long intervalSeconds, Integer maxItems, Long maxChars) {
@@ -136,17 +142,22 @@ public class HarvestSourceService {
     return store.listSources(profileId(profile));
   }
 
-  /** Stops any run first, so a run can't write to a source that is being taken apart. */
+  /** Stops any run and keeps new ones from starting, so nothing can write to a source being taken apart. */
   public void remove(String profile, String id, boolean forgetMemories) {
     HarvestSource source = get(profile, id);
-    if (!scheduler.stopAndWait(id, STOP_TIMEOUT)) {
-      throw new ConflictException("source " + id + " is still running; try again shortly");
+    scheduler.hold(id);
+    try {
+      if (!scheduler.stopAndWait(id, STOP_TIMEOUT)) {
+        throw new ConflictException("source " + id + " is still running; try again shortly");
+      }
+      if (forgetMemories) {
+        store.items(id).forEach(item -> ingestor.delete(source, item.externalId()));
+      }
+      store.deleteSource(id);
+      secrets.remove(id);
+    } finally {
+      scheduler.release(id);
     }
-    if (forgetMemories) {
-      store.items(id).forEach(item -> ingestor.delete(source, item.externalId()));
-    }
-    store.deleteSource(id);
-    secrets.remove(id);
   }
 
   public SourceCheckResult check(String profile, String id) {
@@ -166,10 +177,13 @@ public class HarvestSourceService {
     store.scheduleNext(id, Instant.now(), 0);
   }
 
-  /** Lets the source's next complete sweep delete what the mass-delete guard held back. */
+  /** Lets the source's next complete sweep delete as many items as the mass-delete guard held back. */
   public void acceptNextSweep(String profile, String id) {
-    get(profile, id);
-    store.setAcceptNextSweep(id, true);
+    Long heldBack = get(profile, id).sweepBlockedCount();
+    if (heldBack == null) {
+      throw new ConflictException("source " + id + " has no held-back sweep to accept");
+    }
+    store.setAcceptedSweepCount(id, heldBack);
   }
 
   public void setSecrets(String profile, String id, Map<String, String> values) {
@@ -177,6 +191,7 @@ public class HarvestSourceService {
     RegisteredHarvester harvester = registry.find(source.harvesterId())
       .orElseThrow(() -> new IllegalArgumentException("harvester not installed: " + source.harvesterId()));
     SourceConfigValidator.validate(harvester.manifest(), MAPPER.createObjectNode(), values.keySet(), false);
+    requireSecretValues(values);
     values.forEach((name, value) -> secrets.put(id, name, value));
   }
 
@@ -200,7 +215,7 @@ public class HarvestSourceService {
   }
 
   public boolean acceptNextSweepPending(String id) {
-    return store.acceptNextSweep(id);
+    return store.acceptedSweepCount(id) != null;
   }
 
   /** Whether source text will leave this machine for extraction. */
@@ -227,13 +242,24 @@ public class HarvestSourceService {
     }
   }
 
-  /** Called before a profile is deleted: stops its sources' runs and removes their credentials. */
-  public void removeAllFor(String profileId) {
-    for (HarvestSource source : store.listSources(profileId)) {
-      if (!scheduler.stopAndWait(source.id(), STOP_TIMEOUT)) {
-        log.warn("harvest source {} did not stop before its profile was deleted", source.id());
+  /**
+   * Runs {@code deleteProfile} with the profile's sources stopped and unable to start, then removes
+   * their credentials. A run that won't stop refuses the whole delete, so nothing writes to a deleted
+   * profile and credentials are never lost for a profile that still exists.
+   */
+  public void removeAllFor(String profileId, Runnable deleteProfile) {
+    List<String> ids = store.listSources(profileId).stream().map(HarvestSource::id).toList();
+    ids.forEach(scheduler::hold);
+    try {
+      for (String id : ids) {
+        if (!scheduler.stopAndWait(id, STOP_TIMEOUT)) {
+          throw new ConflictException("source " + id + " is still running; try again shortly");
+        }
       }
-      secrets.remove(source.id());
+      deleteProfile.run();
+      ids.forEach(secrets::remove);
+    } finally {
+      ids.forEach(scheduler::release);
     }
   }
 }

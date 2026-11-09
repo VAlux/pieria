@@ -30,9 +30,11 @@ public interface HarvestStore {
   /** Updates the source's config, mode, interval, limits and cursor. */
   void updateSource(HarvestSource source);
 
-  void setAcceptNextSweep(String sourceId, boolean accept);
+  /** Records how many deletions the user accepted for the next sweep; null clears it. */
+  void setAcceptedSweepCount(String sourceId, Long count);
 
-  boolean acceptNextSweep(String sourceId);
+  /** The number of deletions the user accepted for the next sweep, or null when none are. */
+  Long acceptedSweepCount(String sourceId);
 
   boolean anySourceUses(String harvesterId);
 

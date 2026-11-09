@@ -401,7 +401,8 @@ public class HarvestRunService {
     private void applySweep() {
       List<HarvestItem> unseen = store.unseenItems(source.id(), runId);
       long live = store.liveItemCount(source.id());
-      boolean accepted = store.acceptNextSweep(source.id());
+      Long acceptedCount = store.acceptedSweepCount(source.id());
+      boolean accepted = acceptedCount != null && unseen.size() <= acceptedCount;
       boolean wouldEmptySource = !unseen.isEmpty() && unseen.size() == live;
       if (!accepted && (wouldEmptySource || unseen.size() > Math.max(properties.sweepGuardFloor(), properties.sweepGuardShare() * live))) {
         log.warn("harvest source={} sweep would delete {} of {} items; holding it back", source.id(), unseen.size(), live);
@@ -413,8 +414,8 @@ public class HarvestRunService {
       itemsDeleted += unseen.size();
       sweepApplied = true;
       store.setSweepBlocked(source.id(), null);
-      if (accepted) {
-        store.setAcceptNextSweep(source.id(), false);
+      if (acceptedCount != null) {
+        store.setAcceptedSweepCount(source.id(), null);
       }
     }
 

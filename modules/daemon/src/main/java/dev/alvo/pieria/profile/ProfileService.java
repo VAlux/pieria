@@ -47,8 +47,13 @@ public class ProfileService {
 
   public void delete(String name) {
     Profile profile = findOrThrow(name);
-    harvestSources.ifAvailable(sources -> sources.removeAllFor(profile.id()));
-    store.deleteProfile(profile.id());
+    Runnable delete = () -> store.deleteProfile(profile.id());
+    HarvestSourceService sources = harvestSources.getIfAvailable();
+    if (sources == null) {
+      delete.run();
+    } else {
+      sources.removeAllFor(profile.id(), delete);
+    }
   }
 
   public List<Memory> list(String name, MemoryType typeFilter, String session, boolean includeSuperseded) {

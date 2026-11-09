@@ -57,8 +57,12 @@ public final class HarvestPins {
     try {
       Files.createDirectories(paths.root());
       Path temporary = Files.createTempFile(paths.root(), ".pins", ".tmp");
-      Files.writeString(temporary, pins.toString());
-      Files.move(temporary, paths.pinsFile(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      try {
+        Files.writeString(temporary, pins.toString());
+        Files.move(temporary, paths.pinsFile(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      } finally {
+        Files.deleteIfExists(temporary);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException("cannot write harvester pins", e);
     }

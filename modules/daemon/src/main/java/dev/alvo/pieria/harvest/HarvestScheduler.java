@@ -43,6 +43,8 @@ public class HarvestScheduler {
   private final ReminiscenceService reminiscence;
   private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
   private final Map<String, UUID> runningTasks = new ConcurrentHashMap<>();
+  private final Map<String, Thread> runThreads = new ConcurrentHashMap<>();
+  private final Set<String> held = ConcurrentHashMap.newKeySet();
   private volatile boolean shuttingDown;
 
   public HarvestScheduler(HarvestStore store, HarvestRunService runs, TaskRegistry tasks, HarvestProperties properties,
@@ -104,11 +106,18 @@ public class HarvestScheduler {
     return inFlight.contains(sourceId);
   }
 
-  /** Cancels the source's run, if any, and reports whether it ended within {@code timeout}. */
+  /**
+   * Cancels the source's run, if any, and reports whether it ended within {@code timeout}. The thread
+   * is interrupted as well, because a retried run belongs to a task this scheduler has no id for.
+   */
   public boolean stopAndWait(String sourceId, Duration timeout) {
     UUID task = runningTasks.get(sourceId);
     if (task != null && inFlight.contains(sourceId)) {
       tasks.cancel(task);
+    }
+    Thread thread = runThreads.get(sourceId);
+    if (thread != null) {
+      thread.interrupt();
     }
     Instant deadline = Instant.now().plus(timeout);
     while (inFlight.contains(sourceId) && Instant.now().isBefore(deadline)) {
@@ -122,12 +131,22 @@ public class HarvestScheduler {
     return !inFlight.contains(sourceId);
   }
 
+  /** Keeps any run of the source from starting until {@link #release}, while it is being taken apart. */
+  public synchronized void hold(String sourceId) {
+    held.add(sourceId);
+  }
+
+  public synchronized void release(String sourceId) {
+    held.remove(sourceId);
+  }
+
   private synchronized boolean claim(String sourceId) {
-    return inFlight.size() < properties.maxConcurrentRuns() && inFlight.add(sourceId);
+    return !held.contains(sourceId) && inFlight.size() < properties.maxConcurrentRuns() && inFlight.add(sourceId);
   }
 
   private JsonNode execute(String sourceId, String profile, boolean dryRun, TaskProgress progress) {
     HarvestSource source = null;
+    runThreads.put(sourceId, Thread.currentThread());
     try {
       source = store.findSource(sourceId).orElseThrow(() -> new IllegalArgumentException("unknown harvest source: " + sourceId));
       HarvestRunSummary summary = runs.run(source.id(), dryRun, progress);
@@ -159,6 +178,7 @@ public class HarvestScheduler {
       }
       throw e;
     } finally {
+      runThreads.remove(sourceId);
       inFlight.remove(sourceId);
     }
   }
