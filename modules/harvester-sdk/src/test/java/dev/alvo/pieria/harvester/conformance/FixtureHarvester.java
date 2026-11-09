@@ -87,6 +87,7 @@ public final class FixtureHarvester implements Harvester {
         return;
       }
       case "noisy" -> System.out.println("a library printing to stdout");
+      case "prints-env" -> System.err.println(String.join(",", System.getenv().keySet()));
       case "leaks-secret" -> System.err.println("using " + request.secrets().get("token"));
       case "sweep-first" -> {
         if (request.cursor() == null) {
