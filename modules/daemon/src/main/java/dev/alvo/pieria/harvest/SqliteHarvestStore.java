@@ -257,4 +257,9 @@ public class SqliteHarvestStore implements HarvestStore {
     jdbc.sql("DELETE FROM harvest_runs WHERE source_id IN (" + sources + ")").param(profileId).update();
     jdbc.sql("DELETE FROM harvest_sources WHERE profile_id = ?").param(profileId).update();
   }
+
+  @Override
+  public String profileName(String profileId) {
+    return jdbc.sql("SELECT name FROM profiles WHERE id = ?").param(profileId).query(String.class).single();
+  }
 }

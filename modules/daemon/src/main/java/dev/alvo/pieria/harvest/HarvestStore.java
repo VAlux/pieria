@@ -60,4 +60,7 @@ public interface HarvestStore {
   void removeLinks(String sourceId, String externalId, Collection<String> memoryIds);
 
   void deleteProfile(String profileId);
+
+  /** The name of the profile with this id, which the ingest pipeline addresses profiles by. */
+  String profileName(String profileId);
 }
