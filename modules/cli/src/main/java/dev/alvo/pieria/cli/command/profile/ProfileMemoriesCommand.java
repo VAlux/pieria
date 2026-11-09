@@ -42,7 +42,7 @@ public final class ProfileMemoriesCommand extends AbstractProfileCommand {
     for (MemoryResponse m : memories) {
       log.info("{}  [{}]{}", m.id(), m.type(),
         m.topicKey() == null || m.topicKey().isBlank() ? "" : " {" + m.topicKey() + "}");
-      log.info("    {}", m.content());
+      log.info("    {}{}", m.origin() == null ? "" : "[" + m.origin().renderLabel() + "] ", m.content());
     }
     log.info("");
     log.info("{} memor{}.", memories.size(), memories.size() == 1 ? "y" : "ies");

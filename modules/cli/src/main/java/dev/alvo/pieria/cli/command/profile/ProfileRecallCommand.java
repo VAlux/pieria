@@ -37,9 +37,15 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
   @Option(names = "--known-as-of", description = "ISO timestamp with offset.")
   String knownAsOf;
 
+  @Option(names = "--source", description = "Only memories harvested from this source id. Repeatable.")
+  List<String> sources;
+
+  @Option(names = "--exclude-source", description = "Leave out memories harvested from this source id. Repeatable.")
+  List<String> excludedSources;
+
   @Override
   protected int run(ProfileClient client) {
-    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null, asOf, knownAsOf));
+    RecallResponse response = client.recall(name, new RecallRequest(query, limit, false, null, asOf, knownAsOf, sources, excludedSources));
 
     log.info(response.answer() == null ? "(no answer)" : response.answer());
 
@@ -48,7 +54,7 @@ public final class ProfileRecallCommand extends AbstractProfileCommand {
       log.info("");
       log.info("Evidence:");
       for (MemoryResponse memory : memories) {
-        log.info("  - [{}] {}", memory.type(), memory.content());
+        log.info("  - [{}] {}{}", memory.type(), memory.origin() == null ? "" : "[" + memory.origin().renderLabel() + "] ", memory.content());
       }
     }
 

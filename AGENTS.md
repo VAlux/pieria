@@ -90,6 +90,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 | GET | `/memories` | List memories (filter by type/session) |
 | DELETE | `/memories/{id}` | Forget a memory |
 | GET | `/export` | Export all memories (NDJSON) |
+| various | `/sources`, `/v1/harvesters` | Harvest sources and installed harvesters; see `docs/phases/phase-16-knowledge-harvesters.md` |
 
 The web console uses further read/control endpoints (memory search and paging, sessions, topic keys,
 daemon-wide audit and facets, task retry, provider test, restart, wiki status/build, cluster links);

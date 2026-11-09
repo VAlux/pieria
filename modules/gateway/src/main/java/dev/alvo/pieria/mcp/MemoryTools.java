@@ -12,6 +12,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
 import java.util.function.Supplier;
+import java.util.List;
 
 /**
  * Model-facing MCP tools. Each tool forwards to the daemon's REST surface via
@@ -66,9 +67,11 @@ public class MemoryTools {
       memories.""") String mode,
     @ToolParam(required = false, description = "Profile name override") String profile,
     @ToolParam(required = false, description = "World-time ISO timestamp with offset") String asOf,
-    @ToolParam(required = false, description = "Knowledge-cutoff ISO timestamp with offset; cannot be future") String knownAsOf) {
+    @ToolParam(required = false, description = "Knowledge-cutoff ISO timestamp with offset; cannot be future") String knownAsOf,
+    @ToolParam(required = false, description = "Only these harvest sources, by id") List<String> includeSources,
+    @ToolParam(required = false, description = "Leave out these harvest sources, by id") List<String> excludeSources) {
     return guarded(() -> client.toJson(client.recall(profile(profile),
-      new RecallRequest(query, limit, null, parseMode(mode), asOf, knownAsOf))));
+      new RecallRequest(query, limit, null, parseMode(mode), asOf, knownAsOf, includeSources, excludeSources))));
   }
 
   /** Lenient tier parse for the model-facing tool: blank or unrecognized values take the default. */
@@ -107,7 +110,7 @@ public class MemoryTools {
   }
 
   public String recall(String query, Integer limit, String mode, String profile) {
-    return recall(query, limit, mode, profile, null, null);
+    return recall(query, limit, mode, profile, null, null, null, null);
   }
 
   public String remember(String type, String content, String sessionId, String topicKey, String payload, String profile) {

@@ -87,6 +87,20 @@ class MemoryToolsTests {
   }
 
   @Test
+  void recallPassesSourceFilters() {
+    tools.recall("q", null, null, null, null, null, java.util.List.of("jira"), java.util.List.of("wiki"));
+
+    assertThat(lastBody.get()).contains("\"includeSources\":[\"jira\"]").contains("\"excludeSources\":[\"wiki\"]");
+  }
+
+  @Test
+  void recallFiltersDefaultToEmpty() {
+    tools.recall("q", null, null, null, null, null, null, null);
+
+    assertThat(lastBody.get()).contains("\"includeSources\":[]").contains("\"excludeSources\":[]");
+  }
+
+  @Test
   void recallOmitsLimitWhenNull() {
     tools.recall("q", null, null, null);
 

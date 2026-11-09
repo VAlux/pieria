@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit) and 3 (daemon runtime) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime) and 4 (CLI and REST) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -217,3 +217,10 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - A memory the user has corrected is theirs: an edit neither retires it nor brings back the wording they removed, and the text they wrote survives the item's deletion.
   - A failed run still adopts the graph for the sessions it wrote. A graceful daemon shutdown leaves runs `interrupted` and due immediately.
   - The per-profile recall weight for harvested memories is deferred to phase 5, where real data exists to tune it.
+- **CLI and REST, settled in phase 4.**
+  - A new source starts paused, so adding one can't begin an expensive backfill. `--start` skips this.
+  - The daemon does all installing. The CLI only sends a local path.
+  - `.zip` is the only archive format in v1. Symlinks, unsafe zip paths, more than 20,000 files, and more than 256 MiB unpacked are rejected.
+  - `harvester install --replace` covers upgrades. `source update` changes settings without losing progress, and `source secret` replaces credentials.
+  - `source accept-sweep` lets the next complete sweep delete what the mass-delete guard held back.
+  - Secret values reach the CLI only through an environment variable or a hidden prompt, and source request bodies are never audited.

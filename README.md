@@ -401,6 +401,19 @@ Tree-sitter parse at index time and marked as settled. That is both faster and m
 asking a model to rediscover symbols the parser already resolved. The interpretive summaries under
 `code:summary:*` are genuine model prose and are enriched normally.
 
+### Bring in outside knowledge
+
+Harvesters are plugins that collect knowledge from places like websites, Jira or Teams. Install one, add a source, preview it, then start it:
+
+```bash
+pieria harvester install ./my-harvester     # a directory or .zip; shows what it is and asks first
+pieria source add my-harvester --id docs --set url=https://example.com --secret-env token=MY_TOKEN
+pieria source run docs --dry-run            # counts the work without calling the model
+pieria source resume docs                   # new sources start paused
+```
+
+Harvesters run with your user's permissions and are not sandboxed, so install only ones you trust. If a source's text would go to a remote model provider, `source add` says so. Harvested memories appear in recall labelled as untrusted. See `pieria source --help` for the other commands.
+
 ### Update
 
 One command replaces the installed binaries and console files, then restarts the daemon — no manual
@@ -498,6 +511,8 @@ pieria profile export <name>           # export all memories as NDJSON
 ```
 
 ### REST API
+
+`POST /v1/profiles/{name}/recall` also accepts `includeSources` and `excludeSources`, lists of harvest source ids. Harvester and source management is under `/v1/harvesters` and `/v1/profiles/{name}/sources`.
 
 The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by profile.
 
