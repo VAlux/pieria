@@ -74,6 +74,11 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
   and filters read from it. Every path with no origin must keep byte-identical prompts, so harvesting
   cannot regress conversation extraction or synthesis. See
   `docs/phases/phase-16-knowledge-harvesters.md`.
+- **Harvest runs commit in order**: a run handles a harvester's records one at a time, so a saved
+  cursor always means everything before it is stored, and it stands even if the run later fails. A
+  `sweep` takes effect only after a clean exit, and the mass-delete guard can still hold it back.
+  Harvested memories are excluded from cluster and wiki inputs, because those features would strip
+  the untrusted label.
 
 ### REST API surface (`/v1/profiles/{name}`)
 

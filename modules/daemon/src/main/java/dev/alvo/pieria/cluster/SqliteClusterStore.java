@@ -77,7 +77,7 @@ public final class SqliteClusterStore implements ClusterRepository {
         Head child = head(profileId,member.id(),null).orElseThrow(() -> new IllegalArgumentException("child cluster not found in profile"));
         if (!child.state.equals("active")) throw new IllegalArgumentException("dissolved child cluster");
       } else {
-        Integer exists = jdbc.sql("SELECT COUNT(*) FROM memories WHERE profile_id=? AND id=? AND forgotten=0 AND type<>'cluster'")
+        Integer exists = jdbc.sql("SELECT COUNT(*) FROM memories WHERE profile_id=? AND id=? AND forgotten=0 AND type<>'cluster' AND origin_source_id IS NULL")
           .params(profileId,member.id()).query(Integer.class).single();
         if (exists == 0) throw new IllegalArgumentException("source memory not found in profile");
       }
@@ -357,7 +357,7 @@ public final class SqliteClusterStore implements ClusterRepository {
         SELECT m.id,ar.id,m.content,m.session_id FROM memories m
         JOIN assertion_revisions ar ON ar.memory_id=m.id
         JOIN validity_segments v ON v.revision_id=ar.id
-        WHERE m.id=? AND m.profile_id=? AND m.forgotten=0 AND m.type<>'cluster'
+        WHERE m.id=? AND m.profile_id=? AND m.forgotten=0 AND m.type<>'cluster' AND m.origin_source_id IS NULL
         AND v.valid_from<=? AND (v.valid_to IS NULL OR v.valid_to>?)
         AND v.recorded_from<=? AND (v.recorded_to IS NULL OR v.recorded_to>?)
         AND v.from_sequence<=? AND (v.to_sequence IS NULL OR v.to_sequence>?)
@@ -755,13 +755,13 @@ public final class SqliteClusterStore implements ClusterRepository {
     if(limit<1 || limit>100) throw new IllegalArgumentException("limit must be 1..100");
     List<String> keys=jdbc.sql("""
       SELECT topic_key FROM memories WHERE profile_id=? AND topic_key>? AND type<>'cluster'
-      AND forgotten=0 GROUP BY topic_key HAVING COUNT(DISTINCT id)>=3 ORDER BY topic_key LIMIT ?
+      AND origin_source_id IS NULL AND forgotten=0 GROUP BY topic_key HAVING COUNT(DISTINCT id)>=3 ORDER BY topic_key LIMIT ?
       """).params(profileId,after==null?"":after,limit).query(String.class).list();
     List<Topic> result=new ArrayList<>();
     for(String key:keys) {
       List<Member> members=jdbc.sql("""
         SELECT m.id FROM memories m WHERE m.profile_id=? AND m.topic_key=? AND m.type<>'cluster'
-        AND m.forgotten=0 AND EXISTS (
+        AND m.origin_source_id IS NULL AND m.forgotten=0 AND EXISTS (
           SELECT 1 FROM assertion_revisions ar JOIN validity_segments v ON v.revision_id=ar.id
           WHERE ar.memory_id=m.id AND v.valid_from<=? AND (v.valid_to IS NULL OR v.valid_to>?)
           AND v.recorded_from<=? AND (v.recorded_to IS NULL OR v.recorded_to>?)
@@ -809,7 +809,7 @@ public final class SqliteClusterStore implements ClusterRepository {
     List<String> entities=jdbc.sql("""
       SELECT e.id FROM entities e JOIN edges x ON (x.source_entity_id=e.id OR x.target_entity_id=e.id)
       JOIN memories m ON m.id=x.memory_id AND m.profile_id=e.profile_id
-      WHERE e.profile_id=? AND e.id>? AND m.forgotten=0 AND m.type<>'cluster'
+      WHERE e.profile_id=? AND e.id>? AND m.forgotten=0 AND m.type<>'cluster' AND m.origin_source_id IS NULL
       GROUP BY e.id HAVING COUNT(DISTINCT m.id)>=3 ORDER BY e.id LIMIT ?
       """).params(profileId,after==null?"":after,limit).query(String.class).list();
     List<Topic> result=new ArrayList<>();
@@ -818,7 +818,7 @@ public final class SqliteClusterStore implements ClusterRepository {
         .params(id,profileId).query(String.class).single();
       List<Member> members=jdbc.sql("""
         SELECT DISTINCT m.id FROM memories m JOIN edges x ON x.memory_id=m.id
-        WHERE m.profile_id=? AND m.forgotten=0 AND m.type<>'cluster'
+        WHERE m.profile_id=? AND m.forgotten=0 AND m.type<>'cluster' AND m.origin_source_id IS NULL
         AND (x.source_entity_id=? OR x.target_entity_id=?)
         AND EXISTS (SELECT 1 FROM assertion_revisions ar JOIN validity_segments v ON v.revision_id=ar.id
           WHERE ar.memory_id=m.id AND v.valid_from<=? AND (v.valid_to IS NULL OR v.valid_to>?)
@@ -850,7 +850,7 @@ public final class SqliteClusterStore implements ClusterRepository {
     params.add(limit);
     return jdbc.sql("""
       SELECT m.id FROM memories m WHERE m.profile_id=? AND m.id>? AND m.forgotten=0
-      AND m.type NOT IN ('cluster','task')
+      AND m.type NOT IN ('cluster','task') AND m.origin_source_id IS NULL
       AND EXISTS (SELECT 1 FROM assertion_revisions ar JOIN validity_segments v ON v.revision_id=ar.id
         WHERE ar.memory_id=m.id AND v.valid_from<=? AND (v.valid_to IS NULL OR v.valid_to>?)
         AND v.recorded_from<=? AND (v.recorded_to IS NULL OR v.recorded_to>?)

@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall) and 2 (protocol, SDK and conformance kit) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit) and 3 (daemon runtime) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -186,7 +186,7 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
 - **Migrations.** Phase 1 adds `V6__memory_origin.sql`, so the harvest tables are in `V7__harvest.sql`. `origin_source_id` is a virtual generated column over `payload.origin.source_id`, not a written column, and it treats a non-JSON payload as not harvested.
 - **Shared memories.** Memory ids hash profile, session, type and content, and each item has its own session. Identical statements in two items are therefore separate memories, so phase 3 can drop the "no other live item links to it" check.
 - **Source filters.** The options on the MCP `recall` tool and `pieria profile recall` ship with the CLI in phase 4. Phase 1 exposes them over REST only.
-- **Open item, required before phase 5.** Cluster and wiki generation build new memories from existing ones, so harvested text could lose its untrusted label on the way through. Phase 3 must exclude harvested memories from those inputs or carry the label forward. Until clusters can be attributed to sources, any recall with a source filter leaves clusters out.
+- **Clusters and wikis.** Cluster and wiki generation build new memories from existing ones, which would lose the untrusted label, so harvested memories are excluded from their inputs. Any recall with a source filter leaves clusters out. Harvested content can join them once they can carry the label.
 - **Conflict scope.** Conflict candidates are limited to the incoming memory's own scope in every candidate query. Conversation memories count as one scope, so a user's statement can't retire a harvested fact automatically. The alternative lets the user's fact join the harvested fact group, where the next harvest on that key would close it.
 - **Temporal block.** Synthesis treats this block as authoritative, so harvested memories contribute no source payload to validity lines, and harvested events are named by origin label instead of their text.
 - **Protocol details settled in phase 2.**
@@ -204,3 +204,10 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - The SDK removes secret values from `error` messages and stack traces. The daemon still redacts stderr.
   - The SDK encodes through Jackson's JSON tree, so its types need no reflection configuration in a native image.
 - **Phase 3 process runner.** It should share the conformance kit's launch and deadline logic, including reading on a thread it can abandon at the deadline, because a descendant that inherits stdout can hold the pipe open after the harvester exits.
+- **Daemon runtime, settled in phase 3.**
+  - Harvesters, `pins.json` and `secrets.json` live under `<app-data root>/harvesters`, not `$PIERIA_HOME`, because an update replaces `$PIERIA_HOME`. `pieria.harvest.root` overrides it.
+  - The mass-delete guard holds a sweep back when it would delete more than `max(2, 20% of live items)`. The floor lets a tiny site lose a page. A blocked source keeps harvesting with its deletes held back, and phase 4 adds the way to accept them.
+  - Each life of an item has its own session id, saved in `harvest_items`, because memory ids hash the session and a forgotten memory stays forgotten. An item deleted at the source that later returns would otherwise never reappear.
+  - A run's graph adoption covers only the sessions that run wrote.
+  - Failing sources back off exponentially up to `pieria.harvest.max-backoff`. Only an `auth` error pauses a source.
+  - The per-profile recall weight for harvested memories is deferred to phase 5, where real data exists to tune it.

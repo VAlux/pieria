@@ -35,7 +35,7 @@ final class SqliteWikiStore implements WikiRepository {
   }
   @Override public long watermark(String p) { return count("SELECT COALESCE(MAX(sequence),0) FROM wiki_changes WHERE profile_id=?",p); }
   @Override public List<Source> sources(String p, TemporalSnapshot s, String after, int limit) {
-    return db.sql("SELECT id FROM memories m WHERE profile_id=? AND id>? AND m.type<>'cluster' AND " + SqliteTemporalStore.visible("m",s)
+    return db.sql("SELECT id FROM memories m WHERE profile_id=? AND id>? AND m.type<>'cluster' AND m.origin_source_id IS NULL AND " + SqliteTemporalStore.visible("m",s)
         + " AND COALESCE(topic_key,'') NOT LIKE 'code:summary:%' ORDER BY id LIMIT ?")
       .params(p,after,limit).query(String.class).list().stream().map(id->source(p,id,s).orElseThrow()).toList();
   }
@@ -43,7 +43,7 @@ final class SqliteWikiStore implements WikiRepository {
     return sourceCache.computeIfAbsent(p+":"+id+":"+s, ignored->loadSource(p,id,s));
   }
   private Optional<Source> loadSource(String p, String id, TemporalSnapshot s) {
-    if (count("SELECT COUNT(*) FROM memories m WHERE profile_id=? AND id=? AND m.type<>'cluster' AND "+SqliteTemporalStore.visible("m",s)
+    if (count("SELECT COUNT(*) FROM memories m WHERE profile_id=? AND id=? AND m.type<>'cluster' AND m.origin_source_id IS NULL AND "+SqliteTemporalStore.visible("m",s)
         +" AND COALESCE(topic_key,'') NOT LIKE 'code:summary:%'",p,id)==0) return Optional.empty();
     return memories.atSnapshot(s,()->memories.findMemoryById(id)).map(m-> {
       List<Anchor> anchors=db.sql("SELECT DISTINCT e.id,e.name,e.type FROM entities e JOIN edges x ON (e.id=x.source_entity_id OR e.id=x.target_entity_id)"
