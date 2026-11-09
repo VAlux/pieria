@@ -1,0 +1,61 @@
+id = "html"
+name = "HTML site crawler"
+version = "1"
+protocol = 1
+command = ["./pieria-harvest", "html"]
+capabilities = ["incremental", "deletes"]
+network = ["the hosts this source allows"]
+
+[[config]]
+key = "seeds"
+kind = "list"
+label = "Start URLs"
+hint = "Pages to start from. Give these, sitemaps, or both."
+
+[[config]]
+key = "sitemaps"
+kind = "list"
+label = "Sitemap URLs"
+
+[[config]]
+key = "allowedHosts"
+kind = "list"
+label = "Allowed hosts"
+hint = "Exact names or *.example.com. Defaults to the hosts of the start URLs and sitemaps."
+
+[[config]]
+key = "include"
+kind = "list"
+label = "Include patterns"
+hint = "Regular expressions; a URL must match at least one, when any are given."
+
+[[config]]
+key = "exclude"
+kind = "list"
+label = "Exclude patterns"
+hint = "Regular expressions; a URL matching any is skipped."
+
+[[config]]
+key = "maxDepth"
+kind = "int"
+label = "Link depth"
+default = 3
+
+[[config]]
+key = "maxPages"
+kind = "int"
+label = "Page limit"
+hint = "At most 2000. A site larger than this is never swept, so its deleted pages stay."
+default = 500
+
+[[config]]
+key = "delayMillis"
+kind = "int"
+label = "Delay between requests to a host (ms)"
+default = 1000
+
+[[config]]
+key = "allowPrivate"
+kind = "bool"
+label = "Allow private and loopback addresses"
+default = false
