@@ -24,6 +24,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /** Fetches one URL at a time, spacing requests to each host and checking every hop of a redirect. */
 public final class PageFetcher {
@@ -44,6 +45,7 @@ public final class PageFetcher {
   private final long delayMillis;
   private final Duration requestDeadline;
   private final Map<String, Long> hostDelays = new HashMap<>();
+  private Predicate<String> redirectScope = _ -> true;
   private final Map<String, Long> lastRequestNanos = new HashMap<>();
 
   /** @param hostCheck throws {@link BlockedAddressException} for a host that must not be contacted */
@@ -65,6 +67,11 @@ public final class PageFetcher {
   /** A longer minimum gap for one host, such as from its {@code Crawl-delay}. */
   public void setHostDelay(String host, long millis) {
     hostDelays.put(host, millis);
+  }
+
+  /** Pages won't follow a redirect to a URL this rejects, so the crawl never requests anything out of scope. */
+  public void restrictRedirects(Predicate<String> scope) {
+    redirectScope = scope;
   }
 
   private FetchResult exchange(String url, String etag, String lastModified, boolean htmlOnly) {
@@ -112,6 +119,9 @@ public final class PageFetcher {
       String next = resolve(uri, location);
       if (next == null) {
         return new FetchResult.Skipped("redirect to an unsupported URL: " + current);
+      }
+      if (htmlOnly && !redirectScope.test(next)) {
+        return new FetchResult.Skipped("redirects out of scope: " + current);
       }
       current = next;
     }

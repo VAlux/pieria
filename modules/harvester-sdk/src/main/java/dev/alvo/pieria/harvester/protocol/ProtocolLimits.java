@@ -13,7 +13,7 @@ public final class ProtocolLimits {
   public static final int MAX_AUTHOR_CHARS = 256;
   public static final int MAX_TURNS = 5_000;
   public static final int MAX_SEEN_IDS = 1_000;
-  public static final int MAX_CURSOR_CHARS = 65_536;
+  public static final int MAX_CURSOR_CHARS = 900_000;
   public static final int MAX_METADATA_ENTRIES = 32;
   public static final int MAX_METADATA_VALUE_CHARS = 1_024;
   public static final int MAX_ERROR_CHARS = 2_000;

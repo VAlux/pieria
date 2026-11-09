@@ -97,6 +97,27 @@ class PageFetcherTests {
   }
 
   @Test
+  void aRedirectOutOfScopeIsNotFollowed() {
+    site.respond("/a", 302, Map.of("Location", "/x"), "");
+    PageFetcher fetcher = fetcher();
+    fetcher.restrictRedirects(url -> !url.endsWith("/x"));
+
+    assertThat(fetcher.fetch(url("/a"), null, null)).isInstanceOf(FetchResult.Skipped.class);
+
+    assertThat(site.hits("/x")).isZero();
+  }
+
+  @Test
+  void restrictingRedirectsLeavesFetchAnyAlone() {
+    site.respond("/robots.txt", 302, Map.of("Location", "/x"), "");
+    site.page("/x", "ok");
+    PageFetcher fetcher = fetcher();
+    fetcher.restrictRedirects(url -> false);
+
+    assertThat(fetcher.fetchAny(url("/robots.txt"))).isInstanceOf(FetchResult.Page.class);
+  }
+
+  @Test
   void stopsAfterTooManyRedirects() {
     site.respond("/a", 302, Map.of("Location", "/a"), "");
 
