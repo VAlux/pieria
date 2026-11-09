@@ -106,6 +106,13 @@ public class ReminiscenceService {
   }
 
   /**
+   * Adopt only memories from the given sessions, such as the ones a harvest run just wrote.
+   */
+  public ReminiscenceResult adoptSessionOrphans(String profileName, List<String> sessions, IngestProgressListener progress) {
+    return adoptOrphans(profileName, sessions, "harvest-graph", progress);
+  }
+
+  /**
    * Cheap candidate count for the automatic onboarding child task.
    */
   public long countOnboardingOrphans(String profileName) {
