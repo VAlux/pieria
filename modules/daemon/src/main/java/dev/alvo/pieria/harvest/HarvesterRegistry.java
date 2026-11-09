@@ -7,15 +7,15 @@ import dev.alvo.pieria.tools.Hash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -30,12 +30,13 @@ public class HarvesterRegistry {
   private static final Logger log = LoggerFactory.getLogger(HarvesterRegistry.class);
   private static final String ID_REGEX = "^[a-z0-9][a-z0-9_-]{0,63}$";
   private static final String MANIFEST = "harvester.toml";
-  private static final ObjectMapper MAPPER = new ObjectMapper();
 
   private final HarvestPaths paths;
+  private final HarvestPins pins;
 
   public HarvesterRegistry(HarvestPaths paths) {
     this.paths = paths;
+    this.pins = new HarvestPins(paths);
   }
 
   public List<RegisteredHarvester> list() {
@@ -82,7 +83,7 @@ public class HarvesterRegistry {
    */
   public void requirePinned(RegisteredHarvester harvester) {
     String id = harvester.manifest().id();
-    JsonNode pin = pins().path(id);
+    JsonNode pin = pins.read().path(id);
     String expectedEntrypoint = pin.path("entrypoint").asString("");
     String expectedManifest = pin.path("manifest").asString("");
     if (expectedEntrypoint.isEmpty() || expectedManifest.isEmpty()) {
@@ -99,14 +100,51 @@ public class HarvesterRegistry {
     return Files.isRegularFile(file) && expected.equals(Hash.sha256Hex(file));
   }
 
-  private JsonNode pins() {
-    if (!Files.isRegularFile(paths.pinsFile())) {
-      return MAPPER.createObjectNode();
+  /** The state of every directory under the root, including the ones {@link #list} leaves out. */
+  public List<HarvesterDiagnosis> diagnose() {
+    if (!Files.isDirectory(paths.root())) {
+      return List.of();
+    }
+    try (Stream<Path> directories = Files.list(paths.root())) {
+      return directories.filter(Files::isDirectory)
+        .filter(directory -> !directory.getFileName().toString().startsWith("."))
+        .sorted()
+        .map(this::diagnose)
+        .toList();
+    } catch (IOException e) {
+      throw new UncheckedIOException("cannot list harvesters", e);
+    }
+  }
+
+  private HarvesterDiagnosis diagnose(Path directory) {
+    String name = directory.getFileName().toString();
+    Path manifestFile = directory.resolve(MANIFEST);
+    if (!Files.isRegularFile(manifestFile)) {
+      return new HarvesterDiagnosis(name, false, "no manifest (" + MANIFEST + ")");
     }
     try {
-      return MAPPER.readTree(Files.readString(paths.pinsFile()));
-    } catch (IOException | JacksonException e) {
-      throw new HarvesterIntegrityException("cannot read harvester pins: " + e.getMessage());
+      HarvesterManifest manifest = ManifestParser.load(manifestFile);
+      if (!manifest.id().equals(name)) {
+        return new HarvesterDiagnosis(name, false, "the manifest is for " + manifest.id());
+      }
+      requirePinned(new RegisteredHarvester(manifest, directory));
+      String program = manifest.command().getFirst();
+      if (!program.startsWith("./") && !onPath(program)) {
+        return new HarvesterDiagnosis(name, false, program + " was not found on PATH");
+      }
+      return new HarvesterDiagnosis(name, true, "ok");
+    } catch (ManifestException | HarvesterIntegrityException e) {
+      return new HarvesterDiagnosis(name, false, e instanceof ManifestException ? "invalid manifest: " + e.getMessage() : e.getMessage());
     }
+  }
+
+  private static boolean onPath(String program) {
+    String path = System.getenv("PATH");
+    if (path == null) {
+      return false;
+    }
+    return Arrays.stream(path.split(File.pathSeparator))
+      .filter(directory -> !directory.isBlank())
+      .anyMatch(directory -> Files.isExecutable(Path.of(directory, program)) || Files.isExecutable(Path.of(directory, program + ".exe")));
   }
 }

@@ -143,6 +143,51 @@ class HarvesterRegistryTests {
     assertThat(registry().find("../outside")).isEmpty();
   }
 
+  private static String problem(List<HarvesterDiagnosis> diagnoses, String directory) {
+    return diagnoses.stream().filter(entry -> entry.directory().equals(directory)).findFirst().orElseThrow().detail();
+  }
+
+  @Test
+  void diagnoseReportsEachProblem() throws Exception {
+    install("good", manifest("good"));
+    install("changed", manifest("changed"));
+    install("unpinned", manifest("unpinned"));
+    install("broken", "not = = toml");
+    install("mismatch", manifest("other"));
+    pin("good", "changed");
+    Files.writeString(root.resolve("changed/run"), "tampered");
+
+    List<HarvesterDiagnosis> diagnoses = registry().diagnose();
+
+    assertThat(diagnoses).filteredOn(HarvesterDiagnosis::ok).extracting(HarvesterDiagnosis::directory).containsExactly("good");
+    assertThat(problem(diagnoses, "changed")).contains("checksum");
+    assertThat(problem(diagnoses, "unpinned")).contains("pinned");
+    assertThat(problem(diagnoses, "broken")).contains("manifest");
+    assertThat(problem(diagnoses, "mismatch")).contains("other");
+  }
+
+  @Test
+  void diagnoseReportsAMissingInterpreter() throws Exception {
+    install("script", """
+      id = "script"
+      name = "Name"
+      version = "1"
+      protocol = 1
+      command = ["no-such-interpreter-here", "./run"]
+      entrypoint = "./run"
+      """);
+    pin("script");
+
+    assertThat(problem(registry().diagnose(), "script")).contains("no-such-interpreter-here");
+  }
+
+  @Test
+  void diagnoseSkipsWorkingDirectories() throws Exception {
+    Files.createDirectories(root.resolve(".staging-1"));
+
+    assertThat(registry().diagnose()).isEmpty();
+  }
+
   @Test
   void missingRootIsEmpty() {
     assertThat(new HarvesterRegistry(new HarvestPaths(root.resolve("absent"))).list()).isEmpty();
