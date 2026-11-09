@@ -228,8 +228,8 @@ The repository is split into Gradle modules under `modules/`:
 
 ### Quick install
 
-The installer downloads the native `pieria`, `pieria-daemon`, and `pieria-gateway` binaries
-for your platform, puts them on your `PATH`, and registers the daemon to run per-user
+The installer downloads the native `pieria`, `pieria-daemon`, `pieria-gateway`, and
+`pieria-harvest` binaries for your platform, puts them on your `PATH`, and registers the daemon to run per-user
 (launchd on macOS, systemd on Linux, a logon Scheduled Task on Windows). Re-running is safe
 — every step is idempotent.
 

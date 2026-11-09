@@ -1,8 +1,8 @@
 name: release
 
-# Builds the native daemon + gateway + cli for each supported platform and publishes
+# Builds the native daemon + gateway + cli + harvesters for each supported platform and publishes
 # them as GitHub Release assets in the archive layout the installers expect:
-#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway, bin/pieria, console/)
+#   pieria-macos-aarch64.tar.gz   (bin/pieria-daemon, bin/pieria-gateway, bin/pieria, bin/pieria-harvest, console/)
 #   pieria-linux-x86_64.tar.gz
 #   pieria-windows-x86_64.zip     (bin\pieria-daemon.exe, ...)
 #   checksums.txt                 (sha256, verified by packaging/install.{sh,ps1})
@@ -156,6 +156,9 @@ jobs:
           - module: cli
             task: ":cli:nativeCompile"
             bin: pieria
+          - module: harvesters
+            task: ":harvesters:nativeCompile"
+            bin: pieria-harvest
     steps:
       - uses: actions/checkout@v4
 

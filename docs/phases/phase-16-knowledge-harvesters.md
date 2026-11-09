@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime) and 4 (CLI and REST) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST) and 5 (`pieria-harvest` and the HTML crawler) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -227,3 +227,12 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - A daemon bound to loopback refuses any request whose `Host` or `Origin` names something else, on every route. These routes install and run programs, and a web page could otherwise reach them through DNS rebinding or a cross-site request.
   - Removing a source or its profile stops any run and keeps new ones from starting until it finishes. A run that won't stop refuses the removal with a conflict.
   - Secret values reach the CLI only through an environment variable or a hidden prompt, and source request bodies are never audited.
+- **HTML crawler and bundling, settled in phase 5.**
+  - A bundled harvester's manifest is built into the daemon and its code is `pieria-harvest` in the install's `bin/`. It needs no install step and has no pin, because an update replaces it along with the daemon. It can't be replaced or removed, and it takes precedence over an installed harvester with the same id. The manifest's `./pieria-harvest` resolves against `bin/`.
+  - `pieria-harvest` is optional in a distribution, so `pieria update` can still install a release from before it existed. Without the binary the bundled harvester isn't listed, and `harvester doctor` reports it.
+  - Every crawl re-checks all known pages, because a `304` yields no links and a page's children would otherwise look deleted. A page no longer linked from anywhere stays for as long as it is still served.
+  - A sweep needs a whole crawl. A denied, failed or blocked page, an unreadable `robots.txt` or sitemap, or more pages than `maxPages` (at most 2,000) cancels that crawl's deletions, so a site larger than `maxPages` is never swept. A crawl that reports no page at all fails the run.
+  - A redirect out of scope is not followed, and counts as the page not being part of the site. It doesn't cancel the sweep.
+  - `MAX_CURSOR_CHARS` is 900,000, up from 65,536, which can't hold a site's URLs. The crawler keeps its cursor to 850,000 by dropping conditional-request validators on a very large site. URLs over 400 characters are skipped.
+  - A page with no date of its own is stamped with the time it was fetched. The daemon's item fingerprint ignores that field, so an unchanged page costs nothing.
+  - The address check runs before each request. A hostname that resolves publicly at the check and privately at connection (DNS rebinding) is not caught, because `java.net.http` has no per-request resolver.

@@ -16,7 +16,8 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 ./gradlew :daemon:nativeCompile   # GraalVM daemon executable (requires GraalVM 25+)
 ./gradlew :gateway:nativeCompile  # GraalVM gateway executable (requires GraalVM 25+)
 ./gradlew :cli:nativeCompile      # GraalVM CLI executable (requires GraalVM 25+)
-./gradlew :daemon:nativeDist      # assemble full native distribution (daemon + gateway + cli + harness)
+./gradlew :harvesters:nativeCompile  # GraalVM first-party harvester executable (requires GraalVM 25+)
+./gradlew :daemon:nativeDist      # assemble full native distribution (daemon + gateway + cli + harvesters + harness)
 ./gradlew :daemon:deployLocal     # build native dist and sync into $PIERIA_HOME
 ```
 
@@ -106,6 +107,8 @@ All modules live under `modules/`:
 - `gateway`: stdio MCP tools and the HTTP client that forwards to the daemon.
 - `eval`: the LoCoMo benchmark harness — dataset adapter, runner, and JSON/HTML report writers. Run it
   with `./gradlew :eval:locomo --args="--help"`; see `modules/eval/README.md`.
+- `harvesters`: the first-party harvesters in one binary, `pieria-harvest <id> <command>`. Their manifests are in
+  `modules/harvesters/manifests`, are built into the daemon, and need an entry in `BundledHarvesters.IDS`.
 - `harvester-sdk`: the harvester protocol, Java runner, manifest parser and conformance kit. It
   deliberately depends on no other Pieria module, because outside developers consume it.
 

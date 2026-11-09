@@ -15,6 +15,9 @@ public interface BinarySource {
    */
   List<String> BINARIES = List.of("pieria", "pieria-daemon", "pieria-gateway");
 
+  /** Binaries a distribution may lack, so an update can still install a release from before they existed. */
+  List<String> OPTIONAL_BINARIES = List.of("pieria-harvest");
+
   /**
    * Acquire the distribution (download/extract or validate-in-place) and return it staged on disk.
    *

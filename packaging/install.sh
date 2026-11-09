@@ -206,6 +206,8 @@ else
 	tar -xzf "$WORK/$TARBALL" -C "$PIERIA_HOME"
 	[[ -f "$PIERIA_HOME/console/index.html" ]] || die "release is missing console/index.html"
 	chmod +x "$PIERIA_HOME/bin/pieria" "$PIERIA_HOME/bin/pieria-daemon" "$PIERIA_HOME/bin/pieria-gateway"
+	# Absent from releases that predate bundled harvesters.
+	if [[ -f "$PIERIA_HOME/bin/pieria-harvest" ]]; then chmod +x "$PIERIA_HOME/bin/pieria-harvest"; fi
 fi
 
 # --- link onto PATH ----------------------------------------------------------

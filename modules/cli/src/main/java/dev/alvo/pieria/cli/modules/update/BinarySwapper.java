@@ -135,6 +135,13 @@ public final class BinarySwapper {
         Path target = binDir.resolve(exe);
         done.add(swapOne(src, target, true));
       }
+      for (String name : BinarySource.OPTIONAL_BINARIES) {
+        String exe = platform.exeName(name);
+        Path src = dist.binDir().resolve(exe);
+        if (Files.isRegularFile(src)) {
+          done.add(swapOne(src, binDir.resolve(exe), true));
+        }
+      }
       // Carry the version stamp across (best-effort, not rolled back).
       copyVersionStamp(dist.binDir(), binDir);
     } catch (RuntimeException | IOException failure) {

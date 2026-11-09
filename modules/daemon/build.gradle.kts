@@ -516,7 +516,7 @@ fun reSignAdhocMacOs(binDir: File, log: org.gradle.api.logging.Logger) {
 	if (!providers.systemProperty("os.name").orElse("").get().lowercase().contains("mac")) {
 		return
 	}
-	listOf("pieria", "pieria-daemon", "pieria-gateway")
+	listOf("pieria", "pieria-daemon", "pieria-gateway", "pieria-harvest")
 		.map { binDir.resolve(it) }
 		.filter { it.isFile }
 		.forEach { bin ->
@@ -531,7 +531,7 @@ fun reSignAdhocMacOs(binDir: File, log: org.gradle.api.logging.Logger) {
 		}
 }
 
-// The release workflow compiles the three native images on three separate runners so each one gets a
+// The release workflow compiles the native images on separate runners so each one gets a
 // whole machine (the macOS runner is a 3-core/7.5GB box that cannot hold two builders). The packaging
 // job then downloads the binaries into one directory and points this task at it with
 // -PprebuiltNativeBins=<dir, relative to the repo root>, so the release archive is laid out by the
@@ -562,7 +562,7 @@ sourceSets["main"].resources.srcDir(stageBundledHarvesters)
 
 val nativeDist by tasks.registering(Sync::class) {
 	group = "distribution"
-	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli binaries and harness assets."
+	description = "Assemble a native-image distribution: self-contained daemon + gateway + cli + harvester binaries and harness assets."
 
 	into(layout.buildDirectory.dir("distributions/pieria-native"))
 	if (prebuiltNativeBins.isPresent) {
@@ -571,7 +571,8 @@ val nativeDist by tasks.registering(Sync::class) {
 			include(
 				"pieria", "pieria.exe",
 				"pieria-daemon", "pieria-daemon.exe",
-				"pieria-gateway", "pieria-gateway.exe"
+				"pieria-gateway", "pieria-gateway.exe",
+				"pieria-harvest", "pieria-harvest.exe"
 			)
 		}
 	} else {
@@ -579,7 +580,8 @@ val nativeDist by tasks.registering(Sync::class) {
 			buildTreeSitterLibraries,
 			tasks.named("nativeCompile"),
 			project(":gateway").tasks.named("nativeCompile"),
-			project(":cli").tasks.named("nativeCompile")
+			project(":cli").tasks.named("nativeCompile"),
+			project(":harvesters").tasks.named("nativeCompile")
 		)
 		// The sqlite-vec extension is embedded in the binary; nothing extra rides alongside it.
 		from(tasks.named("nativeCompile")) {
@@ -593,6 +595,10 @@ val nativeDist by tasks.registering(Sync::class) {
 		from(project(":cli").tasks.named("nativeCompile")) {
 			into("bin")
 			include("pieria", "pieria.exe")
+		}
+		from(project(":harvesters").tasks.named("nativeCompile")) {
+			into("bin")
+			include("pieria-harvest", "pieria-harvest.exe")
 		}
 	}
 	from(rootProject.layout.projectDirectory.dir("packaging/harness")) {

@@ -54,6 +54,51 @@ class BinarySwapperTests {
   }
 
   @Test
+  void swapsAnOptionalBinaryWhenPresent(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
+    writeFile(dist.binDir().resolve("pieria-harvest"), "harvest-new");
+    Path installBin = tmp.resolve("install/bin");
+    writeFile(installBin.resolve("pieria-harvest"), "harvest-old");
+
+    new BinarySwapper(new TestPlatform()).swap(dist, new InstallLayout(installBin));
+
+    assertThat(Files.readString(installBin.resolve("pieria-harvest"))).isEqualTo("harvest-new");
+  }
+
+  @Test
+  void toleratesADistributionWithoutTheOptionalBinary(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
+    Path installBin = tmp.resolve("install/bin");
+
+    new BinarySwapper(new TestPlatform()).swap(dist, new InstallLayout(installBin));
+
+    assertThat(installBin.resolve("pieria-harvest")).doesNotExist();
+    assertThat(Files.readString(installBin.resolve("pieria"))).isEqualTo("pieria-new");
+  }
+
+  @Test
+  void rollsBackAnOptionalBinaryWithTheRest(@TempDir Path tmp) throws IOException {
+    StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
+    writeFile(dist.consoleDir().resolve("index.html"), "new console");
+    // A directory where the version stamp's sibling would be staged makes the optional swap fail last.
+    writeFile(dist.binDir().resolve("pieria-harvest"), "harvest-new");
+    Path installBin = tmp.resolve("install/bin");
+    for (String name : BinarySource.BINARIES) {
+      writeFile(installBin.resolve(name), name + "-old");
+    }
+    Files.createDirectories(installBin.resolve("pieria-harvest.new/occupied"));
+    InstallLayout install = new InstallLayout(installBin);
+
+    assertThatThrownBy(() -> new BinarySwapper(new TestPlatform()).swap(dist, install)).isInstanceOf(UpdateException.class);
+
+    for (String name : BinarySource.BINARIES) {
+      assertThat(Files.readString(installBin.resolve(name))).isEqualTo(name + "-old");
+    }
+  }
+
+  @Test
   void installsConsoleIntoAnOlderBinOnlyInstallation(@TempDir Path tmp) throws IOException {
     StagedDist dist = nativeDist(tmp.resolve("staging"), "new");
     writeFile(dist.consoleDir().resolve("index.html"), "new console");
