@@ -27,6 +27,15 @@ public interface HarvestStore {
 
   void deleteSource(String sourceId);
 
+  /** Updates the source's config, mode, interval, limits and cursor. */
+  void updateSource(HarvestSource source);
+
+  void setAcceptNextSweep(String sourceId, boolean accept);
+
+  boolean acceptNextSweep(String sourceId);
+
+  boolean anySourceUses(String harvesterId);
+
   /** Records a new {@link RunStatus#RUNNING} run and returns its id. */
   String startRun(String sourceId, boolean dryRun);
 

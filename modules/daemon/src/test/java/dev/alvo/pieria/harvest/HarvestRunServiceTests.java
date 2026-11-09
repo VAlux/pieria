@@ -560,6 +560,111 @@ class HarvestRunServiceTests {
     assertThat(live()).isEqualTo(2);
   }
 
+  private ObjectNode sevenOfTenSeen() {
+    ObjectNode seen = MAPPER.createObjectNode().put("type", "seen");
+    seen.putArray("ids").add("a").add("b").add("c").add("d").add("e").add("f").add("g");
+    return seen;
+  }
+
+  @Test
+  void anAcceptedSweepBypassesTheGuardOnce() throws Exception {
+    seedItems("a", "b", "c", "d", "e", "f", "g", "h", "i", "j");
+    reconfigure("s", withRecords(sevenOfTenSeen(), sweep()));
+    store.setAcceptNextSweep("s", true);
+
+    HarvestRunSummary accepted = run("s");
+
+    assertThat(accepted.sweepApplied()).isTrue();
+    assertThat(live()).isEqualTo(7);
+    assertThat(store.acceptNextSweep("s")).isFalse();
+    assertThat(source().sweepBlockedCount()).isNull();
+
+    reconfigure("s", withRecords(sweep()));
+    assertThat(run("s").sweepApplied()).as("the acceptance covered one sweep only").isFalse();
+    assertThat(live()).isEqualTo(7);
+  }
+
+  @Test
+  void acceptanceIsKeptUntilASweepHappens() throws Exception {
+    createSource("s", withRecords(document("a", "EVENT text")), SourceMode.FULL);
+    store.setAcceptNextSweep("s", true);
+
+    run("s");
+
+    assertThat(store.acceptNextSweep("s")).isTrue();
+  }
+
+  @Test
+  void checkReportsSuccess() {
+    createSource("s", config(), SourceMode.FULL);
+
+    assertThat(service(Duration.ofSeconds(60)).check("s").ok()).isTrue();
+  }
+
+  @Test
+  void checkReportsTheHarvestersError() {
+    ObjectNode config = config();
+    config.putObject("checkFail").put("class", "auth").put("message", "bad token");
+    createSource("s", config, SourceMode.FULL);
+
+    SourceCheckResult result = service(Duration.ofSeconds(60)).check("s");
+
+    assertThat(result.ok()).isFalse();
+    assertThat(result.errorClass()).isEqualTo(ErrorClass.AUTH);
+    assertThat(result.message()).contains("bad token");
+  }
+
+  @Test
+  void checkDoesNotPauseTheSource() {
+    ObjectNode config = config();
+    config.putObject("checkFail").put("class", "auth").put("message", "bad token");
+    createSource("s", config, SourceMode.FULL);
+
+    service(Duration.ofSeconds(60)).check("s");
+
+    assertThat(source().status()).isEqualTo(SourceStatus.ACTIVE);
+  }
+
+  @Test
+  void checkScrubsSecrets() {
+    secrets.put("s", "token", TOKEN);
+    createSource("s", config().put("checkRawLine", error("auth", "rejected " + TOKEN).toString()), SourceMode.FULL);
+
+    assertThat(service(Duration.ofSeconds(60)).check("s").message()).doesNotContain(TOKEN).contains("rejected");
+  }
+
+  @Test
+  void checkSavesARotatedSecret() {
+    ObjectNode config = config();
+    config.putArray("checkRecords").add(secretUpdate("token", "rotated"));
+    createSource("s", config, SourceMode.FULL);
+
+    service(Duration.ofSeconds(60)).check("s");
+
+    assertThat(secrets.secrets("s")).containsEntry("token", "rotated");
+  }
+
+  @Test
+  void checkRefusesAChangedHarvester() throws Exception {
+    createSource("s", config(), SourceMode.FULL);
+    Files.writeString(root.resolve("scripted/run.sh"), "#!/bin/sh\nexit 0\n");
+
+    SourceCheckResult result = service(Duration.ofSeconds(60)).check("s");
+
+    assertThat(result.ok()).isFalse();
+    assertThat(result.errorClass()).isEqualTo(ErrorClass.CONFIG);
+  }
+
+  @Test
+  void checkTimesOut() {
+    createSource("s", config().put("checkSleepMs", 60_000), SourceMode.FULL);
+
+    SourceCheckResult result = service(Duration.ofSeconds(3)).check("s");
+
+    assertThat(result.ok()).isFalse();
+    assertThat(result.errorClass()).isEqualTo(ErrorClass.TRANSIENT);
+  }
+
   @Test
   void aModelFailureFailsTheRunAndKeepsTheCursorBehindIt() throws Exception {
     createSource("s", withRecords(document("a", "EVENT first"), checkpoint(1), document("b", "EVENT poison"), checkpoint(2)), SourceMode.FULL);

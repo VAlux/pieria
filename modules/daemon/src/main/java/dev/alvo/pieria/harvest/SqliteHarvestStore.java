@@ -133,6 +133,32 @@ public class SqliteHarvestStore implements HarvestStore {
   }
 
   @Override
+  public void updateSource(HarvestSource s) {
+    jdbc.sql("""
+        UPDATE harvest_sources SET config_json = ?, mode = ?, interval_seconds = ?, max_items_per_run = ?,
+        max_chars_per_run = ?, cursor_json = ? WHERE id = ?""")
+      .params(s.configJson(), wire(s.mode()), s.intervalSeconds(), s.maxItemsPerRun(), s.maxCharsPerRun(), s.cursorJson(), s.id())
+      .update();
+  }
+
+  @Override
+  public void setAcceptNextSweep(String sourceId, boolean accept) {
+    jdbc.sql("UPDATE harvest_sources SET accept_next_sweep = ? WHERE id = ?").params(accept ? 1 : 0, sourceId).update();
+  }
+
+  @Override
+  public boolean acceptNextSweep(String sourceId) {
+    return jdbc.sql("SELECT accept_next_sweep FROM harvest_sources WHERE id = ?").param(sourceId)
+      .query(Integer.class).optional().orElse(0) != 0;
+  }
+
+  @Override
+  public boolean anySourceUses(String harvesterId) {
+    return jdbc.sql("SELECT COUNT(*) FROM harvest_sources WHERE harvester_id = ?").param(harvesterId)
+      .query(Long.class).single() > 0;
+  }
+
+  @Override
   public String startRun(String sourceId, boolean dryRun) {
     String id = UUID.randomUUID().toString();
     jdbc.sql("INSERT INTO harvest_runs (id, source_id, dry_run, status, started_at) VALUES (?, ?, ?, 'running', ?)")

@@ -27,7 +27,31 @@ public final class ScriptedHarvester implements Harvester {
   }
 
   @Override
-  public void check(HarvestRequest request, RecordSink sink) {
+  public void check(HarvestRequest request, RecordSink sink) throws HarvesterException {
+    JsonNode config = request.config();
+    if (config.has("checkRawLine")) {
+      // Written directly, as a harvester not built on the SDK would.
+      try {
+        new FileOutputStream(FileDescriptor.out).write((config.get("checkRawLine").asString() + "\n").getBytes());
+      } catch (IOException e) {
+        throw new HarvesterException(ErrorClass.FATAL, e.toString());
+      }
+      return;
+    }
+    for (JsonNode record : config.path("checkRecords")) {
+      sink.emit(RecordCodec.decode(record.toString()));
+    }
+    if (config.has("checkSleepMs")) {
+      try {
+        Thread.sleep(config.get("checkSleepMs").asLong());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    if (config.has("checkFail")) {
+      JsonNode fail = config.get("checkFail");
+      throw new HarvesterException(ErrorClass.fromWire(fail.get("class").asString()), fail.get("message").asString());
+    }
   }
 
   private static void echo(RecordSink sink, String id, String text) {

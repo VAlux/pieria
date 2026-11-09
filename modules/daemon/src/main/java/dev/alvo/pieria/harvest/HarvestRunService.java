@@ -22,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -44,6 +45,7 @@ public class HarvestRunService {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final int MAX_STDERR_TAIL_CHARS = 4_000;
   private static final String SUBCOMMAND = "harvest";
+  private static final Duration CHECK_TIMEOUT = Duration.ofSeconds(60);
 
   private final HarvestStore store;
   private final HarvesterRegistry registry;
@@ -72,6 +74,101 @@ public class HarvestRunService {
     HarvestSource source = store.findSource(sourceId)
       .orElseThrow(() -> new IllegalArgumentException("unknown harvest source: " + sourceId));
     return new Run(source, store.startRun(sourceId, dryRun), dryRun, progress).execute();
+  }
+
+  /** Runs the harvester's own check of its config and credentials. */
+  public SourceCheckResult check(String sourceId) {
+    HarvestSource source = store.findSource(sourceId)
+      .orElseThrow(() -> new IllegalArgumentException("unknown harvest source: " + sourceId));
+    Set<String> secretValues = new HashSet<>();
+    try {
+      RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
+        "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
+      Set<String> declared = declaredSecrets(harvester);
+      HarvestRequest request = envelope(source, declared, secretValues);
+      registry.requirePinned(harvester);
+      Duration limit = CHECK_TIMEOUT.compareTo(properties.runTimeout()) < 0 ? CHECK_TIMEOUT : properties.runTimeout();
+      Instant deadline = Instant.now().plus(limit);
+      try (HarvesterProcess process = HarvesterProcess.start(harvester.command(), "check", harvester.directory(), request)) {
+        HarvestRecord.Failure reported = null;
+        for (HarvestRecord record = process.next(deadline); record != null; record = process.next(deadline)) {
+          if (record instanceof HarvestRecord.Failure failure) {
+            reported = failure;
+          } else if (record instanceof HarvestRecord.SecretUpdate update) {
+            saveSecret(source, declared, secretValues, update);
+          }
+        }
+        if (!process.awaitExit(deadline)) {
+          throw new TimeoutException();
+        }
+        if (reported != null) {
+          return new SourceCheckResult(false, reported.errorClass(), scrub(reported.message(), secretValues));
+        }
+        if (process.exitCode() != 0) {
+          return new SourceCheckResult(false, ErrorClass.FATAL, "the harvester exited with code " + process.exitCode());
+        }
+        return SourceCheckResult.passed();
+      }
+    } catch (RunFailure e) {
+      return new SourceCheckResult(false, e.errorClass, scrub(e.getMessage(), secretValues));
+    } catch (HarvesterIntegrityException e) {
+      return new SourceCheckResult(false, ErrorClass.CONFIG, e.getMessage());
+    } catch (ProtocolViolation e) {
+      return new SourceCheckResult(false, ErrorClass.FATAL, "protocol violation: " + scrub(e.getMessage(), secretValues));
+    } catch (TimeoutException e) {
+      return new SourceCheckResult(false, ErrorClass.TRANSIENT, "the check timed out");
+    } catch (IOException e) {
+      return new SourceCheckResult(false, ErrorClass.FATAL, "could not start the harvester: " + e.getMessage());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return new SourceCheckResult(false, ErrorClass.TRANSIENT, "the check was interrupted");
+    }
+  }
+
+  private static Set<String> declaredSecrets(RegisteredHarvester harvester) {
+    return harvester.manifest().config().stream()
+      .filter(field -> field.kind() == FieldKind.SECRET)
+      .map(ConfigFieldSpec::key)
+      .collect(Collectors.toSet());
+  }
+
+  /** Builds the stdin envelope with only the declared secrets, noting every stored value for scrubbing. */
+  private HarvestRequest envelope(HarvestSource source, Set<String> declared, Set<String> secretValues) throws RunFailure {
+    Map<String, String> secrets = new LinkedHashMap<>(secretStore.secrets(source.id()));
+    secretValues.addAll(secrets.values());
+    secrets.keySet().retainAll(declared);
+    try {
+      if (!(MAPPER.readTree(source.configJson()) instanceof ObjectNode config)) {
+        throw new RunFailure(ErrorClass.CONFIG, "the source config is not a JSON object", null);
+      }
+      JsonNode cursor = source.cursorJson() == null ? null : MAPPER.readTree(source.cursorJson());
+      return new HarvestRequest(HarvestRequest.PROTOCOL_VERSION, config, secrets, cursor,
+        new HarvestRequest.Limits(source.maxItemsPerRun(), source.maxCharsPerRun()));
+    } catch (JacksonException e) {
+      throw new RunFailure(ErrorClass.CONFIG, "the source config or cursor is not valid JSON", null);
+    }
+  }
+
+  private void saveSecret(HarvestSource source, Set<String> declared, Set<String> secretValues, HarvestRecord.SecretUpdate update) {
+    secretValues.add(update.value());
+    if (declared.contains(update.name())) {
+      secretStore.put(source.id(), update.name(), update.value());
+    } else {
+      log.warn("harvest source={} sent an update for undeclared secret {}; ignoring", source.id(), update.name());
+    }
+  }
+
+  private static String scrub(String text, Set<String> secretValues) {
+    if (text == null) {
+      return null;
+    }
+    String scrubbed = text;
+    for (String secret : secretValues) {
+      if (!secret.isBlank()) {
+        scrubbed = scrubbed.replace(secret, "***");
+      }
+    }
+    return scrubbed;
   }
 
   /** A run that could not finish, with the class that decides how it is retried. */
@@ -174,7 +271,8 @@ public class HarvestRunService {
     private void drive() throws RunFailure {
       RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
         "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
-      HarvestRequest request = request(harvester);
+      declaredSecrets.addAll(HarvestRunService.declaredSecrets(harvester));
+      HarvestRequest request = envelope(source, declaredSecrets, secretValues);
       Instant deadline = Instant.now().plus(properties.runTimeout());
 
       HarvesterProcess process;
@@ -221,26 +319,6 @@ public class HarvestRunService {
       }
       if (process.exitCode() != 0) {
         throw new RunFailure(ErrorClass.FATAL, "the harvester exited with code " + process.exitCode(), null);
-      }
-    }
-
-    private HarvestRequest request(RegisteredHarvester harvester) throws RunFailure {
-      harvester.manifest().config().stream()
-        .filter(field -> field.kind() == FieldKind.SECRET)
-        .map(ConfigFieldSpec::key)
-        .forEach(declaredSecrets::add);
-      Map<String, String> secrets = new LinkedHashMap<>(secretStore.secrets(source.id()));
-      secretValues.addAll(secrets.values());
-      secrets.keySet().retainAll(declaredSecrets);
-      try {
-        if (!(MAPPER.readTree(source.configJson()) instanceof ObjectNode config)) {
-          throw new RunFailure(ErrorClass.CONFIG, "the source config is not a JSON object", null);
-        }
-        JsonNode cursor = source.cursorJson() == null ? null : MAPPER.readTree(source.cursorJson());
-        return new HarvestRequest(HarvestRequest.PROTOCOL_VERSION, config, secrets, cursor,
-          new HarvestRequest.Limits(source.maxItemsPerRun(), source.maxCharsPerRun()));
-      } catch (JacksonException e) {
-        throw new RunFailure(ErrorClass.CONFIG, "the source config or cursor is not valid JSON", null);
       }
     }
 
@@ -317,19 +395,15 @@ public class HarvestRunService {
 
     /** Saved on dry runs too, because the provider has already replaced the old value. */
     private void applySecret(HarvestRecord.SecretUpdate update) {
-      secretValues.add(update.value());
-      if (declaredSecrets.contains(update.name())) {
-        secretStore.put(source.id(), update.name(), update.value());
-      } else {
-        log.warn("harvest source={} sent an update for undeclared secret {}; ignoring", source.id(), update.name());
-      }
+      saveSecret(source, declaredSecrets, secretValues, update);
     }
 
     private void applySweep() {
       List<HarvestItem> unseen = store.unseenItems(source.id(), runId);
       long live = store.liveItemCount(source.id());
+      boolean accepted = store.acceptNextSweep(source.id());
       boolean wouldEmptySource = !unseen.isEmpty() && unseen.size() == live;
-      if (wouldEmptySource || unseen.size() > Math.max(properties.sweepGuardFloor(), properties.sweepGuardShare() * live)) {
+      if (!accepted && (wouldEmptySource || unseen.size() > Math.max(properties.sweepGuardFloor(), properties.sweepGuardShare() * live))) {
         log.warn("harvest source={} sweep would delete {} of {} items; holding it back", source.id(), unseen.size(), live);
         sweepBlockedCount = (long) unseen.size();
         store.setSweepBlocked(source.id(), sweepBlockedCount);
@@ -339,6 +413,9 @@ public class HarvestRunService {
       itemsDeleted += unseen.size();
       sweepApplied = true;
       store.setSweepBlocked(source.id(), null);
+      if (accepted) {
+        store.setAcceptNextSweep(source.id(), false);
+      }
     }
 
     private long estimatedChunks() {
@@ -346,20 +423,9 @@ public class HarvestRunService {
       return (changedChars + chunkChars - 1) / chunkChars;
     }
 
-    private String scrub(String text) {
-      if (text == null) {
-        return null;
-      }
-      String scrubbed = text;
-      for (String secret : secretValues.stream().filter(value -> !value.isBlank()).collect(Collectors.toList())) {
-        scrubbed = scrubbed.replace(secret, "***");
-      }
-      return scrubbed;
-    }
-
     private HarvestRunSummary finish(RunStatus status, ErrorClass errorClass, String message, Long retryAfterSeconds) {
-      String cleanMessage = scrub(message);
-      String cleanStderr = scrub(stderr);
+      String cleanMessage = scrub(message, secretValues);
+      String cleanStderr = scrub(stderr, secretValues);
       String tail = cleanStderr.length() <= MAX_STDERR_TAIL_CHARS
         ? cleanStderr : cleanStderr.substring(cleanStderr.length() - MAX_STDERR_TAIL_CHARS);
       store.finishRun(new HarvestRun(runId, source.id(), dryRun, status, null, Instant.now(), itemsSeen, itemsChanged, itemsDeleted,

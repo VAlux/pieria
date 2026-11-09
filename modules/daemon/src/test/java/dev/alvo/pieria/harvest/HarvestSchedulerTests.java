@@ -173,6 +173,69 @@ class HarvestSchedulerTests {
   }
 
   @Test
+  void isRunningReflectsAnInFlightRun() throws Exception {
+    source("a", 0, null);
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = blockRuns(started);
+    HarvestScheduler scheduler = scheduler(true, 1);
+    assertThat(scheduler.isRunning("a")).isFalse();
+
+    scheduler.launch("a", false);
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(scheduler.isRunning("a")).isTrue();
+    release.countDown();
+    await(() -> !scheduler.isRunning("a"));
+  }
+
+  @Test
+  void stopAndWaitCancelsARunningSource() throws Exception {
+    source("a", 0, null);
+    CountDownLatch started = new CountDownLatch(1);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenAnswer(invocation -> {
+      started.countDown();
+      Thread.sleep(30_000);
+      return success();
+    });
+    HarvestScheduler scheduler = scheduler(true, 1);
+    scheduler.launch("a", false);
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(scheduler.stopAndWait("a", Duration.ofSeconds(5))).isTrue();
+
+    assertThat(scheduler.isRunning("a")).isFalse();
+  }
+
+  @Test
+  void stopAndWaitIsTrueWhenIdle() {
+    assertThat(scheduler(true, 1).stopAndWait("a", Duration.ofSeconds(1))).isTrue();
+  }
+
+  @Test
+  void stopAndWaitIsFalseWhenTheRunWillNotEnd() throws Exception {
+    source("a", 0, null);
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(runs.run(any(), anyBoolean(), any(TaskProgress.class))).thenAnswer(invocation -> {
+      started.countDown();
+      while (release.getCount() > 0) {
+        try {
+          release.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          // This run ignores cancellation.
+        }
+      }
+      return success();
+    });
+    HarvestScheduler scheduler = scheduler(true, 1);
+    scheduler.launch("a", false);
+    assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(scheduler.stopAndWait("a", Duration.ofMillis(200))).isFalse();
+    release.countDown();
+  }
+
+  @Test
   void unknownSourceIsNotLaunched() {
     assertThat(scheduler(true, 1).launch("absent", false)).isEmpty();
   }

@@ -123,6 +123,42 @@ class SqliteHarvestStoreTests {
   }
 
   @Test
+  void acceptNextSweepRoundTrips() {
+    created("s");
+    assertThat(store.acceptNextSweep("s")).isFalse();
+
+    store.setAcceptNextSweep("s", true);
+    assertThat(store.acceptNextSweep("s")).isTrue();
+
+    store.setAcceptNextSweep("s", false);
+    assertThat(store.acceptNextSweep("s")).isFalse();
+  }
+
+  @Test
+  void updateSourceChangesConfigAndLimits() {
+    HarvestSource source = created("s");
+
+    store.updateSource(new HarvestSource("s", source.profileId(), source.harvesterId(), "{\"b\":2}", SourceMode.RAW, 60, 5, 9L,
+      source.status(), "{\"c\":1}", source.nextRunAt(), 0, null, source.createdAt()));
+
+    HarvestSource updated = store.findSource("s").orElseThrow();
+    assertThat(updated.configJson()).isEqualTo("{\"b\":2}");
+    assertThat(updated.mode()).isEqualTo(SourceMode.RAW);
+    assertThat(updated.intervalSeconds()).isEqualTo(60);
+    assertThat(updated.maxItemsPerRun()).isEqualTo(5);
+    assertThat(updated.maxCharsPerRun()).isEqualTo(9L);
+    assertThat(updated.cursorJson()).isEqualTo("{\"c\":1}");
+  }
+
+  @Test
+  void anySourceUsesFindsAHarvester() {
+    created("s");
+
+    assertThat(store.anySourceUses("jira")).isTrue();
+    assertThat(store.anySourceUses("confluence")).isFalse();
+  }
+
+  @Test
   void finishRunRecordsCounts() {
     created("s");
     String runId = store.startRun("s", true);

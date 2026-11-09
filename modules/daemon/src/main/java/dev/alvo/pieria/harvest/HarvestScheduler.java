@@ -17,8 +17,10 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -32,6 +34,7 @@ public class HarvestScheduler {
 
   private static final Logger log = LoggerFactory.getLogger(HarvestScheduler.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final long STOP_POLL_MILLIS = 50;
 
   private final HarvestStore store;
   private final HarvestRunService runs;
@@ -39,6 +42,7 @@ public class HarvestScheduler {
   private final HarvestProperties properties;
   private final ReminiscenceService reminiscence;
   private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+  private final Map<String, UUID> runningTasks = new ConcurrentHashMap<>();
   private volatile boolean shuttingDown;
 
   public HarvestScheduler(HarvestStore store, HarvestRunService runs, TaskRegistry tasks, HarvestProperties properties,
@@ -85,13 +89,37 @@ public class HarvestScheduler {
     }
     String profile = store.profileName(found.get().profileId());
     AtomicBoolean claimedByLaunch = new AtomicBoolean(true);
-    return Optional.of(tasks.submit("harvest", profile, progress -> {
+    UUID task = tasks.submit("harvest", profile, progress -> {
       // A retry of this task re-enters here, and must take its own claim.
       if (!claimedByLaunch.getAndSet(false) && !claim(sourceId)) {
         throw new ConflictException("harvest source " + sourceId + " is already running, or no run slot is free");
       }
       return execute(sourceId, profile, dryRun, progress);
-    }));
+    });
+    runningTasks.put(sourceId, task);
+    return Optional.of(task);
+  }
+
+  public boolean isRunning(String sourceId) {
+    return inFlight.contains(sourceId);
+  }
+
+  /** Cancels the source's run, if any, and reports whether it ended within {@code timeout}. */
+  public boolean stopAndWait(String sourceId, Duration timeout) {
+    UUID task = runningTasks.get(sourceId);
+    if (task != null && inFlight.contains(sourceId)) {
+      tasks.cancel(task);
+    }
+    Instant deadline = Instant.now().plus(timeout);
+    while (inFlight.contains(sourceId) && Instant.now().isBefore(deadline)) {
+      try {
+        Thread.sleep(STOP_POLL_MILLIS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return !inFlight.contains(sourceId);
   }
 
   private synchronized boolean claim(String sourceId) {
