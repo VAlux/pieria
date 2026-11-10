@@ -57,7 +57,9 @@ public final class HtmlHarvester implements Harvester {
   public void check(HarvestRequest request, RecordSink sink) throws HarvesterException {
     CrawlConfig config = CrawlConfig.parse(request.config());
     String first = config.seeds().isEmpty() ? config.sitemaps().getFirst() : config.seeds().getFirst();
-    switch (fetcher(config).fetchAny(first)) {
+    // A seed must be a page the crawl can use; a sitemap is any document.
+    PageFetcher fetcher = fetcher(config);
+    switch (config.seeds().isEmpty() ? fetcher.fetchAny(first) : fetcher.fetch(first, null, null)) {
       case FetchResult.Page _, FetchResult.NotModified _ -> {
       }
       case FetchResult.Blocked blocked -> throw new HarvesterException(ErrorClass.CONFIG, blocked.reason());

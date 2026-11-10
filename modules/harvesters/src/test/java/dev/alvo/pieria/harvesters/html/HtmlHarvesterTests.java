@@ -582,6 +582,13 @@ class HtmlHarvesterTests {
   }
 
   @Test
+  void checkRejectsANonHtmlSeed() {
+    site.respond("/", 200, Map.of("Content-Type", "application/pdf"), "x");
+
+    assertThat(execute("check", config("/"), null, null).failure().errorClass()).isEqualTo(ErrorClass.CONFIG);
+  }
+
+  @Test
   void checkReportsAMissingStartPage() {
     assertThat(execute("check", config("/absent"), null, null).failure().errorClass()).isEqualTo(ErrorClass.CONFIG);
   }

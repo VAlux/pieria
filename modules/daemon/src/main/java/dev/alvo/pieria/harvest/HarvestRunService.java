@@ -201,6 +201,8 @@ public class HarvestRunService {
     private long memoriesStored;
     private long chars;
     private long changedChars;
+    /** Set once an item's extraction couldn't be read, so no later checkpoint can skip past it. */
+    private boolean cursorHeld;
     private boolean sweepRequested;
     private boolean sweepApplied;
     private Long sweepBlockedCount;
@@ -338,7 +340,7 @@ public class HarvestRunService {
           }
         }
         case HarvestRecord.Checkpoint checkpoint -> {
-          if (!dryRun) {
+          if (!dryRun && !cursorHeld) {
             store.saveCursor(source.id(), checkpoint.cursor().toString());
           }
         }
@@ -388,6 +390,7 @@ public class HarvestRunService {
         changedChars += outcome.chars();
       }
       memoriesStored += outcome.memoriesStored();
+      cursorHeld |= !outcome.complete();
       if (outcome.memoriesStored() > 0) {
         sessions.add(outcome.sessionId());
       }

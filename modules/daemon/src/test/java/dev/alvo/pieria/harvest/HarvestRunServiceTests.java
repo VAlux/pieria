@@ -228,6 +228,18 @@ class HarvestRunServiceTests {
   }
 
   @Test
+  void anUnreadableItemHoldsTheCursorSoItIsReportedAgain() throws Exception {
+    model.beforeExtract = chunk -> {
+      throw new dev.alvo.pieria.model.UnparseableExtractionException(chunk.index());
+    };
+
+    HarvestRunSummary summary = scripted(withRecords(checkpoint(1), document("a", "EVENT about zanzibar"), checkpoint(2)));
+
+    assertThat(summary.status()).isEqualTo(RunStatus.SUCCEEDED);
+    assertThat(source().cursorJson()).as("the checkpoint before the item stands, the one after it does not").isEqualTo("{\"next\":1}");
+  }
+
+  @Test
   void ingestsItemsAndSavesTheCursor() throws Exception {
     HarvestRunSummary summary = scripted(withRecords(document("a", "EVENT about zanzibar"), checkpoint(1)));
 

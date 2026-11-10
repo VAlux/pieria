@@ -50,9 +50,9 @@ class CrawlConfigTests {
   @Test
   void explicitAllowedHostsAreLowercased() throws Exception {
     ObjectNode config = withSeed();
-    config.putArray("allowedHosts").add("*.Example.COM");
+    config.putArray("allowedHosts").add("X.TEST").add("*.Example.COM");
 
-    assertThat(CrawlConfig.parse(config).allowedHosts()).containsExactly("*.example.com");
+    assertThat(CrawlConfig.parse(config).allowedHosts()).containsExactlyInAnyOrder("x.test", "*.example.com");
   }
 
   @Test
@@ -87,6 +87,30 @@ class CrawlConfigTests {
     config.putArray("include").add("[unclosed");
 
     assertRejected(config, "[unclosed");
+  }
+
+  @Test
+  void rejectsASeedOutsideTheScope() {
+    ObjectNode config = withSeed();
+    config.putArray("allowedHosts").add("other.test");
+
+    assertRejected(config, "https://x.test/");
+  }
+
+  @Test
+  void rejectsASeedTheExcludesDrop() {
+    ObjectNode config = withSeed();
+    config.putArray("exclude").add("x\\.test");
+
+    assertRejected(config, "https://x.test/");
+  }
+
+  @Test
+  void rejectsAnAllowedHostWrittenAsAUrl() {
+    ObjectNode config = withSeed();
+    config.putArray("allowedHosts").add("https://x.test");
+
+    assertRejected(config, "https://x.test");
   }
 
   @Test

@@ -4,6 +4,7 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.function.Consumer;
 
 /**
@@ -38,14 +39,28 @@ public final class AddressGuard implements Consumer<String> {
     }
   }
 
+  private static InetAddress embeddedIpv4(byte[] bytes) {
+    try {
+      return InetAddress.getByAddress(Arrays.copyOfRange(bytes, 12, 16));
+    } catch (UnknownHostException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   public static boolean isBlocked(InetAddress address) {
     if (address.isLoopbackAddress() || address.isAnyLocalAddress() || address.isLinkLocalAddress()
       || address.isSiteLocalAddress() || address.isMulticastAddress()) {
       return true;
     }
     byte[] bytes = address.getAddress();
-    boolean sharedAddressSpace = address instanceof Inet4Address && (bytes[0] & 0xFF) == 100 && (bytes[1] & 0xC0) == 0x40;
-    boolean uniqueLocal = address instanceof Inet6Address && (bytes[0] & 0xFE) == 0xFC;
-    return sharedAddressSpace || uniqueLocal;
+    if (address instanceof Inet6Address v6) {
+      return (bytes[0] & 0xFE) == 0xFC || (v6.isIPv4CompatibleAddress() && isBlocked(embeddedIpv4(bytes)));
+    }
+    int first = bytes[0] & 0xFF;
+    boolean thisNetwork = first == 0;
+    boolean sharedAddressSpace = first == 100 && (bytes[1] & 0xC0) == 0x40;
+    boolean protocolAssignments = first == 192 && bytes[1] == 0 && bytes[2] == 0;
+    boolean reserved = (first & 0xF0) == 0xF0;
+    return thisNetwork || sharedAddressSpace || protocolAssignments || reserved;
   }
 }

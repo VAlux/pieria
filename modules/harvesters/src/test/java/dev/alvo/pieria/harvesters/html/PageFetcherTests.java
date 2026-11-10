@@ -163,6 +163,37 @@ class PageFetcherTests {
     assertThat(fetcher().fetch(url("/a"), null, null)).isEqualTo(new FetchResult.RateLimited(300));
   }
 
+  private static byte[] gzip(String text) throws java.io.IOException {
+    java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+    try (java.util.zip.GZIPOutputStream out = new java.util.zip.GZIPOutputStream(bytes)) {
+      out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+    return bytes.toByteArray();
+  }
+
+  @Test
+  void decodesAGzipBody() throws Exception {
+    site.respond("/a", 200, Map.of("Content-Type", "text/html", "Content-Encoding", "gzip"), gzip("<p>hello</p>"));
+
+    FetchResult.Page page = (FetchResult.Page) fetcher().fetch(url("/a"), null, null);
+
+    assertThat(new String(page.body(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("<p>hello</p>");
+  }
+
+  @Test
+  void skipsAnUnknownEncoding() {
+    site.respond("/a", 200, Map.of("Content-Type", "text/html", "Content-Encoding", "br"), "x");
+
+    assertThat(fetcher().fetch(url("/a"), null, null)).isInstanceOf(FetchResult.Skipped.class);
+  }
+
+  @Test
+  void skipsABrokenGzipBody() {
+    site.respond("/a", 200, Map.of("Content-Type", "text/html", "Content-Encoding", "gzip"), "not gzip");
+
+    assertThat(fetcher().fetch(url("/a"), null, null)).isInstanceOf(FetchResult.Skipped.class);
+  }
+
   @Test
   void skipsNonHtml() {
     site.respond("/a", 200, Map.of("Content-Type", "application/pdf"), "x");

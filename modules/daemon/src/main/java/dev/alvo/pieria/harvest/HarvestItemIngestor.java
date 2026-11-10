@@ -148,8 +148,8 @@ public class HarvestItemIngestor {
     Fingerprint fingerprint = fingerprint(source, item);
     return harvest.findItem(source.id(), item.id())
       .filter(stored -> stored.versionHash().equals(fingerprint.version()))
-      .map(stored -> new ItemOutcome(false, 0, fingerprint.chars(), stored.sessionId()))
-      .orElseGet(() -> new ItemOutcome(true, 0, fingerprint.chars(), null));
+      .map(stored -> new ItemOutcome(false, 0, fingerprint.chars(), stored.sessionId(), true))
+      .orElseGet(() -> new ItemOutcome(true, 0, fingerprint.chars(), null, true));
   }
 
   public ItemOutcome ingest(HarvestSource source, String profileName, HarvestRecord.Item item, String runId,
@@ -158,7 +158,7 @@ public class HarvestItemIngestor {
     Fingerprint fingerprint = fingerprint(source, item);
     if (stored != null && stored.versionHash().equals(fingerprint.version())) {
       harvest.markSeen(source.id(), List.of(item.id()), runId);
-      return new ItemOutcome(false, 0, fingerprint.chars(), stored.sessionId());
+      return new ItemOutcome(false, 0, fingerprint.chars(), stored.sessionId(), true);
     }
 
     String session = stored == null ? newSessionId(source, item.id()) : stored.sessionId();
@@ -176,11 +176,11 @@ public class HarvestItemIngestor {
       harvest.upsertItem(new HarvestItem(source.id(), item.id(), session, fingerprint.version(), fingerprint.prefix(),
         fingerprint.turnCount(), runId));
     } else {
-      log.warn("harvest source={} item={}: the model output could not be read; retrying when the item is next reported",
+      log.warn("harvest source={} item={}: the model output could not be read; the cursor is held so the item is reported again",
         source.id(), item.id());
       harvest.markSeen(source.id(), List.of(item.id()), runId);
     }
-    return new ItemOutcome(true, extracted.memoriesStored(), fingerprint.chars(), session);
+    return new ItemOutcome(true, extracted.memoriesStored(), fingerprint.chars(), session, extracted.complete());
   }
 
   private Extracted stageRaw(HarvestSource source, String profileName, HarvestRecord.Item item, HarvestItem stored, String session,

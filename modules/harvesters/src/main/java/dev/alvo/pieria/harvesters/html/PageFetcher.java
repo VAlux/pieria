@@ -1,7 +1,9 @@
 package dev.alvo.pieria.harvesters.html;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -25,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.zip.GZIPInputStream;
 
 /** Fetches one URL at a time, spacing requests to each host and checking every hop of a redirect. */
 public final class PageFetcher {
@@ -144,7 +147,13 @@ public final class PageFetcher {
       if (htmlOnly && type != null && !HTML_TYPES.contains(type.split(";", 2)[0].strip().toLowerCase(Locale.ROOT))) {
         return new FetchResult.Skipped("not HTML: " + url);
       }
-      return new FetchResult.Page(url, response.body(), type, response.headers().firstValue("ETag").orElse(null),
+      byte[] body;
+      try {
+        body = decoded(response);
+      } catch (IOException e) {
+        return new FetchResult.Skipped("could not decode the body of " + url + ": " + e.getMessage());
+      }
+      return new FetchResult.Page(url, body, type, response.headers().firstValue("ETag").orElse(null),
         response.headers().firstValue("Last-Modified").orElse(null), response.headers().firstValue("X-Robots-Tag").orElse(null));
     }
     return switch (status) {
@@ -161,6 +170,29 @@ public final class PageFetcher {
       }
       default -> new FetchResult.Failed("HTTP " + status + ": " + url);
     };
+  }
+
+  /**
+   * The body as sent, unpacked when the server compressed it. No compression is asked for, but
+   * pre-compressed static hosting sends it anyway, and parsing it as text would store garbage.
+   */
+  private static byte[] decoded(HttpResponse<byte[]> response) throws IOException {
+    String encoding = response.headers().firstValue("Content-Encoding").orElse("identity").strip().toLowerCase(Locale.ROOT);
+    switch (encoding) {
+      case "", "identity" -> {
+        return response.body();
+      }
+      case "gzip", "x-gzip" -> {
+        try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(response.body()))) {
+          byte[] unpacked = in.readNBytes(MAX_BODY_BYTES + 1);
+          if (unpacked.length > MAX_BODY_BYTES) {
+            throw new IOException("larger than " + MAX_BODY_BYTES + " bytes unpacked");
+          }
+          return unpacked;
+        }
+      }
+      default -> throw new IOException("unsupported content encoding " + encoding);
+    }
   }
 
   /** Seconds to wait, or null when the header is absent or unreadable. */

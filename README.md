@@ -412,6 +412,16 @@ pieria source run docs --dry-run            # counts the work without calling th
 pieria source resume docs                   # new sources start paused
 ```
 
+Pieria ships one harvester, `html`, which crawls a website. It needs no install step:
+
+```bash
+pieria source add html --id docs --set seeds=https://docs.example.com/ --set maxPages=200
+pieria source run docs --dry-run            # pages and chunks, without calling the model
+pieria source run docs
+```
+
+It stays on the start URLs' hosts unless you set `allowedHosts`, follows `robots.txt`, and only deletes memories after a crawl that saw the whole site.
+
 Harvesters run with your user's permissions and are not sandboxed, so install only ones you trust. If a source's text would go to a remote model provider, `source add` says so. Harvested memories appear in recall labelled as untrusted. See `pieria source --help` for the other commands.
 
 ### Update

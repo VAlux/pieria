@@ -24,9 +24,17 @@ public record CrawlConfig(List<String> seeds, List<String> sitemaps, Set<String>
     if (seeds.isEmpty() && sitemaps.isEmpty()) {
       throw invalid("seeds or sitemaps is required");
     }
-    return new CrawlConfig(seeds, sitemaps, allowedHosts(config, seeds, sitemaps), patterns(config, "include"), patterns(config, "exclude"),
-      integer(config, "maxDepth", 3, 0, 50), integer(config, "maxPages", 500, 1, 2000), integer(config, "delayMillis", 1000, 0, 60_000),
-      flag(config, "allowPrivate"));
+    CrawlConfig parsed = new CrawlConfig(seeds, sitemaps, allowedHosts(config, seeds, sitemaps), patterns(config, "include"),
+      patterns(config, "exclude"), integer(config, "maxDepth", 3, 0, 50), integer(config, "maxPages", 500, 1, 2000),
+      integer(config, "delayMillis", 1000, 0, 60_000), flag(config, "allowPrivate"));
+    // Otherwise the crawl silently drops the seed and fails as if the site were down, retrying forever.
+    CrawlScope scope = new CrawlScope(parsed);
+    for (String seed : seeds) {
+      if (!scope.allows(seed)) {
+        throw invalid("the seed " + seed + " is outside the allowed hosts or patterns");
+      }
+    }
+    return parsed;
   }
 
   private static HarvesterException invalid(String message) {
@@ -65,7 +73,12 @@ public record CrawlConfig(List<String> seeds, List<String> sitemaps, Set<String>
 
   private static Set<String> allowedHosts(ObjectNode config, List<String> seeds, List<String> sitemaps) throws HarvesterException {
     Set<String> hosts = new LinkedHashSet<>();
-    strings(config, "allowedHosts").forEach(host -> hosts.add(host.strip().toLowerCase(Locale.ROOT)));
+    for (String host : strings(config, "allowedHosts")) {
+      if (host.contains("/") || host.contains(":")) {
+        throw invalid("allowedHosts takes host names, not URLs: " + host);
+      }
+      hosts.add(host.strip().toLowerCase(Locale.ROOT));
+    }
     if (hosts.isEmpty()) {
       seeds.forEach(url -> hosts.add(URI.create(url).getHost()));
       sitemaps.forEach(url -> hosts.add(URI.create(url).getHost()));
