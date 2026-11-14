@@ -94,7 +94,7 @@ class JiraHarvesterTests {
   @Test
   void editDuringDataCenterPagingSkipsNothing() {
     try (StubJira jira = new StubJira(false)) {
-      for (int i = 1; i <= 120; i++) {
+      for (int i = 1; i <= 1_050; i++) {
         jira.add(String.valueOf(10_000 + i), "T-" + i, "Issue " + i, T.plusSeconds(i), T.plusSeconds(1000 + i), "<p>b" + i + "</p>");
       }
       // Issue 2 is edited after the first page: it moves to the end, and the rest shift left by one.
@@ -104,7 +104,7 @@ class JiraHarvesterTests {
 
       assertThat(outcome.exit()).as(outcome.stderr()).isZero();
       List<String> expected = new ArrayList<>();
-      for (int i = 1; i <= 120; i++) {
+      for (int i = 1; i <= 1_050; i++) {
         expected.add(String.valueOf(10_000 + i));
       }
       assertThat(outcome.itemIds()).containsAll(expected);

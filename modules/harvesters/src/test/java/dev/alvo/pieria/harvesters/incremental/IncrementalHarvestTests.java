@@ -84,20 +84,59 @@ class IncrementalHarvestTests {
     assertThat(kinds.subList(kinds.size() - 3, kinds.size()))
       .containsExactly(HarvestRecord.Seen.class, HarvestRecord.Checkpoint.class, HarvestRecord.Sweep.class);
     assertThat(run.records().getLast()).isInstanceOf(HarvestRecord.Sweep.class);
-    assertThat(feed.lookbacks.getFirst()).isNull();
+    assertThat(feed.froms.getFirst()).isNull();
   }
 
   @Test
   void secondRunAsksOnlyForTheWindowPlusOverlap() throws HarvesterException {
     FakeFeed feed = threeItems();
     Run first = run(feed, null);
-    Instant later = NOW.plus(Duration.ofHours(2));
-    feed.now(later);
-    feed.lookbacks.clear();
+    feed.now(NOW.plus(Duration.ofHours(2)));
+    feed.froms.clear();
 
     run(feed, first.cursor());
 
-    assertThat(feed.lookbacks.getFirst()).isEqualTo(Duration.between(NOW, later).plus(IncrementalHarvest.OVERLAP));
+    assertThat(feed.froms.getFirst()).isEqualTo(NOW.minus(IncrementalHarvest.OVERLAP));
+  }
+
+  @Test
+  void listsTheWholeWindowBeforeLoadingAny() throws HarvesterException {
+    FakeFeed feed = new FakeFeed(NOW).paging(2, 0);
+    for (int i = 0; i < 7; i++) {
+      feed.put("i" + i, "1", T.plusSeconds(i));
+    }
+
+    run(feed, null);
+
+    // Pages are read back to back, so a source's moving "now" can't overtake them while items are ingested.
+    int firstLoad = feed.events.indexOf("load");
+    assertThat(feed.events.subList(0, firstLoad)).containsOnly("list").hasSize(4);
+    assertThat(feed.events.subList(firstLoad, feed.events.size())).containsOnly("load");
+  }
+
+  @Test
+  void moreChangesThanTheRecentCapInOneWindowStillFinish() throws HarvesterException {
+    FakeFeed feed = new FakeFeed(NOW).paging(5_000, 0);
+    int count = ChangeCursor.MAX_RECENT + 2_000;
+    for (int i = 0; i < count; i++) {
+      feed.put(String.format("i%05d", i), "1", T.plusMillis(i));
+    }
+    HarvestRequest.Limits limit = new HarvestRequest.Limits(1_000, null);
+    java.util.Set<String> reported = new java.util.HashSet<>();
+    int total = 0;
+    JsonNode cursor = null;
+    boolean swept = false;
+    for (int i = 0; i < 20 && !swept; i++) {
+      Run run = run(feed, cursor, limit);
+      reported.addAll(run.itemIds());
+      total += run.itemIds().size();
+      cursor = run.cursor();
+      swept = run.swept();
+    }
+
+    assertThat(swept).isTrue();
+    assertThat(reported).hasSize(count);
+    assertThat(total).isEqualTo(count);
   }
 
   @Test
@@ -233,16 +272,26 @@ class IncrementalHarvestTests {
   }
 
   @Test
-  void failureMidRunCheckpointsFirst() {
-    FakeFeed feed = threeItems().failLoad("b", new HarvesterException(ErrorClass.RATE_LIMITED, "slow down", 60L));
+  void failureMidRunCheckpointsFirst() throws HarvesterException {
+    FakeFeed feed = new FakeFeed(NOW);
+    for (int i = 0; i < IncrementalHarvest.LOAD_BATCH + 5; i++) {
+      feed.put(String.format("i%03d", i), "1", T.plusSeconds(i));
+    }
+    String failing = String.format("i%03d", IncrementalHarvest.LOAD_BATCH + 2);
+    feed.failLoad(failing, new HarvesterException(ErrorClass.RATE_LIMITED, "slow down", 60L));
     List<HarvestRecord> records = new ArrayList<>();
     HarvestRequest request = new HarvestRequest(1, MAPPER.createObjectNode(), Map.of(), null, null);
 
     assertThatThrownBy(() -> IncrementalHarvest.run(feed, request, records::add, DAY, "fake"))
       .isInstanceOfSatisfying(HarvesterException.class, e -> assertThat(e.errorClass()).isEqualTo(ErrorClass.RATE_LIMITED));
     Run run = new Run(records, lastCursor(records, null));
-    assertThat(run.kinds()).containsExactly(HarvestRecord.Document.class, HarvestRecord.Checkpoint.class);
-    assertThat(ChangeCursor.read(run.cursor()).reported("a", "1")).isTrue();
+    assertThat(run.itemIds()).hasSize(IncrementalHarvest.LOAD_BATCH);
+    assertThat(records.getLast()).isInstanceOf(HarvestRecord.Checkpoint.class);
+    assertThat(run.swept()).isFalse();
+
+    feed.failLoad(failing, null);
+    Run resumed = run(feed, run.cursor());
+    assertThat(resumed.itemIds()).hasSize(5).doesNotContainAnyElementsOf(run.itemIds());
   }
 
   @Test

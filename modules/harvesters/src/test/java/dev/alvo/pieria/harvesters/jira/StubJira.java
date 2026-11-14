@@ -65,6 +65,8 @@ final class StubJira implements AutoCloseable {
   private final Map<String, Issue> issues = new ConcurrentHashMap<>();
   private volatile Runnable afterFirstSearchPage;
   private volatile boolean revoked;
+  private volatile int maxResultsCap = Integer.MAX_VALUE;
+  private volatile boolean brokenLastPage;
 
   StubJira(boolean cloud) {
     this.cloud = cloud;
@@ -93,6 +95,7 @@ final class StubJira implements AutoCloseable {
     Issue issue = new Issue(id, key, summary, created, updated, descriptionHtml);
     issues.put(id, issue);
     stub.route("/rest/api/" + version() + "/issue/" + id + "/comment", request -> comments(id, request));
+    stub.route("/rest/api/" + version() + "/issue/" + id, request -> issue(id, request));
     return issue;
   }
 
@@ -106,6 +109,27 @@ final class StubJira implements AutoCloseable {
 
   void revoke() {
     this.revoked = true;
+  }
+
+  /** Returns at most this many rows a page, as a Data Center admin setting can. */
+  void capMaxResults(int cap) {
+    this.maxResultsCap = cap;
+  }
+
+  /** Cloud pages say {@code isLast: false} but carry no token. */
+  void breakLastPage() {
+    this.brokenLastPage = true;
+  }
+
+  private Reply issue(String id, JsonStub.Request request) {
+    if (!authorized(request)) {
+      return Reply.status(401);
+    }
+    Issue issue = issues.get(id);
+    if (issue == null) {
+      return new Reply(404, Map.of("Content-Type", "application/json"), "{\"errorMessages\":[\"Issue does not exist\"]}");
+    }
+    return Reply.json(json(issue, request.query().getOrDefault("expand", "").contains("renderedFields")));
   }
 
   private boolean authorized(JsonStub.Request request) {
@@ -137,7 +161,7 @@ final class StubJira implements AutoCloseable {
       .filter(issue -> bound == null || !issue.updated.isBefore(bound))
       .sorted(comparator.thenComparing(issue -> issue.key))
       .toList();
-    int maxResults = Integer.parseInt(request.query().getOrDefault("maxResults", "50"));
+    int maxResults = Math.min(maxResultsCap, Integer.parseInt(request.query().getOrDefault("maxResults", "50")));
     int start = Integer.parseInt(cloud ? request.query().getOrDefault("nextPageToken", "0") : request.query().getOrDefault("startAt", "0"));
     boolean rendered = request.query().getOrDefault("expand", "").contains("renderedFields");
     List<Map<String, Object>> page = matching.subList(Math.min(start, matching.size()), Math.min(matching.size(), start + maxResults))
@@ -147,7 +171,7 @@ final class StubJira implements AutoCloseable {
     if (cloud) {
       boolean last = start + maxResults >= matching.size();
       body.put("isLast", last);
-      if (!last) {
+      if (!last && !brokenLastPage) {
         body.put("nextPageToken", String.valueOf(start + maxResults));
       }
     } else {

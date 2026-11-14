@@ -26,6 +26,7 @@ final class StubConfluence implements AutoCloseable {
   private static final Pattern RELATIVE = Pattern.compile("lastmodified >= now\\(\"-(\\d+)m\"\\)");
   private static final Pattern ORDER = Pattern.compile("order by (\\w+)");
   private static final Pattern SPACES = Pattern.compile("space in \\(([^)]*)\\)");
+  private static final Pattern IDS = Pattern.compile("^id in \\(([^)]*)\\)");
 
   static final class Content {
     final String id;
@@ -57,11 +58,17 @@ final class StubConfluence implements AutoCloseable {
   private final Map<String, Content> contents = new ConcurrentHashMap<>();
   private volatile boolean revoked;
   private volatile String foreignNext;
+  private volatile int limitCap = Integer.MAX_VALUE;
+  private volatile boolean anonymous;
+  private volatile boolean dropBodies;
+  private volatile Runnable afterFirstSearchPage;
 
   StubConfluence(boolean cloud) {
     this.cloud = cloud;
     stub.route(context() + "/rest/api/user/current",
-      request -> authorized(request) ? Reply.json(Map.of("type", "known", "displayName", "Bot")) : Reply.status(401));
+      request -> authorized(request)
+        ? Reply.json(Map.of("type", anonymous ? "anonymous" : "known", "displayName", "Bot"))
+        : Reply.status(401));
     stub.route(context() + "/rest/api/content/search", this::search);
   }
 
@@ -96,6 +103,24 @@ final class StubConfluence implements AutoCloseable {
     revoked = true;
   }
 
+  void capLimit(int cap) {
+    limitCap = cap;
+  }
+
+  /** The token is accepted, but the user is anonymous. */
+  void anonymous() {
+    anonymous = true;
+  }
+
+  /** Results leave out the body even when it is asked for. */
+  void dropBodies() {
+    dropBodies = true;
+  }
+
+  void afterFirstSearchPage(Runnable action) {
+    afterFirstSearchPage = action;
+  }
+
   /** Every next link points at this absolute address instead. */
   void foreignNext(String url) {
     foreignNext = url;
@@ -118,6 +143,13 @@ final class StubConfluence implements AutoCloseable {
     if (relative.find()) {
       cutoff = Instant.now().minusSeconds(Long.parseLong(relative.group(1)) * 60);
     }
+    List<String> ids = new ArrayList<>();
+    Matcher idList = IDS.matcher(cql);
+    if (idList.find()) {
+      for (String id : idList.group(1).split(",")) {
+        ids.add(id.strip());
+      }
+    }
     List<String> spaces = new ArrayList<>();
     Matcher space = SPACES.matcher(cql);
     if (space.find()) {
@@ -133,14 +165,15 @@ final class StubConfluence implements AutoCloseable {
     List<Content> matching = contents.values().stream()
       .filter(content -> bound == null || !content.modified.isBefore(bound))
       .filter(content -> spaces.isEmpty() || spaces.contains(content.space))
+      .filter(content -> ids.isEmpty() || ids.contains(content.id))
       .sorted(comparator.thenComparing(content -> content.id))
       .toList();
-    int limit = Integer.parseInt(request.query().getOrDefault("limit", "25"));
+    int limit = Math.min(limitCap, Integer.parseInt(request.query().getOrDefault("limit", "25")));
     String cursor = request.query().get("cursor");
     int start = cloud
       ? (cursor == null ? 0 : Integer.parseInt(cursor.substring(1)))
       : Integer.parseInt(request.query().getOrDefault("start", "0"));
-    boolean body = request.query().getOrDefault("expand", "").contains("body.storage");
+    boolean body = !dropBodies && request.query().getOrDefault("expand", "").contains("body.storage");
     List<Map<String, Object>> results = matching.subList(Math.min(start, matching.size()), Math.min(matching.size(), start + limit))
       .stream().map(content -> json(content, body)).toList();
     Map<String, Object> links = new LinkedHashMap<>();
@@ -160,7 +193,13 @@ final class StubConfluence implements AutoCloseable {
     reply.put("limit", limit);
     reply.put("size", results.size());
     reply.put("_links", links);
-    return Reply.json(reply);
+    Reply answer = Reply.json(reply);
+    Runnable action = afterFirstSearchPage;
+    if (action != null && start == 0) {
+      afterFirstSearchPage = null;
+      action.run();
+    }
+    return answer;
   }
 
   private Map<String, Object> json(Content content, boolean body) {

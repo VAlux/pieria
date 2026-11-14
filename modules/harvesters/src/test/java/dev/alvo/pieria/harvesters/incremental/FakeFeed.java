@@ -4,7 +4,6 @@ import dev.alvo.pieria.harvester.HarvesterException;
 import dev.alvo.pieria.harvester.protocol.DocumentFormat;
 import dev.alvo.pieria.harvester.protocol.HarvestRecord;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,7 +28,10 @@ final class FakeFeed implements ChangeFeed<String> {
   private int overlap;
   private HarvesterException beginFailure;
   private boolean repeatSecondPage;
-  final List<Duration> lookbacks = new ArrayList<>();
+  /** The {@code from} of every change listing, in order. */
+  final List<Instant> froms = new ArrayList<>();
+  /** "list" or "load", in the order the engine asked. */
+  final List<String> events = new ArrayList<>();
 
   FakeFeed(Instant now) {
     this.now = now;
@@ -86,10 +88,11 @@ final class FakeFeed implements ChangeFeed<String> {
   }
 
   @Override
-  public Page<Change<String>> changes(Duration lookback, String token) {
-    lookbacks.add(lookback);
+  public Page<Change<String>> changes(Instant from, String token) {
+    froms.add(from);
+    events.add("list");
     List<Entry> matching = items.values().stream()
-      .filter(entry -> lookback == null || !entry.changedAt().isBefore(now.minus(lookback)))
+      .filter(entry -> from == null || !entry.changedAt().isBefore(from))
       .sorted(Comparator.comparing(Entry::changedAt).thenComparing(Entry::id))
       .toList();
     int start = token == null ? 0 : Integer.parseInt(token);
@@ -112,15 +115,19 @@ final class FakeFeed implements ChangeFeed<String> {
   }
 
   @Override
-  public HarvestRecord.Item load(Change<String> change) throws HarvesterException {
-    HarvesterException failure = loadFailures.get(change.id());
-    if (failure != null) {
-      throw failure;
+  public List<HarvestRecord.Item> load(List<Change<String>> changes) throws HarvesterException {
+    events.add("load");
+    List<HarvestRecord.Item> loaded = new ArrayList<>();
+    for (Change<String> change : changes) {
+      HarvesterException failure = loadFailures.get(change.id());
+      if (failure != null) {
+        throw failure;
+      }
+      if (!vanished.contains(change.id())) {
+        loaded.add(new HarvestRecord.Document(change.id(), change.version(), "Item " + change.id(), "https://example.com/" + change.id(),
+          null, change.changedAt(), DocumentFormat.MARKDOWN, "text " + change.id(), null));
+      }
     }
-    if (vanished.contains(change.id())) {
-      return null;
-    }
-    return new HarvestRecord.Document(change.id(), change.version(), "Item " + change.id(), "https://example.com/" + change.id(),
-      null, change.changedAt(), DocumentFormat.MARKDOWN, "text " + change.id(), null);
+    return loaded;
   }
 }

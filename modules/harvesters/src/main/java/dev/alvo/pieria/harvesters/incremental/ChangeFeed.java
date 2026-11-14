@@ -3,8 +3,8 @@ package dev.alvo.pieria.harvesters.incremental;
 import dev.alvo.pieria.harvester.HarvesterException;
 import dev.alvo.pieria.harvester.protocol.HarvestRecord;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * A source that can list what changed recently and every item it holds. Pages may overlap: the
@@ -17,16 +17,18 @@ public interface ChangeFeed<T> {
   Instant begin() throws HarvesterException;
 
   /**
-   * Items changed within {@code lookback} of the source's now, oldest change first.
+   * Items changed at or after {@code from}, oldest change first. Every page of one listing gets the
+   * same {@code from}, so a source that measures it relative to its own now must re-measure it for
+   * each page. Entries need only what {@link #load} needs.
    *
-   * @param lookback null for every item
-   * @param token    null for the first page, else a previous page's {@code next}
+   * @param from  null for every item
+   * @param token null for the first page, else a previous page's {@code next}
    */
-  Page<Change<T>> changes(Duration lookback, String token) throws HarvesterException;
+  Page<Change<T>> changes(Instant from, String token) throws HarvesterException;
 
   /** The ids of every live item, in an order that editing an item does not change. */
   Page<String> liveIds(String token) throws HarvesterException;
 
-  /** The record to report, or null when the item has gone since it was listed. */
-  HarvestRecord.Item load(Change<T> change) throws HarvesterException;
+  /** The records for these changes. An item that has gone since it was listed is left out. */
+  List<HarvestRecord.Item> load(List<Change<T>> changes) throws HarvesterException;
 }
