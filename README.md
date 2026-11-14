@@ -412,7 +412,7 @@ pieria source run docs --dry-run            # counts the work without calling th
 pieria source resume docs                   # new sources start paused
 ```
 
-Pieria ships one harvester, `html`, which crawls a website. It needs no install step:
+Pieria ships three harvesters that need no install step: `html`, which crawls a website, and `jira` and `confluence`, which read Atlassian Cloud or Data Center.
 
 ```bash
 pieria source add html --id docs --set seeds=https://docs.example.com/ --set maxPages=200
@@ -420,7 +420,17 @@ pieria source run docs --dry-run            # pages and chunks, without calling 
 pieria source run docs
 ```
 
-It stays on the start URLs' hosts unless you set `allowedHosts`, follows `robots.txt`, and only deletes memories after a crawl that saw the whole site.
+The crawler stays on the start URLs' hosts unless you set `allowedHosts`, follows `robots.txt`, and only deletes memories after a crawl that saw the whole site.
+
+```bash
+# Cloud: your account email and an API token. Data Center: leave out email and use a personal access token.
+pieria source add jira --id acme-jira --set baseUrl=https://acme.atlassian.net --set email=me@acme.com \
+  --set 'jql=project = ACME AND created >= -365d' --secret-env token=JIRA_TOKEN
+pieria source add confluence --id acme-wiki --set baseUrl=https://acme.atlassian.net/wiki --set email=me@acme.com \
+  --set spaces=OPS,DEV --secret-env token=JIRA_TOKEN
+```
+
+Each Jira issue becomes a thread of its description and comments, and each Confluence page or blog post a document. Later runs fetch only what changed. Once every `sweepHours` (default 24) a run lists every issue or page still in scope, and memories of the rest are forgotten.
 
 Harvesters run with your user's permissions and are not sandboxed, so install only ones you trust. If a source's text would go to a remote model provider, `source add` says so. Harvested memories appear in recall labelled as untrusted. See `pieria source --help` for the other commands.
 

@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST) and 5 (`pieria-harvest` and the HTML crawler) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler) and 6 (Jira and Confluence) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -240,3 +240,11 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - A seed must lie inside the source's scope, and `allowedHosts` takes host names, not URLs. `check` requires a seed to be an HTML page. Compressed responses are unpacked; an unknown content encoding skips the page.
   - The address check also refuses `0.0.0.0/8`, `192.0.0.0/24`, `240.0.0.0/4` and IPv4-compatible IPv6 addresses.
   - The address check runs before each request. A hostname that resolves publicly at the check and privately at connection (DNS rebinding) is not caught, because `java.net.http` has no per-request resolver.
+- **Jira and Confluence, settled in phase 6.**
+  - Both run on one source-neutral engine, `IncrementalHarvest`, which Teams can reuse. Each run asks for what changed since the last complete window, plus a 10-minute overlap for clock skew and search lag, and reports each item state once, so the overlap costs nothing. The bound is relative (`updated >= "-Nm"`, `lastmodified >= now("-Nm")`), because JQL reads an absolute date in the account's own timezone. "Now" is the server's `Date` header.
+  - Deletions are found by listing every live id at most once every `sweepHours` (default 24), and only after the change window is complete. A listing that comes back empty never sweeps. The listing is ordered by creation time, which edits can't change, and Data Center offset paging steps back 10 rows so a row shifted by a concurrent edit or delete is not skipped. A repeated Cloud page token fails the run instead of looping.
+  - A Jira item is the issue's numeric id, not its key, so moving an issue to another project does not delete it and add it again.
+  - Issue fields (type, status, priority, assignee, resolution, labels, components, fix versions) go in a header line on the description turn, because the daemon extracts only turn text. A status change therefore re-extracts the issue. Comments are turns, oldest first; a thread over `MAX_TURNS` or `MAX_TEXT_CHARS` keeps its oldest turns, so a new comment only appends.
+  - Jira bodies come from rendered HTML (`expand=renderedFields`, `renderedBody`) on both deployments, which avoids parsing ADF and wiki markup. Confluence bodies come from storage format, with macros reduced to the text a reader sees.
+  - Confluence comments and attachments, and Jira attachments, are out of scope for v1.
+  - Requests go only to `baseUrl`, redirects are never followed, and private addresses are allowed, because Data Center usually runs on an intranet and these harvesters never follow links taken from content. A `Retry-After` of up to 30 seconds is waited out in process, up to three times; longer ones end the run as `rate_limited`.
