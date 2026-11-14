@@ -43,7 +43,7 @@ class HarvestSourceServiceTests {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String MANIFEST = """
-    id = "jira"
+    id = "issues"
     name = "Jira"
     version = "1"
     protocol = 1
@@ -124,7 +124,7 @@ class HarvestSourceServiceTests {
   }
 
   private static SourceDraft draft(String id, boolean start) {
-    return new SourceDraft(id, "jira", config(), Map.of("token", "hunter2"), SourceMode.FULL, 3600, null, null, start);
+    return new SourceDraft(id, "issues", config(), Map.of("token", "hunter2"), SourceMode.FULL, 3600, null, null, start);
   }
 
   private HarvestSource created(String id) {
@@ -162,7 +162,7 @@ class HarvestSourceServiceTests {
 
   @Test
   void invalidConfigWritesNothing() {
-    SourceDraft bad = new SourceDraft("s", "jira", config().put("nope", 1), Map.of("token", "hunter2"), SourceMode.FULL, 3600, null, null, false);
+    SourceDraft bad = new SourceDraft("s", "issues", config().put("nope", 1), Map.of("token", "hunter2"), SourceMode.FULL, 3600, null, null, false);
 
     assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class);
 
@@ -198,14 +198,14 @@ class HarvestSourceServiceTests {
 
   @Test
   void intervalBelowTheMinimumIsRejected() {
-    SourceDraft bad = new SourceDraft("s", "jira", config(), Map.of("token", "t"), SourceMode.FULL, 59, null, null, false);
+    SourceDraft bad = new SourceDraft("s", "issues", config(), Map.of("token", "t"), SourceMode.FULL, 59, null, null, false);
 
     assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void nonPositiveLimitsAreRejected() {
-    SourceDraft bad = new SourceDraft("s", "jira", config(), Map.of("token", "t"), SourceMode.FULL, 3600, 0, null, false);
+    SourceDraft bad = new SourceDraft("s", "issues", config(), Map.of("token", "t"), SourceMode.FULL, 3600, 0, null, false);
 
     assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class);
   }
@@ -444,7 +444,7 @@ class HarvestSourceServiceTests {
 
   @Test
   void createRejectsABlankSecretAndWritesNothing() {
-    SourceDraft bad = new SourceDraft("s", "jira", config(), Map.of("token", "   "), SourceMode.FULL, 3600, null, null, false);
+    SourceDraft bad = new SourceDraft("s", "issues", config(), Map.of("token", "   "), SourceMode.FULL, 3600, null, null, false);
 
     assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("token");
 
@@ -454,7 +454,7 @@ class HarvestSourceServiceTests {
 
   @Test
   void createRejectsANullSecretAndWritesNothing() {
-    SourceDraft bad = new SourceDraft("s", "jira", config(), Collections.singletonMap("token", null), SourceMode.FULL, 3600, null, null, false);
+    SourceDraft bad = new SourceDraft("s", "issues", config(), Collections.singletonMap("token", null), SourceMode.FULL, 3600, null, null, false);
 
     assertThatThrownBy(() -> service.create("p", bad)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("token");
 

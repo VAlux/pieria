@@ -28,6 +28,7 @@ class BundledHarvestersTests {
   @Test
   void isBundledMatchesTheList() {
     assertThat(BundledHarvesters.isBundled("html")).isTrue();
-    assertThat(BundledHarvesters.isBundled("jira")).isFalse();
+    assertThat(BundledHarvesters.isBundled("jira")).isTrue();
+    assertThat(BundledHarvesters.isBundled("teams")).isFalse();
   }
 }

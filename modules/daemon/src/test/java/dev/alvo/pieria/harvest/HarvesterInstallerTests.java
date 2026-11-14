@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
 class HarvesterInstallerTests {
 
   private static final String MANIFEST = """
-    id = "jira"
+    id = "issues"
     name = "Jira"
     version = "1"
     protocol = 1
@@ -94,25 +94,25 @@ class HarvesterInstallerTests {
 
     HarvesterPackage installed = installer.install(source, null, null, false);
 
-    assertThat(registry().find("jira")).isPresent();
-    assertThat(pin("jira").path("entrypoint").asString()).isEqualTo(Hash.sha256Hex(source.resolve("run")));
-    assertThat(pin("jira").path("manifest").asString()).isEqualTo(Hash.sha256Hex(source.resolve("harvester.toml")));
-    assertThat(installed.entrypointSha256()).isEqualTo(pin("jira").path("entrypoint").asString());
-    assertThat(rootEntries()).containsExactly("jira", "pins.json");
+    assertThat(registry().find("issues")).isPresent();
+    assertThat(pin("issues").path("entrypoint").asString()).isEqualTo(Hash.sha256Hex(source.resolve("run")));
+    assertThat(pin("issues").path("manifest").asString()).isEqualTo(Hash.sha256Hex(source.resolve("harvester.toml")));
+    assertThat(installed.entrypointSha256()).isEqualTo(pin("issues").path("entrypoint").asString());
+    assertThat(rootEntries()).containsExactly("issues", "pins.json");
   }
 
   @Test
   void installsAZip() throws Exception {
     installer.install(zip("p.zip", new Entry("harvester.toml", MANIFEST), new Entry("run", "x")), null, null, false);
 
-    assertThat(registry().find("jira")).isPresent();
+    assertThat(registry().find("issues")).isPresent();
   }
 
   @Test
   void installsAZipWithOneTopLevelDirectory() throws Exception {
     installer.install(zip("p.zip", new Entry("pkg/harvester.toml", MANIFEST), new Entry("pkg/run", "x")), null, null, false);
 
-    assertThat(registry().find("jira")).isPresent();
+    assertThat(registry().find("issues")).isPresent();
   }
 
   @Test
@@ -120,14 +120,14 @@ class HarvesterInstallerTests {
   void zipEntrypointBecomesExecutable() throws Exception {
     installer.install(zip("p.zip", new Entry("harvester.toml", MANIFEST), new Entry("run", "x")), null, null, false);
 
-    assertThat(root.resolve("jira/run").toFile().canExecute()).isTrue();
+    assertThat(root.resolve("issues/run").toFile().canExecute()).isTrue();
   }
 
   @Test
   void inspectLeavesNothingBehind() throws Exception {
     HarvesterPackage inspected = installer.inspect(packageDir("pkg", "x"));
 
-    assertThat(inspected.manifest().id()).isEqualTo("jira");
+    assertThat(inspected.manifest().id()).isEqualTo("issues");
     assertThat(inspected.entrypointSha256()).hasSize(64);
     assertThat(rootEntries()).isEmpty();
   }
@@ -246,8 +246,8 @@ class HarvesterInstallerTests {
     installer.install(zip("p.zip", new Entry("pkg/harvester.toml", MANIFEST), new Entry("pkg/run", "x"),
       new Entry("__MACOSX/pkg/._run", "resource fork")), null, null, false);
 
-    assertThat(registry().find("jira")).isPresent();
-    assertThat(root.resolve("jira/run")).exists();
+    assertThat(registry().find("issues")).isPresent();
+    assertThat(root.resolve("issues/run")).exists();
   }
 
   @Test
@@ -258,8 +258,8 @@ class HarvesterInstallerTests {
 
     assertThatThrownBy(() -> installer.install(packageDir("pkg2", "two"), null, null, true)).isInstanceOf(RuntimeException.class);
 
-    assertThat(Files.readString(root.resolve("jira/run"))).isEqualTo("one");
-    assertThat(rootEntries()).containsExactly("jira", "pins.json");
+    assertThat(Files.readString(root.resolve("issues/run"))).isEqualTo("one");
+    assertThat(rootEntries()).containsExactly("issues", "pins.json");
   }
 
   @Test
@@ -293,7 +293,7 @@ class HarvesterInstallerTests {
 
     assertThatThrownBy(() -> installer.install(source, inspected.entrypointSha256(), inspected.manifestSha256(), false))
       .isInstanceOf(ConflictException.class);
-    assertThat(registry().find("jira")).isEmpty();
+    assertThat(registry().find("issues")).isEmpty();
   }
 
   @Test
@@ -302,7 +302,7 @@ class HarvesterInstallerTests {
 
     assertThatThrownBy(() -> installer.install(packageDir("pkg2", "two"), null, null, false))
       .isInstanceOf(ConflictException.class);
-    assertThat(Files.readString(root.resolve("jira/run"))).isEqualTo("one");
+    assertThat(Files.readString(root.resolve("issues/run"))).isEqualTo("one");
   }
 
   @Test
@@ -311,24 +311,24 @@ class HarvesterInstallerTests {
 
     installer.install(packageDir("pkg2", "two"), null, null, true);
 
-    assertThat(Files.readString(root.resolve("jira/run"))).isEqualTo("two");
-    assertThat(registry().find("jira")).isPresent();
-    assertThat(rootEntries()).containsExactly("jira", "pins.json");
+    assertThat(Files.readString(root.resolve("issues/run"))).isEqualTo("two");
+    assertThat(registry().find("issues")).isPresent();
+    assertThat(rootEntries()).containsExactly("issues", "pins.json");
   }
 
   @Test
   void aFailedReplaceKeepsTheOldHarvester() throws Exception {
     installer.install(packageDir("pkg", "one"), null, null, false);
-    String pinBefore = pin("jira").toString();
+    String pinBefore = pin("issues").toString();
     Path bad = packageDir("bad", "two");
     Files.writeString(bad.resolve("harvester.toml"), "not = = toml");
 
     assertThatThrownBy(() -> installer.install(bad, null, null, true)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> installer.install(packageDir("pkg3", "three"), "wrong", "wrong", true)).isInstanceOf(ConflictException.class);
 
-    assertThat(Files.readString(root.resolve("jira/run"))).isEqualTo("one");
-    assertThat(pin("jira").toString()).isEqualTo(pinBefore);
-    assertThat(registry().find("jira")).isPresent();
+    assertThat(Files.readString(root.resolve("issues/run"))).isEqualTo("one");
+    assertThat(pin("issues").toString()).isEqualTo(pinBefore);
+    assertThat(registry().find("issues")).isPresent();
   }
 
   @Test
@@ -345,25 +345,25 @@ class HarvesterInstallerTests {
   void removeDeletesDirectoryAndPin() throws Exception {
     installer.install(packageDir("pkg", "x"), null, null, false);
 
-    installer.remove("jira");
+    installer.remove("issues");
 
-    assertThat(root.resolve("jira")).doesNotExist();
-    assertThat(pin("jira").isMissingNode()).isTrue();
+    assertThat(root.resolve("issues")).doesNotExist();
+    assertThat(pin("issues").isMissingNode()).isTrue();
   }
 
   @Test
   void removeRefusesAHarvesterInUse() throws Exception {
     installer.install(packageDir("pkg", "x"), null, null, false);
-    when(store.anySourceUses("jira")).thenReturn(true);
+    when(store.anySourceUses("issues")).thenReturn(true);
 
-    assertThatThrownBy(() -> installer.remove("jira")).isInstanceOf(ConflictException.class);
-    assertThat(root.resolve("jira")).exists();
+    assertThatThrownBy(() -> installer.remove("issues")).isInstanceOf(ConflictException.class);
+    assertThat(root.resolve("issues")).exists();
   }
 
   @Test
   void cannotInstallOverABundledId() throws Exception {
     Path source = packageDir("pkg", "x");
-    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"jira\"", "\"html\""));
+    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"issues\"", "\"html\""));
 
     assertThatThrownBy(() -> installer.install(source, null, null, true)).isInstanceOf(ConflictException.class).hasMessageContaining("ships with Pieria");
     assertThat(root.resolve("html")).doesNotExist();
@@ -372,7 +372,7 @@ class HarvesterInstallerTests {
   @Test
   void aBundledIdCanStillBeInspected() throws Exception {
     Path source = packageDir("pkg", "x");
-    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"jira\"", "\"html\""));
+    Files.writeString(source.resolve("harvester.toml"), MANIFEST.replace("\"issues\"", "\"html\""));
 
     assertThat(installer.inspect(source).manifest().id()).isEqualTo("html");
   }

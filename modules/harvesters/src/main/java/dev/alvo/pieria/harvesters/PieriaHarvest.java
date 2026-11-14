@@ -3,6 +3,7 @@ package dev.alvo.pieria.harvesters;
 import dev.alvo.pieria.harvester.Harvester;
 import dev.alvo.pieria.harvester.HarvesterRunner;
 import dev.alvo.pieria.harvesters.html.HtmlHarvester;
+import dev.alvo.pieria.harvesters.jira.JiraHarvester;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -14,7 +15,9 @@ import java.util.function.Supplier;
 /** The first-party harvesters in one binary: {@code pieria-harvest <id> check|harvest}. */
 public final class PieriaHarvest {
 
-  private static final Map<String, Supplier<Harvester>> HARVESTERS = Map.of("html", HtmlHarvester::new);
+  private static final Map<String, Supplier<Harvester>> HARVESTERS = Map.of(
+    "html", HtmlHarvester::new,
+    "jira", JiraHarvester::new);
 
   private PieriaHarvest() {
   }

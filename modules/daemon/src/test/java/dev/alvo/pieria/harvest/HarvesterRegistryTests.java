@@ -64,7 +64,7 @@ class HarvesterRegistryTests {
 
     RegisteredHarvester found = registry().find("html").orElseThrow();
 
-    assertThat(ids(registry().list())).containsExactly("html");
+    assertThat(ids(registry().list())).containsExactlyElementsOf(BundledHarvesters.IDS);
     assertThat(found.bundled()).isTrue();
     assertThat(found.command()).containsExactly(bin.resolve("pieria-harvest").toString(), "html");
   }
@@ -103,8 +103,8 @@ class HarvesterRegistryTests {
     shipBinary();
     HarvesterRegistry registry = new HarvesterRegistry(new HarvestPaths(root.resolve("absent"), bin));
 
-    assertThat(ids(registry.list())).containsExactly("html");
-    assertThat(registry.diagnose()).extracting(HarvesterDiagnosis::directory).containsExactly("html");
+    assertThat(ids(registry.list())).containsExactlyElementsOf(BundledHarvesters.IDS);
+    assertThat(registry.diagnose()).extracting(HarvesterDiagnosis::directory).containsExactlyElementsOf(BundledHarvesters.IDS);
   }
 
   @Test
@@ -114,7 +114,7 @@ class HarvesterRegistryTests {
     pin("html");
 
     assertThat(registry().find("html").orElseThrow().bundled()).isTrue();
-    assertThat(ids(registry().list())).containsExactly("html");
+    assertThat(ids(registry().list())).containsExactlyElementsOf(BundledHarvesters.IDS);
     assertThat(registry().diagnose()).filteredOn(entry -> !entry.ok()).extracting(HarvesterDiagnosis::detail)
       .singleElement().asString().contains("bundled");
   }
@@ -141,50 +141,50 @@ class HarvesterRegistryTests {
 
   @Test
   void listsAPinnedHarvester() throws Exception {
-    Path dir = install("jira", manifest("jira"));
-    pin("jira");
+    Path dir = install("issues", manifest("issues"));
+    pin("issues");
 
-    RegisteredHarvester found = registry().find("jira").orElseThrow();
+    RegisteredHarvester found = registry().find("issues").orElseThrow();
 
-    assertThat(ids(registry().list())).containsExactly("jira");
+    assertThat(ids(registry().list())).containsExactly("issues");
     assertThat(found.directory()).isEqualTo(dir);
     assertThat(found.command()).containsExactly(dir.resolve("run").toString());
   }
 
   @Test
   void skipsAnUnpinnedHarvester() throws Exception {
-    install("jira", manifest("jira"));
+    install("issues", manifest("issues"));
 
     assertThat(registry().list()).isEmpty();
-    assertThat(registry().find("jira")).isEmpty();
+    assertThat(registry().find("issues")).isEmpty();
   }
 
   @Test
   void skipsAChangedEntrypoint() throws Exception {
-    Path dir = install("jira", manifest("jira"));
-    pin("jira");
+    Path dir = install("issues", manifest("issues"));
+    pin("issues");
 
     Files.writeString(dir.resolve("run"), "#!/bin/sh\necho tampered\n");
 
     assertThat(registry().list()).isEmpty();
-    assertThat(registry().find("jira")).isEmpty();
+    assertThat(registry().find("issues")).isEmpty();
   }
 
   @Test
   void skipsAChangedManifest() throws Exception {
-    Path dir = install("jira", manifest("jira"));
-    pin("jira");
+    Path dir = install("issues", manifest("issues"));
+    pin("issues");
 
-    Files.writeString(dir.resolve("harvester.toml"), manifest("jira") + "network = [\"evil.example\"]\n");
+    Files.writeString(dir.resolve("harvester.toml"), manifest("issues") + "network = [\"evil.example\"]\n");
 
     assertThat(registry().list()).isEmpty();
   }
 
   @Test
   void requirePinnedRejectsAChangeAfterFind() throws Exception {
-    Path dir = install("jira", manifest("jira"));
-    pin("jira");
-    RegisteredHarvester found = registry().find("jira").orElseThrow();
+    Path dir = install("issues", manifest("issues"));
+    pin("issues");
+    RegisteredHarvester found = registry().find("issues").orElseThrow();
 
     Files.writeString(dir.resolve("run"), "#!/bin/sh\necho tampered\n");
 
@@ -193,16 +193,16 @@ class HarvesterRegistryTests {
 
   @Test
   void requirePinnedAcceptsAnUnchangedFile() throws Exception {
-    install("jira", manifest("jira"));
-    pin("jira");
+    install("issues", manifest("issues"));
+    pin("issues");
 
-    registry().requirePinned(registry().find("jira").orElseThrow());
+    registry().requirePinned(registry().find("issues").orElseThrow());
   }
 
   @Test
   void skipsADirectoryWhoseNameDiffersFromItsId() throws Exception {
-    install("jira", manifest("other"));
-    pin("jira");
+    install("issues", manifest("other"));
+    pin("issues");
 
     assertThat(registry().list()).isEmpty();
   }
@@ -210,16 +210,16 @@ class HarvesterRegistryTests {
   @Test
   void oneBrokenManifestDoesNotHideOthers() throws Exception {
     install("broken", "not = = toml");
-    install("jira", manifest("jira"));
-    pin("jira");
+    install("issues", manifest("issues"));
+    pin("issues");
 
-    assertThat(ids(registry().list())).containsExactly("jira");
+    assertThat(ids(registry().list())).containsExactly("issues");
   }
 
   @Test
   void aMissingEntrypointIsSkipped() throws Exception {
-    Path dir = install("jira", manifest("jira"));
-    pin("jira");
+    Path dir = install("issues", manifest("issues"));
+    pin("issues");
 
     Files.delete(dir.resolve("run"));
 
@@ -273,7 +273,7 @@ class HarvesterRegistryTests {
   void diagnoseSkipsWorkingDirectories() throws Exception {
     Files.createDirectories(root.resolve(".staging-1"));
 
-    assertThat(registry().diagnose().stream().filter(entry -> !entry.directory().equals("html")).toList()).isEmpty();
+    assertThat(registry().diagnose().stream().filter(entry -> !BundledHarvesters.isBundled(entry.directory())).toList()).isEmpty();
   }
 
   @Test
@@ -286,9 +286,9 @@ class HarvesterRegistryTests {
     HarvesterRegistry registry = registry();
     assertThat(registry.list()).isEmpty();
 
-    install("jira", manifest("jira"));
-    pin("jira");
+    install("issues", manifest("issues"));
+    pin("issues");
 
-    assertThat(ids(registry.list())).containsExactly("jira");
+    assertThat(ids(registry.list())).containsExactly("issues");
   }
 }
