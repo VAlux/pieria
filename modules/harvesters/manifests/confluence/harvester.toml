@@ -1,0 +1,50 @@
+id = "confluence"
+name = "Confluence"
+version = "1"
+protocol = 1
+command = ["./pieria-harvest", "confluence"]
+capabilities = ["incremental", "deletes"]
+network = ["the Confluence site at baseUrl"]
+
+[[config]]
+key = "baseUrl"
+kind = "string"
+label = "Confluence address"
+hint = "For example https://acme.atlassian.net/wiki or https://confluence.example.com"
+required = true
+
+[[config]]
+key = "deployment"
+kind = "enum"
+label = "Deployment"
+options = ["auto", "cloud", "datacenter"]
+default = "auto"
+
+[[config]]
+key = "email"
+kind = "string"
+label = "Account email (Cloud) or username (Data Center basic auth)"
+hint = "Leave empty on Data Center to use a personal access token."
+
+[[config]]
+key = "token"
+kind = "secret"
+label = "API token (Cloud) or personal access token (Data Center)"
+required = true
+
+[[config]]
+key = "spaces"
+kind = "list"
+label = "Space keys"
+
+[[config]]
+key = "cql"
+kind = "string"
+label = "Extra CQL filter"
+hint = "Optional, without ORDER BY. Combined with the spaces using AND."
+
+[[config]]
+key = "sweepHours"
+kind = "int"
+label = "Hours between deletion checks"
+default = 24

@@ -2,6 +2,7 @@ package dev.alvo.pieria.harvesters;
 
 import dev.alvo.pieria.harvester.Harvester;
 import dev.alvo.pieria.harvester.HarvesterRunner;
+import dev.alvo.pieria.harvesters.confluence.ConfluenceHarvester;
 import dev.alvo.pieria.harvesters.html.HtmlHarvester;
 import dev.alvo.pieria.harvesters.jira.JiraHarvester;
 
@@ -17,7 +18,8 @@ public final class PieriaHarvest {
 
   private static final Map<String, Supplier<Harvester>> HARVESTERS = Map.of(
     "html", HtmlHarvester::new,
-    "jira", JiraHarvester::new);
+    "jira", JiraHarvester::new,
+    "confluence", ConfluenceHarvester::new);
 
   private PieriaHarvest() {
   }

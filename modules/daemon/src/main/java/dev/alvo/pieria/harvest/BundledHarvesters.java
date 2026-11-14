@@ -16,7 +16,7 @@ import java.util.List;
  */
 public final class BundledHarvesters {
 
-  public static final List<String> IDS = List.of("html", "jira");
+  public static final List<String> IDS = List.of("html", "jira", "confluence");
 
   private BundledHarvesters() {
   }
