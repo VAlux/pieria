@@ -161,6 +161,26 @@ class MicrosoftLoginTests {
   }
 
   @Test
+  void refreshWithoutConsentForChannelsNamesTheAdminConsent() throws HarvesterException {
+    microsoft.refresh(StubMicrosoft.consentRequired());
+    ObjectNode withChannels = microsoft.config();
+    withChannels.putArray("channels").add("Eng");
+    MicrosoftLogin login = login(withChannels);
+
+    assertAuth(() -> login.refresh("r0"), "Microsoft did not grant ChannelMessage.Read.All; sign in again with 'pieria source authorize'"
+      + " (reading channels needs an admin to consent to ChannelMessage.Read.All)");
+  }
+
+  @Test
+  void refreshWithoutConsentForChatsAsksForSignIn() throws HarvesterException {
+    microsoft.refresh(StubMicrosoft.consentRequired());
+    MicrosoftLogin login = login();
+
+    assertAuth(() -> login.refresh("r0"),
+      "Microsoft has no consent for the permissions this source needs; sign in again with 'pieria source authorize'");
+  }
+
+  @Test
   void serverErrorIsTransient() throws HarvesterException {
     microsoft.refresh(JsonStub.Reply.status(500));
     MicrosoftLogin login = login();

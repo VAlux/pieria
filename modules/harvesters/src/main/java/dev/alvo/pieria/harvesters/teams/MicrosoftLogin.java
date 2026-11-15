@@ -87,6 +87,13 @@ public final class MicrosoftLogin {
       return tokens(body);
     }
     String error = body.path("error").asString("");
+    if (consentRequired(body)) {
+      // Entra refuses the refresh outright rather than granting less, so this is where a missing
+      // channel permission shows up after channels are added to a chats-only sign-in.
+      throw new HarvesterException(ErrorClass.AUTH, config.channels().isEmpty()
+        ? "Microsoft has no consent for the permissions this source needs; " + SIGN_IN_AGAIN
+        : missingScope(ADMIN_SCOPE));
+    }
     if (error.equals("invalid_grant") || error.equals("interaction_required")) {
       throw new HarvesterException(ErrorClass.AUTH, "the sign-in has expired or was revoked; " + SIGN_IN_AGAIN);
     }
@@ -102,12 +109,28 @@ public final class MicrosoftLogin {
     if (missing.isEmpty()) {
       return;
     }
-    String scope = missing.contains(ADMIN_SCOPE) ? ADMIN_SCOPE : missing.getFirst();
+    throw new HarvesterException(ErrorClass.AUTH, missingScope(missing.contains(ADMIN_SCOPE) ? ADMIN_SCOPE : missing.getFirst()));
+  }
+
+  private static String missingScope(String scope) {
     String message = "Microsoft did not grant " + scope + "; " + SIGN_IN_AGAIN;
     if (scope.equals(ADMIN_SCOPE)) {
       message += " (reading channels needs an admin to consent to " + ADMIN_SCOPE + ")";
     }
-    throw new HarvesterException(ErrorClass.AUTH, message);
+    return message;
+  }
+
+  /** AADSTS65001: nobody consented to a permission the request asks for. */
+  private static boolean consentRequired(JsonNode body) {
+    if (body.path("suberror").asString("").equals("consent_required")) {
+      return true;
+    }
+    for (JsonNode code : body.path("error_codes")) {
+      if (code.asLong(0) == 65001) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private JsonTransport.Response post(String endpoint, String form) throws HarvesterException {

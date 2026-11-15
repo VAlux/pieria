@@ -191,6 +191,7 @@ class TeamsFeedTests {
 
     assertThat(feed.load(changes)).isEmpty();
     assertThat(feed.tombstonesGone()).isTrue();
+    assertThat(feed.listsInOrder()).isFalse();
     assertThat(feed.liveIds(null).entries()).isEmpty();
   }
 

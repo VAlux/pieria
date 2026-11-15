@@ -290,6 +290,16 @@ final class StubMicrosoft implements AutoCloseable {
       MAPPER.createObjectNode().put("error", error).put("error_description", description).toString());
   }
 
+  /** What Entra answers a refresh that asks for a permission nobody consented to. */
+  static JsonStub.Reply consentRequired() {
+    ObjectNode body = MAPPER.createObjectNode().put("error", "invalid_grant")
+      .put("error_description", "AADSTS65001: The user or administrator has not consented to use the application. Send an interactive"
+        + " authorization request for this user and resource.\r\nTrace ID: 1")
+      .put("suberror", "consent_required");
+    body.putArray("error_codes").add(65001);
+    return new JsonStub.Reply(400, Map.of("Content-Type", "application/json"), body.toString());
+  }
+
   StubMicrosoft deviceCode(JsonStub.Reply reply) {
     deviceCode = reply;
     return this;

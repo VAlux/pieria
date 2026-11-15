@@ -136,7 +136,8 @@ public final class IncrementalHarvest {
           }
         }
         token = next(page.next(), tokens);
-        if (token != null && pending.size() >= MAX_PENDING) {
+        // Stopping early is safe only when what is left is newer than everything listed so far.
+        if (token != null && feed.listsInOrder() && pending.size() >= MAX_PENDING) {
           complete = false;
           break;
         }

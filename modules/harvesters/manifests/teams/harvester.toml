@@ -42,7 +42,7 @@ hint = "\"Team\" or \"Team/Channel\". Reading channels needs an admin to consent
 key = "sinceDays"
 kind = "int"
 label = "Days to read back"
-hint = "How far back the first run reaches, at most 240"
+hint = "How far back chats are read, at most 240. A chat day older than this is no longer updated or forgotten"
 default = 90
 
 [[config]]

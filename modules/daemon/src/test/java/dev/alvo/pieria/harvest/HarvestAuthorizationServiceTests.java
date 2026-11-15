@@ -217,6 +217,19 @@ class HarvestAuthorizationServiceTests {
   }
 
   @Test
+  void secretWithoutACodeIsAuthorized() throws Exception {
+    createSource("signin", script(new ObjectNode[] {secret("r1")}, null), SourceStatus.NEEDS_AUTH);
+
+    AuthorizationState started = service.start("s");
+    AuthorizationState finished = started.status() == AuthorizationState.Status.PENDING ? awaitFinished(Duration.ofSeconds(10)) : started;
+
+    assertThat(finished.status()).isEqualTo(AuthorizationState.Status.AUTHORIZED);
+    assertThat(finished.userCode()).isNull();
+    assertThat(secrets.secrets("s")).containsEntry("refreshToken", "r1");
+    assertThat(store.findSource("s").orElseThrow().status()).isEqualTo(SourceStatus.ACTIVE);
+  }
+
+  @Test
   void errorBeforeTheCodeFailsAtOnce() {
     createSource(script(new ObjectNode[0], null).set("authorizeFail", fail("config", "clientId is wrong")));
 

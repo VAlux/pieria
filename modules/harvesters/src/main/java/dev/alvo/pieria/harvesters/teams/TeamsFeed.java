@@ -218,6 +218,12 @@ public final class TeamsFeed implements ChangeFeed<JsonNode> {
     return true;
   }
 
+  /** Chats and channels are walked one after another, so changes come in no overall time order. */
+  @Override
+  public boolean listsInOrder() {
+    return false;
+  }
+
   @Override
   public List<HarvestRecord.Item> load(List<Change<JsonNode>> changes) throws HarvesterException {
     List<HarvestRecord.Item> items = new ArrayList<>();

@@ -119,6 +119,19 @@ class TeamsHarvesterTests {
   }
 
   @Test
+  void channelsWithoutConsentFailAuthNamingTheAdminConsent() {
+    microsoft.refresh(StubMicrosoft.consentRequired());
+    ObjectNode config = microsoft.config();
+    config.putArray("channels").add("Eng");
+
+    Outcome outcome = run("check", config, "r1", null);
+
+    assertThat(outcome.exit()).isEqualTo(1);
+    assertThat(outcome.failure().errorClass()).isEqualTo(ErrorClass.AUTH);
+    assertThat(outcome.failure().message()).contains("ChannelMessage.Read.All").contains("admin");
+  }
+
+  @Test
   void harvestEmitsTheRotatedTokenFirst() {
     microsoft.refresh(StubMicrosoft.tokens("at1", "r2", StubMicrosoft.ALL_SCOPES));
     microsoft.chat("c1", "group", "Release").message("1", "Ada", at(TODAY.minusDays(2), 9), "<p>ship it on friday</p>");

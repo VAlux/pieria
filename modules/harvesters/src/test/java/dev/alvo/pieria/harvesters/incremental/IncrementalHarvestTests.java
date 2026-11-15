@@ -376,4 +376,18 @@ class IncrementalHarvestTests {
     assertThat(second.itemIds()).containsExactly("z");
     assertThat(second.records()).noneMatch(record -> record instanceof HarvestRecord.Tombstone);
   }
+
+  @Test
+  void feedOutOfOrderIsListedWhole() throws HarvesterException {
+    int count = IncrementalHarvest.MAX_PENDING + 50;
+    FakeFeed feed = new FakeFeed(NOW).paging(1_000, 0).newestFirst();
+    for (int i = 0; i < count; i++) {
+      // An hour apart, so the oldest are far outside any overlap of the newest.
+      feed.put("i" + i, "1", T.minus(Duration.ofHours(count - i)));
+    }
+
+    Run run = run(feed, null);
+
+    assertThat(run.itemIds()).hasSize(count);
+  }
 }

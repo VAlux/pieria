@@ -39,4 +39,13 @@ public interface ChangeFeed<T> {
   default boolean tombstonesGone() {
     return false;
   }
+
+  /**
+   * Whether {@link #changes} pages come oldest change first. A feed that walks one container after
+   * another, such as one chat after the next, can't promise that, so the engine lists its whole window
+   * before reporting any of it rather than stopping at {@link IncrementalHarvest#MAX_PENDING}.
+   */
+  default boolean listsInOrder() {
+    return true;
+  }
 }

@@ -29,6 +29,7 @@ final class FakeFeed implements ChangeFeed<String> {
   private HarvesterException beginFailure;
   private boolean repeatSecondPage;
   private boolean tombstonesGone;
+  private boolean newestFirst;
   /** The {@code from} of every change listing, in order. */
   final List<Instant> froms = new ArrayList<>();
   /** "list" or "load", in the order the engine asked. */
@@ -74,6 +75,17 @@ final class FakeFeed implements ChangeFeed<String> {
     return this;
   }
 
+  /** Lists newest change first, as a feed that walks one container after another can. */
+  FakeFeed newestFirst() {
+    this.newestFirst = true;
+    return this;
+  }
+
+  @Override
+  public boolean listsInOrder() {
+    return !newestFirst;
+  }
+
   FakeFeed reportGone() {
     this.tombstonesGone = true;
     return this;
@@ -104,7 +116,9 @@ final class FakeFeed implements ChangeFeed<String> {
     events.add("list");
     List<Entry> matching = items.values().stream()
       .filter(entry -> from == null || !entry.changedAt().isBefore(from))
-      .sorted(Comparator.comparing(Entry::changedAt).thenComparing(Entry::id))
+      .sorted(newestFirst
+        ? Comparator.comparing(Entry::changedAt).thenComparing(Entry::id).reversed()
+        : Comparator.comparing(Entry::changedAt).thenComparing(Entry::id))
       .toList();
     int start = token == null ? 0 : Integer.parseInt(token);
     Page<Entry> page = page(matching, start);

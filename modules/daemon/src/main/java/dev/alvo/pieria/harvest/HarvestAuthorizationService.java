@@ -203,7 +203,11 @@ public class HarvestAuthorizationService {
       if (cancelled) {
         return;
       }
-      state.set(state.get().authorized());
+      AuthorizationState signedIn = state.get();
+      // A harvester may save a credential without needing the user, so there may be no code.
+      state.set(signedIn == null
+        ? new AuthorizationState(AuthorizationState.Status.AUTHORIZED, null, null, null, null, null, null)
+        : signedIn.authorized());
       store.findSource(source.id())
         .filter(current -> current.status() == SourceStatus.NEEDS_AUTH)
         .ifPresent(current -> {
