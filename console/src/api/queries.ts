@@ -37,7 +37,11 @@ export const qk = {
   wikiPage: (p: string, id: string) => ['profile', p, 'wiki', 'page', id] as const,
   wikiSearch: (p: string, q: string) => ['profile', p, 'wiki', 'search', q] as const,
   graph: (p: string, ...rest: unknown[]) => ['profile', p, 'graph', ...rest] as const,
-  clusters: (p: string, ...rest: unknown[]) => ['profile', p, 'clusters', ...rest] as const
+  clusters: (p: string, ...rest: unknown[]) => ['profile', p, 'clusters', ...rest] as const,
+  harvesters: ['harvesters'] as const,
+  sources: (p: string) => ['profile', p, 'sources'] as const,
+  source: (p: string, id: string) => ['profile', p, 'sources', id] as const,
+  sourceRuns: (p: string, id: string) => ['profile', p, 'sources', id, 'runs'] as const
 };
 
 export function useProfiles() {

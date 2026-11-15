@@ -38,3 +38,15 @@ export function cancelTask(id: string): Promise<unknown> {
 export function retryTask(id: string): Promise<{ taskId: string }> {
   return request<{ taskId: string }>(`/v1/tasks/${encodeURIComponent(id)}/retry`, { method: 'POST', json: {} });
 }
+
+/** One task's state; `result` is the task's payload once it has succeeded. */
+export interface TaskState {
+  status: TaskStatus;
+  result: Record<string, unknown> | null;
+  errorKind: string | null;
+  errorMessage: string | null;
+}
+
+export function getTask(id: string, signal?: AbortSignal): Promise<TaskState> {
+  return request<TaskState>(`/v1/tasks/${encodeURIComponent(id)}`, { signal });
+}
