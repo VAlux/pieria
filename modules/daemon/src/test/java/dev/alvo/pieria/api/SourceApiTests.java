@@ -4,6 +4,7 @@ import dev.alvo.pieria.api.controller.SourceController;
 import dev.alvo.pieria.api.error.GlobalExceptionHandler;
 import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.harvest.AuthorizationState;
 import dev.alvo.pieria.harvest.HarvestRun;
 import dev.alvo.pieria.harvest.HarvestSource;
 import dev.alvo.pieria.harvest.HarvestSourceService;
@@ -26,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -183,6 +185,46 @@ class SourceApiTests {
       .andExpect(jsonPath("$.ok", is(false)))
       .andExpect(jsonPath("$.errorClass", is("auth")))
       .andExpect(jsonPath("$.message", is("denied")));
+  }
+
+  @Test
+  void authorizeReturnsThePendingCode() throws Exception {
+    when(service.authorize("p", "s")).thenReturn(new AuthorizationState(AuthorizationState.Status.PENDING,
+      "https://microsoft.com/devicelogin", "ABCD", "Open the page", T0, null, null));
+
+    mvc.perform(post(BASE + "/s/authorize"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.status", is("pending")))
+      .andExpect(jsonPath("$.userCode", is("ABCD")))
+      .andExpect(jsonPath("$.verificationUri", is("https://microsoft.com/devicelogin")))
+      .andExpect(jsonPath("$.expiresAt", is("2026-03-01T00:00:00Z")));
+  }
+
+  @Test
+  void failedAuthorizationCarriesItsClass() throws Exception {
+    when(service.authorization("p", "s")).thenReturn(Optional.of(new AuthorizationState(AuthorizationState.Status.FAILED, null, null, null, null, ErrorClass.AUTH, "declined")));
+
+    mvc.perform(get(BASE + "/s/authorize"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.status", is("failed")))
+      .andExpect(jsonPath("$.errorClass", is("auth")))
+      .andExpect(jsonPath("$.error", is("declined")));
+  }
+
+  @Test
+  void authorizationWithoutASessionIs404() throws Exception {
+    when(service.authorization("p", "s")).thenReturn(Optional.empty());
+
+    mvc.perform(get(BASE + "/s/authorize"))
+      .andExpect(status().isNotFound())
+      .andExpect(content().string(containsString("no sign-in is in progress for source s")));
+  }
+
+  @Test
+  void authorizeWithoutSignInIs400() throws Exception {
+    when(service.authorize("p", "s")).thenThrow(new IllegalArgumentException("harvester jira has no sign-in"));
+
+    mvc.perform(post(BASE + "/s/authorize")).andExpect(status().isBadRequest());
   }
 
   @Test

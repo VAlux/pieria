@@ -363,4 +363,59 @@ class SourceCommandTests {
       assertThat(run(daemon, "source", "show", "absent").code).isEqualTo(4);
     }
   }
+
+  private static final String SIGN_IN_HARVESTERS = """
+    {"harvesters":[{"id":"teams","name":"Teams","version":"1","capabilities":["incremental","oauth-device-code"],"network":[],"fields":[
+      {"key":"clientId","kind":"string","label":"Client id","hint":null,"required":true,"options":[],"defaultValue":null},
+      {"key":"refreshToken","kind":"secret","label":"Refresh token","hint":null,"required":false,"options":[],"defaultValue":null}
+    ]}]}""";
+
+  private static String authorization(String status, String errorClass, String error) {
+    return """
+      {"status":"%s","verificationUri":"https://microsoft.com/devicelogin","userCode":"ABCD",
+       "message":"To sign in, open https://microsoft.com/devicelogin and enter ABCD","expiresAt":"%s",
+       "errorClass":%s,"error":%s}""".formatted(status, java.time.Instant.now().plusSeconds(900),
+      errorClass == null ? "null" : "\"" + errorClass + "\"", error == null ? "null" : "\"" + error + "\"");
+  }
+
+  @Test
+  void authorizePrintsTheMessageAndWaits() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stubSequence(SOURCES + "/s/authorize", authorization("pending", null, null), authorization("authorized", null, null));
+
+      Captured out = run(daemon, "source", "authorize", "s");
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(out.stdout + out.stderr).contains("To sign in, open https://microsoft.com/devicelogin and enter ABCD")
+        .contains("Signed in.");
+      assertThat(daemon.requests()).extracting(StubDaemon.Recorded::method).containsSubsequence("POST", "GET");
+    }
+  }
+
+  @Test
+  void authorizeFailureExitsOne() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stubSequence(SOURCES + "/s/authorize", authorization("pending", null, null), authorization("failed", "auth", "declined"));
+
+      Captured out = run(daemon, "source", "authorize", "s");
+
+      assertThat(out.code).isEqualTo(1);
+      assertThat(out.stdout + out.stderr).contains("Sign-in failed (auth): declined");
+    }
+  }
+
+  @Test
+  void addSkipsTheCheckForASignInHarvester() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters", 200, SIGN_IN_HARVESTERS);
+      daemon.stub(SOURCES, 201, SOURCE.replace("\"jira\"", "\"teams\""));
+      daemon.stub(SOURCES + "/s/check", 200, CHECK_OK);
+
+      Captured out = run(daemon, "source", "add", "teams", "--id", "s", "--set", "clientId=abc");
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(daemon.requests()).extracting(StubDaemon.Recorded::path).noneMatch(path -> path.endsWith("/check"));
+      assertThat(out.stdout + out.stderr).contains("pieria source authorize s");
+    }
+  }
 }

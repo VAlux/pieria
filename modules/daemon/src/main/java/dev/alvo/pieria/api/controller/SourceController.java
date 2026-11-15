@@ -4,12 +4,15 @@ import dev.alvo.pieria.api.request.CreateSourceRequest;
 import dev.alvo.pieria.api.request.RunSourceRequest;
 import dev.alvo.pieria.api.request.SourceSecretsRequest;
 import dev.alvo.pieria.api.request.UpdateSourceRequest;
+import dev.alvo.pieria.api.response.SourceAuthorizationResponse;
 import dev.alvo.pieria.api.response.SourceCheckResponse;
 import dev.alvo.pieria.api.response.SourceListResponse;
 import dev.alvo.pieria.api.response.SourceResponse;
 import dev.alvo.pieria.api.response.SourceRunListResponse;
 import dev.alvo.pieria.api.response.SourceRunResponse;
 import dev.alvo.pieria.api.response.TaskSubmitResponse;
+import dev.alvo.pieria.domain.error.NotFoundException;
+import dev.alvo.pieria.harvest.AuthorizationState;
 import dev.alvo.pieria.harvest.HarvestRun;
 import dev.alvo.pieria.harvest.HarvestSource;
 import dev.alvo.pieria.harvest.HarvestSourceService;
@@ -118,6 +121,22 @@ public class SourceController {
   public SourceCheckResponse check(@PathVariable String name, @PathVariable String id) {
     SourceCheckResult result = service.check(name, id);
     return new SourceCheckResponse(result.ok(), result.errorClass() == null ? null : result.errorClass().wire(), result.message());
+  }
+
+  @PostMapping("/{id}/authorize")
+  public SourceAuthorizationResponse authorize(@PathVariable String name, @PathVariable String id) {
+    return toAuthorization(service.authorize(name, id));
+  }
+
+  @GetMapping("/{id}/authorize")
+  public SourceAuthorizationResponse authorization(@PathVariable String name, @PathVariable String id) {
+    return service.authorization(name, id).map(SourceController::toAuthorization)
+      .orElseThrow(() -> new NotFoundException("no sign-in is in progress for source " + id));
+  }
+
+  private static SourceAuthorizationResponse toAuthorization(AuthorizationState state) {
+    return new SourceAuthorizationResponse(state.status().wire(), state.verificationUri(), state.userCode(), state.message(),
+      state.expiresAt(), state.errorClass() == null ? null : state.errorClass().wire(), state.error());
   }
 
   @PostMapping("/{id}/run")

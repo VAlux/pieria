@@ -68,6 +68,10 @@ public final class SourceAddCommand extends AbstractSourceCommand {
     log.info("Created source {} in profile {}.", created.id(), profile);
     created.warnings().forEach(warning -> log.info("Warning: {}", warning));
 
+    if (harvester.capabilities().contains("oauth-device-code") && !secrets.containsKey("refreshToken")) {
+      log.info("Next: sign in with 'pieria source authorize {}'.", id);
+      return 0;
+    }
     SourceCheckResponse check = client.check(profile, id);
     if (!check.ok()) {
       log.error("The source's check failed: {}", check.message());

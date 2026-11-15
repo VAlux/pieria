@@ -10,6 +10,7 @@ import dev.alvo.pieria.api.response.HarvesterDoctorResponse;
 import dev.alvo.pieria.api.response.HarvesterListResponse;
 import dev.alvo.pieria.api.response.HarvesterPackageResponse;
 import dev.alvo.pieria.api.response.HarvesterResponse;
+import dev.alvo.pieria.api.response.SourceAuthorizationResponse;
 import dev.alvo.pieria.api.response.SourceCheckResponse;
 import dev.alvo.pieria.api.response.SourceListResponse;
 import dev.alvo.pieria.api.response.SourceResponse;
@@ -86,6 +87,15 @@ public final class HarvestClient {
 
   public SourceCheckResponse check(String profile, String id) {
     return transport.parse(transport.post(source(profile, id) + "/check", Map.of(), CHECK), SourceCheckResponse.class);
+  }
+
+  /** Starts a sign-in and returns once the harvester has a code for the user, or has failed. */
+  public SourceAuthorizationResponse authorize(String profile, String id) {
+    return transport.parse(transport.post(source(profile, id) + "/authorize", Map.of(), CHECK), SourceAuthorizationResponse.class);
+  }
+
+  public SourceAuthorizationResponse authorization(String profile, String id) {
+    return transport.parse(transport.get(source(profile, id) + "/authorize", SHORT), SourceAuthorizationResponse.class);
   }
 
   public TaskSubmitResponse run(String profile, String id, boolean dryRun) {

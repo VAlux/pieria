@@ -16,6 +16,7 @@ import picocli.CommandLine.Spec;
     SourceShowCommand.class,
     SourceUpdateCommand.class,
     SourceCheckCommand.class,
+    SourceAuthorizeCommand.class,
     SourceRunCommand.class,
     SourceRunsCommand.class,
     SourcePauseCommand.class,
