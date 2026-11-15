@@ -324,5 +324,72 @@ class NotesHarvesterTests(unittest.TestCase):
         self.assertEqual(documents(records)[0]["text"], "ab\U0001F680")
 
 
+    def test_relative_directory_is_a_config_error(self):
+        code, records, _ = run(["check"], envelope({"directory": "."}))
+
+        self.assertEqual(code, 1)
+        self.assertEqual(records[-1]["class"], "config")
+        self.assertIn("absolute", records[-1]["message"])
+
+    def test_path_too_long_for_an_id_is_skipped(self):
+        self.write("ok.md", "short")
+        self.write("much-longer-name.md", "long")
+        old = notes_harvester.MAX_ID_CHARS
+        notes_harvester.MAX_ID_CHARS = 10
+        self.addCleanup(setattr, notes_harvester, "MAX_ID_CHARS", old)
+
+        _, records, stderr = self.harvest()
+
+        self.assertEqual([d["id"] for d in documents(records)], ["ok.md"])
+        self.assertIn("too long to be an id", stderr)
+
+    def test_file_url_too_long_is_skipped(self):
+        self.write("a.md", "x")
+        old = notes_harvester.MAX_URL_CHARS
+        notes_harvester.MAX_URL_CHARS = 10
+        self.addCleanup(setattr, notes_harvester, "MAX_URL_CHARS", old)
+
+        _, records, stderr = self.harvest()
+
+        self.assertEqual(documents(records), [])
+        self.assertIn("file URL is too long", stderr)
+
+    @unittest.skipIf(sys.platform == "win32", "symlinks need privileges on Windows")
+    def test_note_swapped_for_a_symlink_is_not_read(self):
+        note = self.write("a.md", "inside")
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        secret = Path(outside.name) / "secret.md"
+        secret.write_text("OUTSIDE-SECRET", encoding="utf-8")
+        real = notes_harvester.document
+
+        def swap(note_id, path, config, stderr):
+            note.unlink()
+            os.symlink(secret, note)
+            return real(note_id, path, config, stderr)
+
+        notes_harvester.document = swap
+        self.addCleanup(setattr, notes_harvester, "document", real)
+
+        code, records, _ = self.harvest()
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("OUTSIDE-SECRET", json.dumps(records))
+
+    def test_envelope_of_exactly_the_limit_is_accepted(self):
+        line = envelope({"directory": str(self.root)})
+        old = notes_harvester.MAX_ENVELOPE_BYTES
+        notes_harvester.MAX_ENVELOPE_BYTES = len(line) - 1
+        self.addCleanup(setattr, notes_harvester, "MAX_ENVELOPE_BYTES", old)
+
+        code, _, _ = run(["check"], line)
+        self.assertEqual(code, 0)
+
+        notes_harvester.MAX_ENVELOPE_BYTES = len(line) - 2
+        code, records, _ = run(["check"], line)
+        self.assertEqual(code, 2)
+        self.assertIn("over the size limit", records[0]["message"])
+
+
 if __name__ == "__main__":
     unittest.main()

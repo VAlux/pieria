@@ -326,13 +326,14 @@ entrypoint, because `python3` is a bare interpreter.
 
 - **`main`** checks the subcommand, printing the usage line and returning `2` for anything but `check` or `harvest`. It reads the request, runs the command, and turns every failure into one `error` record. A `HarvestError` carries its class; anything unexpected is `fatal`, with the traceback on stderr. A failed write to stdout becomes `StdoutClosed`, and `main` returns `1` without another word.
 - **`read_envelope`** reads one line of at most 1 MiB. It refuses anything that isn't an object with `"protocol": 1` and a `config` object, as `config` "bad envelope: …".
-- **`Config`** validates `directory`, `extensions` and `maxFileBytes`, raising `config` errors the user can act on.
+- **`Config`** validates `directory`, which must be absolute (a relative path would be read against the harvester's install folder), `extensions` and `maxFileBytes`, raising `config` errors the user can act on.
 - **`list_notes`** walks the folder without following symlinks, skips dot-files and dot-folders and other file types, and sorts by the path relative to the folder. That path is the item's id, so it is stable across runs.
 - **`document`** builds one `document`:
   - The title is the first `# ` heading, or the file name.
   - `updatedAt` is the file's modification time, so dates in the note resolve correctly.
   - The text is decoded as UTF-8, with undecodable bytes replaced, and cut to the protocol's limit. Lengths are counted in UTF-16 code units by `utf16_len`, as the daemon counts them, and `cut_utf16` never splits a character.
   - Files over `maxFileBytes` are skipped with a note on stderr.
+  - The file is opened without following symlinks, so a note swapped for a link after the listing can't make it read outside the folder.
 - **Reading errors.** `list_notes` passes `os.walk` an `onerror` that fails the run as `transient`: a folder that can't be listed would otherwise drop out, and the sweep would delete its notes. A single note that can't be read is skipped with a line on stderr and named in `seen`, so its memories survive; one deleted during the run is just skipped. A file name that isn't valid UTF-8 can't be an id, so it is skipped too.
 - **`harvest`** is the run:
   1. If the request has a cursor `{"after": <id>}`, it first emits `seen` with every note up to that id, in chunks of 1,000.

@@ -18,6 +18,7 @@ import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 from typing import BinaryIO, Iterator, Optional, TextIO
 
 # Protocol v1 limits, from ProtocolLimits.java. A record over any of them fails the whole run.
@@ -84,9 +85,12 @@ class Output:
 
 def read_envelope(stdin: BinaryIO) -> dict:
     """The request is one JSON line: protocol, config, secrets, cursor and limits."""
-    line = stdin.readline(MAX_ENVELOPE_BYTES + 1)
+    line = stdin.readline(MAX_ENVELOPE_BYTES + 2)
     if not line:
         raise HarvestError("config", "bad envelope: stdin was empty")
+    if line.endswith(b"\n"):
+        line = line[:-1]
+    # The limit is on the line itself, not counting its newline.
     if len(line) > MAX_ENVELOPE_BYTES:
         raise HarvestError("config", "bad envelope: over the size limit")
     try:
@@ -105,6 +109,9 @@ class Config:
 
     def __init__(self, raw: dict):
         directory = raw.get("directory")
+        if isinstance(directory, str) and directory.strip() and not Path(directory).is_absolute():
+            # A relative path would be read against the harvester's own install folder.
+            raise HarvestError("config", f"directory must be an absolute path: {directory}")
         if not isinstance(directory, str) or not directory.strip() or not Path(directory).is_dir():
             raise HarvestError("config", f"directory {directory} does not exist or is not a folder")
         self.root = Path(directory).resolve()
@@ -157,15 +164,23 @@ def document(note_id: str, path: Path, config: Config, stderr: TextIO) -> Option
     """One `document` record, or None when the note can't be one. The daemon fingerprints the title,
     URL and text itself and skips a document that hasn't changed, so reporting an unchanged note costs
     nothing. `version` is optional; here it is a hash of the bytes, for anyone reading the records."""
-    stat = path.stat()
-    if stat.st_size > config.max_file_bytes:
-        stderr.write(f"skipping {note_id}: {stat.st_size} bytes is over maxFileBytes\n")
-        return None
-    url = path.as_uri()
-    if len(url) > MAX_URL_CHARS:
-        stderr.write(f"skipping {note_id}: its file URL is too long\n")
-        return None
-    data = path.read_bytes()
+    # Opened without following a symlink: the note may have been swapped for one since it was listed,
+    # and a link could point outside the folder. Where O_NOFOLLOW is missing, check just before.
+    if path.is_symlink():
+        raise OSError(f"{note_id} became a symlink")
+    with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)), "rb") as handle:
+        stat = os.fstat(handle.fileno())
+        if not S_ISREG(stat.st_mode):
+            stderr.write(f"skipping {note_id}: it is no longer a regular file\n")
+            return None
+        if stat.st_size > config.max_file_bytes:
+            stderr.write(f"skipping {note_id}: {stat.st_size} bytes is over maxFileBytes\n")
+            return None
+        url = path.as_uri()
+        if utf16_len(url) > MAX_URL_CHARS:
+            stderr.write(f"skipping {note_id}: its file URL is too long\n")
+            return None
+        data = handle.read(config.max_file_bytes + 1)
     text = cut_utf16(data.decode("utf-8", errors="replace"), MAX_TEXT_CHARS)
     markdown = path.suffix.lower() in MARKDOWN
     heading = HEADING.search(text) if markdown else None
