@@ -2,8 +2,6 @@ package dev.alvo.pieria.harvest;
 
 import dev.alvo.pieria.config.EffectiveConfigResolver;
 import dev.alvo.pieria.config.HarvestProperties;
-import dev.alvo.pieria.harvester.manifest.ConfigFieldSpec;
-import dev.alvo.pieria.harvester.manifest.FieldKind;
 import dev.alvo.pieria.harvester.process.HarvesterProcess;
 import dev.alvo.pieria.harvester.protocol.ErrorClass;
 import dev.alvo.pieria.harvester.protocol.HarvestRecord;
@@ -16,23 +14,16 @@ import dev.alvo.pieria.task.TaskProgress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
 
 /**
  * Runs a harvester once and applies what it reports. Records are handled one at a time as they arrive,
@@ -42,7 +33,6 @@ import java.util.stream.Collectors;
 public class HarvestRunService {
 
   private static final Logger log = LoggerFactory.getLogger(HarvestRunService.class);
-  private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final int MAX_STDERR_TAIL_CHARS = 4_000;
   private static final String SUBCOMMAND = "harvest";
   private static final Duration CHECK_TIMEOUT = Duration.ofSeconds(60);
@@ -84,7 +74,7 @@ public class HarvestRunService {
     try {
       RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
         "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
-      Set<String> declared = declaredSecrets(harvester);
+      Set<String> declared = HarvestEnvelope.declaredSecrets(harvester);
       HarvestRequest request = envelope(source, declared, secretValues);
       registry.requirePinned(harvester);
       Duration limit = CHECK_TIMEOUT.compareTo(properties.runTimeout()) < 0 ? CHECK_TIMEOUT : properties.runTimeout();
@@ -95,7 +85,7 @@ public class HarvestRunService {
           if (record instanceof HarvestRecord.Failure failure) {
             reported = failure;
           } else if (record instanceof HarvestRecord.SecretUpdate update) {
-            saveSecret(source, declared, secretValues, update);
+            HarvestEnvelope.saveSecret(secretStore, source, declared, secretValues, update);
           }
         }
         if (!process.awaitExit(deadline)) {
@@ -125,50 +115,16 @@ public class HarvestRunService {
     }
   }
 
-  private static Set<String> declaredSecrets(RegisteredHarvester harvester) {
-    return harvester.manifest().config().stream()
-      .filter(field -> field.kind() == FieldKind.SECRET)
-      .map(ConfigFieldSpec::key)
-      .collect(Collectors.toSet());
-  }
-
-  /** Builds the stdin envelope with only the declared secrets, noting every stored value for scrubbing. */
   private HarvestRequest envelope(HarvestSource source, Set<String> declared, Set<String> secretValues) throws RunFailure {
-    Map<String, String> secrets = new LinkedHashMap<>(secretStore.secrets(source.id()));
-    secretValues.addAll(secrets.values());
-    secrets.keySet().retainAll(declared);
     try {
-      if (!(MAPPER.readTree(source.configJson()) instanceof ObjectNode config)) {
-        throw new RunFailure(ErrorClass.CONFIG, "the source config is not a JSON object", null);
-      }
-      JsonNode cursor = source.cursorJson() == null ? null : MAPPER.readTree(source.cursorJson());
-      return new HarvestRequest(HarvestRequest.PROTOCOL_VERSION, config, secrets, cursor,
-        new HarvestRequest.Limits(source.maxItemsPerRun(), source.maxCharsPerRun()));
-    } catch (JacksonException e) {
-      throw new RunFailure(ErrorClass.CONFIG, "the source config or cursor is not valid JSON", null);
-    }
-  }
-
-  private void saveSecret(HarvestSource source, Set<String> declared, Set<String> secretValues, HarvestRecord.SecretUpdate update) {
-    secretValues.add(update.value());
-    if (declared.contains(update.name())) {
-      secretStore.put(source.id(), update.name(), update.value());
-    } else {
-      log.warn("harvest source={} sent an update for undeclared secret {}; ignoring", source.id(), update.name());
+      return HarvestEnvelope.build(secretStore, source, declared, secretValues);
+    } catch (HarvestEnvelope.InvalidSource e) {
+      throw new RunFailure(ErrorClass.CONFIG, e.getMessage(), null);
     }
   }
 
   private static String scrub(String text, Set<String> secretValues) {
-    if (text == null) {
-      return null;
-    }
-    String scrubbed = text;
-    for (String secret : secretValues) {
-      if (!secret.isBlank()) {
-        scrubbed = scrubbed.replace(secret, "***");
-      }
-    }
-    return scrubbed;
+    return HarvestEnvelope.scrub(text, secretValues);
   }
 
   /** A run that could not finish, with the class that decides how it is retried. */
@@ -273,7 +229,7 @@ public class HarvestRunService {
     private void drive() throws RunFailure {
       RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
         "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
-      declaredSecrets.addAll(HarvestRunService.declaredSecrets(harvester));
+      declaredSecrets.addAll(HarvestEnvelope.declaredSecrets(harvester));
       HarvestRequest request = envelope(source, declaredSecrets, secretValues);
       Instant deadline = Instant.now().plus(properties.runTimeout());
 
@@ -334,8 +290,7 @@ public class HarvestRunService {
           }
         }
         case HarvestRecord.Tombstone tombstone -> {
-          if (!dryRun) {
-            ingestor.delete(source, tombstone.id());
+          if (!dryRun && ingestor.delete(source, tombstone.id())) {
             itemsDeleted++;
           }
         }
@@ -400,7 +355,7 @@ public class HarvestRunService {
 
     /** Saved on dry runs too, because the provider has already replaced the old value. */
     private void applySecret(HarvestRecord.SecretUpdate update) {
-      saveSecret(source, declaredSecrets, secretValues, update);
+      HarvestEnvelope.saveSecret(secretStore, source, declaredSecrets, secretValues, update);
     }
 
     private void applySweep() {

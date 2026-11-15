@@ -405,6 +405,15 @@ class HarvestRunServiceTests {
   }
 
   @Test
+  void tombstoneForAnUnknownItemIsNotCounted() throws Exception {
+    HarvestRunSummary summary = scripted(withRecords(MAPPER.createObjectNode().put("type", "tombstone").put("id", "never-seen"),
+      checkpoint(1)));
+
+    assertThat(summary.status()).isEqualTo(RunStatus.SUCCEEDED);
+    assertThat(summary.itemsDeleted()).isZero();
+  }
+
+  @Test
   void authErrorPausesTheSource() throws Exception {
     HarvestRunSummary summary = scripted(withRecords(error("auth", "denied")));
 

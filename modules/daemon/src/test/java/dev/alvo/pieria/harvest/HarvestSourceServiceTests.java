@@ -73,6 +73,7 @@ class HarvestSourceServiceTests {
   private HarvestItemIngestor ingestor;
   private HarvestScheduler scheduler;
   private HarvestRunService runs;
+  private HarvestAuthorizationService authorizations;
   private HarvestSourceService service;
 
   @BeforeEach
@@ -96,6 +97,7 @@ class HarvestSourceServiceTests {
     ingestor = mock(HarvestItemIngestor.class);
     scheduler = mock(HarvestScheduler.class);
     runs = mock(HarvestRunService.class);
+    authorizations = mock(HarvestAuthorizationService.class);
     when(scheduler.stopAndWait(any(), any())).thenReturn(true);
     service = service("http://localhost:11434");
   }
@@ -108,7 +110,7 @@ class HarvestSourceServiceTests {
     PieriaProperties properties = new PieriaProperties(null, null,
       new PieriaProperties.Provider(baseUrl, "key", "name", "openai", "v"), null, null, null, null);
     return new HarvestSourceService(store, memories, new HarvesterRegistry(new HarvestPaths(temp.resolve("harvesters"), temp.resolve("no-bin"))), secrets,
-      ingestor, usedScheduler, runs, properties);
+      ingestor, usedScheduler, runs, authorizations, properties);
   }
 
   @AfterEach
@@ -335,6 +337,25 @@ class HarvestSourceServiceTests {
   }
 
   @Test
+  void removeCancelsAPendingSignIn() {
+    created("s");
+
+    service.remove("p", "s", false);
+
+    verify(authorizations).cancel("s");
+  }
+
+  @Test
+  void authorizeChecksTheProfile() {
+    created("s");
+    memories.getOrCreateProfile("other");
+
+    assertThatThrownBy(() -> service.authorize("other", "s")).isInstanceOf(NotFoundException.class);
+    assertThatThrownBy(() -> service.authorization("other", "s")).isInstanceOf(NotFoundException.class);
+    verify(authorizations, never()).start(any());
+  }
+
+  @Test
   void removeKeepsMemoriesByDefault() {
     HarvestSource source = created("s");
     item("a");
@@ -519,6 +540,7 @@ class HarvestSourceServiceTests {
     assertThat(deleted).isTrue();
     assertThat(secrets.secrets("s")).isEmpty();
     verify(scheduler).release("s");
+    verify(authorizations).cancel("s");
   }
 
   @Test

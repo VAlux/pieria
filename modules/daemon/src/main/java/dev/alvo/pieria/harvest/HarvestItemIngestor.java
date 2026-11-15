@@ -328,14 +328,16 @@ public class HarvestItemIngestor {
    * found by session, not by link, so earlier versions and interrupted ingests go too. Text the user
    * wrote as a correction stays, because it is theirs rather than the source's.
    */
-  public void delete(HarvestSource source, String externalId) {
-    harvest.findItem(source.id(), externalId).ifPresent(item -> {
+  /** Returns whether the item was known; an unknown one is left alone. */
+  public boolean delete(HarvestSource source, String externalId) {
+    return harvest.findItem(source.id(), externalId).map(item -> {
       memories.activeMemoryIdsInSession(source.profileId(), item.sessionId()).stream()
         .filter(memoryId -> !isUsersOwnText(source.profileId(), memoryId))
         .forEach(memoryId -> memories.forgetMemory(source.profileId(), memoryId));
       memories.deleteSessionMessages(source.profileId(), item.sessionId());
       memories.clearChunkLedger(source.profileId(), item.sessionId());
       harvest.deleteItem(source.id(), externalId);
-    });
+      return true;
+    }).orElse(false);
   }
 }

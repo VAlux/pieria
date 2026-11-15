@@ -95,4 +95,43 @@ public final class ScriptedHarvester implements Harvester {
       Runtime.getRuntime().halt(config.get("exit").asInt());
     }
   }
+
+  @Override
+  public void authorize(HarvestRequest request, RecordSink sink) throws HarvesterException {
+    JsonNode config = request.config();
+    try {
+      if (config.has("pidFile")) {
+        Files.writeString(Path.of(config.get("pidFile").asString()), Long.toString(ProcessHandle.current().pid()));
+      }
+    } catch (IOException e) {
+      throw new HarvesterException(ErrorClass.FATAL, e.toString());
+    }
+    if (config.has("authorizeRawLines")) {
+      // Written directly, past the SDK's own checks, as a harvester not built on it could.
+      try {
+        for (JsonNode line : config.get("authorizeRawLines")) {
+          new FileOutputStream(FileDescriptor.out).write((line.toString() + "\n").getBytes());
+        }
+      } catch (IOException e) {
+        throw new HarvesterException(ErrorClass.FATAL, e.toString());
+      }
+    }
+    for (JsonNode record : config.path("authorizeRecords")) {
+      sink.emit(RecordCodec.decode(record.toString()));
+    }
+    if (config.has("authorizeSleepMs")) {
+      try {
+        Thread.sleep(config.get("authorizeSleepMs").asLong());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    for (JsonNode record : config.path("authorizeAfterRecords")) {
+      sink.emit(RecordCodec.decode(record.toString()));
+    }
+    if (config.has("authorizeFail")) {
+      JsonNode fail = config.get("authorizeFail");
+      throw new HarvesterException(ErrorClass.fromWire(fail.get("class").asString()), fail.get("message").asString());
+    }
+  }
 }

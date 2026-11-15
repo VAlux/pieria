@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -36,11 +37,12 @@ public class HarvestSourceService {
   private final HarvestItemIngestor ingestor;
   private final HarvestScheduler scheduler;
   private final HarvestRunService runs;
+  private final HarvestAuthorizationService authorizations;
   private final PieriaProperties properties;
 
   public HarvestSourceService(HarvestStore store, MemoryStore memories, HarvesterRegistry registry, HarvestSecretStore secrets,
                               HarvestItemIngestor ingestor, HarvestScheduler scheduler, HarvestRunService runs,
-                              PieriaProperties properties) {
+                              HarvestAuthorizationService authorizations, PieriaProperties properties) {
     this.store = store;
     this.memories = memories;
     this.registry = registry;
@@ -48,6 +50,7 @@ public class HarvestSourceService {
     this.ingestor = ingestor;
     this.scheduler = scheduler;
     this.runs = runs;
+    this.authorizations = authorizations;
     this.properties = properties;
   }
 
@@ -145,6 +148,7 @@ public class HarvestSourceService {
   /** Stops any run and keeps new ones from starting, so nothing can write to a source being taken apart. */
   public void remove(String profile, String id, boolean forgetMemories) {
     HarvestSource source = get(profile, id);
+    authorizations.cancel(id);
     scheduler.hold(id);
     try {
       if (!scheduler.stopAndWait(id, STOP_TIMEOUT)) {
@@ -163,6 +167,17 @@ public class HarvestSourceService {
   public SourceCheckResult check(String profile, String id) {
     get(profile, id);
     return runs.check(id);
+  }
+
+  /** Starts the harvester's sign-in and returns its code for the user, or why it failed. */
+  public AuthorizationState authorize(String profile, String id) {
+    get(profile, id);
+    return authorizations.start(id);
+  }
+
+  public Optional<AuthorizationState> authorization(String profile, String id) {
+    get(profile, id);
+    return authorizations.status(id);
   }
 
   public void pause(String profile, String id) {
@@ -249,6 +264,7 @@ public class HarvestSourceService {
    */
   public void removeAllFor(String profileId, Runnable deleteProfile) {
     List<String> ids = store.listSources(profileId).stream().map(HarvestSource::id).toList();
+    ids.forEach(authorizations::cancel);
     ids.forEach(scheduler::hold);
     try {
       for (String id : ids) {
