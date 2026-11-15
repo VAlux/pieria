@@ -47,6 +47,18 @@ public class HarvestSecretStore {
     write(all);
   }
 
+  /**
+   * Replaces the value only while it is still {@code expected}, so a credential rotated by a run that
+   * started earlier can't overwrite one saved since, such as a fresh sign-in.
+   */
+  public synchronized boolean replaceIf(String sourceId, String name, String expected, String value) {
+    if (!java.util.Objects.equals(secrets(sourceId).get(name), expected)) {
+      return false;
+    }
+    put(sourceId, name, value);
+    return true;
+  }
+
   public synchronized void remove(String sourceId) {
     ObjectNode all = read();
     if (all.remove(sourceId) != null) {

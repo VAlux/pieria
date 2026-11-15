@@ -83,6 +83,16 @@ class GraphClientTests {
   }
 
   @Test
+  void deniedOrMissingIsNullOnlyWhereAsked() throws HarvesterException {
+    microsoft.graph("/v1.0/chats/x/messages", request -> JsonStub.Reply.status(403));
+
+    assertThat(client().readableOrNull("/chats/x/messages")).isNull();
+    assertThat(client().readableOrNull("/chats/gone/messages")).isNull();
+    assertThatThrownBy(() -> client().getOrNull("/chats/x/messages")).isInstanceOfSatisfying(HarvesterException.class,
+      e -> assertThat(e.errorClass()).isEqualTo(ErrorClass.AUTH));
+  }
+
+  @Test
   void missingThroughGetOrNullIsNull() throws HarvesterException {
     assertThat(client().getOrNull("/chats/gone/messages")).isNull();
   }

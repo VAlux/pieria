@@ -19,9 +19,11 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
@@ -75,7 +77,8 @@ public class HarvestRunService {
       RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
         "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
       Set<String> declared = HarvestEnvelope.declaredSecrets(harvester);
-      HarvestRequest request = envelope(source, declared, secretValues);
+      Map<String, String> sent = new HashMap<>();
+      HarvestRequest request = envelope(source, declared, secretValues, sent);
       registry.requirePinned(harvester);
       Duration limit = CHECK_TIMEOUT.compareTo(properties.runTimeout()) < 0 ? CHECK_TIMEOUT : properties.runTimeout();
       Instant deadline = Instant.now().plus(limit);
@@ -85,7 +88,7 @@ public class HarvestRunService {
           if (record instanceof HarvestRecord.Failure failure) {
             reported = failure;
           } else if (record instanceof HarvestRecord.SecretUpdate update) {
-            HarvestEnvelope.saveSecret(secretStore, source, declared, secretValues, update);
+            HarvestEnvelope.saveSecret(secretStore, source, declared, secretValues, sent, update);
           }
         }
         if (!process.awaitExit(deadline)) {
@@ -115,9 +118,10 @@ public class HarvestRunService {
     }
   }
 
-  private HarvestRequest envelope(HarvestSource source, Set<String> declared, Set<String> secretValues) throws RunFailure {
+  private HarvestRequest envelope(HarvestSource source, Set<String> declared, Set<String> secretValues, Map<String, String> sent)
+    throws RunFailure {
     try {
-      return HarvestEnvelope.build(secretStore, source, declared, secretValues);
+      return HarvestEnvelope.build(secretStore, source, declared, secretValues, sent);
     } catch (HarvestEnvelope.InvalidSource e) {
       throw new RunFailure(ErrorClass.CONFIG, e.getMessage(), null);
     }
@@ -148,6 +152,7 @@ public class HarvestRunService {
     private final String profileName;
     private final Set<String> secretValues = new HashSet<>();
     private final Set<String> declaredSecrets = new HashSet<>();
+    private final Map<String, String> sentSecrets = new HashMap<>();
     private final Set<String> sessions = new LinkedHashSet<>();
 
     private long itemsSeen;
@@ -230,7 +235,7 @@ public class HarvestRunService {
       RegisteredHarvester harvester = registry.find(source.harvesterId()).orElseThrow(() -> new RunFailure(ErrorClass.CONFIG,
         "harvester " + source.harvesterId() + " is not installed or does not match its pinned checksum", null));
       declaredSecrets.addAll(HarvestEnvelope.declaredSecrets(harvester));
-      HarvestRequest request = envelope(source, declaredSecrets, secretValues);
+      HarvestRequest request = envelope(source, declaredSecrets, secretValues, sentSecrets);
       Instant deadline = Instant.now().plus(properties.runTimeout());
 
       HarvesterProcess process;
@@ -355,7 +360,7 @@ public class HarvestRunService {
 
     /** Saved on dry runs too, because the provider has already replaced the old value. */
     private void applySecret(HarvestRecord.SecretUpdate update) {
-      HarvestEnvelope.saveSecret(secretStore, source, declaredSecrets, secretValues, update);
+      HarvestEnvelope.saveSecret(secretStore, source, declaredSecrets, secretValues, sentSecrets, update);
     }
 
     private void applySweep() {

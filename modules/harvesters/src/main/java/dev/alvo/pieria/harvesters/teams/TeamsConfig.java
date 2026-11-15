@@ -117,7 +117,8 @@ public record TeamsConfig(String tenant, String clientId, String loginUrl, Strin
         || uri.getRawFragment() != null || uri.getRawUserInfo() != null) {
         throw invalidAddress(key, fallback);
       }
-      return scheme + "://" + uri.getRawAuthority();
+      // Lower-cased, because next links are matched against this prefix and Graph writes them in lower case.
+      return scheme + "://" + uri.getRawAuthority().toLowerCase(Locale.ROOT);
     } catch (URISyntaxException e) {
       throw invalidAddress(key, fallback);
     }

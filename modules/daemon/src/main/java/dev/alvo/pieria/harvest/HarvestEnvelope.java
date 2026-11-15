@@ -39,12 +39,16 @@ final class HarvestEnvelope {
       .collect(Collectors.toSet());
   }
 
-  /** Builds the stdin envelope with only the declared secrets, noting every stored value for scrubbing. */
-  static HarvestRequest build(HarvestSecretStore secretStore, HarvestSource source, Set<String> declared, Set<String> secretValues)
-    throws InvalidSource {
+  /**
+   * Builds the stdin envelope with only the declared secrets, noting every stored value for scrubbing,
+   * and what was sent in {@code sent}, so a later update can tell whether it is still the newest.
+   */
+  static HarvestRequest build(HarvestSecretStore secretStore, HarvestSource source, Set<String> declared, Set<String> secretValues,
+                              Map<String, String> sent) throws InvalidSource {
     Map<String, String> secrets = new LinkedHashMap<>(secretStore.secrets(source.id()));
     secretValues.addAll(secrets.values());
     secrets.keySet().retainAll(declared);
+    sent.putAll(secrets);
     try {
       if (!(MAPPER.readTree(source.configJson()) instanceof ObjectNode config)) {
         throw new InvalidSource("the source config is not a JSON object");
@@ -57,14 +61,28 @@ final class HarvestEnvelope {
     }
   }
 
-  static void saveSecret(HarvestSecretStore secretStore, HarvestSource source, Set<String> declared, Set<String> secretValues,
-                         HarvestRecord.SecretUpdate update) {
+  /**
+   * Saves a {@code secret_update}. With {@code sent}, it replaces the stored value only if it is still
+   * the one this process was given (or last saved), so an older process can't undo a newer sign-in.
+   * Without it, as for a sign-in, the update always wins. Returns whether it was saved.
+   */
+  static boolean saveSecret(HarvestSecretStore secretStore, HarvestSource source, Set<String> declared, Set<String> secretValues,
+                            Map<String, String> sent, HarvestRecord.SecretUpdate update) {
     secretValues.add(update.value());
-    if (declared.contains(update.name())) {
-      secretStore.put(source.id(), update.name(), update.value());
-    } else {
+    if (!declared.contains(update.name())) {
       log.warn("harvest source={} sent an update for undeclared secret {}; ignoring", source.id(), update.name());
+      return false;
     }
+    if (sent == null) {
+      secretStore.put(source.id(), update.name(), update.value());
+      return true;
+    }
+    if (secretStore.replaceIf(source.id(), update.name(), sent.get(update.name()), update.value())) {
+      sent.put(update.name(), update.value());
+      return true;
+    }
+    log.warn("harvest source={} rotated secret {}, but a newer value was saved meanwhile; keeping that", source.id(), update.name());
+    return false;
   }
 
   static String scrub(String text, Set<String> secretValues) {

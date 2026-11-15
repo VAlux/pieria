@@ -109,6 +109,29 @@ class TeamsFeedTests {
   }
 
   @Test
+  void deniedChatIsSkipped() throws HarvesterException {
+    microsoft.chat("c1", "group", "Federated").message("1", "Ada", at(daysAgo(1), 9, 0), "<p>outside</p>");
+    microsoft.chat("c2", "group", "Ours").message("2", "Bo", at(daysAgo(1), 9, 0), "<p>inside</p>");
+    microsoft.graph("/v1.0/chats/c1/messages", request -> new JsonStub.Reply(403, Map.of("Content-Type", "application/json"),
+      "{\"error\":{\"code\":\"Forbidden\",\"message\":\"not allowed\"}}"));
+
+    List<Change<JsonNode>> changes = all(feed(microsoft.config()), null);
+
+    assertThat(changes).extracting(Change::id).containsExactly("chat:c2:" + daysAgo(1));
+  }
+
+  @Test
+  void deniedMembersLeaveTheTitleGeneric() throws HarvesterException {
+    microsoft.chat("c1", "oneOnOne", null).message("1", "Ada", at(daysAgo(2), 9, 0), "<p>hello there</p>");
+    microsoft.graph("/v1.0/chats/c1/members", request -> JsonStub.Reply.status(403));
+    TeamsFeed feed = feed(microsoft.config());
+
+    HarvestRecord.Item item = feed.load(all(feed, null)).getFirst();
+
+    assertThat(((HarvestRecord.ConversationThread) item).title()).isEqualTo("Chat · " + daysAgo(2));
+  }
+
+  @Test
   void quietChatIsNotQueried() throws HarvesterException {
     microsoft.chat("c1", "group", "Old").message("1", "Ada", at(daysAgo(3 + 8), 9, 0), "<p>long ago</p>");
 

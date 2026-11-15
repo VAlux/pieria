@@ -418,4 +418,38 @@ class SourceCommandTests {
       assertThat(out.stdout + out.stderr).contains("pieria source authorize s");
     }
   }
+
+  private static final String CUSTOM_SIGN_IN = """
+    {"harvesters":[{"id":"crm","name":"CRM","version":"1","capabilities":["oauth-device-code"],"network":[],"fields":[
+      {"key":"clientSecret","kind":"secret","label":"Client secret","hint":null,"required":true,"options":[],"defaultValue":null},
+      {"key":"session","kind":"secret","label":"Session","hint":null,"required":false,"options":[],"defaultValue":null}
+    ]}]}""";
+
+  @Test
+  void signInHarvesterWithItsOwnSecretNamesStillSkipsTheCheck() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters", 200, CUSTOM_SIGN_IN);
+      daemon.stub(SOURCES, 201, SOURCE.replace("\"jira\"", "\"crm\""));
+      daemon.stub(SOURCES + "/s/check", 200, CHECK_OK);
+
+      Captured out = run(daemon, "source", "add", "crm", "--id", "s", "--secret-env", "clientSecret=PATH");
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(daemon.requests()).extracting(StubDaemon.Recorded::path).noneMatch(path -> path.endsWith("/check"));
+    }
+  }
+
+  @Test
+  void signInHarvesterWithEverySecretGivenIsChecked() {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/v1/harvesters", 200, CUSTOM_SIGN_IN);
+      daemon.stub(SOURCES, 201, SOURCE.replace("\"jira\"", "\"crm\""));
+      daemon.stub(SOURCES + "/s/check", 200, CHECK_OK);
+
+      Captured out = run(daemon, "source", "add", "crm", "--id", "s", "--secret-env", "clientSecret=PATH", "--secret-env", "session=HOME");
+
+      assertThat(out.code).as(out.stderr).isZero();
+      assertThat(daemon.requests()).extracting(StubDaemon.Recorded::path).anyMatch(path -> path.endsWith("/check"));
+    }
+  }
 }

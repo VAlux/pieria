@@ -41,10 +41,24 @@ public final class GraphClient {
 
   /** Like {@link #get}, but null when the resource does not exist. */
   public JsonNode getOrNull(String pathAndQuery) throws HarvesterException {
+    requirePath(pathAndQuery);
+    return request(root + pathAndQuery, pathAndQuery, false);
+  }
+
+  private static void requirePath(String pathAndQuery) {
     if (!pathAndQuery.startsWith("/")) {
       throw new IllegalArgumentException("path must start with /: " + pathAndQuery);
     }
-    return request(root + pathAndQuery, pathAndQuery);
+  }
+
+  /**
+   * Like {@link #getOrNull}, but also null when Graph denies this one resource. For a chat the user
+   * can see listed but not read, such as some external or federated chats; the token's own
+   * permissions were already checked at sign-in, so a denial here is about the resource alone.
+   */
+  public JsonNode readableOrNull(String pathAndQuery) throws HarvesterException {
+    requirePath(pathAndQuery);
+    return request(root + pathAndQuery, pathAndQuery, true);
   }
 
   /** The page an {@code @odata.nextLink} points at. */
@@ -53,7 +67,7 @@ public final class GraphClient {
       throw new HarvesterException(ErrorClass.TRANSIENT, "graph returned a next link outside graphUrl");
     }
     String pathAndQuery = link.substring(root.length());
-    JsonNode node = request(link, pathAndQuery);
+    JsonNode node = request(link, pathAndQuery, false);
     if (node == null) {
       throw new HarvesterException(ErrorClass.CONFIG, withoutQuery(pathAndQuery) + " was not found");
     }
@@ -65,7 +79,7 @@ public final class GraphClient {
     return transport.serverTime();
   }
 
-  private JsonNode request(String url, String pathAndQuery) throws HarvesterException {
+  private JsonNode request(String url, String pathAndQuery, boolean deniedIsMissing) throws HarvesterException {
     URI uri;
     try {
       uri = URI.create(url);
@@ -80,6 +94,9 @@ public final class GraphClient {
     }
     if (status == 401) {
       throw new HarvesterException(ErrorClass.AUTH, LABEL + " rejected the sign-in (HTTP 401)");
+    }
+    if (status == 403 && deniedIsMissing) {
+      return null;
     }
     if (status == 403) {
       throw new HarvesterException(ErrorClass.AUTH, LABEL + " denied access (HTTP 403): " + detail(response.body(), status));

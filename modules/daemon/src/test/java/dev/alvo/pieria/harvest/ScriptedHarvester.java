@@ -91,6 +91,9 @@ public final class ScriptedHarvester implements Harvester {
         Thread.currentThread().interrupt();
       }
     }
+    for (JsonNode record : config.path("afterSleepRecords")) {
+      sink.emit(RecordCodec.decode(record.toString()));
+    }
     if (config.has("exit")) {
       Runtime.getRuntime().halt(config.get("exit").asInt());
     }

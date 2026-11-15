@@ -114,6 +114,14 @@ class TeamsConfigTests {
   }
 
   @Test
+  void hostIsLowerCasedSoNextLinksMatch() throws HarvesterException {
+    TeamsConfig parsed = parse(config().put("graphUrl", "https://Graph.Microsoft.COM").put("loginUrl", "https://LOGIN.microsoftonline.com/"));
+
+    assertThat(parsed.graphUrl()).isEqualTo("https://graph.microsoft.com");
+    assertThat(parsed.loginUrl()).isEqualTo("https://login.microsoftonline.com");
+  }
+
+  @Test
   void loopbackMayUseHttp() throws HarvesterException {
     TeamsConfig parsed = parse(config().put("loginUrl", "http://127.0.0.1:1234/").put("graphUrl", "http://localhost:99"));
 

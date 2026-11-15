@@ -476,6 +476,27 @@ class HarvestRunServiceTests {
       .hasCauseInstanceOf(IllegalArgumentException.class);
   }
 
+  @Test
+  void aRotationDoesNotOverwriteANewerSignIn() throws Exception {
+    secrets.put("s", "token", "t0");
+    ObjectNode config = config().put("sleepMs", 1_500);
+    config.putArray("afterSleepRecords").add(secretUpdate("token", "rotated-from-t0"));
+    createSource("s", config, SourceMode.FULL);
+
+    CompletableFuture<HarvestRunSummary> running = CompletableFuture.supplyAsync(() -> {
+      try {
+        return run("s");
+      } catch (Exception e) {
+        throw new IllegalStateException(e);
+      }
+    });
+    Thread.sleep(500);
+    secrets.put("s", "token", "fresh-sign-in");
+
+    assertThat(running.get(60, TimeUnit.SECONDS).status()).isEqualTo(RunStatus.SUCCEEDED);
+    assertThat(secrets.secrets("s")).containsEntry("token", "fresh-sign-in");
+  }
+
   private static ObjectNode secretUpdate(String name, String value) {
     return MAPPER.createObjectNode().put("type", "secret_update").put("name", name).put("value", value);
   }

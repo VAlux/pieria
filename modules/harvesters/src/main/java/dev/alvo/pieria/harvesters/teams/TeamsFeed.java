@@ -159,7 +159,11 @@ public final class TeamsFeed implements ChangeFeed<JsonNode> {
     String chatId = chat.path("id").asString();
     String path = "/chats/" + segment(chatId) + "/messages?$top=" + PAGE + "&$orderby=" + JsonTransport.encode("lastModifiedDateTime desc")
       + "&$filter=" + JsonTransport.encode("lastModifiedDateTime gt " + FILTER_TIME.format(bound));
-    JsonNode page = graph().getOrNull(path);
+    // A chat Graph won't let this user read is left out rather than failing the whole source.
+    JsonNode page = graph().readableOrNull(path);
+    if (page == null) {
+      System.err.println("skipping chat " + chatId + ": Microsoft Graph has no readable messages for it");
+    }
     Map<String, Instant> windows = new LinkedHashMap<>();
     while (page != null) {
       for (JsonNode message : page.path("value")) {
@@ -276,7 +280,7 @@ public final class TeamsFeed implements ChangeFeed<JsonNode> {
       return cached;
     }
     List<String> names = new ArrayList<>();
-    JsonNode page = graph().getOrNull("/chats/" + segment(chatId) + "/members");
+    JsonNode page = graph().readableOrNull("/chats/" + segment(chatId) + "/members");
     while (page != null) {
       for (JsonNode member : page.path("value")) {
         String name = member.path("displayName").asString("").strip();

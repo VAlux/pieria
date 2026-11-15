@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,7 +70,7 @@ public class HarvestAuthorizationService {
     replace(sourceId, session);
     session.declared.addAll(HarvestEnvelope.declaredSecrets(harvester));
     try {
-      HarvestRequest request = HarvestEnvelope.build(secretStore, source, session.declared, session.secretValues);
+      HarvestRequest request = HarvestEnvelope.build(secretStore, source, session.declared, session.secretValues, new HashMap<>());
       registry.requirePinned(harvester);
       session.process = HarvesterProcess.start(harvester.command(), "authorize", harvester.directory(), request);
     } catch (HarvestEnvelope.InvalidSource | HarvesterIntegrityException e) {
@@ -183,11 +184,11 @@ public class HarvestAuthorizationService {
 
     /** Returns whether the secret was kept. Nothing is kept once cancelled, as the source may be gone. */
     boolean save(HarvestRecord.SecretUpdate update) {
-      if (cancelled) {
+      // A source removed mid-sign-in must not get its credential back as an orphan in the store.
+      if (cancelled || store.findSource(source.id()).isEmpty()) {
         return false;
       }
-      HarvestEnvelope.saveSecret(secretStore, source, declared, secretValues, update);
-      return declared.contains(update.name());
+      return HarvestEnvelope.saveSecret(secretStore, source, declared, secretValues, null, update);
     }
 
     AuthorizationState finish(ErrorClass errorClass, String error) {

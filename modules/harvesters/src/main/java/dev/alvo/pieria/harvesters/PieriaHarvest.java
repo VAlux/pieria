@@ -14,7 +14,9 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.function.Supplier;
 
-/** The first-party harvesters in one binary: {@code pieria-harvest <id> check|harvest|authorize}. */
+/**
+ * The first-party harvesters in one binary: {@code pieria-harvest <id> check|harvest|authorize}.
+ */
 public final class PieriaHarvest {
 
   private static final Map<String, Supplier<Harvester>> HARVESTERS = Map.of(
@@ -34,7 +36,9 @@ public final class PieriaHarvest {
     HarvesterRunner.main(HARVESTERS.get(args[0]).get(), new String[]{args[1]});
   }
 
-  /** Runs one command against the given streams and returns the process exit code. */
+  /**
+   * Runs one command against the given streams and returns the process exit code.
+   */
   public static int run(String[] args, InputStream in, OutputStream out, PrintStream err) {
     if (!validUsage(args)) {
       err.println(usage());

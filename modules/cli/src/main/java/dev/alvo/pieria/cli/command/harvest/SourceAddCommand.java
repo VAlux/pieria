@@ -68,7 +68,11 @@ public final class SourceAddCommand extends AbstractSourceCommand {
     log.info("Created source {} in profile {}.", created.id(), profile);
     created.warnings().forEach(warning -> log.info("Warning: {}", warning));
 
-    if (harvester.capabilities().contains("oauth-device-code") && !secrets.containsKey("refreshToken")) {
+    // A sign-in harvester saves its own credential on `authorize`; until every secret it declares is
+    // set, its check can only fail.
+    boolean everySecretGiven = harvester.fields().stream().filter(field -> field.kind().equals("secret"))
+      .allMatch(field -> secrets.containsKey(field.key()));
+    if (harvester.capabilities().contains("oauth-device-code") && !everySecretGiven) {
       log.info("Next: sign in with 'pieria source authorize {}'.", id);
       return 0;
     }

@@ -230,6 +230,17 @@ class HarvestAuthorizationServiceTests {
   }
 
   @Test
+  void signInFinishingAfterTheSourceIsGoneSavesNothing() throws Exception {
+    createSource(script(new ObjectNode[] {code(900)}, 800L, secret("r1")));
+    assertThat(service.start("s").status()).isEqualTo(AuthorizationState.Status.PENDING);
+
+    store.deleteSource("s");
+    awaitFinished(Duration.ofSeconds(10));
+
+    assertThat(secrets.secrets("s")).isEmpty();
+  }
+
+  @Test
   void errorBeforeTheCodeFailsAtOnce() {
     createSource(script(new ObjectNode[0], null).set("authorizeFail", fail("config", "clientId is wrong")));
 
