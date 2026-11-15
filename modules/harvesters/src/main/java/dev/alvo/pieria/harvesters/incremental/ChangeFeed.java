@@ -31,4 +31,12 @@ public interface ChangeFeed<T> {
 
   /** The records for these changes. An item that has gone since it was listed is left out. */
   List<HarvestRecord.Item> load(List<Change<T>> changes) throws HarvesterException;
+
+  /**
+   * Whether a listed change that {@link #load} left out means the item is gone, so the engine reports
+   * a tombstone for it. For a feed that never sweeps, this is how deletions are found.
+   */
+  default boolean tombstonesGone() {
+    return false;
+  }
 }

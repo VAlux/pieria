@@ -171,8 +171,12 @@ public final class IncrementalHarvest {
             }
             emit(item, size);
             cursor.remember(change.id(), change.version(), change.changedAt());
+          } else if (feed.tombstonesGone()) {
+            // Not an item, so it counts toward neither run limit.
+            sink.emit(new HarvestRecord.Tombstone(change.id()));
+            cursor.remember(change.id(), change.version(), change.changedAt());
           }
-          // A change that has gone since it was listed is done too; the sweep removes it.
+          // A change that has gone since it was listed is done too; a sweep or the tombstone removes it.
           cursor.after(key(change));
           if (cursor.since() == null || change.changedAt().isAfter(cursor.since())) {
             cursor.since(change.changedAt());

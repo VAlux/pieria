@@ -28,6 +28,7 @@ final class FakeFeed implements ChangeFeed<String> {
   private int overlap;
   private HarvesterException beginFailure;
   private boolean repeatSecondPage;
+  private boolean tombstonesGone;
   /** The {@code from} of every change listing, in order. */
   final List<Instant> froms = new ArrayList<>();
   /** "list" or "load", in the order the engine asked. */
@@ -71,6 +72,16 @@ final class FakeFeed implements ChangeFeed<String> {
   FakeFeed vanish(String id) {
     vanished.add(id);
     return this;
+  }
+
+  FakeFeed reportGone() {
+    this.tombstonesGone = true;
+    return this;
+  }
+
+  @Override
+  public boolean tombstonesGone() {
+    return tombstonesGone;
   }
 
   /** The second page of changes names itself as the next page, as a looping source would. */

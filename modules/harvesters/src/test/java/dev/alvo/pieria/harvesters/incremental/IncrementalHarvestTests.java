@@ -324,4 +324,56 @@ class IncrementalHarvestTests {
     assertThat(second.swept()).isTrue();
     assertThat(second.seenIds()).containsExactlyInAnyOrder("a", "c");
   }
+
+  /** Changed a minute ago, so a second run lists both again inside its overlap. */
+  private static FakeFeed recentPair() {
+    return new FakeFeed(NOW).put("a", "1", NOW.minusSeconds(120)).put("b", "1", NOW.minusSeconds(60)).vanish("b");
+  }
+
+  @Test
+  void goneChangeBecomesATombstoneWhenTheFeedSaysSo() throws HarvesterException {
+    FakeFeed feed = recentPair().reportGone();
+
+    Run first = run(feed, null);
+
+    List<HarvestRecord> records = first.records();
+    assertThat(records.subList(0, 3)).containsExactly(records.getFirst(), new HarvestRecord.Progress(1, null), new HarvestRecord.Tombstone("b"));
+    assertThat(first.itemIds()).containsExactly("a");
+    int lastCheckpoint = 0;
+    for (int i = 0; i < records.size(); i++) {
+      if (records.get(i) instanceof HarvestRecord.Checkpoint) {
+        lastCheckpoint = i;
+      }
+    }
+    assertThat(lastCheckpoint).isGreaterThan(2);
+
+    feed.now(NOW.plusSeconds(60));
+    Run second = run(feed, first.cursor());
+
+    assertThat(second.itemIds()).isEmpty();
+    assertThat(second.records()).noneMatch(record -> record instanceof HarvestRecord.Tombstone);
+    assertThat(feed.froms.getLast()).isBefore(NOW.minusSeconds(60));
+  }
+
+  @Test
+  void goneChangeIsSilentByDefault() throws HarvesterException {
+    Run run = run(recentPair(), null);
+
+    assertThat(run.itemIds()).containsExactly("a");
+    assertThat(run.records()).noneMatch(record -> record instanceof HarvestRecord.Tombstone);
+  }
+
+  @Test
+  void tombstonesDoNotCountTowardTheItemLimit() throws HarvesterException {
+    FakeFeed feed = new FakeFeed(NOW).put("x", "1", T).put("y", "1", T.plusSeconds(1)).put("z", "1", T.plusSeconds(2))
+      .vanish("x").reportGone();
+
+    Run first = run(feed, null, new HarvestRequest.Limits(1, null));
+
+    assertThat(first.records()).contains(new HarvestRecord.Tombstone("x"));
+    assertThat(first.itemIds()).containsExactly("y");
+    Run second = run(feed, first.cursor(), new HarvestRequest.Limits(1, null));
+    assertThat(second.itemIds()).containsExactly("z");
+    assertThat(second.records()).noneMatch(record -> record instanceof HarvestRecord.Tombstone);
+  }
 }

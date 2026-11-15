@@ -25,8 +25,8 @@ public final class JsonStub implements AutoCloseable {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  /** A request as the stub received it. Query values are decoded, header names lowercased. */
-  public record Request(String path, Map<String, String> query, Map<String, String> headers) {
+  /** A request as the stub received it. Query values are decoded, header names lowercased, the body read as UTF-8. */
+  public record Request(String method, String path, Map<String, String> query, Map<String, String> headers, String body) {
 
     public String header(String name) {
       return headers.get(name.toLowerCase(Locale.ROOT));
@@ -82,7 +82,8 @@ public final class JsonStub implements AutoCloseable {
       String path = exchange.getRequestURI().getRawPath();
       Map<String, String> headers = new LinkedHashMap<>();
       exchange.getRequestHeaders().forEach((name, values) -> headers.put(name.toLowerCase(Locale.ROOT), values.getFirst()));
-      Request request = new Request(path, query(exchange.getRequestURI().getRawQuery()), headers);
+      String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+      Request request = new Request(exchange.getRequestMethod(), path, query(exchange.getRequestURI().getRawQuery()), headers, requestBody);
       received.computeIfAbsent(path, _ -> Collections.synchronizedList(new ArrayList<>())).add(request);
       Function<Request, Reply> handler = routes.get(path);
       Reply reply = handler == null ? Reply.status(404) : handler.apply(request);

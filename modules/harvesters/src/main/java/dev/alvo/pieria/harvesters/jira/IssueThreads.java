@@ -2,6 +2,7 @@ package dev.alvo.pieria.harvesters.jira;
 
 import dev.alvo.pieria.harvester.protocol.HarvestRecord;
 import dev.alvo.pieria.harvester.protocol.ProtocolLimits;
+import dev.alvo.pieria.harvesters.ThreadBudget;
 import dev.alvo.pieria.harvesters.html.HtmlToMarkdown;
 import org.jsoup.Jsoup;
 import tools.jackson.databind.JsonNode;
@@ -41,7 +42,7 @@ public final class IssueThreads {
       title = title.substring(0, ProtocolLimits.MAX_TITLE_CHARS);
     }
     List<HarvestRecord.Turn> turns = new ArrayList<>();
-    Budget budget = new Budget();
+    ThreadBudget budget = new ThreadBudget();
     String header = header(fields);
     String description = description(baseUrl, issue);
     String opening = description.isEmpty() ? header : header.isEmpty() ? description : header + "\n\n" + description;
@@ -185,21 +186,6 @@ public final class IssueThreads {
   private static void putIfPresent(Map<String, String> metadata, String key, String value) {
     if (value != null && !value.isEmpty()) {
       metadata.put(key, truncate(value, ProtocolLimits.MAX_METADATA_VALUE_CHARS));
-    }
-  }
-
-  /** What is left of a thread's text allowance. */
-  private static final class Budget {
-    private long remaining = ProtocolLimits.MAX_TEXT_CHARS;
-
-    String take(String text) {
-      String kept = text.length() > remaining ? text.substring(0, (int) remaining) : text;
-      remaining -= kept.length();
-      return kept;
-    }
-
-    boolean spent() {
-      return remaining <= 0;
     }
   }
 }
