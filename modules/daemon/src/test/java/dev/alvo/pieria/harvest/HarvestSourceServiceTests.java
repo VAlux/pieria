@@ -60,6 +60,11 @@ class HarvestSourceServiceTests {
     kind = "secret"
     label = "Token"
     required = true
+
+    [[config]]
+    key = "email"
+    kind = "string"
+    label = "Email"
     """;
 
   @TempDir
@@ -236,6 +241,29 @@ class HarvestSourceServiceTests {
     assertThat(updated.intervalSeconds()).isEqualTo(120);
     assertThat(updated.maxItemsPerRun()).isEqualTo(5);
     assertThat(updated.maxCharsPerRun()).isEqualTo(9L);
+  }
+
+  @Test
+  void updateWithNullClearsASetting() {
+    service.create("p", new SourceDraft("s", "issues", config().put("email", "me@x"), Map.of("token", "hunter2"), SourceMode.FULL, 3600,
+      null, null, false));
+    ObjectNode clear = MAPPER.createObjectNode();
+    clear.putNull("email");
+
+    HarvestSource updated = service.update("p", "s", new SourceUpdate(clear, null, null, null, null, false));
+
+    assertThat(updated.configJson()).doesNotContain("email").contains("https://x");
+  }
+
+  @Test
+  void clearingARequiredSettingIsRefused() {
+    created("s");
+    ObjectNode clear = MAPPER.createObjectNode();
+    clear.putNull("baseUrl");
+
+    assertThatThrownBy(() -> service.update("p", "s", new SourceUpdate(clear, null, null, null, null, false)))
+      .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("baseUrl");
+    assertThat(store.findSource("s").orElseThrow().configJson()).contains("https://x");
   }
 
   @Test

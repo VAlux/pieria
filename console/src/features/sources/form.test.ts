@@ -32,8 +32,9 @@ describe('initialValues', () => {
 describe('parseValues', () => {
   const base = { ...initialValues(FIELDS), clientId: 'abc', token: 'x' };
 
-  it('parseSplitsListsOnLinesAndCommas', () => {
-    expect(parseValues(FIELDS, { ...base, channels: 'Eng/Ops\n Sales , \n' }).config.channels).toEqual(['Eng/Ops', 'Sales']);
+  it('parseSplitsListsOnLinesOnly', () => {
+    expect(parseValues(FIELDS, { ...base, channels: 'Eng/Ops\n Sales \n\n' }).config.channels).toEqual(['Eng/Ops', 'Sales']);
+    expect(parseValues(FIELDS, { ...base, channels: '/v\\d{1,2}/' }).config.channels).toEqual(['/v\\d{1,2}/']);
   });
 
   it('parseKeepsSecretsOutOfConfig', () => {

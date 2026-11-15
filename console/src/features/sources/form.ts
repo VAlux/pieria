@@ -74,7 +74,8 @@ export function parseValues(fields: HarvesterField[], values: FieldValues, optio
         config[field.key] = stripped;
         break;
       case 'list': {
-        const items = typed.split(/[\n,]/).map(item => item.trim()).filter(Boolean);
+        // Lines only: a regular expression or a URL may hold a comma.
+        const items = typed.split('\n').map(item => item.trim()).filter(Boolean);
         if (items.length > 0) config[field.key] = items;
         break;
       }

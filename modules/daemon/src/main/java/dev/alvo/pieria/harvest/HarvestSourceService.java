@@ -105,6 +105,8 @@ public class HarvestSourceService {
     ObjectNode config = config(source);
     if (update.config() != null) {
       config.setAll(update.config());
+      // A null clears a setting, so the harvester's own default applies again.
+      update.config().properties().stream().filter(entry -> entry.getValue().isNull()).forEach(entry -> config.remove(entry.getKey()));
       RegisteredHarvester harvester = registry.find(source.harvesterId())
         .orElseThrow(() -> new IllegalArgumentException("harvester not installed: " + source.harvesterId()));
       SourceConfigValidator.validate(harvester.manifest(), config, secrets.secrets(id).keySet(), true);

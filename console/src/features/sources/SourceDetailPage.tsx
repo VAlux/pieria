@@ -177,6 +177,10 @@ function DryRunResult({ taskId }: { taskId: string }) {
   if (!data || data.status === 'RUNNING') return <p className={styles.estimate}>Dry run in progress…</p>;
   if (data.status !== 'SUCCEEDED') return <ErrorBanner>{data.errorMessage ?? `The dry run ${data.status.toLowerCase()}.`}</ErrorBanner>;
   const r = data.result ?? {};
+  // The task succeeds when the run was recorded, even if the harvester failed.
+  if (r.status !== undefined && r.status !== 'succeeded') {
+    return <ErrorBanner>The dry run failed. Its error is in the run history below.</ErrorBanner>;
+  }
   const n = (key: string) => integer(Number(r[key] ?? 0));
   return (
     <p className={styles.estimate}>
@@ -243,6 +247,7 @@ export function SourceDetailPage() {
     if (params.has('secrets')) setParams(p => { const next = new URLSearchParams(p); next.delete('secrets'); return next; }, { replace: true });
   };
   const busy = source.running ? RUNNING_REASON : null;
+  const cannotRun = busy ?? (harvesters.data && !harvester ? "The harvester isn't installed." : null);
   const showSignIn = signIn && (signingIn || params.get('signin') === '1');
   const closeSignIn = () => {
     setSigningIn(false);
@@ -263,8 +268,8 @@ export function SourceDetailPage() {
         )}
         actions={(
           <span className={styles.actions}>
-            <Guarded reason={busy}><Button variant="primary" disabled={Boolean(busy) || action.isPending} onClick={() => action.mutate('run')}>Run now</Button></Guarded>
-            <Guarded reason={busy}><Button disabled={Boolean(busy) || action.isPending} onClick={() => action.mutate('dry')}>Dry run</Button></Guarded>
+            <Guarded reason={cannotRun}><Button variant="primary" disabled={Boolean(cannotRun) || action.isPending} onClick={() => action.mutate('run')}>Run now</Button></Guarded>
+            <Guarded reason={cannotRun}><Button disabled={Boolean(cannotRun) || action.isPending} onClick={() => action.mutate('dry')}>Dry run</Button></Guarded>
             {source.status === 'paused' || source.status === 'needs_auth'
               ? <Button disabled={action.isPending} onClick={() => action.mutate('resume')}>Resume</Button>
               : <Button disabled={action.isPending} onClick={() => action.mutate('pause')}>Pause</Button>}

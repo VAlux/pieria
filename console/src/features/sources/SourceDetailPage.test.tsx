@@ -98,6 +98,19 @@ describe('SourceDetailPage', () => {
       .toBeInTheDocument();
   });
 
+  it('failedDryRunSaysSo', async () => {
+    open(source(), {
+      [`${BASE}/run`]: { taskId: 't2' },
+      '/v1/tasks/t2': { status: 'SUCCEEDED', result: { status: 'failed', itemsSeen: 0, itemsChanged: 0, chars: 0, estimatedChunks: 0 },
+        errorKind: null, errorMessage: null }
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Dry run' }));
+
+    expect(await screen.findByText('The dry run failed. Its error is in the run history below.', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText(/chunks to extract/)).toBeNull();
+  });
+
   it('heldBackSweepCanBeAllowed', async () => {
     const { calls } = open(source({ sweepBlockedCount: 40 }), { [`${BASE}/accept-sweep`]: source({ sweepBlockedCount: 40, acceptNextSweep: true }) });
 
@@ -125,6 +138,9 @@ describe('SourceDetailPage', () => {
     expect(await screen.findByText("The harvester isn't installed, so these settings can't be edited.")).toBeInTheDocument();
     expect(screen.getByText('project = A')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save settings' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Dry run' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
   });
 
   it('needsAuthWithoutSignInPointsToCredentials', async () => {
