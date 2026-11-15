@@ -131,9 +131,9 @@ def list_notes(config: Config, stderr: TextIO) -> list[tuple[str, Path]]:
 
 
 def document(note_id: str, path: Path, config: Config, stderr: TextIO) -> Optional[dict]:
-    """One `document` record, or None when the note can't be one. `version` is a hash of the bytes:
-    the daemon skips a document whose version it has already stored, so reporting an unchanged note
-    costs nothing."""
+    """One `document` record, or None when the note can't be one. The daemon fingerprints the title,
+    URL and text itself and skips a document that hasn't changed, so reporting an unchanged note costs
+    nothing. `version` is optional; here it is a hash of the bytes, for anyone reading the records."""
     stat = path.stat()
     if stat.st_size > config.max_file_bytes:
         stderr.write(f"skipping {note_id}: {stat.st_size} bytes is over maxFileBytes\n")

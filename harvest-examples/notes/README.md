@@ -8,8 +8,9 @@ reference it follows and walks through it.
 What it does on each run:
 
 - Reports every `.md`, `.markdown` and `.txt` file (or the `extensions` you set), in path order.
-  The id is the path relative to the folder, and the version is a hash of the file, so the daemon
-  skips any note that hasn't changed.
+  The id is the path relative to the folder, so it is stable across runs. The daemon fingerprints
+  each note's title, URL and text and skips any that hasn't changed, so reporting every note on
+  every run costs nothing extra.
 - Checkpoints every 25 notes, and resumes from the last checkpoint after a limit or a failure.
 - When a pass is complete, sends `sweep`, so notes you deleted are forgotten. A resumed run first
   names the notes before its cursor in `seen`, so they aren't swept away.
