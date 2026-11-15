@@ -121,6 +121,22 @@ public sealed interface HarvestRecord {
     }
   }
 
+  /**
+   * A sign-in code for the user, from {@code authorize}. Wire type {@code device_code}. None of the
+   * fields is secret: the user must read them. {@code message} may be null.
+   */
+  record DeviceCode(String verificationUri, String userCode, String message, int expiresInSeconds) implements HarvestRecord {
+    public DeviceCode {
+      requireUrl(verificationUri);
+      require(verificationUri.startsWith("https://"), "device_code verificationUri must be https");
+      require(userCode != null && !userCode.isBlank(), "device_code userCode is required");
+      requireBounded("userCode", userCode, ProtocolLimits.MAX_USER_CODE_CHARS);
+      optionalBounded("message", message, ProtocolLimits.MAX_ERROR_CHARS);
+      require(expiresInSeconds >= 1 && expiresInSeconds <= ProtocolLimits.MAX_SIGN_IN_SECONDS,
+        "device_code expiresIn must be 1.." + ProtocolLimits.MAX_SIGN_IN_SECONDS);
+    }
+  }
+
   /** The run failed. Wire type {@code error}. {@code retryAfterSeconds} may be null. */
   record Failure(ErrorClass errorClass, String message, Long retryAfterSeconds) implements HarvestRecord {
     public Failure {

@@ -350,6 +350,8 @@ public class HarvestRunService {
           lane.onPhase("harvest", (int) Math.min(update.done(), Integer.MAX_VALUE),
             update.total() == null ? 0 : (int) Math.min(update.total(), Integer.MAX_VALUE));
         case HarvestRecord.Failure failure -> reportedFailure = failure;
+        case HarvestRecord.DeviceCode ignored ->
+          throw new RunFailure(ErrorClass.FATAL, "protocol violation: harvest may not emit device_code", null);
       }
     }
 

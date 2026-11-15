@@ -17,6 +17,10 @@ public final class ProtocolLimits {
   public static final int MAX_METADATA_ENTRIES = 32;
   public static final int MAX_METADATA_VALUE_CHARS = 1_024;
   public static final int MAX_ERROR_CHARS = 2_000;
+  /** The code a user types to sign in, from a {@code device_code} record. */
+  public static final int MAX_USER_CODE_CHARS = 64;
+  /** The longest a {@code device_code} may stay valid. */
+  public static final int MAX_SIGN_IN_SECONDS = 3_600;
 
   private ProtocolLimits() {
   }

@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.TreeSet;
 import java.util.function.Supplier;
 
-/** The first-party harvesters in one binary: {@code pieria-harvest <id> check|harvest}. */
+/** The first-party harvesters in one binary: {@code pieria-harvest <id> check|harvest|authorize}. */
 public final class PieriaHarvest {
 
   private static final Map<String, Supplier<Harvester>> HARVESTERS = Map.of(
@@ -46,6 +46,6 @@ public final class PieriaHarvest {
   }
 
   private static String usage() {
-    return "usage: pieria-harvest <" + String.join("|", new TreeSet<>(HARVESTERS.keySet())) + "> check|harvest";
+    return "usage: pieria-harvest <" + String.join("|", new TreeSet<>(HARVESTERS.keySet())) + "> check|harvest|authorize";
   }
 }

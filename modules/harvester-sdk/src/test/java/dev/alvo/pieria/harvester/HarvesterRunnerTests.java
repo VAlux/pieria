@@ -282,4 +282,71 @@ class HarvesterRunnerTests {
 
     assertThat(closed.writes).isEqualTo(1);
   }
+
+  private static Harvester signingIn(Work work) {
+    return new Harvester() {
+      @Override
+      public void check(HarvestRequest request, RecordSink sink) {
+      }
+
+      @Override
+      public void harvest(HarvestRequest request, RecordSink sink) {
+      }
+
+      @Override
+      public void authorize(HarvestRequest request, RecordSink sink) throws HarvesterException {
+        work.run(sink);
+      }
+    };
+  }
+
+  private static final HarvestRecord.DeviceCode CODE = new HarvestRecord.DeviceCode("https://microsoft.com/devicelogin", "ABCD-EFGH", null, 900);
+
+  @Test
+  void authorizeEmitsDeviceCodeThenSecret() {
+    int exit = run(signingIn(sink -> {
+      sink.emit(CODE);
+      sink.emit(new HarvestRecord.SecretUpdate("refreshToken", "r1"));
+    }), "authorize");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_OK);
+    assertThat(records()).containsExactly(CODE, new HarvestRecord.SecretUpdate("refreshToken", "r1"));
+  }
+
+  @Test
+  void authorizeRefusesOtherRecords() {
+    int exit = run(signingIn(sink -> sink.emit(new HarvestRecord.Checkpoint(tools.jackson.databind.node.JsonNodeFactory.instance.textNode("x")))), "authorize");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    HarvestRecord.Failure failure = (HarvestRecord.Failure) records().getLast();
+    assertThat(failure.errorClass()).isEqualTo(ErrorClass.FATAL);
+    assertThat(failure.message()).contains("authorize may only emit device_code and secret_update");
+  }
+
+  @Test
+  void authorizeRefusesASecondDeviceCode() {
+    int exit = run(signingIn(sink -> {
+      sink.emit(CODE);
+      sink.emit(CODE);
+    }), "authorize");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    assertThat(((HarvestRecord.Failure) records().getLast()).message()).contains("authorize may emit one device_code");
+  }
+
+  @Test
+  void harvesterWithoutSignInFailsConfig() {
+    int exit = run(harvesting(sink -> { }), "authorize");
+
+    assertThat(exit).isEqualTo(HarvesterRunner.EXIT_FAILED);
+    HarvestRecord.Failure failure = (HarvestRecord.Failure) records().getFirst();
+    assertThat(failure.errorClass()).isEqualTo(ErrorClass.CONFIG);
+    assertThat(failure.message()).isEqualTo("this harvester has no sign-in");
+  }
+
+  @Test
+  void unknownCommandStillPrintsUsage() {
+    assertThat(run(harvesting(sink -> { }), "login")).isEqualTo(HarvesterRunner.EXIT_USAGE);
+    assertThat(err.toString(StandardCharsets.UTF_8)).contains("check|harvest|authorize");
+  }
 }

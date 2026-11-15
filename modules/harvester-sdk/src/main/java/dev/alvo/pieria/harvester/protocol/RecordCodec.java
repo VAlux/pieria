@@ -51,6 +51,11 @@ public final class RecordCodec {
         }
       }
       case HarvestRecord.SecretUpdate s -> node.put("type", "secret_update").put("name", s.name()).put("value", s.value());
+      case HarvestRecord.DeviceCode c -> {
+        node.put("type", "device_code").put("verificationUri", c.verificationUri()).put("userCode", c.userCode());
+        putIfPresent(node, "message", c.message());
+        node.put("expiresIn", c.expiresInSeconds());
+      }
       case HarvestRecord.Failure f -> {
         node.put("type", "error").put("class", f.errorClass().wire()).put("message", f.message());
         if (f.retryAfterSeconds() != null) {
@@ -91,12 +96,24 @@ public final class RecordCodec {
       case "checkpoint" -> new HarvestRecord.Checkpoint(node.get("cursor"));
       case "progress" -> new HarvestRecord.Progress(WireJson.requiredLong(node, "done"), WireJson.optionalLong(node, "total"));
       case "secret_update" -> new HarvestRecord.SecretUpdate(WireJson.requiredString(node, "name"), WireJson.requiredString(node, "value"));
+      case "device_code" -> new HarvestRecord.DeviceCode(
+        WireJson.requiredString(node, "verificationUri"),
+        WireJson.requiredString(node, "userCode"),
+        WireJson.optionalString(node, "message"),
+        expiresIn(WireJson.requiredLong(node, "expiresIn")));
       case "error" -> new HarvestRecord.Failure(
         ErrorClass.fromWire(WireJson.requiredString(node, "class")),
         WireJson.requiredString(node, "message"),
         WireJson.optionalLong(node, "retryAfter"));
       default -> throw new ProtocolViolation("unknown record type: " + type);
     };
+  }
+
+  private static int expiresIn(long seconds) {
+    if (seconds < 1 || seconds > ProtocolLimits.MAX_SIGN_IN_SECONDS) {
+      throw new ProtocolViolation("device_code expiresIn must be 1.." + ProtocolLimits.MAX_SIGN_IN_SECONDS);
+    }
+    return (int) seconds;
   }
 
   private static void putIfPresent(ObjectNode node, String field, String value) {

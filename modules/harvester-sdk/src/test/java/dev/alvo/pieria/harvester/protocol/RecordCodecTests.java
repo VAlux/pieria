@@ -148,4 +148,27 @@ class RecordCodecTests {
   void secretUpdateNeverPrintsItsValue() {
     assertThat(new HarvestRecord.SecretUpdate("token", "hunter2").toString()).doesNotContain("hunter2");
   }
+
+  @Test
+  void deviceCodeRoundTrips() {
+    var code = new HarvestRecord.DeviceCode("https://microsoft.com/devicelogin", "ABCD-EFGH", "Open the page and enter ABCD-EFGH", 900);
+    String wire = RecordCodec.encode(code);
+    assertThat(wire).contains("\"type\":\"device_code\"").contains("\"expiresIn\":900");
+    assertThat(RecordCodec.decode(wire)).isEqualTo(code);
+  }
+
+  @Test
+  void deviceCodeWithoutMessageOmitsIt() {
+    var code = new HarvestRecord.DeviceCode("https://microsoft.com/devicelogin", "ABCD", null, 60);
+    assertThat(RecordCodec.encode(code)).doesNotContain("message");
+    assertThat(RecordCodec.decode(RecordCodec.encode(code))).isEqualTo(code);
+  }
+
+  @Test
+  void deviceCodeRejectsPlainHttpBlankCodeAndLongExpiry() {
+    assertThatThrownBy(() -> new HarvestRecord.DeviceCode("http://x", "A", null, 900)).isInstanceOf(ProtocolViolation.class);
+    assertThatThrownBy(() -> new HarvestRecord.DeviceCode("https://x", " ", null, 900)).isInstanceOf(ProtocolViolation.class);
+    assertThatThrownBy(() -> new HarvestRecord.DeviceCode("https://x", "A", null, 3601)).isInstanceOf(ProtocolViolation.class);
+    assertThatThrownBy(() -> new HarvestRecord.DeviceCode("https://x", "A", null, 0)).isInstanceOf(ProtocolViolation.class);
+  }
 }

@@ -42,8 +42,8 @@ public final class HarvesterRunner {
 
   /** Runs one command and returns the process exit code. */
   public static int run(Harvester harvester, String[] args, InputStream in, OutputStream out, PrintStream err) {
-    if (args.length != 1 || !(args[0].equals("check") || args[0].equals("harvest"))) {
-      err.println("usage: <harvester> check|harvest");
+    if (args.length != 1 || !(args[0].equals("check") || args[0].equals("harvest") || args[0].equals("authorize"))) {
+      err.println("usage: <harvester> check|harvest|authorize");
       return EXIT_USAGE;
     }
     StreamSink sink = new StreamSink(out);
@@ -56,10 +56,10 @@ public final class HarvesterRunner {
     }
     Collection<String> secrets = request.secrets().values();
     try {
-      if (args[0].equals("check")) {
-        harvester.check(request, onlySecretUpdates(sink));
-      } else {
-        harvester.harvest(request, sink);
+      switch (args[0]) {
+        case "check" -> harvester.check(request, onlySecretUpdates(sink));
+        case "authorize" -> harvester.authorize(request, signInRecords(sink));
+        default -> harvester.harvest(request, sink);
       }
     } catch (HarvesterException e) {
       sink.tryEmit(new HarvestRecord.Failure(e.errorClass(), scrub(String.valueOf(e.getMessage()), secrets), e.retryAfterSeconds()));
@@ -80,6 +80,21 @@ public final class HarvesterRunner {
     return record -> {
       if (!(record instanceof HarvestRecord.SecretUpdate)) {
         throw new ProtocolViolation("check may only emit secret_update");
+      }
+      sink.emit(record);
+    };
+  }
+
+  private static RecordSink signInRecords(RecordSink sink) {
+    boolean[] codeSent = {false};
+    return record -> {
+      if (record instanceof HarvestRecord.DeviceCode) {
+        if (codeSent[0]) {
+          throw new ProtocolViolation("authorize may emit one device_code");
+        }
+        codeSent[0] = true;
+      } else if (!(record instanceof HarvestRecord.SecretUpdate)) {
+        throw new ProtocolViolation("authorize may only emit device_code and secret_update");
       }
       sink.emit(record);
     };
