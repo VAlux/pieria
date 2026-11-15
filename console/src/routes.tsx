@@ -55,7 +55,7 @@ export const routes = [
       { path: 'tasks', lazy: () => import('./features/tasks/TasksPage').then(m => ({ Component: m.TasksPage })) },
       { path: 'sources', lazy: sources },
       { path: 'sources/new', lazy: () => import('./features/sources/AddSourcePage').then(m => ({ Component: m.AddSourcePage })) },
-      { path: 'sources/:sourceId', lazy: sources },
+      { path: 'sources/:sourceId', lazy: () => import('./features/sources/SourceDetailPage').then(m => ({ Component: m.SourceDetailPage })) },
       { path: 'wiki', lazy: wiki },
       { path: 'wiki/:pageId', lazy: wiki },
       { path: 'graph', lazy: () => import('./features/graph/GraphPage').then(m => ({ Component: m.GraphPage })) },
