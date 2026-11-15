@@ -5,6 +5,17 @@ import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { vi } from 'vitest';
 import { ToastProvider } from '../ui/overlay';
 
+const REPLY = Symbol('reply');
+
+/** A route value that answers with this status instead of 200. */
+export function reply(status: number, body: unknown) {
+  return { [REPLY]: true, status, body };
+}
+
+function isReply(value: unknown): value is { status: number; body: unknown } {
+  return typeof value === 'object' && value !== null && REPLY in value;
+}
+
 /** Answers fetches from a path → body table; unknown paths 404. Records every request URL. */
 export function mockApi(routes: Record<string, unknown | ((url: URL, init?: RequestInit) => unknown)>) {
   const calls: { url: URL; init?: RequestInit }[] = [];
@@ -15,6 +26,9 @@ export function mockApi(routes: Record<string, unknown | ((url: URL, init?: Requ
     if (!match) return new Response(JSON.stringify({ error: 'not_found', message: url.pathname }), { status: 404, headers: { 'Content-Type': 'application/json' } });
     const route = routes[match];
     const body = typeof route === 'function' ? (route as (u: URL, i?: RequestInit) => unknown)(url, init) : route;
+    if (isReply(body)) {
+      return new Response(JSON.stringify(body.body), { status: body.status, headers: { 'Content-Type': 'application/json' } });
+    }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
   });
   return calls;
