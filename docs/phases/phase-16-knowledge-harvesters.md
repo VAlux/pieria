@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence), 7 (Microsoft Teams) and 8 (the console Sources page) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence), 7 (Microsoft Teams), 8 (the console Sources page) and 9 (developer docs and a Python sample) are complete; every phase is done. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -277,3 +277,7 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - A harvester with `oauth-device-code` signs in from a dialog that shows the provider's message, the code and the sign-in link (only when it is `https`), and polls the daemon every second. Closing the dialog stops the polling; the daemon ends the session when the code expires, and signing in again replaces it.
   - A dry run starts a task and reads the run's counts and estimated chunks from its result, as the CLI does.
   - The one daemon change: a PATCH that sets a config key to `null` now removes it before validation, so a setting can be cleared from the console or `pieria source update`. Before, the null was stored and then refused as the wrong kind. The console is verified with `npm test`, `npm run typecheck` and `npm run build` in `console/`, which `./gradlew test` doesn't run.
+- **Developer docs and a Python sample, settled in phase 9.**
+  - `docs/HARVESTERS.md` is the author-facing reference and tutorial. It must change whenever the protocol, the manifest rules or the daemon's handling of records changes.
+  - The sample, `harvest-examples/notes`, is one standard-library Python file. It reports every note on every run and lets the daemon's own content fingerprint skip unchanged ones (the record's `version` is optional; the daemon doesn't read it). It never follows symlinks, skips dot entries, and names the notes before its cursor in `seen` before it sweeps.
+  - `./gradlew test` runs the sample's `unittest` suite and the conformance kit against it through `PythonSampleTests` in `:harvester-sdk`, which is skipped when `python3` isn't on `PATH`. The test task declares `harvest-examples/` as an input, so editing the sample reruns it.

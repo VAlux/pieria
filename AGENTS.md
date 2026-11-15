@@ -110,7 +110,8 @@ All modules live under `modules/`:
 - `harvesters`: the first-party harvesters in one binary, `pieria-harvest <id> <command>`. Their manifests are in
   `modules/harvesters/manifests`, are built into the daemon, and need an entry in `BundledHarvesters.IDS`.
 - `harvester-sdk`: the harvester protocol, Java runner, manifest parser and conformance kit. It
-  deliberately depends on no other Pieria module, because outside developers consume it.
+  deliberately depends on no other Pieria module, because outside developers consume it. `docs/HARVESTERS.md` is the author-facing
+  reference; change it with the protocol.
 
 ## Utility code: no duplication across modules
 

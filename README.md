@@ -442,7 +442,7 @@ pieria source run teams-chats --dry-run
 
 Each chat becomes one item per day, in `timeZone` (default UTC). `--mode raw` keeps busy chats searchable without model calls. To read channels as well, add `Team.ReadBasic.All`, `Channel.ReadBasic.All` and `ChannelMessage.Read.All` to the app, set `channels` to names like `Eng/Ops`, and sign in again; `ChannelMessage.Read.All` needs a tenant admin's consent.
 
-The console's Sources page, at `/console/p/<profile>/sources`, does the same from the browser: add a source from a form built from the harvester's settings, dry-run or run it, sign it in, replace a credential, and read its run history. Installing a harvester stays `pieria harvester install`.
+The console's Sources page, at `/console/p/<profile>/sources`, does the same from the browser: add a source from a form built from the harvester's settings, dry-run or run it, sign it in, replace a credential, and read its run history. Installing a harvester stays `pieria harvester install`. To write your own, see [docs/HARVESTERS.md](docs/HARVESTERS.md) and the sample in [harvest-examples/notes](harvest-examples/notes).
 
 Harvesters run with your user's permissions and are not sandboxed, so install only ones you trust. If a source's text would go to a remote model provider, `source add` says so. Harvested memories appear in recall labelled as untrusted. See `pieria source --help` for the other commands.
 
