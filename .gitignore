@@ -66,3 +66,6 @@ docs/design/**/*.html
 
 # macOS Finder metadata
 .DS_Store
+
+# Python bytecode from the sample harvesters
+__pycache__/

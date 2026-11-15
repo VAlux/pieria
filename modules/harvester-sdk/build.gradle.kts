@@ -33,3 +33,9 @@ tasks.register<Jar>("conformanceJar") {
 	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 	exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
 }
+
+// PythonSampleTests runs the sample harvester in harvest-examples/, so a change there must rerun the tests.
+tasks.test {
+	inputs.files(fileTree(rootProject.layout.projectDirectory.dir("harvest-examples")) { exclude("**/__pycache__/**") })
+		.withPropertyName("harvestExamples")
+}
