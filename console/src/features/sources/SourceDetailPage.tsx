@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -78,6 +78,8 @@ function SettingsCard({ profile, source, harvester }: { profile: string; source:
   const save = useMutation({
     mutationFn: (update: UpdateSource) => updateSource(profile, source.id, update),
     onSuccess: updated => {
+      // A save that changes the settings remounts this card; a cursor-only save doesn't, so clear it here.
+      setResetCursor(false);
       client.setQueryData(qk.source(profile, source.id), updated);
       void client.invalidateQueries({ queryKey: qk.sources(profile), exact: true });
       toast.show('Saved.');
@@ -116,9 +118,15 @@ function ReplaceSecretDialog({ profile, source, field, onClose }: { profile: str
   const toast = useToast();
   const id = useId();
   const [value, setValue] = useState('');
+  // Handed over in a ref, not as mutation variables, which the query library would keep in its cache.
+  const typed = useRef('');
   const save = useMutation({
-    mutationFn: (secret: string) => setSecrets(profile, source.id, { [field.key]: secret }),
-    onSettled: () => setValue(''),
+    gcTime: 0,
+    mutationFn: () => setSecrets(profile, source.id, { [field.key]: typed.current }),
+    onSettled: () => {
+      typed.current = '';
+      setValue('');
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: qk.source(profile, source.id) });
       toast.show('Credential replaced.');
@@ -129,7 +137,7 @@ function ReplaceSecretDialog({ profile, source, field, onClose }: { profile: str
     <Dialog title={`Replace ${field.label}`} onClose={onClose} footer={(
       <>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={value.length === 0 || save.isPending} onClick={() => save.mutate(value)}>Save credential</Button>
+        <Button variant="primary" disabled={value.length === 0 || save.isPending} onClick={() => { typed.current = value; save.mutate(); }}>Save credential</Button>
       </>
     )}>
       {save.isError && <ErrorBanner error={save.error} />}
@@ -237,8 +245,11 @@ export function SourceDetailPage() {
   if (query.isError || !source) return <Page><ErrorBanner error={query.error} /></Page>;
 
   const harvester = harvesterFor(harvesters.data, source.harvester);
+  // Only a list that loaded can say a harvester is missing; while it loads or fails, nothing is assumed.
+  const known = harvesters.isSuccess;
+  const missing = known && !harvester;
   const signIn = canSignIn(harvester);
-  const status = statusLabel(source, signIn);
+  const status = statusLabel(source, known ? signIn : null);
   const secretFields = (harvester?.fields ?? []).filter(f => f.kind === 'secret' && !(signIn && f.key === SIGN_IN_SECRET));
   const openSecret = secretKey ?? (params.get('secrets') === '1' ? secretFields[0]?.key ?? null : null);
   const secretField = secretFields.find(f => f.key === openSecret);
@@ -247,7 +258,7 @@ export function SourceDetailPage() {
     if (params.has('secrets')) setParams(p => { const next = new URLSearchParams(p); next.delete('secrets'); return next; }, { replace: true });
   };
   const busy = source.running ? RUNNING_REASON : null;
-  const cannotRun = busy ?? (harvesters.data && !harvester ? "The harvester isn't installed." : null);
+  const cannotRun = busy ?? (missing ? "The harvester isn't installed." : null);
   const showSignIn = signIn && (signingIn || params.get('signin') === '1');
   const closeSignIn = () => {
     setSigningIn(false);
@@ -281,12 +292,15 @@ export function SourceDetailPage() {
 
       <div className={styles.banners}>
         {action.isError && <ErrorBanner error={action.error} />}
-        {!harvester && harvesters.data && (
+        {harvesters.isError && <ErrorBanner error={harvesters.error} />}
+        {missing && (
           <div className={`${styles.banner} ${styles.bannerWarn}`}>
             Harvester {source.harvester} isn't installed. Install it again with <code>pieria harvester install</code>, or remove this source.
           </div>
         )}
-        {source.status === 'needs_auth' && (signIn ? (
+        {source.status === 'needs_auth' && known && (missing ? (
+          <div className={`${styles.banner} ${styles.bannerWarn}`}>The source's credentials were refused. Reinstall the harvester to replace them, then resume it.</div>
+        ) : signIn ? (
           <div className={`${styles.banner} ${styles.bannerWarn}`}>This source needs you to sign in again.<span className={styles.grow} />{signInButton}</div>
         ) : (
           <div className={`${styles.banner} ${styles.bannerWarn}`}>The source's credentials were refused. Replace them below, then resume it.</div>
@@ -307,10 +321,13 @@ export function SourceDetailPage() {
         {dryRunTask && <div className={styles.banner}><DryRunResult taskId={dryRunTask} /></div>}
       </div>
 
-      {harvester ? <SettingsCard key={settingsKey} profile={profile} source={source} harvester={harvester} /> : (
+      {harvester ? <SettingsCard key={settingsKey} profile={profile} source={source} harvester={harvester} />
+        : harvesters.isPending ? <Card><CardHeader title="Settings" /><SkeletonRows rows={3} /></Card> : (
         <Card>
           <CardHeader title="Settings" />
-          <p className={styles.note}>The harvester isn't installed, so these settings can't be edited.</p>
+          <p className={styles.note}>{missing
+            ? "The harvester isn't installed, so these settings can't be edited."
+            : "The installed harvesters couldn't be loaded, so these settings can't be edited yet."}</p>
           <dl className={styles.config}>
             {Object.entries(source.config).map(([key, value]) => (
               <div key={key} style={{ display: 'contents' }}><dt>{key}</dt><dd>{displayValue(value)}</dd></div>

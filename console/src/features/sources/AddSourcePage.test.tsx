@@ -3,7 +3,8 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddSourcePage } from './AddSourcePage';
 import { jira, source, teams } from './fixtures';
-import { mockApi, renderAt, reply } from '../../test/render';
+import { mockApi, renderAt, reply, testClient } from '../../test/render';
+import type { Harvester } from '../../api/sources';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -111,5 +112,72 @@ describe('AddSourcePage', () => {
 
     expect(await screen.findByText('The interval must be at least 60 seconds')).toBeInTheDocument();
     expect(calls.some(c => c.init?.method === 'POST')).toBe(false);
+  });
+
+  it('aCheckThatErrorsStillLandsOnTheSource', async () => {
+    open('jira', { '/v1/profiles/p/sources/acme/check': () => reply(500, { error: 'boom', message: 'daemon restarting' }) });
+    await fillJira();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add source' }));
+
+    await waitFor(() => expect(location()).toBe('/p/p/sources/acme?check=failed'));
+    expect(await screen.findByText(/daemon restarting/)).toBeInTheDocument();
+  });
+
+  it('typedSecretsDoNotStayInTheMutationCache', async () => {
+    const client = testClient();
+    mockApi({
+      '/v1/harvesters': { harvesters: [jira, teams] },
+      '/v1/profiles/p/sources': created,
+      '/v1/profiles/p/sources/acme/check': { ok: true, errorClass: null, message: null }
+    });
+    renderAt('/p/:profile/sources/new', '/p/p/sources/new?harvester=jira', <AddSourcePage />, client);
+    await fillJira();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add source' }));
+
+    await waitFor(() => expect(location()).toBe('/p/p/sources/acme'));
+    expect(JSON.stringify(client.getMutationCache().getAll().map(m => m.state))).not.toContain('s3cret');
+  });
+
+  it('unknownHarvesterIsNamed', async () => {
+    open('nope');
+
+    expect(await screen.findByText("Harvester nope isn't installed.")).toBeInTheDocument();
+    expect(screen.getByLabelText('Base URL')).toBeInTheDocument();
+  });
+
+  it('noHarvestersExplainsHowToInstall', async () => {
+    mockApi({ '/v1/harvesters': { harvesters: [] } });
+    renderAt('/p/:profile/sources/new', '/p/p/sources/new', <AddSourcePage />);
+
+    expect(await screen.findByText('No harvesters installed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add source' })).toBeNull();
+  });
+
+  it('errorsAreTiedToTheirFields', async () => {
+    open('jira');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add source' }));
+
+    const input = await screen.findByLabelText('Base URL');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById(input.getAttribute('aria-describedby') ?? '')).toHaveTextContent('Base URL is required');
+    for (const label of document.querySelectorAll('label[for]')) {
+      expect(document.getElementById(label.getAttribute('for') ?? ''), label.textContent ?? '').not.toBeNull();
+    }
+  });
+
+  it('optionalChoiceCanBeLeftEmpty', async () => {
+    const choosy: Harvester = {
+      ...jira, id: 'choosy', name: 'Choosy',
+      fields: [{ key: 'deployment', kind: 'enum', label: 'Deployment', hint: null, required: false, options: ['auto', 'cloud'], defaultValue: null }]
+    };
+    mockApi({ '/v1/harvesters': { harvesters: [choosy] } });
+    renderAt('/p/:profile/sources/new', '/p/p/sources/new?harvester=choosy', <AddSourcePage />);
+
+    const select = await screen.findByLabelText('Deployment');
+    expect(select.tagName).toBe('SELECT');
+    expect(select).toHaveValue('');
   });
 });

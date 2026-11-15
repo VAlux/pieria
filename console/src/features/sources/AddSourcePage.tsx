@@ -1,19 +1,20 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
+import { errorMessage } from '../../api/client';
 import { qk } from '../../api/queries';
-import { canSignIn, checkSource, createSource, type Harvester, type HarvesterField } from '../../api/sources';
+import { canSignIn, checkSource, createSource, type CreateSource, type Harvester, type HarvesterField, type SourceCheck } from '../../api/sources';
 import { profileUrl } from '../../lib/routes';
 import { Button, Checkbox, Select, TextInput } from '../../ui/controls';
-import { Card, CardHeader, ErrorBanner, Page, PageHeader, SkeletonRows } from '../../ui/display';
+import { Card, CardHeader, EmptyState, ErrorBanner, Page, PageHeader, SkeletonRows } from '../../ui/display';
 import { useToast } from '../../ui/overlay';
 import { useProfile } from '../shell/context';
 import { SOURCE_ID_ERROR, SOURCE_ID_PATTERN, initialValues, parseValues, type FieldValues } from './form';
 import { useHarvesters } from './queries';
 import { RunSettingsFields } from './RunSettingsFields';
 import { parseRunSettings, type RunSettings } from './runSettings';
-import { FormRow, SourceFields } from './SourceFields';
+import { FormRow, SourceFields, invalidProps } from './SourceFields';
 import styles from './sources.module.css';
 
 /** The secret a device-code harvester fills in itself when the user signs in. */
@@ -49,20 +50,41 @@ export function AddSourcePage() {
   const [run, setRun] = useState<RunSettings>(DEFAULT_RUN);
   const [start, setStart] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [unknown, setUnknown] = useState<string | null>(null);
+  // The request holds typed secrets, so it is handed over in a ref rather than as mutation variables,
+  // which the query library would keep in its cache after the request.
+  const pending = useRef<CreateSource | null>(null);
 
   useEffect(() => {
-    if (!harvesterId && harvesters.data?.length) setHarvesterId(harvesters.data[0].id);
+    const list = harvesters.data;
+    if (!list?.length || list.some(h => h.id === harvesterId)) return;
+    if (harvesterId) setUnknown(harvesterId);
+    setHarvesterId(list[0].id);
   }, [harvesterId, harvesters.data]);
   useEffect(() => { setValues(initialValues(fields)); setErrors({}); }, [fields]);
 
   const add = useMutation({
-    mutationFn: async (body: Parameters<typeof createSource>[1]) => {
+    gcTime: 0,
+    mutationFn: async () => {
+      const body = pending.current;
+      if (!body) throw new Error('Nothing to add.');
       const created = await createSource(profile, body);
       const signIn = canSignIn(harvester) && Object.keys(body.secrets).length === 0;
-      const check = signIn ? null : await checkSource(profile, created.id);
+      let check: SourceCheck | null = null;
+      if (!signIn) {
+        // The source exists now; a check that can't be run must not strand the user on this form.
+        try {
+          check = await checkSource(profile, created.id);
+        } catch (e) {
+          check = { ok: false, errorClass: null, message: errorMessage(e) };
+        }
+      }
       return { created, signIn, check };
     },
-    onSettled: () => setValues(current => clearSecrets(fields, current)),
+    onSettled: () => {
+      pending.current = null;
+      setValues(current => clearSecrets(fields, current));
+    },
     onSuccess: ({ created, signIn, check }) => {
       void client.invalidateQueries({ queryKey: qk.sources(profile) });
       created.warnings.forEach(warning => toast.show(warning));
@@ -87,17 +109,23 @@ export function AddSourcePage() {
     if (!SOURCE_ID_PATTERN.test(id)) found.id = SOURCE_ID_ERROR;
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    add.mutate({
+    pending.current = {
       id, harvester: harvester.id, config: parsed.config, secrets: parsed.secrets, mode: settings.mode,
       intervalSeconds: settings.intervalSeconds ?? null, maxItemsPerRun: settings.maxItemsPerRun, maxCharsPerRun: settings.maxCharsPerRun, start
-    });
+    };
+    add.mutate();
   };
 
   return (
     <Page>
       <PageHeader crumb="Sources" title="Add a source" />
       {harvesters.isError && <ErrorBanner error={harvesters.error} />}
-      {harvesters.isPending ? <SkeletonRows rows={4} /> : (
+      {unknown && <ErrorBanner>{`Harvester ${unknown} isn't installed.`}</ErrorBanner>}
+      {harvesters.isPending ? <SkeletonRows rows={4} /> : harvesters.data?.length === 0 ? (
+        <EmptyState title="No harvesters installed">
+          Install one with <code>pieria harvester install &lt;dir|zip&gt;</code>, then come back to add a source.
+        </EmptyState>
+      ) : harvesters.isError ? null : (
         <form onSubmit={submit} noValidate className={styles.form}>
           {add.isError && <ErrorBanner error={add.error} />}
           <Card>
@@ -108,7 +136,7 @@ export function AddSourcePage() {
               </Select>
             </FormRow>
             <FormRow id={`${formId}-id`} label="Source id" hint="How this source is named in commands and recall labels." required error={errors.id}>
-              <TextInput id={`${formId}-id`} mono value={id} onChange={e => setId(e.target.value)} />
+              <TextInput id={`${formId}-id`} mono value={id} onChange={e => setId(e.target.value)} {...invalidProps(`${formId}-id`, errors.id)} />
             </FormRow>
           </Card>
           <Card>

@@ -39,9 +39,12 @@ export function Location() {
   return <output data-testid="location">{location.pathname}{location.search}</output>;
 }
 
+export function testClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
 /** Renders `element` at `path` (a route pattern) with the app's providers, starting at `url`. */
-export function renderAt(path: string, url: string, element: ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+export function renderAt(path: string, url: string, element: ReactElement, client: QueryClient = testClient()) {
   const router = createMemoryRouter([
     { path, element: <>{element}<Location /></> },
     { path: '*', element: <Location /> }

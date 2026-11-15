@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { SourcesPage } from './SourcesPage';
 import { jira, source, teams } from './fixtures';
-import { mockApi, renderAt } from '../../test/render';
+import { mockApi, renderAt, reply } from '../../test/render';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -33,6 +33,25 @@ describe('SourcesPage', () => {
     show([source({ harvester: 'gone' })]);
 
     expect(await screen.findByText('not installed')).toBeInTheDocument();
+  });
+
+  it('aFailedHarvesterListDoesNotClaimItIsMissing', async () => {
+    mockApi({
+      '/v1/harvesters': () => reply(500, { error: 'boom', message: 'daemon trouble' }),
+      '/v1/profiles/p/sources': { sources: [source({ id: 'teams-chats', harvester: 'teams', status: 'needs_auth' })] }
+    });
+    renderAt('/p/:profile/sources', '/p/p/sources', <SourcesPage />);
+
+    expect(await screen.findByText('Needs credentials')).toBeInTheDocument();
+    expect(screen.queryByText('not installed')).toBeNull();
+    expect(screen.queryByText('Credentials refused')).toBeNull();
+  });
+
+  it('needsAuthOnAMissingHarvesterPointsToReinstall', async () => {
+    show([source({ harvester: 'gone', status: 'needs_auth' })]);
+
+    expect(await screen.findByText('Reinstall its harvester')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Replace credentials' })).toBeNull();
   });
 
   it('heldBackDeletionsAreFlagged', async () => {

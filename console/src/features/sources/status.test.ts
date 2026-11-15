@@ -10,6 +10,7 @@ describe('statusLabel', () => {
     expect(statusLabel(source({ status: 'paused' }), false)).toEqual({ label: 'Paused', tone: 'neutral' });
     expect(statusLabel(source({ lastRun: run({ status: 'failed' }) }), false)).toEqual({ label: 'Failing', tone: 'fail' });
     expect(statusLabel(source(), false)).toEqual({ label: 'Active', tone: 'ok' });
+    expect(statusLabel(source({ status: 'needs_auth' }), null)).toEqual({ label: 'Needs credentials', tone: 'fail' });
   });
 });
 
@@ -19,6 +20,8 @@ describe('needsAttention', () => {
     expect(needsAttention(source({ lastRun: run({ status: 'failed' }) }))).toBe(true);
     expect(needsAttention(source({ sweepBlockedCount: 40 }))).toBe(true);
     expect(needsAttention(source())).toBe(false);
+    expect(needsAttention(source({ lastRun: run({ status: 'failed', dryRun: true }) }))).toBe(false);
+    expect(needsAttention(source({ status: 'paused', lastRun: run({ status: 'failed' }) }))).toBe(false);
   });
 });
 

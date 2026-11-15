@@ -582,7 +582,7 @@ git commit -m "Document the console Sources page"
    4. Use Remove, ticking forget: the source is gone.
 3. **A Teams source:**
    1. Add `teams` with your client id. It opens the sign-in dialog, with the code and the link.
-   2. Sign in in the browser. The dialog says `Signed in.`, and the status is `Active`.
+   2. Sign in in the browser. The dialog says `Signed in.`. The status is `Paused`, because a new source waits to be resumed unless "Start on schedule now" was ticked; Resume makes it `Active`.
 4. **Credentials.** For a Jira source with a wrong token:
    - The run fails, and the row shows `Credentials refused` with `Replace credentials`.
    - Replace the token, then Resume.

@@ -9,8 +9,17 @@ import { harvesterFor, useHarvesters, useSources } from './queries';
 import { runSummary, statusLabel } from './status';
 import styles from './sources.module.css';
 
-function SourceRow({ profile, source, harvester }: { profile: string; source: Source; harvester: Harvester | undefined }) {
-  const signIn = canSignIn(harvester);
+interface SourceRowProps {
+  profile: string;
+  source: Source;
+  harvester: Harvester | undefined;
+  /** Whether the installed list loaded, so an absent harvester really is missing. */
+  known: boolean;
+}
+
+function SourceRow({ profile, source, harvester, known }: SourceRowProps) {
+  const signIn = known ? canSignIn(harvester) : null;
+  const missing = known && !harvester;
   const status = statusLabel(source, signIn);
   const detail = profileUrl(profile, `sources/${encodeURIComponent(source.id)}`);
   return (
@@ -20,7 +29,7 @@ function SourceRow({ profile, source, harvester }: { profile: string; source: So
         <Badge tone={status.tone} sans>{status.label}</Badge>
         {source.mode === 'raw' && <Badge tone="neutral" sans>raw</Badge>}
         <span className={styles.harvester}>
-          {harvester ? harvester.name : <>{source.harvester} <span className={styles.missing}>not installed</span></>}
+          {harvester ? harvester.name : <>{source.harvester}{missing && <> <span className={styles.missing}>not installed</span></>}</>}
         </span>
       </div>
       <div className={styles.rowMeta}>
@@ -31,9 +40,11 @@ function SourceRow({ profile, source, harvester }: { profile: string; source: So
         {source.sweepBlockedCount !== null && (
           <span className={styles.warn}>Deletions held back: {integer(source.sweepBlockedCount)}</span>
         )}
-        {source.status === 'needs_auth' && (signIn
-          ? <Link to={`${detail}?signin=1`}>Sign in</Link>
-          : <Link to={`${detail}?secrets=1`}>Replace credentials</Link>)}
+        {source.status === 'needs_auth' && known && (missing
+          ? <span className={styles.warn}>Reinstall its harvester</span>
+          : signIn
+            ? <Link to={`${detail}?signin=1`}>Sign in</Link>
+            : <Link to={`${detail}?secrets=1`}>Replace credentials</Link>)}
       </div>
     </li>
   );
@@ -84,7 +95,8 @@ export function SourcesPage() {
       ) : (
         <Card flush>
           <ul className={styles.list}>
-            {sorted.map(s => <SourceRow key={s.id} profile={profile} source={s} harvester={harvesterFor(harvesters.data, s.harvester)} />)}
+            {sorted.map(s => <SourceRow key={s.id} profile={profile} source={s} harvester={harvesterFor(harvesters.data, s.harvester)}
+              known={harvesters.isSuccess} />)}
           </ul>
         </Card>
       )}

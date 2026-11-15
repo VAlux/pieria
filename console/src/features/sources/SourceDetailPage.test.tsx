@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { Source } from '../../api/sources';
 import { SourceDetailPage } from './SourceDetailPage';
 import { jira, run, source, teams } from './fixtures';
-import { mockApi, renderAt, reply } from '../../test/render';
+import { mockApi, renderAt, reply, testClient } from '../../test/render';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -197,5 +197,50 @@ describe('SourceDetailPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByText('WXYZ')).toBeInTheDocument();
+  });
+
+  it('resetCursorIsClearedAfterTheSave', async () => {
+    const { calls } = open(source());
+    const box = await screen.findByLabelText(/Reset cursor/);
+
+    await userEvent.click(box);
+    await userEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(calls.some(c => c.init?.method === 'PATCH')).toBe(true));
+    await waitFor(() => expect(screen.getByLabelText(/Reset cursor/)).not.toBeChecked());
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  });
+
+  it('aReplacedSecretDoesNotStayInTheMutationCache', async () => {
+    const client = testClient();
+    mockApi({
+      '/v1/harvesters': { harvesters: [jira, teams] },
+      [BASE]: source(),
+      [`${BASE}/runs`]: { runs: [] },
+      [`${BASE}/secrets`]: null
+    });
+    renderAt('/p/:profile/sources/:sourceId', '/p/p/sources/acme', <SourceDetailPage />, client);
+    const credentials = await screen.findByRole('region', { name: 'Credentials' });
+
+    await userEvent.click(within(credentials).getByRole('button', { name: 'Replace' }));
+    await userEvent.type(screen.getByLabelText('API token'), 'n3w');
+    await userEvent.click(screen.getByRole('button', { name: 'Save credential' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(JSON.stringify(client.getMutationCache().getAll().map(m => m.state))).not.toContain('n3w');
+  });
+
+  it('aFailedHarvesterListIsNotMistakenForAMissingHarvester', async () => {
+    open(source(), { '/v1/harvesters': () => reply(500, { error: 'boom', message: 'daemon trouble' }) });
+
+    expect(await screen.findByText('daemon trouble')).toBeInTheDocument();
+    expect(screen.queryByText(/isn't installed/)).toBeNull();
+  });
+
+  it('needsAuthOnAMissingHarvesterSaysToReinstall', async () => {
+    open(source({ harvester: 'gone', status: 'needs_auth' }));
+
+    expect(await screen.findByText(/Reinstall the harvester/)).toBeInTheDocument();
+    expect(screen.queryByText(/Replace them below/)).toBeNull();
   });
 });
