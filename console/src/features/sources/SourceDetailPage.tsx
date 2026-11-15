@@ -18,6 +18,7 @@ import { SIGN_IN_SECRET } from './AddSourcePage';
 import { configChanges, formatInterval, initialValues, parseValues, type FieldValues } from './form';
 import { harvesterFor, useHarvesters, useSource } from './queries';
 import { RunHistory } from './RunHistory';
+import { SignInDialog } from './SignInDialog';
 import { RunSettingsFields } from './RunSettingsFields';
 import { parseRunSettings, type RunSettings } from './runSettings';
 import { FormRow, SourceFields } from './SourceFields';
@@ -207,6 +208,7 @@ export function SourceDetailPage() {
   const [removing, setRemoving] = useState(false);
   const [dryRunTask, setDryRunTask] = useState<string | null>(null);
   const [check, setCheck] = useState<SourceCheck | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   const refresh = (updated?: Source) => {
     if (updated) client.setQueryData(qk.source(profile, sourceId), updated);
@@ -241,9 +243,12 @@ export function SourceDetailPage() {
     if (params.has('secrets')) setParams(p => { const next = new URLSearchParams(p); next.delete('secrets'); return next; }, { replace: true });
   };
   const busy = source.running ? RUNNING_REASON : null;
-  const signInButton = signIn && (
-    <DisabledHint reason="Coming in the next step"><Button disabled>Sign in</Button></DisabledHint>
-  );
+  const showSignIn = signIn && (signingIn || params.get('signin') === '1');
+  const closeSignIn = () => {
+    setSigningIn(false);
+    if (params.has('signin')) setParams(p => { const next = new URLSearchParams(p); next.delete('signin'); return next; }, { replace: true });
+  };
+  const signInButton = signIn && <Button onClick={() => setSigningIn(true)}>Sign in</Button>;
   const settingsKey = JSON.stringify([source.config, source.mode, source.intervalSeconds, source.maxItemsPerRun, source.maxCharsPerRun]);
 
   return (
@@ -317,6 +322,7 @@ export function SourceDetailPage() {
       </Card>
 
       {secretField && <ReplaceSecretDialog profile={profile} source={source} field={secretField} onClose={closeSecret} />}
+      {showSignIn && <SignInDialog profile={profile} sourceId={source.id} onClose={closeSignIn} />}
       {removing && <RemoveDialog profile={profile} source={source} onClose={() => setRemoving(false)} />}
     </Page>
   );

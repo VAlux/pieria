@@ -147,4 +147,39 @@ describe('SourceDetailPage', () => {
     expect(screen.getByText('fatal: it broke')).toBeInTheDocument();
     expect(view.container.ownerDocument.querySelector('b')).toBeNull();
   });
+
+  it('detailOpensTheDialogFromTheQuery', async () => {
+    const t = source({ id: 't', harvester: 'teams', status: 'needs_auth', secretNames: [] });
+    const calls = mockApi({
+      '/v1/harvesters': { harvesters: [jira, teams] },
+      '/v1/profiles/p/sources/t': t,
+      '/v1/profiles/p/sources/t/runs': { runs: [] },
+      '/v1/profiles/p/sources/t/authorize': {
+        status: 'pending', verificationUri: 'https://microsoft.com/devicelogin', userCode: 'WXYZ', message: null,
+        expiresAt: new Date(Date.now() + 900_000).toISOString(), errorClass: null, error: null
+      }
+    });
+    renderAt('/p/:profile/sources/:sourceId', '/p/p/sources/t?signin=1', <SourceDetailPage />);
+
+    expect(await screen.findByText('WXYZ')).toBeInTheDocument();
+    expect(calls.some(c => c.url.pathname === '/v1/profiles/p/sources/t/authorize' && c.init?.method === 'POST')).toBe(true);
+  });
+
+  it('signInButtonOpensTheDialog', async () => {
+    const t = source({ id: 't', harvester: 'teams', secretNames: [] });
+    mockApi({
+      '/v1/harvesters': { harvesters: [jira, teams] },
+      '/v1/profiles/p/sources/t': t,
+      '/v1/profiles/p/sources/t/runs': { runs: [] },
+      '/v1/profiles/p/sources/t/authorize': {
+        status: 'pending', verificationUri: 'https://microsoft.com/devicelogin', userCode: 'WXYZ', message: null,
+        expiresAt: new Date(Date.now() + 900_000).toISOString(), errorClass: null, error: null
+      }
+    });
+    renderAt('/p/:profile/sources/:sourceId', '/p/p/sources/t', <SourceDetailPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByText('WXYZ')).toBeInTheDocument();
+  });
 });

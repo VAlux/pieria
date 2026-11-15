@@ -31,3 +31,7 @@
 .config dt { font-family: var(--font-mono); color: var(--text-3); }
 .config dd { margin: 0; overflow-wrap: anywhere; }
 .estimate { font-size: 13px; color: var(--text); }
+.signIn { display: flex; flex-direction: column; gap: 10px; }
+.codeRow { display: flex; align-items: center; gap: 12px; }
+.userCode { font-family: var(--font-mono); font-size: 24px; font-weight: 600; letter-spacing: 0.08em; color: var(--text-strong); }
+.signedIn { font-size: 14px; color: var(--ok-fg); }
