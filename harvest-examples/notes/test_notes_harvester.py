@@ -39,11 +39,10 @@ def documents(records):
 class NotesHarvesterTests(unittest.TestCase):
 
     def setUp(self):
+        # A cleanup, not tearDown: cleanups run last-in first-out, after any permission a test restores.
         self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-
-    def tearDown(self):
-        self.temp.cleanup()
 
     def write(self, relative, content):
         path = self.root / relative
@@ -242,6 +241,87 @@ class NotesHarvesterTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertNotIn("Traceback", stderr.getvalue())
+
+
+    @unittest.skipIf(sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs POSIX permissions")
+    def test_unreadable_folder_fails_transient_without_sweeping(self):
+        self.write("a.md", "kept")
+        self.write("sub/b.md", "hidden from us")
+        sub = self.root / "sub"
+        sub.chmod(0)
+        self.addCleanup(sub.chmod, 0o755)
+
+        code, records, _ = self.harvest()
+
+        self.assertEqual(code, 1)
+        self.assertNotIn("sweep", kinds(records))
+        self.assertEqual(records[-1]["type"], "error")
+        self.assertEqual(records[-1]["class"], "transient")
+        self.assertIn("sub", records[-1]["message"])
+
+    @unittest.skipIf(sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs POSIX permissions")
+    def test_unreadable_note_is_skipped_but_kept(self):
+        self.write("a.md", "fine")
+        bad = self.write("b.md", "locked")
+        bad.chmod(0)
+        self.addCleanup(bad.chmod, 0o644)
+        self.write("c.md", "fine too")
+
+        code, records, stderr = self.harvest()
+
+        self.assertEqual(code, 0)
+        self.assertEqual([d["id"] for d in documents(records)], ["a.md", "c.md"])
+        seen = [i for r in records if r["type"] == "seen" for i in r["ids"]]
+        self.assertIn("b.md", seen)
+        self.assertLess(kinds(records).index("seen"), kinds(records).index("sweep"))
+        self.assertIn("skipping b.md", stderr)
+
+    def test_note_deleted_mid_run_is_skipped(self):
+        self.write("a.md", "fine")
+        gone = self.write("b.md", "soon gone")
+        real = notes_harvester.document
+
+        def vanish(note_id, path, config, stderr):
+            if note_id == "b.md":
+                gone.unlink()
+            return real(note_id, path, config, stderr)
+
+        notes_harvester.document = vanish
+        self.addCleanup(setattr, notes_harvester, "document", real)
+
+        code, records, _ = self.harvest()
+
+        self.assertEqual(code, 0)
+        self.assertEqual([d["id"] for d in documents(records)], ["a.md"])
+        self.assertNotIn("b.md", [i for r in records if r["type"] == "seen" for i in r["ids"]])
+        self.assertEqual(kinds(records)[-1], "sweep")
+
+    def test_char_limit_counts_utf16_units(self):
+        self.write("a.md", "\U0001F680" * 60)
+        self.write("b.md", "z" * 40)
+
+        _, records, _ = self.harvest(limits={"maxCharsPerRun": 100})
+
+        self.assertEqual([d["id"] for d in documents(records)], ["a.md"])
+
+    def test_long_emoji_title_fits_the_limit_in_utf16_units(self):
+        self.write("a.md", "# " + "\U0001F680" * 600 + "\n")
+
+        _, records, _ = self.harvest()
+
+        title = documents(records)[0]["title"]
+        self.assertLessEqual(len(title.encode("utf-16-le")) // 2, notes_harvester.MAX_TITLE_CHARS)
+        self.assertEqual(title, "\U0001F680" * 500)
+
+    def test_long_text_is_cut_without_splitting_a_pair(self):
+        old = notes_harvester.MAX_TEXT_CHARS
+        notes_harvester.MAX_TEXT_CHARS = 5
+        self.addCleanup(setattr, notes_harvester, "MAX_TEXT_CHARS", old)
+        self.write("a.txt", "ab\U0001F680\U0001F680")
+
+        _, records, _ = self.harvest()
+
+        self.assertEqual(documents(records)[0]["text"], "ab\U0001F680")
 
 
 if __name__ == "__main__":

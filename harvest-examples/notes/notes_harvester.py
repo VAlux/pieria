@@ -51,6 +51,18 @@ class HarvestError(Exception):
         self.error_class = error_class
 
 
+def utf16_len(text: str) -> int:
+    """Length as the daemon counts it: Java's String.length(), in UTF-16 code units. An emoji is 2."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def cut_utf16(text: str, limit: int) -> str:
+    """At most `limit` UTF-16 code units, never splitting a character in two."""
+    if utf16_len(text) <= limit:
+        return text
+    return text.encode("utf-16-le", "surrogatepass")[: limit * 2].decode("utf-16-le", "ignore")
+
+
 class StdoutClosed(Exception):
     """The daemon stopped reading. Stop at once; there is no one left to tell."""
 
@@ -114,15 +126,26 @@ def list_notes(config: Config, stderr: TextIO) -> list[tuple[str, Path]]:
     """Every note as (id, path), sorted by id. The id is the path relative to the folder, so it stays
     the same across runs. Symlinks are never followed, so nothing outside the folder is read, and
     hidden entries such as .git or .obsidian are skipped."""
+    def unreadable(error: OSError) -> None:
+        # Leaving a folder out would make the sweep delete its notes, so the run fails instead.
+        where = Path(error.filename).relative_to(config.root).as_posix() if error.filename else "the folder"
+        raise HarvestError("transient", f"could not read {where}: {error.strerror or error}")
+
     notes = []
-    for current, folders, files in os.walk(config.root, followlinks=False):
+    for current, folders, files in os.walk(config.root, followlinks=False, onerror=unreadable):
         folders[:] = [f for f in folders if not f.startswith(".") and not (Path(current) / f).is_symlink()]
         for name in files:
             path = Path(current) / name
             if name.startswith(".") or path.is_symlink() or path.suffix.lower() not in config.extensions:
                 continue
             note_id = PurePosixPath(path.relative_to(config.root).as_posix()).as_posix()
-            if len(note_id) > MAX_ID_CHARS:
+            try:
+                note_id.encode("utf-8")
+            except UnicodeEncodeError:
+                printable = note_id.encode("utf-8", "backslashreplace").decode("utf-8")
+                stderr.write(f"skipping {printable}: its name is not valid UTF-8\n")
+                continue
+            if utf16_len(note_id) > MAX_ID_CHARS:
                 stderr.write(f"skipping {note_id[:80]}...: its path is too long to be an id\n")
                 continue
             notes.append((note_id, path))
@@ -143,7 +166,7 @@ def document(note_id: str, path: Path, config: Config, stderr: TextIO) -> Option
         stderr.write(f"skipping {note_id}: its file URL is too long\n")
         return None
     data = path.read_bytes()
-    text = data.decode("utf-8", errors="replace")[:MAX_TEXT_CHARS]
+    text = cut_utf16(data.decode("utf-8", errors="replace"), MAX_TEXT_CHARS)
     markdown = path.suffix.lower() in MARKDOWN
     heading = HEADING.search(text) if markdown else None
     title = (heading.group(1).strip() if heading else "") or path.stem or note_id
@@ -151,7 +174,7 @@ def document(note_id: str, path: Path, config: Config, stderr: TextIO) -> Option
         "type": "document",
         "id": note_id,
         "version": hashlib.sha256(data).hexdigest(),
-        "title": title[:MAX_TITLE_CHARS],
+        "title": cut_utf16(title, MAX_TITLE_CHARS),
         "url": url,
         # When the text was written, so dates in it like "yesterday" resolve correctly.
         "updatedAt": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -189,13 +212,23 @@ def harvest(request: dict, out: Output, stderr: TextIO) -> None:
     reported = 0
     chars = 0
     last = after
+    # Notes that exist but couldn't be read this time: named in `seen` so the sweep keeps them.
+    kept: list[str] = []
     for done, (note_id, path) in enumerate(pending, start=1):
         if max_items is not None and reported >= max_items:
             out.emit({"type": "checkpoint", "cursor": {"after": last}})
             return
-        record = document(note_id, path, config, stderr)
+        try:
+            record = document(note_id, path, config, stderr)
+        except FileNotFoundError:
+            stderr.write(f"skipping {note_id}: it was deleted during the run\n")
+            record = None
+        except OSError as e:
+            stderr.write(f"skipping {note_id}: {e.strerror or e}\n")
+            kept.append(note_id)
+            record = None
         if record is not None:
-            size = len(record["text"])
+            size = utf16_len(record["text"])
             if max_chars is not None and reported > 0 and chars + size > max_chars:
                 out.emit({"type": "checkpoint", "cursor": {"after": last}})
                 return
@@ -208,6 +241,8 @@ def harvest(request: dict, out: Output, stderr: TextIO) -> None:
             out.emit({"type": "checkpoint", "cursor": {"after": last}})
 
     # The pass is complete. The next run starts over; the sweep must be the last record.
+    for ids in chunks(kept, MAX_SEEN_IDS):
+        out.emit({"type": "seen", "ids": ids})
     out.emit({"type": "checkpoint", "cursor": {}})
     out.emit({"type": "sweep"})
 
@@ -215,7 +250,10 @@ def harvest(request: dict, out: Output, stderr: TextIO) -> None:
 def check(request: dict) -> None:
     """Validate the settings. Returning normally means they work; `check` may only emit secret_update."""
     config = Config(request["config"])
-    os.listdir(config.root)
+    try:
+        os.listdir(config.root)
+    except OSError as e:
+        raise HarvestError("config", f"directory {config.root} can't be read: {e.strerror or e}") from e
 
 
 def main(argv: list[str], stdin: BinaryIO, stdout: BinaryIO, stderr: TextIO) -> int:

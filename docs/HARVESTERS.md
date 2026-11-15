@@ -56,7 +56,7 @@ A harvester is a directory, or a `.zip` of one, holding `harvester.toml` and the
 
 | Key | Required | Meaning |
 |---|---|---|
-| `id` | yes | Stable identifier, such as `notes`. Sources name the harvester by it. |
+| `id` | yes | Stable identifier, such as `notes`: lowercase letters, digits, `-` and `_`, starting with a letter or digit, at most 64 characters. Sources name the harvester by it. |
 | `name` | yes | Display name. |
 | `version` | yes | Your release version, shown to users. |
 | `protocol` | yes | Must be `1`. |
@@ -76,7 +76,7 @@ A harvester is a directory, or a `.zip` of one, holding `harvester.toml` and the
 | Capability | Declare it when… |
 |---|---|
 | `incremental` | `harvest` emits `checkpoint` records and continues from the cursor it is given. |
-| `deletes` | `harvest` emits `tombstone`, or `seen` and `sweep`. Emitting those without it is a conformance failure. |
+| `deletes` | `harvest` emits `tombstone`, or `seen` and `sweep`. Emitting `tombstone` or `sweep` without it is a conformance failure. |
 | `oauth-device-code` | the harvester implements `authorize`; see [Sign-in with a device code](#sign-in-with-a-device-code). |
 
 ### Config fields
@@ -150,7 +150,7 @@ and the daemon fails the run as `fatal`.
 | `tombstone` | `id` | The source says this item is gone. |
 | `seen` | `ids` | These items still exist; used ahead of a `sweep`. |
 | `sweep` | — | Every live item was reported in this run, so anything else is gone. |
-| `checkpoint` | `cursor` | Everything before this record is complete. `cursor` is any JSON value, returned on the next run. |
+| `checkpoint` | `cursor` | Everything before this record is complete. `cursor` is any JSON value except `null`, returned on the next run; to start over next time, send `{}`. |
 | `progress` | `done`, `total`? | How far the run has got, for progress displays. |
 | `secret_update` | `name`, `value` | Replaces a stored secret, such as a rotated refresh token. |
 | `device_code` | `verificationUri`, `userCode`, `message`?, `expiresIn` | A sign-in code for the user; `authorize` only. |
@@ -159,11 +159,11 @@ and the daemon fails the run as `fatal`.
 `?` marks an optional field. Timestamps (`updatedAt`, turn `timestamp`) are ISO-8601 instants, such
 as `2026-11-15T09:30:00Z`.
 
-**Limits** (from `ProtocolLimits`):
+**Limits** (from `ProtocolLimits`). Every character count, here and in `maxCharsPerRun`, is in UTF-16 code units, as Java's `String.length()` counts them: a character outside the Basic Multilingual Plane, such as most emoji, counts as 2. Count the same way, or a title or a run that fits by your measure can be refused.
 
 | Limit | Value |
 |---|---|
-| `id` (and each `seen` id, each turn id) | 512 characters |
+| `id` (and each `seen` id, each turn id), a document's `version`, a `metadata` key | 512 characters |
 | `title` | 1,000 characters |
 | `url`, `verificationUri` | 2,048 characters |
 | `author` | 256 characters |
@@ -173,6 +173,7 @@ as `2026-11-15T09:30:00Z`.
 | a `checkpoint`'s cursor, as JSON | 900,000 characters |
 | `metadata` | 32 entries; keys up to 512 and values up to 1,024 characters |
 | an `error` message | 2,000 characters (longer is cut) |
+| a `device_code` `message` | 2,000 characters |
 | `userCode` | 64 characters |
 | `expiresIn` | 1 to 3,600 seconds |
 
@@ -180,6 +181,9 @@ Further rules:
 - `id`, `title`, `url`, `text` and `turns` are required; `id` and `url` must not be blank.
 - Turn ids must be unique within a thread, and a turn's `author` must not be blank.
 - `verificationUri` must be `https://`.
+- A `secret_update`'s `name` and `value` must not be blank.
+- `metadata` is an object whose values are all strings.
+- Every line must be valid UTF-8.
 - `retryAfter` and `progress` counts must not be negative.
 
 ### The rules of a run
@@ -311,7 +315,7 @@ and validates every record as you emit it. `authorize` has a default that fails 
 
 The bundled harvesters in `modules/harvesters` (`html`, `jira`, `confluence` and `teams`) are
 complete examples. The SDK isn't published to a repository yet; build its jar from source with
-`./gradlew :harvester-sdk:jar`.
+`./gradlew :harvester-sdk:jar`, and put Jackson 3 (`tools.jackson.core:jackson-databind`) on the classpath beside it.
 
 ## A walk through the sample
 
@@ -327,13 +331,14 @@ entrypoint, because `python3` is a bare interpreter.
 - **`document`** builds one `document`:
   - The title is the first `# ` heading, or the file name.
   - `updatedAt` is the file's modification time, so dates in the note resolve correctly.
-  - The text is decoded as UTF-8, with undecodable bytes replaced, and cut to the protocol's limit.
+  - The text is decoded as UTF-8, with undecodable bytes replaced, and cut to the protocol's limit. Lengths are counted in UTF-16 code units by `utf16_len`, as the daemon counts them, and `cut_utf16` never splits a character.
   - Files over `maxFileBytes` are skipped with a note on stderr.
+- **Reading errors.** `list_notes` passes `os.walk` an `onerror` that fails the run as `transient`: a folder that can't be listed would otherwise drop out, and the sweep would delete its notes. A single note that can't be read is skipped with a line on stderr and named in `seen`, so its memories survive; one deleted during the run is just skipped. A file name that isn't valid UTF-8 can't be an id, so it is skipped too.
 - **`harvest`** is the run:
   1. If the request has a cursor `{"after": <id>}`, it first emits `seen` with every note up to that id, in chunks of 1,000.
   2. It reports the notes after the cursor in order, each followed by `progress`, with a `checkpoint {"after": <id>}` every 25.
   3. If a limit stops it, it checkpoints where it got to and returns, without sweeping.
-  4. Otherwise it ends the pass with `checkpoint {}`, so the next run starts over, then `sweep`.
+  4. Otherwise it names any notes it couldn't read in `seen`, ends the pass with `checkpoint {}`, so the next run starts over, then sends `sweep`.
 - **`Output.emit`** writes one JSON line and flushes, so each record reaches the daemon as it happens.
 
 The sample's own tests, in `test_notes_harvester.py`, cover each of these rules. `./gradlew test`

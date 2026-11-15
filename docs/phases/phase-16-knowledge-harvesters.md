@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence), 7 (Microsoft Teams), 8 (the console Sources page) and 9 (developer docs and a Python sample) are complete; every phase is done. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence), 7 (Microsoft Teams), 8 (the console Sources page) and 9 (developer docs and a Python sample) are complete; every phase is done. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
