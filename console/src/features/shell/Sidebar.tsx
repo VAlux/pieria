@@ -107,6 +107,7 @@ export function Sidebar() {
       </Group>
 
       <Group label="Settings">
+        <NavItem to={url('profiles')} icon="tree" label="Profiles" active={section === 'profiles'} />
         <NavItem to={url('config')} icon="config" label="Profile config" active={section === 'config'} badge={badges.config} />
         <NavItem to={url('settings')} icon="global" label="Global config" active={section === 'settings'} />
       </Group>

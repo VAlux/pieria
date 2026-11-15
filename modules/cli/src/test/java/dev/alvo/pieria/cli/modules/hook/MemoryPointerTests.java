@@ -47,6 +47,20 @@ class MemoryPointerTests {
   }
 
   @Test
+  void countsWhatTheSubProfilesHoldToo(@TempDir Path tmp) {
+    try (StubDaemon daemon = StubDaemon.start()) {
+      daemon.stub("/stats", 200, "{\"name\":\"proj\",\"totalActive\":0,\"superseded\":0,\"sessions\":0,"
+        + "\"lastMemoryAt\":null,\"subProfiles\":2,\"subtreeActive\":15}");
+
+      HookOutcome outcome = MemoryPointer.render(context(daemon.baseUrl(), tmp));
+
+      assertThat(outcome).isInstanceOf(HookOutcome.Ok.class);
+      assertThat(((HookOutcome.Ok) outcome).stdout())
+        .startsWith("[pieria] 0 memories (+15 in 2 sub-profiles) for profile \"proj\".");
+    }
+  }
+
+  @Test
   void injectsNothingWhenTheProfileIsEmpty(@TempDir Path tmp) {
     try (StubDaemon daemon = StubDaemon.start()) {
       daemon.stub("/stats", 200, stats(0, null));

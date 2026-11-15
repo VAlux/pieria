@@ -36,12 +36,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     const views: [string, string, IconName][] = [
       ['Overview', '', 'overview'], ['Memories', 'memories', 'memories'], ['Wiki', 'wiki', 'wiki'],
       ['Entity graph', 'graph', 'graph'], ['Recall', 'recall', 'recall'], ['Activity', 'activity', 'activity'],
-      ['Background tasks', 'tasks', 'tasks'], ['Sources', 'sources', 'download'], ['Profile config', 'config', 'config'], ['Global config', 'settings', 'global']
+      ['Background tasks', 'tasks', 'tasks'], ['Sources', 'sources', 'download'], ['Profiles', 'profiles', 'tree'],
+      ['Profile config', 'config', 'config'], ['Global config', 'settings', 'global']
     ];
     return [
       ...views.map(([label, sub, icon]) => ({ id: `go-${label}`, label, group: 'Go to' as const, icon, run: go(sub) })),
       { id: 'add', label: 'Add a memory', group: 'Actions', icon: 'plus', run: go('memories/new') },
       { id: 'ask', label: 'Ask this profile', group: 'Actions', icon: 'recall', run: go('recall') },
+      { id: 'new-profile', label: 'New profile…', group: 'Actions', icon: 'plus', run: go('profiles?new=1') },
       { id: 'switch', label: 'Switch profile…', group: 'Actions', icon: 'search', hint: `${mod}P`, run: () => { onClose(); openSwitcher(); } },
       {
         id: 'export', label: 'Export memories as NDJSON', group: 'Actions', icon: 'download', run: () => {

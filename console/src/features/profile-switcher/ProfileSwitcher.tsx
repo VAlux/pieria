@@ -5,7 +5,7 @@ import { useProfiles } from '../../api/queries';
 import { avatarFor } from '../../lib/avatar';
 import { integer } from '../../lib/format';
 import { mod } from '../../lib/hotkeys';
-import { switchedPath } from '../../lib/routes';
+import { profileUrl, switchedPath } from '../../lib/routes';
 import { dismiss, pinnedProfiles, recentProfiles, togglePinned } from '../../lib/storage';
 import { Kbd } from '../../ui/controls';
 import { ErrorBanner, SkeletonRows } from '../../ui/display';
@@ -111,7 +111,12 @@ export function ProfileSwitcher({ onClose }: { onClose: () => void }) {
         {model.noMatch && (
           <div className={styles.noMatch}>
             <span>No profile matches “{query}”.</span>
-            <span>Profiles are created the first time an agent writes to them.</span>
+            <span>Profiles are created the first time an agent writes to them, or on the{' '}
+              <a href={`/console${profileUrl(current || query, 'profiles?new=1')}`} onClick={event => {
+                event.preventDefault();
+                onClose();
+                navigate(profileUrl(current || query, 'profiles?new=1'));
+              }}>Profiles</a> page.</span>
           </div>
         )}
         {!query && model.hiddenCount > 0 && (

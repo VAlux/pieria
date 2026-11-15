@@ -25,7 +25,9 @@ const paths: Record<string, ReactNode> = {
   chevron: <path d="m9 6 6 6-6 6" />,
   download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>,
   refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></>,
-  more: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>
+  more: <><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>,
+  grip: <><circle cx="9" cy="6" r="1" /><circle cx="15" cy="6" r="1" /><circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="9" cy="18" r="1" /><circle cx="15" cy="18" r="1" /></>,
+  tree: <><path d="M6 4v14a2 2 0 0 0 2 2h3" /><path d="M6 10h5" /><rect x="13" y="7" width="7" height="6" rx="1" /><rect x="13" y="16" width="7" height="6" rx="1" /></>
 };
 
 export type IconName = keyof typeof paths;

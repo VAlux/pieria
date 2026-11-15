@@ -25,7 +25,10 @@ class ProfileAuditFilterTests {
     "POST, clustering/runs, clustering.update",
     "GET, wiki/status, wiki.status",
     "POST, wiki/build, wiki.build",
-    "GET, config/detail, config.detail"
+    "GET, config/detail, config.detail",
+    "PUT, '', profile.create",
+    "PATCH, '', profile.update",
+    "DELETE, '', profile.delete"
   })
   void namesConsoleOperations(String method, String rest, String expected) {
     assertThat(ProfileAuditFilter.operation(method, rest)).isEqualTo(expected);

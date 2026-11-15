@@ -102,7 +102,31 @@ class StubMemoryStore implements MemoryStore {
   }
 
   @Override
+  public void setProfileParent(String profileId, String parentId) {
+    profilesByName.replaceAll((name, p) -> p.id().equals(profileId)
+      ? new Profile(p.id(), p.name(), p.createdAt(), parentId) : p);
+  }
+
+  @Override
+  public List<String> profileSubtree(String profileId) {
+    List<String> ids = new java.util.ArrayList<>(List.of(profileId));
+    for (int i = 0; i < ids.size(); i++) {
+      String current = ids.get(i);
+      profilesByName.values().stream()
+        .filter(p -> current.equals(p.parentId()))
+        .sorted(Comparator.comparing(Profile::name))
+        .forEach(p -> ids.add(p.id()));
+    }
+    return ids;
+  }
+
+  @Override
   public void deleteProfile(String profileId) {
+    Profile deleted = profilesByName.values().stream().filter(p -> p.id().equals(profileId))
+      .findFirst().orElse(null);
+    String parentId = deleted == null ? null : deleted.parentId();
+    profilesByName.values().stream().filter(p -> profileId.equals(p.parentId())).toList()
+      .forEach(child -> setProfileParent(child.id(), parentId));
     profilesByName.values().removeIf(p -> p.id().equals(profileId));
     memories.remove(profileId);
     entities.remove(profileId);
@@ -116,9 +140,12 @@ class StubMemoryStore implements MemoryStore {
       .sorted(Comparator.comparing(Profile::name))
       .map(p -> {
         List<Memory> active = listMemories(p.id(), null, null);
+        String parentName = profilesByName.values().stream().filter(q -> q.id().equals(p.parentId()))
+          .map(Profile::name).findFirst().orElse(null);
         return new ProfileCount(p, active.size(),
           active.stream().map(Memory::sessionId).filter(Objects::nonNull).distinct().count(),
-          active.stream().map(Memory::createdAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null));
+          active.stream().map(Memory::createdAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null),
+          parentName);
       })
       .toList();
   }

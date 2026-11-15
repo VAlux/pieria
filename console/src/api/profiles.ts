@@ -6,6 +6,21 @@ export async function listProfiles(signal?: AbortSignal): Promise<ProfileSummary
   return result?.profiles ?? [];
 }
 
+/** Creates an empty profile, under `parent` when given. 409 when the name is taken, 404 for an unknown parent. */
+export function createProfile(name: string, parent?: string | null): Promise<ProfileSummary> {
+  return request<ProfileSummary>(profilePath(name), { method: 'PUT', json: parent ? { parent } : undefined });
+}
+
+/** Moves a profile under `parent`, or to top level with null. 409 when that would make a cycle. */
+export function setProfileParent(name: string, parent: string | null): Promise<ProfileSummary> {
+  return request<ProfileSummary>(profilePath(name), { method: 'PATCH', json: { parent } });
+}
+
+/** Deletes a profile and its own memories; its sub-profiles move up to its parent. */
+export function deleteProfile(name: string): Promise<void> {
+  return request<void>(profilePath(name), { method: 'DELETE' });
+}
+
 export function profileStats(profile: string, signal?: AbortSignal): Promise<ProfileStats> {
   return request<ProfileStats>(profilePath(profile, '/stats'), { signal });
 }

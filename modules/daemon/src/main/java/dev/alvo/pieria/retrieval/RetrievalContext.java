@@ -1,6 +1,7 @@
 package dev.alvo.pieria.retrieval;
 
 import dev.alvo.pieria.domain.memory.SourceFilter;
+import dev.alvo.pieria.domain.profile.ProfileScope;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.retrieval.model.QueryAnalysis;
 import dev.alvo.pieria.retrieval.model.RetrievalCandidate;
@@ -24,6 +25,8 @@ import java.util.List;
  * @param limit          max hits each channel should return
  * @param seedCandidates first-wave hits used to seed the graph channel (empty for the first wave)
  * @param sourceFilter   limits channels to memories from the requested sources; never null
+ * @param profileScope   the profiles the channels read: {@code profileId} and everything below it;
+ *                       never null, and just {@code profileId} for a profile without children
  */
 public record RetrievalContext(
   String profileId,
@@ -34,7 +37,14 @@ public record RetrievalContext(
   int limit,
   List<RetrievalCandidate> seedCandidates,
   TemporalSnapshot temporal,
-  SourceFilter sourceFilter) {
+  SourceFilter sourceFilter,
+  ProfileScope profileScope) {
+
+  public RetrievalContext(String profileId, String query, QueryAnalysis analysis, float[] queryEmbedding,
+                          float[] hydeEmbedding, int limit, List<RetrievalCandidate> seeds, TemporalSnapshot temporal,
+                          SourceFilter sourceFilter) {
+    this(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal, sourceFilter, null);
+  }
 
   public RetrievalContext(String profileId, String query, QueryAnalysis analysis, float[] queryEmbedding,
                           float[] hydeEmbedding, int limit, List<RetrievalCandidate> seeds, TemporalSnapshot temporal) {
@@ -47,16 +57,23 @@ public record RetrievalContext(
   }
 
   public RetrievalContext withTemporal(TemporalSnapshot snapshot) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, snapshot, sourceFilter);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, snapshot, sourceFilter, profileScope);
   }
 
   public RetrievalContext withSourceFilter(SourceFilter filter) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, temporal, filter);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates, temporal, filter, profileScope);
   }
 
   public RetrievalContext {
     seedCandidates = seedCandidates == null ? List.of() : List.copyOf(seedCandidates);
     sourceFilter = sourceFilter == null ? SourceFilter.NONE : sourceFilter;
+    profileScope = profileScope == null ? ProfileScope.single(profileId) : profileScope;
+  }
+
+  /** A copy of this context reading {@code scope} instead of the profile alone. */
+  public RetrievalContext withProfileScope(ProfileScope scope) {
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seedCandidates,
+      temporal, sourceFilter, scope);
   }
 
   /**
@@ -71,7 +88,7 @@ public record RetrievalContext(
    * A copy of this context carrying the given first-wave hits as graph seeds.
    */
   public RetrievalContext withSeedCandidates(List<RetrievalCandidate> seeds) {
-    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal, sourceFilter);
+    return new RetrievalContext(profileId, query, analysis, queryEmbedding, hydeEmbedding, limit, seeds, temporal, sourceFilter, profileScope);
   }
 
   /**

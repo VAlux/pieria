@@ -1,0 +1,3 @@
+Memories labelled [profile: …] come from different profiles of one hierarchy, such as separate
+projects. They can legitimately disagree; when they do, say which profile holds which answer
+rather than choosing one.

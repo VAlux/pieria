@@ -34,6 +34,7 @@ import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -220,6 +221,88 @@ class ProfileApiTests {
     mvc.perform(put("/v1/profiles/dupe"))
       .andExpect(status().isConflict())
       .andExpect(jsonPath("$.error", is("conflict")));
+  }
+
+  @Test
+  void createUnderAParentThenListShowsTheParent() throws Exception {
+    mvc.perform(put("/v1/profiles/tree-root")).andExpect(status().isCreated());
+    mvc.perform(put("/v1/profiles/tree-leaf").contentType("application/json").content("{\"parent\":\"tree-root\"}"))
+      .andExpect(status().isCreated())
+      .andExpect(jsonPath("$.parent", is("tree-root")));
+
+    mvc.perform(get("/v1/profiles"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.profiles[?(@.name == 'tree-leaf')].parent", org.hamcrest.Matchers.contains("tree-root")))
+      .andExpect(jsonPath("$.profiles[?(@.name == 'tree-root')].parent", org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())));
+  }
+
+  @Test
+  void createUnderAnUnknownParentIsNotFoundAndCreatesNothing() throws Exception {
+    mvc.perform(put("/v1/profiles/orphan").contentType("application/json").content("{\"parent\":\"nobody\"}"))
+      .andExpect(status().isNotFound());
+    mvc.perform(get("/v1/profiles/orphan/memories")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  void patchMovesAProfileAndRefusesACycle() throws Exception {
+    mvc.perform(put("/v1/profiles/mv-a")).andExpect(status().isCreated());
+    mvc.perform(put("/v1/profiles/mv-b")).andExpect(status().isCreated());
+
+    mvc.perform(patch("/v1/profiles/mv-b").contentType("application/json").content("{\"parent\":\"mv-a\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.name", is("mv-b")))
+      .andExpect(jsonPath("$.parent", is("mv-a")));
+
+    mvc.perform(patch("/v1/profiles/mv-a").contentType("application/json").content("{\"parent\":\"mv-b\"}"))
+      .andExpect(status().isConflict())
+      .andExpect(jsonPath("$.error", is("conflict")));
+    mvc.perform(patch("/v1/profiles/mv-a").contentType("application/json").content("{\"parent\":\"mv-a\"}"))
+      .andExpect(status().isConflict());
+
+    mvc.perform(patch("/v1/profiles/mv-b").contentType("application/json").content("{\"parent\":null}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.parent").doesNotExist());
+  }
+
+  @Test
+  void patchAnUnknownProfileOrParentIsNotFound() throws Exception {
+    mvc.perform(put("/v1/profiles/known")).andExpect(status().isCreated());
+    mvc.perform(patch("/v1/profiles/unknown").contentType("application/json").content("{\"parent\":null}"))
+      .andExpect(status().isNotFound());
+    mvc.perform(patch("/v1/profiles/known").contentType("application/json").content("{\"parent\":\"unknown\"}"))
+      .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void deletingAParentKeepsItsChildAtTopLevel() throws Exception {
+    mvc.perform(put("/v1/profiles/del-root")).andExpect(status().isCreated());
+    mvc.perform(put("/v1/profiles/del-child").contentType("application/json").content("{\"parent\":\"del-root\"}"))
+      .andExpect(status().isCreated());
+
+    mvc.perform(delete("/v1/profiles/del-root")).andExpect(status().isNoContent());
+
+    mvc.perform(get("/v1/profiles"))
+      .andExpect(jsonPath("$.profiles[?(@.name == 'del-child')].parent", org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())));
+  }
+
+  @Test
+  void statsReportTheSubtree() throws Exception {
+    mvc.perform(put("/v1/profiles/st-root")).andExpect(status().isCreated());
+    mvc.perform(put("/v1/profiles/st-child").contentType("application/json").content("{\"parent\":\"st-root\"}"))
+      .andExpect(status().isCreated());
+    mvc.perform(post("/v1/profiles/st-child/memories").contentType("application/json")
+        .content("{\"type\":\"fact\",\"content\":\"child fact\",\"sessionId\":\"s1\"}"))
+      .andExpect(status().isCreated());
+
+    mvc.perform(get("/v1/profiles/st-root/stats"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.totalActive", is(0)))
+      .andExpect(jsonPath("$.subProfiles", is(1)))
+      .andExpect(jsonPath("$.subtreeActive", is(1)));
+    mvc.perform(get("/v1/profiles/st-child/stats"))
+      .andExpect(jsonPath("$.parent", is("st-root")))
+      .andExpect(jsonPath("$.subProfiles", is(0)))
+      .andExpect(jsonPath("$.subtreeActive", is(1)));
   }
 
   @Test

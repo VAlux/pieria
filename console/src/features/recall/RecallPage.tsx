@@ -146,8 +146,11 @@ function Evidence({ result, profile }: { result: RecallResult; profile: string }
         <div key={m.id} id={`evidence-${i + 1}`} className={styles.evidence}>
           <span className={styles.ref}>[{i + 1}]</span>
           <div className={styles.evidenceBody}>
-            <Link to={profileUrl(profile, `memories/${encodeURIComponent(m.id)}`)} className={styles.evidenceText}>{m.content}</Link>
+            <Link to={profileUrl(m.profile ?? profile, `memories/${encodeURIComponent(m.id)}`)} className={styles.evidenceText}>{m.content}</Link>
             <span className={styles.evidenceMeta}>
+              {m.profile && m.profile !== profile && (
+                <span className={styles.owner} title={`From the sub-profile ${m.profile}`}>{m.profile}</span>
+              )}
               <TypeChip type={m.type} />
               {m.topicKey && <TopicKey>{m.topicKey}</TopicKey>}
               {(sources.get(m.id) ?? []).map(c => <span key={c} className={styles.channel}>{channelLabel(c)}</span>)}

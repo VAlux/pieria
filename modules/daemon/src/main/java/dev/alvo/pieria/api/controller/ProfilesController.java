@@ -24,7 +24,7 @@ public class ProfilesController {
   public ProfileListResponse list() {
     return new ProfileListResponse(profiles.listSummaries().stream()
       .map(p -> new ProfileSummary(p.profile().name(), p.profile().createdAt(), p.activeCount(),
-        p.sessionCount(), p.lastMemoryAt()))
+        p.sessionCount(), p.lastMemoryAt(), p.parentName()))
       .toList());
   }
 }

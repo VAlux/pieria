@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate, useLocation } from 'react-router';
+import { useState } from 'react';
+import { createBrowserRouter, Navigate, useLocation, useNavigate } from 'react-router';
 import { useProfiles } from './api/queries';
 import { lastProfile } from './lib/storage';
 import { legacyTarget, profileUrl } from './lib/routes';
@@ -6,12 +7,16 @@ import { AppShell } from './features/shell/AppShell';
 import { MemoriesPage } from './features/memories/MemoriesPage';
 import { OverviewPage } from './features/overview/OverviewPage';
 import { RecallPage } from './features/recall/RecallPage';
+import { CreateProfileDialog } from './features/profiles/CreateProfileDialog';
+import { Button } from './ui/controls';
 import { EmptyState, ErrorBanner, Page, SkeletonRows } from './ui/display';
 
 /** `/console/` picks the last-used profile; legacy `?view=` links land on the matching screen. */
 function RootRedirect() {
   const location = useLocation();
+  const navigate = useNavigate();
   const profiles = useProfiles();
+  const [creating, setCreating] = useState(false);
   const legacy = legacyTarget(location.search, lastProfile());
   if (legacy) return <Navigate to={legacy} replace />;
   if (profiles.isPending) return <Page><SkeletonRows rows={3} /></Page>;
@@ -23,10 +28,12 @@ function RootRedirect() {
   if (!target) {
     return (
       <Page>
-        <EmptyState title="No profiles yet">
+        <EmptyState title="No profiles yet"
+          actions={<Button variant="primary" icon="plus" onClick={() => setCreating(true)}>New profile</Button>}>
           Profiles are created the first time an agent writes to them. Connect a harness through the
-          MCP gateway or ingest a transcript, then come back here.
+          MCP gateway or ingest a transcript, or create one here.
         </EmptyState>
+        {creating && <CreateProfileDialog onClose={() => setCreating(false)} onCreated={p => navigate(profileUrl(p.name))} />}
       </Page>
     );
   }
@@ -60,6 +67,7 @@ export const routes = [
       { path: 'wiki/:pageId', lazy: wiki },
       { path: 'graph', lazy: () => import('./features/graph/GraphPage').then(m => ({ Component: m.GraphPage })) },
       { path: 'config', lazy: () => import('./features/config/ProfileConfigPage').then(m => ({ Component: m.ProfileConfigPage })) },
+      { path: 'profiles', lazy: () => import('./features/profiles/ProfilesPage').then(m => ({ Component: m.ProfilesPage })) },
       { path: 'settings', lazy: () => import('./features/config/GlobalConfigPage').then(m => ({ Component: m.GlobalConfigPage })) },
       { path: '*', element: <Navigate to="." replace /> }
     ]

@@ -36,6 +36,9 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
 
     log.info("Profile: {}", s.name());
     line("Created", s.createdAt() == null ? "—" : s.createdAt().toString());
+    if (s.parent() != null) {
+      line("Parent", s.parent());
+    }
     line("Active memories", Long.toString(s.totalActive()));
     Map<String, Long> byType = s.byType();
     if (byType != null) {
@@ -45,6 +48,10 @@ public final class ProfileStatsCommand extends AbstractProfileCommand {
     line("Sessions", Long.toString(s.sessions()));
     line("First memory", s.firstMemoryAt() == null ? "—" : s.firstMemoryAt().toString());
     line("Last memory", s.lastMemoryAt() == null ? "—" : s.lastMemoryAt().toString());
+    if (s.subProfiles() > 0) {
+      line("Sub-profiles", Integer.toString(s.subProfiles()));
+      line("Recall reads", s.subtreeActive() + " active memories, including sub-profiles");
+    }
     line("Vectorization backlog",
       s.vectorizationBacklog() == null ? "unknown" : s.vectorizationBacklog().toString());
     renderImpact(s.impact());

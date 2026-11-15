@@ -7,6 +7,7 @@ import { switchedPath } from '../../lib/routes';
 import { ErrorBanner, Page, PageHeader } from '../../ui/display';
 import { Button, IconButton, Kbd } from '../../ui/controls';
 import { ProfileSwitcher } from '../profile-switcher/ProfileSwitcher';
+import { CreateProfileDialog } from '../profiles/CreateProfileDialog';
 import { CommandPalette } from './CommandPalette';
 import { ShellContext, useProfile } from './context';
 import { Sidebar } from './Sidebar';
@@ -20,6 +21,7 @@ export function AppShell() {
   const profiles = useProfiles();
   const [switcher, setSwitcher] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => { if (profile) rememberProfile(profile); }, [profile]);
 
@@ -47,7 +49,11 @@ export function AppShell() {
               <ErrorBanner>
                 There is no profile called “{profile}”. Profiles are created the first time an agent writes to them.
               </ErrorBanner>
-              <div><Button variant="primary" onClick={() => setSwitcher(true)}>Choose a profile</Button></div>
+              <div className={styles.unknownActions}>
+                <Button variant="primary" onClick={() => setSwitcher(true)}>Choose a profile</Button>
+                <Button icon="plus" onClick={() => setCreating(true)}>Create “{profile}”</Button>
+              </div>
+              {creating && <CreateProfileDialog initialName={profile} onClose={() => setCreating(false)} />}
             </Page>
           ) : <Outlet />}
         </div>

@@ -23,6 +23,8 @@ export interface RecallSource {
   memoryId: string;
   rank: number;
   channels: string[];
+  /** Owning profile; set only on a recall that read sub-profiles too. */
+  profile?: string;
 }
 
 export interface RecallResponse {

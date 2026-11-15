@@ -131,4 +131,18 @@ class OpenAiModelGatewayOriginPromptTests {
     assertThat(prompt).doesNotContain(PromptTemplateLoader.render("source-synthesis-guidance", Map.of()).strip());
     assertThat(prompt).contains("work out when something happened.\n\nQuery:");
   }
+
+  @Test
+  void ownedMemoriesAreLabelledAndOnlyThenGetTheProfileGuidance() {
+    String guidance = PromptTemplateLoader.render("profile-synthesis-guidance", Map.of()).strip();
+    RecallCandidate plain = candidate("build tool is gradle", "{}");
+
+    String single = synthesisPrompt(plain);
+    String subtree = synthesisPrompt(plain.ownedBy("parent"));
+
+    assertThat(single).doesNotContain("[profile:").doesNotContain(guidance);
+    assertThat(subtree).contains("- [profile: parent] build tool is gradle").contains(guidance);
+    // The label and the guidance are the only differences from a single-profile prompt.
+    assertThat(subtree.replace("\n" + guidance, "").replace("[profile: parent] ", "")).isEqualTo(single);
+  }
 }

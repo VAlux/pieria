@@ -789,6 +789,14 @@ public class OpenAiModelGateway implements ModelGateway {
     return "\n" + PromptTemplateLoader.render(template, Map.of()).strip();
   }
 
+  /**
+   * {@code [profile: name] } when the recall read several profiles, so synthesis can tell which
+   * profile said what; empty otherwise, which keeps a single-profile prompt byte-identical.
+   */
+  private static String ownerLabel(RecallCandidate candidate) {
+    return candidate.ownerProfile() == null ? "" : "[profile: " + candidate.ownerProfile() + "] ";
+  }
+
   private static String promptLine(Memory memory) {
     return MemoryOrigins.parse(memory.payload())
       .map(origin -> "[" + origin.renderLabel() + "] " + MemoryOrigin.oneLine(memory.content()))
@@ -1199,10 +1207,11 @@ public class OpenAiModelGateway implements ModelGateway {
                                  List<TemporalFact> temporalFacts, List<GraphEvidence> graphEvidence) {
     List<RecallCandidate> safeCandidates = candidates == null ? List.of() : candidates;
     String context = safeCandidates.stream()
-      .map(c -> "- " + promptLine(c.memory()))
+      .map(c -> "- " + ownerLabel(c) + promptLine(c.memory()))
       .collect(Collectors.joining("\n"));
     boolean anyHarvested = safeCandidates.stream()
       .anyMatch(c -> MemoryOrigins.parse(c.memory().payload()).isPresent());
+    boolean anyOwned = safeCandidates.stream().anyMatch(c -> c.ownerProfile() != null);
     if (context.isBlank()) {
       context = "(no candidate memories were retrieved)";
     }
@@ -1225,7 +1234,8 @@ public class OpenAiModelGateway implements ModelGateway {
       "query", query,
       "temporalFacts", temporalBlock,
       "graphEvidence", graphBlock,
-      "sourceGuidance", anyHarvested ? promptAddition("source-synthesis-guidance") : "",
+      "sourceGuidance", (anyHarvested ? promptAddition("source-synthesis-guidance") : "")
+        + (anyOwned ? promptAddition("profile-synthesis-guidance") : ""),
       "memories", context));
 
     try {

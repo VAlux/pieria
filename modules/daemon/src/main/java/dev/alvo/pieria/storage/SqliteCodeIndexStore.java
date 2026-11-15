@@ -275,7 +275,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     }
     return jdbc.sql("SELECT " + qualified("s") + " FROM code_symbols_fts f "
         + "JOIN code_symbols s ON s.rowid = f.rowid "
-        + "WHERE f.code_symbols_fts MATCH ? AND s.profile_id = ? "
+        + "WHERE f.code_symbols_fts MATCH ? AND " + ProfileScopeSql.matches("s.profile_id", profileId) + " "
         + "ORDER BY f.rank LIMIT ?")
       .params(match, profileId, limit)
       .query((rs, _) -> mapSymbol(rs))
@@ -305,7 +305,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     params.addAll(distinct);
     params.add(limit);
     return jdbc.sql("SELECT " + SYMBOL_COLUMNS + " FROM code_symbols "
-        + "WHERE profile_id = ? AND " + column + " IN (" + placeholders(distinct.size()) + ") "
+        + "WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND " + column + " IN (" + placeholders(distinct.size()) + ") "
         + "ORDER BY qualified_name LIMIT ?")
       .params(params)
       .query((rs, _) -> mapSymbol(rs))
@@ -325,7 +325,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     params.add(profileId);
     params.addAll(distinct);
     List<CodeSymbol> found = jdbc.sql("SELECT " + SYMBOL_COLUMNS + " FROM code_symbols "
-        + "WHERE profile_id = ? AND id IN (" + placeholders(distinct.size()) + ")")
+        + "WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND id IN (" + placeholders(distinct.size()) + ")")
       .params(params)
       .query((rs, _) -> mapSymbol(rs))
       .list();
@@ -383,11 +383,11 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
     params.add(fanout);
     List<String> rows = jdbc.sql("SELECT neighbor FROM ( "
         + "  SELECT dst_symbol_id AS neighbor FROM code_edges "
-        + "    WHERE profile_id = ? AND src_symbol_id IN (" + frontierPh + ") "
+        + "    WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND src_symbol_id IN (" + frontierPh + ") "
         + "      AND dst_symbol_id IS NOT NULL AND confidence IN (" + confPh + ") "
         + "  UNION "
         + "  SELECT src_symbol_id AS neighbor FROM code_edges "
-        + "    WHERE profile_id = ? AND dst_symbol_id IN (" + frontierPh + ") "
+        + "    WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND dst_symbol_id IN (" + frontierPh + ") "
         + "      AND confidence IN (" + confPh + ") "
         + ") ORDER BY neighbor ASC LIMIT ?")
       .params(params)
@@ -423,7 +423,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
         + "FROM code_edges e "
         + "JOIN code_symbols s ON s.id = e.src_symbol_id "
         + "LEFT JOIN code_symbols d ON d.id = e.dst_symbol_id "
-        + "WHERE e.profile_id = ? "
+        + "WHERE " + ProfileScopeSql.matches("e.profile_id", profileId) + " "
         + "  AND (e.src_symbol_id IN (" + idPh + ") OR e.dst_symbol_id IN (" + idPh + ")) "
         + "  AND e.confidence IN (" + confPh + ") "
         + "ORDER BY CASE e.confidence WHEN '" + EdgeConfidence.RESOLVED.wire() + "' THEN 0 ELSE 1 END, "
@@ -436,7 +436,7 @@ public class SqliteCodeIndexStore implements CodeIndexStore {
 
   @Override
   public boolean isCodeIndexPresent(String profileId) {
-    Long n = jdbc.sql("SELECT COUNT(*) FROM code_files WHERE profile_id = ?")
+    Long n = jdbc.sql("SELECT COUNT(*) FROM code_files WHERE " + ProfileScopeSql.matches("profile_id", profileId))
       .param(profileId)
       .query(Long.class)
       .single();

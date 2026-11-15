@@ -23,6 +23,7 @@ import dev.alvo.pieria.domain.memory.SessionActivity;
 import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
+import dev.alvo.pieria.domain.profile.ProfileScope;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
@@ -118,6 +119,14 @@ public interface MemoryStore {
     return action.get();
   }
 
+  /**
+   * Runs {@code action} with recall reads for {@code scope}'s primary profile widened to the whole
+   * scope. Backends without a profile hierarchy run {@code action} as is.
+   */
+  default <T> T atProfileScope(ProfileScope scope, Supplier<T> action) {
+    return action.get();
+  }
+
   default List<TemporalValidity> selectedValidity(String memoryId, TemporalSnapshot snapshot) {
     return List.of();
   }
@@ -154,10 +163,48 @@ public interface MemoryStore {
   }
 
   /**
+   * Create a brand-new, empty profile under {@code parentId}, or at top level when it is
+   * {@code null}. Throws {@link dev.alvo.pieria.domain.error.ConflictException} if the name is taken.
+   */
+  default Profile createProfile(String name, String parentId) {
+    Profile created = createProfile(name);
+    if (parentId == null) {
+      return created;
+    }
+    setProfileParent(created.id(), parentId);
+    return new Profile(created.id(), created.name(), created.createdAt(), parentId);
+  }
+
+  /**
+   * Put the profile under {@code parentId}, or at top level when it is {@code null}. Callers check
+   * for cycles first; the store only records the link.
+   */
+  default void setProfileParent(String profileId, String parentId) {
+    throw new UnsupportedOperationException("setProfileParent(...) not implemented");
+  }
+
+  /**
+   * The profile's id followed by the ids of every profile below it, at any depth. A profile without
+   * children yields just its own id, which is what a store without a hierarchy returns.
+   */
+  default List<String> profileSubtree(String profileId) {
+    return List.of(profileId);
+  }
+
+  /**
+   * The name of the profile that owns each of the given memories. Ids that match no memory are
+   * absent from the map.
+   */
+  default Map<String, String> memoryOwnerNames(Collection<String> memoryIds) {
+    return Map.of();
+  }
+
+  /**
    * Permanently delete a profile and everything owned by it — memories, raw messages, the
    * entity-relation graph, the code index, per-profile config and usage counters, and any vector
    * index rows. Unlike memory {@code forget} (logical supersession), this is a hard, irreversible
-   * physical delete. No-op for a profile id that does not exist.
+   * physical delete. The profile's children are not deleted: they move up to its parent, or to top
+   * level. No-op for a profile id that does not exist.
    */
   default void deleteProfile(String profileId) {
     throw new UnsupportedOperationException("deleteProfile(...) not implemented");

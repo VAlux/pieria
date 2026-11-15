@@ -1,0 +1,22 @@
+.tree { list-style: none; margin: 0; padding: 0; }
+.row { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; border-top: 1px solid var(--divider); cursor: grab; }
+.row:first-child { border-top: 0; }
+.row:hover .grip { color: var(--text-3); }
+.dragging { opacity: 0.45; }
+.dropOver { background: var(--row-selected); box-shadow: inset 0 0 0 1px var(--accent-border); }
+.grip { display: inline-flex; color: var(--text-faint); }
+.branch { color: var(--text-faint); font-family: var(--font-mono); font-size: 12px; }
+.name { font-family: var(--font-mono); font-size: 13.5px; font-weight: 500; color: var(--text-strong); overflow-wrap: anywhere; }
+.current { font-size: 11px; color: var(--text-3); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+.meta { font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
+.grow { flex: 1; }
+.topZone { display: none; padding: 10px 16px; border-bottom: 1px dashed var(--border-control); font-size: 12.5px; color: var(--text-3); text-align: center; }
+.topZoneVisible { display: block; }
+.form { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.fieldHint { font-size: 11.5px; color: var(--text-muted); }
+.fieldError { font-size: 11.5px; color: var(--fail-fg); }
+.copy { margin: 0 0 10px; font-size: 13px; line-height: 1.55; color: var(--text-2); }
+@media (max-width: 600px) {
+  .meta { white-space: normal; }
+}

@@ -85,3 +85,4 @@
   color-scheme: dark;
 }
 .asOfActions { display: flex; justify-content: flex-end; gap: 6px; }
+.owner { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--radius-small); padding: 0 6px; }

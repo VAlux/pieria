@@ -122,6 +122,12 @@ Endpoints added for the console (all under `/v1`):
   always carry timings and per-memory channels
 - `/pieria-status` reports host, bound port, `apiVersion`, daemon version and
   whether a restart is possible
+- profile tree (API version 3): `PUT profiles/{name}` takes an optional
+  `{"parent"}` body, `PATCH profiles/{name}` moves a profile, the listing and
+  `stats` carry `parent` (stats also `subProfiles`, `subtreeActive`), and a
+  recall over sub-profiles names each memory's owning `profile`. The console's
+  Profiles page (`/p/{name}/profiles`) creates, moves (drag and drop, or a
+  "Move to…" menu) and deletes profiles
 
 Console checks: `npm ci && npm run typecheck && npm test && npm run build` in
 `console/`. `PIERIA_DAEMON_URL=http://127.0.0.1:8078 npm run dev` points the dev

@@ -12,4 +12,10 @@ public class ConflictException extends RuntimeException {
   public static ConflictException profileExists(String name) {
     return new ConflictException("A profile named '" + name + "' already exists");
   }
+
+  public static ConflictException profileCycle(String name, String parent) {
+    return name.equals(parent)
+      ? new ConflictException("Profile '" + name + "' cannot be its own parent")
+      : new ConflictException("Profile '" + parent + "' is inside '" + name + "', so it cannot become its parent");
+  }
 }

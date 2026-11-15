@@ -3,6 +3,7 @@ package dev.alvo.pieria.profile;
 import dev.alvo.pieria.config.PieriaProperties;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.model.usage.InferenceTier;
@@ -37,6 +38,7 @@ public class ProfileStatsService {
 
     ProfileStats stats = store.profileStats(profile.id());
     Long backlog = store.vectorizationOutboxDepth().stream().boxed().findFirst().orElse(null);
+    Tree tree = treeOf(profile, stats.totalActive());
 
     return new ProfileStatsView(
       profile.name(),
@@ -49,7 +51,29 @@ public class ProfileStatsService {
       stats.lastMemoryAt(),
       backlog,
       impactOf(store.usageStats(profile.id())),
-      spendOf(store.inferenceUsage(profile.id())));
+      spendOf(store.inferenceUsage(profile.id())),
+      tree.parent(), tree.subProfiles(), tree.subtreeActive());
+  }
+
+  private record Tree(String parent, int subProfiles, long subtreeActive) {
+  }
+
+  /**
+   * Where the profile sits and what a recall on it reads: its own active memories plus those of
+   * every profile below it. The listing is only read when there is a parent or a sub-profile.
+   */
+  private Tree treeOf(Profile profile, long ownActive) {
+    List<String> subtree = store.profileSubtree(profile.id());
+    if (subtree.size() == 1 && profile.parentId() == null) {
+      return new Tree(null, 0, ownActive);
+    }
+    Map<String, ProfileCount> byId = new java.util.HashMap<>();
+    store.listProfiles().forEach(count -> byId.put(count.profile().id(), count));
+    long descendantsActive = subtree.stream().skip(1)
+      .map(byId::get).filter(java.util.Objects::nonNull)
+      .mapToLong(ProfileCount::activeCount).sum();
+    ProfileCount own = byId.get(profile.id());
+    return new Tree(own == null ? null : own.parentName(), subtree.size() - 1, ownActive + descendantsActive);
   }
 
   /**
@@ -126,6 +150,7 @@ public class ProfileStatsService {
   public record ProfileStatsView(String name, Instant createdAt, long totalActive,
                                  Map<String, Long> byType, long superseded, long sessions,
                                  Instant firstMemoryAt, Instant lastMemoryAt, Long backlog,
-                                 ImpactView impact, SpendView spend) {
+                                 ImpactView impact, SpendView spend,
+                                 String parent, int subProfiles, long subtreeActive) {
   }
 }

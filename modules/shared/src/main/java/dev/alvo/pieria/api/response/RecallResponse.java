@@ -27,8 +27,17 @@ public record RecallResponse(String answer, List<MemoryResponse> memories,
   public record Timings(long retrieveMs, long rerankMs, long synthesizeMs, long totalMs, long analysisMs,
                         long embeddingMs, long channelsMs, long fusionMs) {}
 
-  /** Which retrieval channels surfaced each returned memory, strongest contribution first. */
-  public record MemorySource(String memoryId, int rank, List<String> channels) {}
+  /**
+   * Which retrieval channels surfaced each returned memory, strongest contribution first, and, on a
+   * recall that read a profile together with the profiles below it, which profile owns the memory.
+   */
+  public record MemorySource(String memoryId, int rank, List<String> channels,
+                             @JsonInclude(JsonInclude.Include.NON_NULL) String profile) {
+
+    public MemorySource(String memoryId, int rank, List<String> channels) {
+      this(memoryId, rank, channels, null);
+    }
+  }
 
   /** One channel's raw hits (before fusion) and latency for this recall. */
   public record ChannelSummary(String channel, int hits, long latencyMs, boolean failed) {}

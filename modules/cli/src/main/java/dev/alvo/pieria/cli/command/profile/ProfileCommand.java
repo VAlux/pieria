@@ -5,7 +5,7 @@ import picocli.CommandLine.Command;
 
 /**
  * {@code pieria profile} — work with memory profiles and their contents in the local daemon:
- * list profiles, inspect statistics, and list/recall/store/forget/export memories. {@code resolve}
+ * list profiles, arrange them in a tree, inspect statistics, and list/recall/store/forget/export memories. {@code resolve}
  * preserves the original behavior of printing the profile slug for a directory.
  */
 @Command(
@@ -15,6 +15,7 @@ import picocli.CommandLine.Command;
   subcommands = {
     ProfileListCommand.class,
     ProfileCreateCommand.class,
+    ProfileParentCommand.class,
     ProfileDeleteCommand.class,
     ProfileStatsCommand.class,
     ProfileMemoriesCommand.class,

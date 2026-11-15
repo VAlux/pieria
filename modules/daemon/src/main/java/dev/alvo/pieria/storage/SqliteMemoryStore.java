@@ -28,6 +28,7 @@ import dev.alvo.pieria.domain.memory.SessionActivity;
 import dev.alvo.pieria.domain.memory.TopicKeyEntry;
 import dev.alvo.pieria.domain.profile.Profile;
 import dev.alvo.pieria.domain.profile.ProfileCount;
+import dev.alvo.pieria.domain.profile.ProfileScope;
 import dev.alvo.pieria.domain.profile.ProfileStats;
 import dev.alvo.pieria.domain.profile.ProfileUsage;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
@@ -95,14 +96,27 @@ public class SqliteMemoryStore implements MemoryStore {
   public boolean eligibleClusterMemory(String profileId,String memoryId,TemporalSnapshot snapshot,
                                        boolean excludeCodeDerived) {
     return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
-      .eligibleMemory(profileId,memoryId,snapshot,excludeCodeDerived);
+      .eligibleMemory(owningProfileInScope(profileId,memoryId),memoryId,snapshot,excludeCodeDerived);
   }
 
   @Override
   public Set<String> clusterCoveredOriginals(String profileId,String memoryId,String query,
                                              TemporalSnapshot snapshot) {
     return new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
-      .coveredOriginals(profileId,memoryId,query,snapshot);
+      .coveredOriginals(owningProfileInScope(profileId,memoryId),memoryId,query,snapshot);
+  }
+
+  /**
+   * A cluster belongs to the profile its memory lives in, and its structure is only meaningful
+   * there. When a recall reads a subtree, a child's cluster is therefore judged in the child;
+   * otherwise, or for a memory outside the scope, the requested profile is used unchanged.
+   */
+  private String owningProfileInScope(String profileId,String memoryId) {
+    var scope=ProfileScopeSql.widening(profileId);
+    if(scope==null) return profileId;
+    String owner=jdbc.sql("SELECT profile_id FROM memories WHERE id=?").param(memoryId)
+      .query(String.class).optional().orElse(null);
+    return owner!=null && scope.contains(owner) ? owner : profileId;
   }
 
   @Override
@@ -119,10 +133,10 @@ public class SqliteMemoryStore implements MemoryStore {
       JOIN cluster_claims claim ON claim.rowid=cluster_claims_fts.rowid
       JOIN cluster_syntheses s ON s.id=claim.synthesis_id
       JOIN clusters c ON c.id=s.cluster_id
-      WHERE cluster_claims_fts MATCH ? AND c.profile_id=?
+      WHERE cluster_claims_fts MATCH ? AND %s
       GROUP BY s.memory_id ORDER BY MAX(s.recorded_sequence) DESC,s.memory_id
       LIMIT ?
-      """).params(match,profileId,Math.min(300,limit*3)).query(String.class).list());
+      """.formatted(ProfileScopeSql.matches("c.profile_id",profileId))).params(match,profileId,Math.min(300,limit*3)).query(String.class).list());
     if(queryEmbedding!=null && isVectorSearchAvailable()) {
       try {
         record ClaimVector(String memoryId,byte[] embedding) {}
@@ -130,9 +144,9 @@ public class SqliteMemoryStore implements MemoryStore {
           SELECT s.memory_id,claim.embedding FROM cluster_claims claim
           JOIN cluster_syntheses s ON s.id=claim.synthesis_id
           JOIN clusters c ON c.id=s.cluster_id
-          WHERE c.profile_id=? AND claim.embedding IS NOT NULL
+          WHERE %s AND claim.embedding IS NOT NULL
           ORDER BY vec_distance_L2(claim.embedding,?),s.recorded_sequence DESC LIMIT ?
-          """).params(profileId,encodeEmbedding(queryEmbedding),Math.min(300,limit*3))
+          """.formatted(ProfileScopeSql.matches("c.profile_id",profileId))).params(profileId,encodeEmbedding(queryEmbedding),Math.min(300,limit*3))
           .query((rs,_) -> new ClaimVector(rs.getString(1),rs.getBytes(2))).list()) {
           float[] vector=decodeEmbedding(hit.embedding());
           if(vector.length==queryEmbedding.length &&
@@ -155,10 +169,16 @@ public class SqliteMemoryStore implements MemoryStore {
   public List<Memory> relevantClusterParents(String profileId,List<String> seedMemoryIds,String query,
                                               TemporalSnapshot snapshot,boolean excludeCodeDerived,int limit) {
     List<Memory> result=new ArrayList<>();
-    for(String id:new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
-        .relevantParents(profileId,seedMemoryIds,query,snapshot,limit)) {
-      if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
-      atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+    // Each profile's clusters form their own graph, so a subtree recall walks each one in turn.
+    var scope=ProfileScopeSql.widening(profileId);
+    List<String> profiles=scope==null?List.of(profileId):scope.ids();
+    for(String owner:profiles) {
+      for(String id:new dev.alvo.pieria.cluster.SqliteClusterStore(jdbc,this)
+          .relevantParents(owner,seedMemoryIds,query,snapshot,limit)) {
+        if(result.size()>=limit) return result;
+        if(!eligibleClusterMemory(profileId,id,snapshot,excludeCodeDerived)) continue;
+        atSnapshot(snapshot,()->findMemoryById(id)).ifPresent(result::add);
+      }
     }
     return result;
   }
@@ -290,6 +310,11 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public <T> T atSourceFilter(SourceFilter filter, Supplier<T> action) {
     return ScopedValue.where(SOURCES, filter).call(action::get);
+  }
+
+  @Override
+  public <T> T atProfileScope(ProfileScope scope, Supplier<T> action) {
+    return ProfileScopeSql.within(scope, action);
   }
 
   private final JdbcClient jdbc;
@@ -492,7 +517,8 @@ public class SqliteMemoryStore implements MemoryStore {
     return new Profile(
       rs.getString("id"),
       rs.getString("name"),
-      Instant.parse(rs.getString("created_at")));
+      Instant.parse(rs.getString("created_at")),
+      rs.getString("parent_id"));
   }
 
   private static Memory mapMemory(ResultSet rs) throws SQLException {
@@ -570,7 +596,7 @@ public class SqliteMemoryStore implements MemoryStore {
    * One direction of the neighbour lookup: match the frontier on {@code fromColumn}, return the
    * entity on {@code toColumn}. Parameters bind in the order (profileId, frontier…, types…).
    */
-  private static String neighborBranch(String fromColumn, String toColumn,
+  private static String neighborBranch(String profileId, String fromColumn, String toColumn,
                                        List<String> frontier, List<String> types) {
     String frontierParams = String.join(", ", frontier.stream().map(_ -> "?").toList());
     String typeJoin = types.isEmpty() ? ""
@@ -579,7 +605,8 @@ public class SqliteMemoryStore implements MemoryStore {
       : " AND en.type IN (" + String.join(", ", types.stream().map(_ -> "?").toList()) + ")";
     return "SELECT " + toColumn + " AS neighbor, e.created_at AS ca FROM edges e "
       + "JOIN memories m ON m.id = e.memory_id" + typeJoin + " "
-      + "WHERE e.profile_id = ? AND " + known("e") + " AND " + active("m") + " AND " + fromColumn + " IN (" + frontierParams + ")"
+      + "WHERE " + ProfileScopeSql.matches("e.profile_id", profileId) + " AND " + known("e") + " AND " + active("m")
+      + " AND " + fromColumn + " IN (" + frontierParams + ")"
       + typeFilter;
   }
 
@@ -660,12 +687,58 @@ public class SqliteMemoryStore implements MemoryStore {
       DELETE FROM profile_audit_events
       WHERE profile_id = ? OR profile_name = (SELECT name FROM profiles WHERE id = ?)
       """).params(profileId, profileId).update();
+    // Children are not part of the deleted profile: they move up to its parent (or to top level).
+    jdbc.sql("UPDATE profiles SET parent_id = (SELECT parent_id FROM profiles WHERE id = ?) WHERE parent_id = ?")
+      .params(profileId, profileId).update();
     jdbc.sql("DELETE FROM profiles WHERE id = ?").param(profileId).update();
   }
 
   @Override
+  @Transactional
+  public Profile createProfile(String name, String parentId) {
+    return MemoryStore.super.createProfile(name, parentId);
+  }
+
+  @Override
+  public void setProfileParent(String profileId, String parentId) {
+    jdbc.sql("UPDATE profiles SET parent_id = ? WHERE id = ?").params(parentId, profileId).update();
+  }
+
+  @Override
+  public List<String> profileSubtree(String profileId) {
+    // Breadth-first by depth, then by name, so the requested profile always comes first and the
+    // order is stable from one recall to the next.
+    return jdbc.sql("""
+        WITH RECURSIVE tree(id, name, depth) AS (
+          SELECT id, name, 0 FROM profiles WHERE id = ?
+          UNION
+          SELECT p.id, p.name, t.depth + 1 FROM profiles p JOIN tree t ON p.parent_id = t.id
+        )
+        SELECT id FROM tree ORDER BY depth, name
+        """)
+      .param(profileId)
+      .query(String.class)
+      .list();
+  }
+
+  @Override
+  public Map<String, String> memoryOwnerNames(Collection<String> memoryIds) {
+    if (memoryIds.isEmpty()) {
+      return Map.of();
+    }
+    String placeholders = String.join(",", Collections.nCopies(memoryIds.size(), "?"));
+    Map<String, String> owners = new LinkedHashMap<>();
+    jdbc.sql("SELECT m.id, p.name FROM memories m JOIN profiles p ON p.id = m.profile_id WHERE m.id IN (" + placeholders + ")")
+      .params(List.copyOf(memoryIds))
+      .query((rs, _) -> Map.entry(rs.getString(1), rs.getString(2)))
+      .list()
+      .forEach(e -> owners.put(e.getKey(), e.getValue()));
+    return owners;
+  }
+
+  @Override
   public Optional<Profile> findProfile(String name) {
-    return jdbc.sql("SELECT id, name, created_at FROM profiles WHERE name = ?")
+    return jdbc.sql("SELECT id, name, created_at, parent_id FROM profiles WHERE name = ?")
       .param(name)
       .query((rs, _) -> mapProfile(rs))
       .optional();
@@ -674,14 +747,14 @@ public class SqliteMemoryStore implements MemoryStore {
   @Override
   public List<ProfileCount> listProfiles() {
     // The temporal visibility predicate is evaluated once per memory row, then aggregated per profile.
-    return jdbc.sql("SELECT p.id, p.name, p.created_at, COALESCE(a.n, 0) AS active_count, COALESCE(a.s, 0) AS session_count,"
-        + " a.last_at FROM profiles p LEFT JOIN (SELECT m.profile_id, COUNT(*) AS n, COUNT(DISTINCT m.session_id) AS s,"
+    return jdbc.sql("SELECT p.id, p.name, p.created_at, p.parent_id, pp.name AS parent_name, COALESCE(a.n, 0) AS active_count,"
+        + " COALESCE(a.s, 0) AS session_count, a.last_at FROM profiles p LEFT JOIN profiles pp ON pp.id = p.parent_id LEFT JOIN (SELECT m.profile_id, COUNT(*) AS n, COUNT(DISTINCT m.session_id) AS s,"
         + " MAX(m.created_at) AS last_at FROM memories m WHERE " + active("m") + " GROUP BY m.profile_id) a"
         + " ON a.profile_id = p.id ORDER BY p.name")
       .query((rs, _) -> {
         String last = rs.getString("last_at");
         return new ProfileCount(mapProfile(rs), rs.getLong("active_count"), rs.getLong("session_count"),
-          last == null ? null : Instant.parse(last));
+          last == null ? null : Instant.parse(last), rs.getString("parent_name"));
       })
       .list();
   }
@@ -762,7 +835,7 @@ public class SqliteMemoryStore implements MemoryStore {
     params.addAll(ids);
 
     Long sum = jdbc.sql("SELECT COALESCE(SUM(source_tokens), 0) FROM memories "
-        + "WHERE profile_id = ? AND " + active("") + " AND id IN (" + placeholders + ")")
+        + "WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND " + active("") + " AND id IN (" + placeholders + ")")
       .params(params)
       .query(Long.class)
       .single();
@@ -1620,8 +1693,8 @@ public class SqliteMemoryStore implements MemoryStore {
     for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
       List<Memory> page=jdbc.sql(
           "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND m.profile_id "
-            + "= ? AND " + active("m") + " ORDER BY f.rank,m.id LIMIT ? OFFSET ?")
+            + "m.created_at FROM memories_fts f JOIN memories m ON m.rowid = f.rowid WHERE memories_fts MATCH ? AND "
+            + ProfileScopeSql.matches("m.profile_id", profileId) + " AND " + active("m") + " ORDER BY f.rank,m.id LIMIT ? OFFSET ?")
         .params(match,profileId,Math.min(pageSize,300-offset),offset)
         .query((rs, _) -> mapMemory(rs)).list();
       for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
@@ -1644,10 +1717,12 @@ public class SqliteMemoryStore implements MemoryStore {
     // for the session, then recency. The safety net for verbatim details the extractor generalized.
     return jdbc.sql(
         "SELECT m.id, m.session_id, m.type, m.content, m.topic_key, m.supersedes, m.superseded, m.payload, m.embed_text, "
-            + "m.created_at FROM memories m JOIN (   SELECT msg.session_id AS sid, MIN(f.rank) AS best_rank   FROM messages_fts f "
+            + "m.created_at FROM memories m JOIN (   SELECT msg.profile_id AS pid, msg.session_id AS sid, MIN(f.rank) AS best_rank   FROM messages_fts f "
             // The recorded-time predicates otherwise make SQLite drive this join from messages
             // and re-scan the FTS5 table once per profile message. CROSS JOIN pins FTS5 first.
-            + "  CROSS JOIN messages msg ON msg.rowid = f.rowid   WHERE messages_fts MATCH ? AND msg.profile_id = ? AND " + known("msg") + "   GROUP BY msg.session_id ) hit ON hit.sid = m.session_id WHERE m.profile_id = ? AND " + active("m") + " ORDER BY hit.best_rank, m.created_at DESC LIMIT ?")
+            + "  CROSS JOIN messages msg ON msg.rowid = f.rowid   WHERE messages_fts MATCH ? AND " + ProfileScopeSql.matches("msg.profile_id", profileId) + " AND " + known("msg")
+            + "   GROUP BY msg.profile_id, msg.session_id ) hit ON hit.sid = m.session_id AND hit.pid = m.profile_id WHERE "
+            + ProfileScopeSql.matches("m.profile_id", profileId) + " AND " + active("m") + " ORDER BY hit.best_rank, m.created_at DESC LIMIT ?")
       .params(match, profileId, profileId, limit)
       .query((rs, _) -> mapMemory(rs))
       .list();
@@ -1679,7 +1754,7 @@ public class SqliteMemoryStore implements MemoryStore {
 
     List<Memory> matches = jdbc.sql(
         "SELECT " + MEMORY_COLUMNS + " FROM memories "
-          + "WHERE profile_id = ? AND type IN (?, ?) AND " + active("") + " "
+          + "WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND type IN (?, ?) AND " + active("") + " "
           + "AND topic_key IN (" + placeholders + ") "
           + "ORDER BY created_at DESC LIMIT ?")
       .params(params)
@@ -1708,8 +1783,8 @@ public class SqliteMemoryStore implements MemoryStore {
     byte[] encoded=encodeEmbedding(queryEmbedding);
     List<Memory> eligible=new ArrayList<>();
     for(int offset=0;offset<300 && eligible.size()<limit;offset+=pageSize) {
-      List<Memory> page=jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE profile_id = ? AND " + active("")
-          + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ? OFFSET ?")
+      List<Memory> page=jdbc.sql("SELECT " + MEMORY_COLUMNS + " FROM memories WHERE " + ProfileScopeSql.matches("profile_id", profileId)
+          + " AND " + active("") + " AND type != ? AND embedding IS NOT NULL ORDER BY vec_distance_L2(embedding, ?), id LIMIT ? OFFSET ?")
         .params(profileId,MemoryType.TASK.wire(),encoded,Math.min(pageSize,300-offset),offset)
         .query((rs, _) -> mapMemory(rs)).list();
       for(Memory memory:page) if(memory.type()!=MemoryType.CLUSTER ||
@@ -1740,7 +1815,8 @@ public class SqliteMemoryStore implements MemoryStore {
     record Row(String id, byte[] embedding) {
     }
     List<Row> rows = jdbc.sql(
-        "SELECT id, embedding FROM memories WHERE profile_id = ? AND embedding IS NOT NULL "
+        "SELECT id, embedding FROM memories WHERE " + ProfileScopeSql.matches("profile_id", profileId)
+          + " AND embedding IS NOT NULL "
           + "AND id IN (" + placeholders + ")")
       .params(params)
       .query((rs, _) -> new Row(rs.getString("id"), rs.getBytes("embedding")))
@@ -1956,7 +2032,7 @@ public class SqliteMemoryStore implements MemoryStore {
     params.addAll(distinct);
     params.add(limit);
     return jdbc.sql("SELECT " + ENTITY_COLUMNS + " FROM entities "
-        + "WHERE profile_id = ? AND name IN (" + placeholders + ") ORDER BY name LIMIT ?")
+        + "WHERE " + ProfileScopeSql.matches("profile_id", profileId) + " AND name IN (" + placeholders + ") ORDER BY name LIMIT ?")
       .params(params)
       .query((rs, _) -> mapEntity(rs))
       .list();
@@ -1981,7 +2057,7 @@ public class SqliteMemoryStore implements MemoryStore {
         + "FROM entities en "
         + "JOIN edges e ON (e.source_entity_id = en.id OR e.target_entity_id = en.id) "
         + "JOIN memories m ON m.id = e.memory_id "
-        + "WHERE en.profile_id = ? AND " + known("e") + " AND " + active("m") + " "
+        + "WHERE " + ProfileScopeSql.matches("en.profile_id", profileId) + " AND " + known("e") + " AND " + active("m") + " "
         + "AND e.memory_id IN (" + placeholders + ") "
         + "ORDER BY en.name LIMIT ?")
       .params(params)
@@ -2035,8 +2111,8 @@ public class SqliteMemoryStore implements MemoryStore {
     }
     // One branch per direction, each an index-friendly equality lookup on the frontier. A single
     // OR'd predicate would defeat idx_edge_source / idx_edge_target.
-    String outgoing = neighborBranch("e.source_entity_id", "e.target_entity_id", frontier, types);
-    String incoming = neighborBranch("e.target_entity_id", "e.source_entity_id", frontier, types);
+    String outgoing = neighborBranch(profileId, "e.source_entity_id", "e.target_entity_id", frontier, types);
+    String incoming = neighborBranch(profileId, "e.target_entity_id", "e.source_entity_id", frontier, types);
 
     List<Object> params = new ArrayList<>();
     params.add(profileId);
@@ -2087,10 +2163,10 @@ public class SqliteMemoryStore implements MemoryStore {
     List<Row> rows = jdbc.sql("SELECT m.id, m.session_id, m.type, m.content, m.topic_key, "
         + "m.supersedes, m.superseded, m.payload, m.embed_text, m.created_at, x.eid AS eid FROM ( "
         + "  SELECT e.memory_id AS mid, e.source_entity_id AS eid FROM edges e "
-        + "    WHERE e.profile_id = ? AND " + known("e") + " AND e.source_entity_id IN (" + placeholders + ") "
+        + "    WHERE " + ProfileScopeSql.matches("e.profile_id", profileId) + " AND " + known("e") + " AND e.source_entity_id IN (" + placeholders + ") "
         + "  UNION "
         + "  SELECT e.memory_id AS mid, e.target_entity_id AS eid FROM edges e "
-        + "    WHERE e.profile_id = ? AND " + known("e") + " AND e.target_entity_id IN (" + placeholders + ") "
+        + "    WHERE " + ProfileScopeSql.matches("e.profile_id", profileId) + " AND " + known("e") + " AND e.target_entity_id IN (" + placeholders + ") "
         + ") x JOIN memories m ON m.id = x.mid WHERE " + active("m") + "")
       .params(params)
       .query((rs, _) -> new Row(mapMemory(rs), rs.getString("eid")))
@@ -2140,7 +2216,7 @@ public class SqliteMemoryStore implements MemoryStore {
         + "m.superseded, m.payload, m.embed_text, m.created_at "
         + "FROM memories m, "
         + "json_each(CASE WHEN json_valid(m.payload) THEN m.payload ELSE '{}' END, '$.symbolIds') je "
-        + "WHERE m.profile_id = ? AND " + active("m") + " AND je.value IN (" + placeholders + ") "
+        + "WHERE " + ProfileScopeSql.matches("m.profile_id", profileId) + " AND " + active("m") + " AND je.value IN (" + placeholders + ") "
         + "GROUP BY m.id ORDER BY m.created_at DESC LIMIT ?")
       .params(params)
       .query((rs, _) -> mapMemory(rs))

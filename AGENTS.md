@@ -75,6 +75,17 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
   and filters read from it. Every path with no origin must keep byte-identical prompts, so harvesting
   cannot regress conversation extraction or synthesis. See
   `docs/phases/phase-16-knowledge-harvesters.md`.
+- **Profiles form a tree; only recall reads across it**: `profiles.parent_id` links a profile to its
+  parent, and names stay flat. Writes always land in one profile, and supersession, conflict
+  detection, clusters and the wiki stay per profile. A recall resolves the requested profile's
+  subtree once, next to the transaction watermark, and binds it as a `ProfileScope` the way it binds
+  the snapshot and source filter; the SQLite stores render each recall-path predicate through
+  `ProfileScopeSql.matches`, which widens only the primary profile's `profile_id = ?`. A profile
+  with no children must run exactly the SQL and prompts it did before, so the owner label
+  (`[profile: …]`) and its synthesis guidance appear only when the scope holds several profiles.
+  Competing keyed facts from different children are both returned, each labelled with its owner.
+  A child's cluster is judged in the child. The parent's config and usage counters apply. Deleting a
+  profile moves its children up to its parent. See `docs/phases/phase-17-hierarchical-profiles.md`.
 - **Harvest runs commit in order**: a run handles a harvester's records one at a time, so a saved
   cursor always means everything before it is stored, and it stands even if the run later fails. A
   `sweep` takes effect only after a clean exit, and the mass-delete guard can still hold it back.
@@ -90,6 +101,7 @@ The current state has the local daemon, ingestion/retrieval pipeline, MCP stdio 
 | POST | `/recall` | Run retrieval, return synthesized answer |
 | GET | `/memories` | List memories (filter by type/session) |
 | DELETE | `/memories/{id}` | Forget a memory |
+| PUT / PATCH / DELETE | `/` (the profile itself) | Create (optional parent), move under a parent, delete (children move up) |
 | GET | `/export` | Export all memories (NDJSON) |
 | various | `/sources`, `/v1/harvesters` | Harvest sources and installed harvesters; see `docs/phases/phase-16-knowledge-harvesters.md` |
 

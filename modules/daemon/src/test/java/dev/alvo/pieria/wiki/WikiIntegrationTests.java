@@ -348,7 +348,10 @@ class WikiIntegrationTests {
     var legacy=new HikariDataSource();legacy.setJdbcUrl("jdbc:sqlite:"+temp.resolve("legacy.db"));
     try(legacy) {
       Flyway.configure().dataSource(legacy).target("1").load().migrate();
-      var oldStore=new SqliteMemoryStore(JdbcClient.create(legacy));String p=oldStore.getOrCreateProfile("legacy").id();
+      var oldStore=new SqliteMemoryStore(JdbcClient.create(legacy));String p=java.util.UUID.randomUUID().toString();
+      // The profile row is written by hand: today's store reads columns a V1 schema does not have yet.
+      JdbcClient.create(legacy).sql("INSERT INTO profiles (id, name, created_at) VALUES (?, 'legacy', ?)")
+        .params(p,Instant.now().toString()).update();
       Memory memory=oldStore.insertMemory(p,Memory.of(MemoryType.EVENT,"Existing memory survives upgrade.","s","legacy",null));
       Flyway.configure().dataSource(legacy).load().migrate();
       var projection=new WikiProjectionService(oldStore);for(int i=0;i<10 && projection.tick(p,cfg);i++) {}

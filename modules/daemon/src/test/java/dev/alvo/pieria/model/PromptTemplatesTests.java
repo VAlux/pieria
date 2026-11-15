@@ -24,6 +24,7 @@ class PromptTemplatesTests {
     "extract-graph-batch",
     "analyze-query",
     "synthesize-recall",
+    "profile-synthesis-guidance",
     "summarize-code-file",
     "summarize-code-module",
     "summarize-code-architecture",

@@ -2,6 +2,8 @@ package dev.alvo.pieria.client;
 
 import dev.alvo.pieria.api.request.AuditListRequest;
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.ProfileCreateRequest;
+import dev.alvo.pieria.api.request.ProfileUpdateRequest;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
 import dev.alvo.pieria.api.request.RevisionRequest;
@@ -46,6 +48,21 @@ public final class ProfileClient {
 
   public ProfileSummary create(String name) {
     return transport.parse(transport.putEmpty(profile(name), Duration.ofSeconds(10)), ProfileSummary.class);
+  }
+
+  /** Create a profile under {@code parent}, or at top level when it is {@code null}. */
+  public ProfileSummary create(String name, String parent) {
+    if (parent == null) {
+      return create(name);
+    }
+    return transport.parse(transport.put(profile(name), new ProfileCreateRequest(parent), Duration.ofSeconds(10), false),
+      ProfileSummary.class);
+  }
+
+  /** Move a profile under {@code parent}, or to top level when it is {@code null}. */
+  public ProfileSummary setParent(String name, String parent) {
+    return transport.parse(transport.patch(profile(name), new ProfileUpdateRequest(parent), Duration.ofSeconds(10)),
+      ProfileSummary.class);
   }
 
   public void delete(String name) {

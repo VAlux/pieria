@@ -1,6 +1,8 @@
 package dev.alvo.pieria.api.controller;
 
 import dev.alvo.pieria.api.request.IngestRequest;
+import dev.alvo.pieria.api.request.ProfileCreateRequest;
+import dev.alvo.pieria.api.request.ProfileUpdateRequest;
 import dev.alvo.pieria.api.request.RecallMode;
 import dev.alvo.pieria.api.request.RecallRequest;
 import dev.alvo.pieria.api.request.RememberRequest;
@@ -34,6 +36,7 @@ import dev.alvo.pieria.domain.memory.MemorySearchQuery;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.memory.Message;
 import dev.alvo.pieria.domain.profile.Profile;
+import dev.alvo.pieria.domain.profile.ProfileCount;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.ingestion.ChunkLedgerMode;
 import dev.alvo.pieria.ingestion.IngestProgressListener;
@@ -59,6 +62,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -143,6 +147,9 @@ public class ProfileController {
     for (RecallCandidate candidate : candidates) {
       Memory memory = candidate.memory();
       block.append("- (").append(memory.type().wire()).append(") ");
+      if (candidate.ownerProfile() != null) {
+        block.append("[profile: ").append(candidate.ownerProfile()).append("] ");
+      }
       MemoryOrigins.parse(memory.payload())
         .ifPresent(origin -> block.append('[').append(origin.renderLabel()).append("] "));
       block.append(oneLine(memory.content(), 200)).append('\n');
@@ -186,7 +193,7 @@ public class ProfileController {
       String source = candidate.source() == null ? "" : candidate.source();
       String channels = source.startsWith("rrf:") ? source.substring(4) : source;
       out.add(new RecallResponse.MemorySource(candidate.memory().id(), i + 1,
-        channels.isBlank() ? List.of() : List.of(channels.split("\\+"))));
+        channels.isBlank() ? List.of() : List.of(channels.split("\\+")), candidate.ownerProfile()));
     }
     return out;
   }
@@ -228,9 +235,24 @@ public class ProfileController {
    */
   @PutMapping
   @ResponseStatus(HttpStatus.CREATED)
-  public ProfileSummary create(@PathVariable String name) {
-    Profile profile = profileService.create(name);
-    return new ProfileSummary(profile.name(), profile.createdAt(), 0);
+  public ProfileSummary create(@PathVariable String name,
+                               @RequestBody(required = false) ProfileCreateRequest request) {
+    String parent = request == null ? null : request.parent();
+    Profile profile = profileService.create(name, parent);
+    return new ProfileSummary(profile.name(), profile.createdAt(), 0, 0, null, parent);
+  }
+
+  /**
+   * Move a profile under another one, or to top level with {@code "parent": null}. Only recall
+   * reads across the tree, so this never moves or copies memories. A {@code 404} for an unknown
+   * profile or parent, a {@code 409} when the parent is the profile itself or one of its
+   * descendants.
+   */
+  @PatchMapping
+  public ProfileSummary update(@PathVariable String name, @RequestBody ProfileUpdateRequest request) {
+    ProfileCount p = profileService.setParent(name, request.parent());
+    return new ProfileSummary(p.profile().name(), p.profile().createdAt(), p.activeCount(), p.sessionCount(),
+      p.lastMemoryAt(), p.parentName());
   }
 
   /**
@@ -392,7 +414,9 @@ public class ProfileController {
       SourceFilter.of(request.includeSources(), request.excludeSources()));
 
     List<MemoryResponse> memories = result.candidates().stream()
-      .map(candidate -> this.memoryResponseConverter.convert(candidate.memory()).withValidity(profileService.validity(candidate.memory().id(), result.snapshot())))
+      .map(candidate -> this.memoryResponseConverter.convert(candidate.memory())
+        .withValidity(profileService.validity(candidate.memory().id(), result.snapshot()))
+        .withProfile(candidate.ownerProfile()))
       .toList();
 
     return new RecallResponse(result.answer(), memories, codeEvidence(result), debug ? debugBlock(result) : null,
@@ -444,7 +468,7 @@ public class ProfileController {
 
     return new ProfileStatsResponse(
       s.name(), s.createdAt(), s.totalActive(), s.byType(), s.superseded(), s.sessions(),
-      s.firstMemoryAt(), s.lastMemoryAt(), s.backlog(), impact, spend);
+      s.firstMemoryAt(), s.lastMemoryAt(), s.backlog(), impact, spend, s.parent(), s.subProfiles(), s.subtreeActive());
   }
 
   @GetMapping("/memories")

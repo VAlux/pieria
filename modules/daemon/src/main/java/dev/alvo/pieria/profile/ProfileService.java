@@ -5,6 +5,7 @@ import dev.alvo.pieria.api.response.RevisionResponse;
 import dev.alvo.pieria.api.response.TemporalValidity;
 import dev.alvo.pieria.api.response.FactHistoryResponse;
 import dev.alvo.pieria.domain.ExportRow;
+import dev.alvo.pieria.domain.error.ConflictException;
 import dev.alvo.pieria.domain.error.NotFoundException;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemorySearchPage;
@@ -42,7 +43,42 @@ public class ProfileService {
   }
 
   public Profile create(String name) {
-    return store.createProfile(name);
+    return create(name, null);
+  }
+
+  /**
+   * Create an empty profile under {@code parentName}, or at top level when it is {@code null}. An
+   * unknown parent is a 404 and nothing is created.
+   */
+  public Profile create(String name, String parentName) {
+    String parentId = parentName == null ? null : findOrThrow(parentName).id();
+    return store.createProfile(name, parentId);
+  }
+
+  /**
+   * Move a profile under {@code parentName}, or to top level when it is {@code null}. Moving a
+   * profile under itself or under one of its own descendants would make a cycle and is a 409.
+   */
+  public ProfileCount setParent(String name, String parentName) {
+    Profile profile = findOrThrow(name);
+    String parentId = null;
+    if (parentName != null) {
+      Profile parent = findOrThrow(parentName);
+      if (store.profileSubtree(profile.id()).contains(parent.id())) {
+        throw ConflictException.profileCycle(name, parentName);
+      }
+      parentId = parent.id();
+    }
+    store.setProfileParent(profile.id(), parentId);
+    return summary(name);
+  }
+
+  /** The listing row for one profile, as GET /v1/profiles would show it. */
+  public ProfileCount summary(String name) {
+    return store.listProfiles().stream()
+      .filter(count -> count.profile().name().equals(name))
+      .findFirst()
+      .orElseThrow(() -> NotFoundException.profile(name));
   }
 
   public void delete(String name) {

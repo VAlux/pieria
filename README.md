@@ -526,12 +526,18 @@ pieria config show | config sync                   # inspect / push layered conf
 pieria update                                      # self-update binaries and restart
 ```
 
+Profiles can nest like folders. Each agent keeps writing to its own profile, and a recall on a
+profile also reads every profile below it, so a parent answers for all of its projects at once.
+Each recalled memory then names the profile it came from. Arrange the tree with
+`pieria profile parent` or by dragging profiles on the console's Profiles page.
+
 Profile management and direct store access live under `pieria profile`:
 
 ```bash
-pieria profile list                    # every profile the daemon knows about
+pieria profile list                    # every profile the daemon knows about, as a tree
 pieria profile resolve                 # which profile this directory maps to
-pieria profile create <name>           # create an empty profile
+pieria profile create <name>           # create an empty profile (--parent <p> to nest it)
+pieria profile parent <name> <parent>  # put a profile under another (--none for top level)
 pieria profile delete <name>           # delete a profile and all its memories
 pieria profile stats <name>            # counts, storage, and inference spend
 pieria profile memories <name>         # list memories (filter by type/session)
@@ -551,8 +557,9 @@ The daemon exposes an HTTP API on `127.0.0.1:8077`. Most routes are scoped by pr
 | Method | Path                                  | Purpose                                     |
 |--------|---------------------------------------|---------------------------------------------|
 | GET    | `/v1/profiles`                        | List profiles.                              |
-| PUT    | `/v1/profiles/{name}`                 | Create a profile.                           |
-| DELETE | `/v1/profiles/{name}`                 | Delete a profile and its memories.          |
+| PUT    | `/v1/profiles/{name}`                 | Create a profile; optional body `{"parent": "…"}`. |
+| PATCH  | `/v1/profiles/{name}`                 | Move a profile: `{"parent": "…"}` or `null`. |
+| DELETE | `/v1/profiles/{name}`                 | Delete a profile and its memories; its sub-profiles move up. |
 | POST   | `/v1/profiles/{name}/ingest`          | Bulk-extract memories from a conversation.  |
 | POST   | `/v1/profiles/{name}/ingest/transcript` | Stream a transcript as NDJSON.            |
 | POST   | `/v1/profiles/{name}/ingest/async`    | Same, submitted as a background task.       |

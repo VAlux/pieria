@@ -99,7 +99,12 @@ public class ProfileAuditFilter extends OncePerRequestFilter {
     if (rest.startsWith("wiki/pages/")) return rest.endsWith("/evaluate") ? "wiki.evaluate"
       : rest.endsWith("/evidence") ? "wiki.evidence" : "wiki.read";
     return switch (rest) {
-      case "" -> method.equals("PUT") ? "profile.create" : method.equals("DELETE") ? "profile.delete" : "profile.read";
+      case "" -> switch (method) {
+        case "PUT" -> "profile.create";
+        case "PATCH" -> "profile.update";
+        case "DELETE" -> "profile.delete";
+        default -> "profile.read";
+      };
       case "ingest" -> "ingest";
       case "ingest/transcript" -> "ingest.transcript";
       case "ingest/async" -> "ingest.async";

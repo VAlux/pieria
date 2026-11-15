@@ -11,6 +11,7 @@ import dev.alvo.pieria.api.response.TemporalValidity;
 import dev.alvo.pieria.domain.memory.Memory;
 import dev.alvo.pieria.domain.memory.MemoryOrigins;
 import dev.alvo.pieria.domain.memory.SourceFilter;
+import dev.alvo.pieria.domain.profile.ProfileScope;
 import dev.alvo.pieria.domain.memory.MemoryType;
 import dev.alvo.pieria.domain.temporal.TemporalSnapshot;
 import dev.alvo.pieria.model.ModelGateway;
@@ -260,6 +261,9 @@ public class RetrievalService {
       return new RecallResult(null, List.of(), List.of(), List.of(), null, snapshot);
     }
     LOGGER.debug("recall resolved profile name={} id={}", profileName, profile.id());
+    // The profiles below this one are read too. Resolved once, next to the watermark, so every
+    // channel of this recall sees the same tree.
+    ProfileScope scope = new ProfileScope(profile.id(), store.profileSubtree(profile.id()));
 
     // Per-profile effective config: global properties overlaid with any pushed overrides. The
     // request's mode wins when set; otherwise the profile's configured default tier applies.
@@ -295,7 +299,7 @@ public class RetrievalService {
       RetrievalContext context = new RetrievalContext(
         profile.id(), query, analysis.value(),
         embeddings.value().query(), embeddings.value().hyde(), pipeline.channelLimit())
-        .withTemporal(snapshot).withSourceFilter(sourceFilter);
+        .withTemporal(snapshot).withSourceFilter(sourceFilter).withProfileScope(scope);
 
       List<ChannelDiagnostics> channelDiagnostics = new ArrayList<>();
       List<GraphEvidence> graphEvidence = new ArrayList<>();
@@ -306,7 +310,7 @@ public class RetrievalService {
       // Filtered before fusion so the limit still yields that many real hits.
       List<RerankDiagnostics> rerankDiagnostics = new ArrayList<>();
       List<SelectionDecision> selectionDiagnostics = debug ? new ArrayList<>() : null;
-      Timed<List<RecallCandidate>> fused = Timed.measure(() -> {
+      Timed<List<RecallCandidate>> fused = Timed.measure(() -> store.atProfileScope(scope, () -> {
         List<RetrievalCandidate> forFusion = excludeCodeDerived
           ? hits.value().stream().filter(h -> !isCodeDerived(h.memory())).toList()
           : hits.value();
@@ -318,9 +322,9 @@ public class RetrievalService {
             .filter(h -> context.sourceFilter().admits(originSourceId(h.memory())))
             .toList();
         }
-        return fuse(pipeline, forFusion, limit, profile.id(), context, mode, excludeCodeDerived, inferenceUsage,
-          rerankDiagnostics,selectionDiagnostics);
-      });
+        return labelOwners(scope, fuse(pipeline, forFusion, limit, profile.id(), context, mode, excludeCodeDerived,
+          inferenceUsage, rerankDiagnostics,selectionDiagnostics));
+      }));
       LOGGER.debug("recall fused profile={} rawHits={} evidence={} sources={} fusionMs={}",
         profileName, hits.value().size(), fused.value().size(), sourceCounts(fused.value()), fused.millis());
 
@@ -344,7 +348,10 @@ public class RetrievalService {
       LOGGER.debug("recall synthesis profile={} answerChars={} synthesisMs={}",
         profileName, answer.value() == null ? 0 : answer.value().length(), answer.millis());
 
-      recordUsage(profile.id(), fused.value(), answer.value());
+      store.atProfileScope(scope, () -> {
+        recordUsage(profile.id(), fused.value(), answer.value());
+        return null;
+      });
 
       RetrievalDiagnostics diagnostics = debug
         ? new RetrievalDiagnostics(analysis.value(), channelDiagnostics, rerankDiagnostics,selectionDiagnostics)
@@ -755,8 +762,22 @@ public class RetrievalService {
       Memory m = candidate.memory();
       Memory projected = new Memory(m.id(), m.sessionId(), m.type(), m.content(), m.topicKey(), null, false,
         m.type()==MemoryType.CLUSTER?m.payload():selected.getFirst().sourcePayload(), m.embedText(), m.createdAt());
-      return new RecallCandidate(projected, candidate.score(), candidate.source());
+      return new RecallCandidate(projected, candidate.score(), candidate.source(), candidate.ownerProfile());
     }).filter(Objects::nonNull).toList();
+  }
+
+  /**
+   * Names each memory's profile when the recall read a subtree. A single-profile recall is returned
+   * as is, so neither its result nor its synthesis prompt changes.
+   */
+  private List<RecallCandidate> labelOwners(ProfileScope scope, List<RecallCandidate> fused) {
+    if (scope.isSingle() || fused.isEmpty()) {
+      return fused;
+    }
+    Map<String, String> owners = store.memoryOwnerNames(fused.stream().map(c -> c.memory().id()).toList());
+    return fused.stream()
+      .map(c -> owners.containsKey(c.memory().id()) ? c.ownedBy(owners.get(c.memory().id())) : c)
+      .toList();
   }
 
   private String synthesize(String query, List<RecallCandidate> fused, List<TemporalFact> temporalFacts,
@@ -820,8 +841,8 @@ public class RetrievalService {
           channel.type(), channel.critical(), ctx.limit(), ctx.seedCandidates().size());
         futures.put(channel, exec.submit(() -> {
           LOGGER.debug("retrieval channel {} started", channel.type());
-          return Timed.measure(() -> store.atSourceFilter(ctx.sourceFilter(),
-            () -> store.atSnapshot(ctx.temporal(), () -> channel.retrieveWithEvidence(ctx))));
+          return Timed.measure(() -> store.atProfileScope(ctx.profileScope(), () -> store.atSourceFilter(ctx.sourceFilter(),
+            () -> store.atSnapshot(ctx.temporal(), () -> channel.retrieveWithEvidence(ctx)))));
         }));
       }
 

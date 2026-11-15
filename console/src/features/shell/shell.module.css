@@ -162,3 +162,5 @@
   .menu { display: none; }
   .nav[data-open='true'] .menu, .nav[data-open='true'] .commandButton, .nav[data-open='true'] .daemon { display: flex; }
 }
+
+.unknownActions { display: flex; flex-wrap: wrap; gap: 8px; }

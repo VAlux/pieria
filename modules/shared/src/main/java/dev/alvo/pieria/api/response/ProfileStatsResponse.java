@@ -18,6 +18,11 @@ import java.util.Map;
  * @param vectorizationBacklog pending vectorization-outbox depth, or {@code null} if unavailable
  * @param impact               lifetime token-savings counters, or {@code null} if not tracked
  * @param spend                lifetime real inference-token spend by tier, or {@code null} if none
+ * @param parent               the profile this one sits under, or {@code null} at top level
+ * @param subProfiles          how many profiles sit below this one, at any depth
+ * @param subtreeActive        active memories in this profile and every profile below it: what a
+ *                             recall on this profile reads; equal to {@code totalActive} when it has
+ *                             no sub-profiles
  */
 public record ProfileStatsResponse(String name,
                                    Instant createdAt,
@@ -29,7 +34,17 @@ public record ProfileStatsResponse(String name,
                                    Instant lastMemoryAt,
                                    Long vectorizationBacklog,
                                    ProfileImpact impact,
-                                   ProfileSpend spend) {
+                                   ProfileSpend spend,
+                                   String parent,
+                                   int subProfiles,
+                                   long subtreeActive) {
+
+  public ProfileStatsResponse(String name, Instant createdAt, long totalActive, Map<String, Long> byType,
+                              long superseded, long sessions, Instant firstMemoryAt, Instant lastMemoryAt,
+                              Long vectorizationBacklog, ProfileImpact impact, ProfileSpend spend) {
+    this(name, createdAt, totalActive, byType, superseded, sessions, firstMemoryAt, lastMemoryAt,
+      vectorizationBacklog, impact, spend, null, 0, totalActive);
+  }
 
   /**
    * Per-profile "Pieria impact": a lifetime, relative estimate (chars/4 heuristic) of the tokens

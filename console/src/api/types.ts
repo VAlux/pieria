@@ -9,6 +9,8 @@ export interface ProfileSummary {
   memoryCount: number;
   sessionCount?: number;
   lastMemoryAt?: string | null;
+  /** The profile this one sits under; absent or null at top level. */
+  parent?: string | null;
 }
 
 export interface HealthResponse {
@@ -61,6 +63,12 @@ export interface ProfileStats {
     totalCostUsd: number;
     costAvailable: boolean;
   };
+  /** The profile this one sits under, or null at top level. Absent from an older daemon. */
+  parent?: string | null;
+  /** Profiles below this one, at any depth. */
+  subProfiles?: number;
+  /** Active memories here and in every sub-profile: what a recall on this profile reads. */
+  subtreeActive?: number;
 }
 
 export interface TemporalValidity {
@@ -105,6 +113,8 @@ export interface Memory {
   createdAt: string | null;
   validity?: TemporalValidity[];
   assertions?: Revision[];
+  /** Owning profile; set only on a recall that read sub-profiles too. */
+  profile?: string;
 }
 
 export interface FactHistory {
