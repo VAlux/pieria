@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence) and 7 (Microsoft Teams) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence), 7 (Microsoft Teams) and 8 (the console Sources page) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -269,3 +269,11 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - **Deletions.** Teams never sweeps, because listing every live item would mean reading every message ever sent. Instead, the engine reports a `tombstone` for a listed change that loads as nothing: a day whose messages were all deleted, a deleted post, or a chat that now answers 404. A chat the user left is therefore forgotten only once Graph answers 404 for it. A tombstone for an item the daemon never stored, such as a day that only held system events, is ignored and not counted as a deletion.
   - **Modes.** `raw` mode suits high-volume chats, but it is a recommendation, not the default, because mode belongs to a source. To extract channels in full while keeping chats searchable only, add two sources: one with `includeChats` and `--mode raw`, one with `includeChats=false` and the channels.
   - Requests go only to `loginUrl` and `graphUrl`, which must be `https` except on a loopback host, and a next link outside `graphUrl` fails the run `transient`. The `HttpClient` plumbing Atlassian used now lives in a shared `JsonTransport`.
+- **Console Sources page, settled in phase 8.**
+  - Three routes under a profile: `sources` lists every source with its status, last run, next run and held-back deletions, and the installed harvesters; `sources/new` adds one; `sources/:id` shows its settings, credentials, actions and run history. The sidebar counts sources that need attention: a sign-in, a failed last run, or deletions held back.
+  - Forms are generated from the harvester's declared fields. A list is one item per line. Edits send only the changed keys, and a cleared key is sent as `null`, which the merge removes. A per-run limit can't be lifted, because the PATCH reads null as "keep".
+  - Harvesters are listed read-only. Installing and removing them stays in the CLI, because it takes a path on disk and an explicit decision to trust an executable that runs with your permissions.
+  - Secrets are write-only. They are password inputs on the add form and behind a Replace action on the detail page, are sent once, cleared after the submit, and never shown back; the page lists secret names only.
+  - A harvester with `oauth-device-code` signs in from a dialog that shows the provider's message, the code and the sign-in link (only when it is `https`), and polls the daemon every second. Closing the dialog stops the polling; the daemon ends the session when the code expires, and signing in again replaces it.
+  - A dry run starts a task and reads the run's counts and estimated chunks from its result, as the CLI does.
+  - The page needs no daemon change. The console is verified with `npm test`, `npm run typecheck` and `npm run build` in `console/`, which `./gradlew test` doesn't run.
