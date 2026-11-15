@@ -412,7 +412,7 @@ pieria source run docs --dry-run            # counts the work without calling th
 pieria source resume docs                   # new sources start paused
 ```
 
-Pieria ships three harvesters that need no install step: `html`, which crawls a website, and `jira` and `confluence`, which read Atlassian Cloud or Data Center.
+Pieria ships four harvesters that need no install step: `html`, which crawls a website, `jira` and `confluence`, which read Atlassian Cloud or Data Center, and `teams`, which reads Microsoft Teams.
 
 ```bash
 pieria source add html --id docs --set seeds=https://docs.example.com/ --set maxPages=200
@@ -431,6 +431,16 @@ pieria source add confluence --id acme-wiki --set baseUrl=https://acme.atlassian
 ```
 
 Each Jira issue becomes a thread of its description and comments, and each Confluence page or blog post a document. Later runs fetch only what changed. Once every `sweepHours` (default 24) a run lists every issue or page still in scope, and memories of the rest are forgotten.
+
+Teams signs in as you, with a code you enter in the browser. First register an app in Microsoft Entra: add the **Mobile and desktop applications** platform, turn on **Allow public client flows**, grant the delegated permissions `User.Read` and `Chat.Read`, and copy its Application (client) ID. Then:
+
+```bash
+pieria source add teams --id teams-chats --set clientId=<application-id> --mode raw
+pieria source authorize teams-chats         # shows a code to enter at microsoft.com/devicelogin
+pieria source run teams-chats --dry-run
+```
+
+Each chat becomes one item per day, in `timeZone` (default UTC). `--mode raw` keeps busy chats searchable without model calls. To read channels as well, add `Team.ReadBasic.All`, `Channel.ReadBasic.All` and `ChannelMessage.Read.All` to the app, set `channels` to names like `Eng/Ops`, and sign in again; `ChannelMessage.Read.All` needs a tenant admin's consent.
 
 Harvesters run with your user's permissions and are not sandboxed, so install only ones you trust. If a source's text would go to a remote model provider, `source add` says so. Harvested memories appear in recall labelled as untrusted. See `pieria source --help` for the other commands.
 

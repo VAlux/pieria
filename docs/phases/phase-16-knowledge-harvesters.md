@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler) and 6 (Jira and Confluence) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
+Phases 1 (origin-aware ingest and recall), 2 (protocol, SDK and conformance kit), 3 (daemon runtime), 4 (CLI and REST), 5 (`pieria-harvest` and the HTML crawler), 6 (Jira and Confluence) and 7 (Microsoft Teams) are complete. Later phases have not started. See "Amendments since approval" at the end of this document, which take precedence over the text above them.
 
 ## Context
 
@@ -251,3 +251,21 @@ Each phase ships and passes `./gradlew test` on its own. The design is recorded 
   - Jira bodies come from rendered HTML (`expand=renderedFields`, `renderedBody`) on both deployments, which avoids parsing ADF and wiki markup. Confluence bodies come from storage format, with macros reduced to the text a reader sees.
   - Confluence comments and attachments, and Jira attachments, are out of scope for v1.
   - Requests go only to `baseUrl`, redirects are never followed, and private addresses are allowed, because Data Center usually runs on an intranet and these harvesters never follow links taken from content. A `Retry-After` of up to 30 seconds is waited out in process, up to three times; longer ones end the run as `rate_limited`.
+- **Microsoft Teams, settled in phase 7.**
+  - **Sign-in is a third protocol command.** `authorize` emits one `device_code` record (`verificationUri`, `https` only; `userCode`, at most 64 characters; optional `message`; `expiresIn`, 1 to 3,600 seconds), waits for the user, and saves the credential with `secret_update`. It may emit nothing else apart from one `error` on failure. The daemon sends `authorize` only to harvesters that declare `oauth-device-code`, so protocol v1 stays compatible. `POST /v1/profiles/{name}/sources/{id}/authorize` starts it and returns the code; `GET` on the same path polls it. `pieria source authorize <id>` prints Microsoft's message and waits. The daemon runs one sign-in per source; it ends at the code's expiry plus 30 seconds, and a second `authorize`, removing the source or stopping the daemon kills it. A successful sign-in moves a `needs_auth` source back to `active`. `source add` skips its check for such a harvester until it has signed in.
+  - **Permissions** (Graph v1.0, delegated):
+
+    | Need | Permission | Admin consent |
+    |---|---|---|
+    | The signed-in user | `User.Read` | no |
+    | Chats, their messages and members | `Chat.Read` | no |
+    | Joined teams | `Team.ReadBasic.All` | no |
+    | A team's channels | `Channel.ReadBasic.All` | no |
+    | Channel posts and replies | `ChannelMessage.Read.All` | **yes** |
+
+    `offline_access` is always asked for, because without it Microsoft returns no refresh token. The channel permissions are asked for only when the config names channels. A sign-in missing one fails `auth`, and when the missing one is `ChannelMessage.Read.All` the message says an admin must consent.
+  - **Item shapes.** A chat becomes one thread per day in `timeZone`, `chat:<chatId>:<yyyy-MM-dd>`, so an edit re-extracts only that day. A channel post and its replies become one thread, `channel:<teamId>:<channelId>:<postId>`. System events, deleted messages and trivial replies are dropped. A message is trivial when, lower-cased and stripped of everything but letters, digits and spaces, it is empty or one of `ok`, `okay`, `k`, `kk`, `thanks`, `thank you`, `thx`, `ty`, `np`, `yes`, `no`, `yep`, `nope`, `sure`, `lol`, `cool`, `great`, `nice`, `done` or `1`. A channel post is kept even when trivial, because it opens the thread.
+  - **Change detection.** Graph's chat delta is application-only, so each chat is asked for messages whose `lastModifiedDateTime` is after the bound, which includes edits and soft deletions. A chat whose last message is more than seven days older than the bound is not asked at all; an edit in a chat silent for longer is missed until someone posts there again. Channels use the delegated delta with `$expand=replies`, which returns every reply chain created or changed after the bound. That delta reaches back only eight months, so `sinceDays` is at most 240.
+  - **Deletions.** Teams never sweeps, because listing every live item would mean reading every message ever sent. Instead, the engine reports a `tombstone` for a listed change that loads as nothing: a day whose messages were all deleted, a deleted post, or a chat that now answers 404. A chat the user left is therefore forgotten only once Graph answers 404 for it. A tombstone for an item the daemon never stored, such as a day that only held system events, is ignored and not counted as a deletion.
+  - **Modes.** `raw` mode suits high-volume chats, but it is a recommendation, not the default, because mode belongs to a source. To extract channels in full while keeping chats searchable only, add two sources: one with `includeChats` and `--mode raw`, one with `includeChats=false` and the channels.
+  - Requests go only to `loginUrl` and `graphUrl`, which must be `https` except on a loopback host, and a next link outside `graphUrl` fails the run `transient`. The `HttpClient` plumbing Atlassian used now lives in a shared `JsonTransport`.
