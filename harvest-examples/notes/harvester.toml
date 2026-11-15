@@ -1,0 +1,32 @@
+# A sample harvester: every Markdown and text file under a folder, as one document each.
+# See docs/HARVESTERS.md for every key.
+id = "notes"
+name = "Notes folder"
+version = "1"
+protocol = 1
+# A bare interpreter found on PATH, then the ./ script it runs. The script is the entrypoint that
+# the install pins by checksum; on Windows, "python" may be the interpreter's name instead.
+command = ["python3", "./notes_harvester.py"]
+entrypoint = "./notes_harvester.py"
+# incremental: it checkpoints and resumes. deletes: it emits seen and sweep.
+capabilities = ["incremental", "deletes"]
+network = []
+
+[[config]]
+key = "directory"
+kind = "string"
+label = "Notes folder"
+hint = "An absolute path; every Markdown and text file under it is read."
+required = true
+
+[[config]]
+key = "extensions"
+kind = "list"
+label = "File types"
+hint = "Default .md, .markdown and .txt."
+
+[[config]]
+key = "maxFileBytes"
+kind = "int"
+label = "Largest file to read, in bytes"
+default = 1000000
