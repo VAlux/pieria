@@ -200,6 +200,16 @@ class MicrosoftLoginTests {
   }
 
   @Test
+  void requireScopesNamesTheAdminScopeWhenSeveralAreMissing() throws HarvesterException {
+    ObjectNode withChannels = microsoft.config();
+    withChannels.putArray("channels").add("Eng");
+    TeamsConfig config = config(withChannels);
+
+    assertAuth(() -> MicrosoftLogin.requireScopes(new Tokens("at", "rt", Set.of("user.read", "chat.read")), config),
+      "Microsoft did not grant ChannelMessage.Read.All");
+  }
+
+  @Test
   void requireScopesNamesTheFirstMissingScope() throws HarvesterException {
     TeamsConfig config = config(microsoft.config());
 

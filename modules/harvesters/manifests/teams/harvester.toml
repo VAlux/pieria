@@ -1,0 +1,72 @@
+id = "teams"
+name = "Microsoft Teams"
+version = "1"
+protocol = 1
+command = ["./pieria-harvest", "teams"]
+capabilities = ["incremental", "deletes", "oauth-device-code"]
+network = ["login.microsoftonline.com, or loginUrl", "graph.microsoft.com, or graphUrl"]
+
+[[config]]
+key = "clientId"
+kind = "string"
+label = "Application (client) ID"
+hint = "The Application (client) ID of an Entra app registration with \"Allow public client flows\" turned on"
+required = true
+
+[[config]]
+key = "tenant"
+kind = "string"
+label = "Tenant"
+hint = "Your tenant ID or domain, or organizations for any work account"
+default = "organizations"
+
+[[config]]
+key = "includeChats"
+kind = "bool"
+label = "Read your chats"
+default = true
+
+[[config]]
+key = "chatTypes"
+kind = "list"
+label = "Chat types"
+hint = "oneOnOne, group, meeting; empty for all"
+
+[[config]]
+key = "channels"
+kind = "list"
+label = "Channels"
+hint = "\"Team\" or \"Team/Channel\". Reading channels needs an admin to consent to ChannelMessage.Read.All"
+
+[[config]]
+key = "sinceDays"
+kind = "int"
+label = "Days to read back"
+hint = "How far back the first run reaches, at most 240"
+default = 90
+
+[[config]]
+key = "timeZone"
+kind = "string"
+label = "Time zone"
+hint = "Chats are grouped into one item per day in this zone"
+default = "UTC"
+
+[[config]]
+key = "refreshToken"
+kind = "secret"
+label = "Sign-in (set by 'pieria source authorize')"
+
+[[config]]
+key = "loginUrl"
+kind = "string"
+label = "Sign-in address"
+hint = "Change only for a national cloud"
+default = "https://login.microsoftonline.com"
+
+[[config]]
+key = "graphUrl"
+kind = "string"
+label = "Graph address"
+hint = "Change only for a national cloud"
+default = "https://graph.microsoft.com"

@@ -10,6 +10,7 @@ import java.net.http.HttpRequest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -92,17 +93,21 @@ public final class MicrosoftLogin {
     throw new HarvesterException(ErrorClass.AUTH, refusal(body, response.status()));
   }
 
-  /** Fails for the first permission the source needs that the sign-in didn't grant. */
+  /**
+   * Fails for a permission the source needs that the sign-in didn't grant. The one that needs an
+   * admin is named first, as it is the one a user can't grant by signing in again.
+   */
   public static void requireScopes(Tokens tokens, TeamsConfig config) throws HarvesterException {
-    for (String scope : config.graphScopes()) {
-      if (!tokens.scopes().contains(scope.toLowerCase(Locale.ROOT))) {
-        String message = "Microsoft did not grant " + scope + "; " + SIGN_IN_AGAIN;
-        if (scope.equals(ADMIN_SCOPE)) {
-          message += " (reading channels needs an admin to consent to " + ADMIN_SCOPE + ")";
-        }
-        throw new HarvesterException(ErrorClass.AUTH, message);
-      }
+    List<String> missing = config.graphScopes().stream().filter(scope -> !tokens.scopes().contains(scope.toLowerCase(Locale.ROOT))).toList();
+    if (missing.isEmpty()) {
+      return;
     }
+    String scope = missing.contains(ADMIN_SCOPE) ? ADMIN_SCOPE : missing.getFirst();
+    String message = "Microsoft did not grant " + scope + "; " + SIGN_IN_AGAIN;
+    if (scope.equals(ADMIN_SCOPE)) {
+      message += " (reading channels needs an admin to consent to " + ADMIN_SCOPE + ")";
+    }
+    throw new HarvesterException(ErrorClass.AUTH, message);
   }
 
   private JsonTransport.Response post(String endpoint, String form) throws HarvesterException {

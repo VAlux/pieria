@@ -29,6 +29,7 @@ class BundledHarvestersTests {
   void isBundledMatchesTheList() {
     assertThat(BundledHarvesters.isBundled("html")).isTrue();
     assertThat(BundledHarvesters.isBundled("jira")).isTrue();
-    assertThat(BundledHarvesters.isBundled("teams")).isFalse();
+    assertThat(BundledHarvesters.isBundled("teams")).isTrue();
+    assertThat(BundledHarvesters.isBundled("slack")).isFalse();
   }
 }
