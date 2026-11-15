@@ -35,6 +35,7 @@ function RootRedirect() {
 
 // Screens with heavier dependencies (d3, the config schema editors) load on first visit.
 const activity = () => import('./features/activity/ActivityPage').then(m => ({ Component: m.ActivityPage }));
+const sources = () => import('./features/sources/SourcesPage').then(m => ({ Component: m.SourcesPage }));
 const wiki = () => import('./features/wiki/WikiPage').then(m => ({ Component: m.WikiPage }));
 
 export const routes = [
@@ -52,6 +53,9 @@ export const routes = [
       { path: 'activity', lazy: activity },
       { path: 'activity/:eventId', lazy: activity },
       { path: 'tasks', lazy: () => import('./features/tasks/TasksPage').then(m => ({ Component: m.TasksPage })) },
+      { path: 'sources', lazy: sources },
+      { path: 'sources/new', lazy: sources },
+      { path: 'sources/:sourceId', lazy: sources },
       { path: 'wiki', lazy: wiki },
       { path: 'wiki/:pageId', lazy: wiki },
       { path: 'graph', lazy: () => import('./features/graph/GraphPage').then(m => ({ Component: m.GraphPage })) },

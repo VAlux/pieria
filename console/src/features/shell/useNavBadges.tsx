@@ -2,7 +2,9 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { auditFacets } from '../../api/audit';
 import { profileConfig } from '../../api/config';
+import { listSources } from '../../api/sources';
 import { listTasks } from '../../api/tasks';
+import { needsAttention } from '../sources/status';
 import { wikiStatus } from '../../api/wiki';
 import { flatten } from '../config/model';
 import { qk } from '../../api/queries';
@@ -14,6 +16,7 @@ export interface NavBadges {
   activity?: ReactNode;
   tasks?: ReactNode;
   config?: ReactNode;
+  sources?: ReactNode;
 }
 
 const DAY = 86_400_000;
@@ -35,6 +38,8 @@ export function useNavBadges(profile: string): NavBadges {
   const overrides = config.data ? Object.keys(flatten(config.data.overrides)).length : 0;
   const wiki = useQuery({ queryKey: qk.wikiStatus(profile), queryFn: ({ signal }) => wikiStatus(profile, signal), retry: false, refetchInterval: 60_000 });
   const w = wiki.data;
+  const sources = useQuery({ queryKey: qk.sources(profile), queryFn: ({ signal }) => listSources(profile, signal), retry: false, refetchInterval: 60_000 });
+  const attention = sources.data?.filter(needsAttention).length ?? 0;
   const failed = failures.data?.facets.outcome?.find(f => f.value === 'failure')?.count ?? 0;
   const running = tasks.data?.filter(t => t.status === 'RUNNING').length ?? 0;
   return {
@@ -44,6 +49,7 @@ export function useNavBadges(profile: string): NavBadges {
       : undefined,
     activity: failed > 0 ? <span className={styles.badgeFail}>{integer(failed)} failed</span> : undefined,
     tasks: running > 0 ? <span className={styles.badgeRunning}>{integer(running)} running</span> : undefined,
+    sources: attention > 0 ? <span className={styles.badgeFail}>{integer(attention)} {attention === 1 ? "needs" : "need"} you</span> : undefined,
     config: overrides > 0 ? <span className={styles.badgeNote}>{integer(overrides)} override{overrides === 1 ? '' : 's'}</span> : undefined
   };
 }

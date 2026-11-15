@@ -21,7 +21,7 @@ export function subPath(pathname: string): string {
  */
 export function switchedPath(pathname: string, profile: string): string {
   const section = subPath(pathname).split('/')[0] ?? '';
-  const keep = ['memories', 'recall', 'activity', 'tasks', 'wiki', 'graph', 'config', 'settings'];
+  const keep = ['memories', 'recall', 'activity', 'tasks', 'sources', 'wiki', 'graph', 'config', 'settings'];
   return profileUrl(profile, keep.includes(section) ? section : '');
 }
 

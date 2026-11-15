@@ -103,6 +103,7 @@ export function Sidebar() {
       <Group label="Operations">
         <NavItem to={url('activity')} icon="activity" label="Activity" active={section === 'activity'} badge={badges.activity} />
         <NavItem to={url('tasks')} icon="tasks" label="Background tasks" active={section === 'tasks'} badge={badges.tasks} />
+        <NavItem to={url('sources')} icon="download" label="Sources" active={section === 'sources'} badge={badges.sources} />
       </Group>
 
       <Group label="Settings">

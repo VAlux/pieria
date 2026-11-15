@@ -36,7 +36,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     const views: [string, string, IconName][] = [
       ['Overview', '', 'overview'], ['Memories', 'memories', 'memories'], ['Wiki', 'wiki', 'wiki'],
       ['Entity graph', 'graph', 'graph'], ['Recall', 'recall', 'recall'], ['Activity', 'activity', 'activity'],
-      ['Background tasks', 'tasks', 'tasks'], ['Profile config', 'config', 'config'], ['Global config', 'settings', 'global']
+      ['Background tasks', 'tasks', 'tasks'], ['Sources', 'sources', 'download'], ['Profile config', 'config', 'config'], ['Global config', 'settings', 'global']
     ];
     return [
       ...views.map(([label, sub, icon]) => ({ id: `go-${label}`, label, group: 'Go to' as const, icon, run: go(sub) })),

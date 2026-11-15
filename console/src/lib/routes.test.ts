@@ -13,6 +13,7 @@ describe('profile urls', () => {
     expect(switchedPath('/p/pieria/memories/abc', 'other')).toBe('/p/other/memories');
     expect(switchedPath('/p/pieria/wiki/topic-1', 'other')).toBe('/p/other/wiki');
     expect(switchedPath('/p/pieria', 'other')).toBe('/p/other');
+    expect(switchedPath('/p/a/sources/s1', 'b')).toBe('/p/b/sources');
   });
 });
 
