@@ -120,7 +120,7 @@ export function GlobalConfigPage() {
   if (config.isError) return <Page><ErrorBanner error={config.error} /></Page>;
 
   const dialect = current(K.type) || 'openai';
-  const tierStats = (tier: string) => stats.data?.spend.tiers.find(t => t.tier.toLowerCase() === tier);
+  const tierStats = (tier: string) => stats.data?.spend?.tiers.find(t => t.tier.toLowerCase() === tier);
 
   return (
     <Page>

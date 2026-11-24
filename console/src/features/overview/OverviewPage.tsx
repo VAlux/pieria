@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { listAudit } from '../../api/audit';
+import type { ProfileStats } from '../../api/types';
 import { errorMessage } from '../../api/client';
 import { listClusters } from '../../api/clusters';
 import { exportProfile } from '../../api/profiles';
@@ -100,24 +101,7 @@ export function OverviewPage() {
                   vs. re-reading the source{windows !== null && <> · ≈ {windows.toFixed(1)} × {compact(s.impact.contextWindowTokens)} context windows</>}
                 </span>
               </div>
-              <div className={styles.spend}>
-                <span className={styles.label}>Inference spend</span>
-                <div className={styles.tableWrap}>
-                  <table>
-                    <thead>
-                      <tr><th scope="col">tier</th><th scope="col">calls</th><th scope="col">prompt</th><th scope="col">completion</th>{s.spend.costAvailable && <th scope="col">cost</th>}</tr>
-                    </thead>
-                    <tbody>
-                      {s.spend.tiers.map(tier => (
-                        <tr key={tier.tier}>
-                          <td>{tier.tier.toLowerCase()}</td><td>{integer(tier.calls)}</td><td>{integer(tier.promptTokens)}</td>
-                          <td>{integer(tier.completionTokens)}</td>{s.spend.costAvailable && <td>${tier.costUsd.toFixed(2)}</td>}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {s.spend && <SpendTable spend={s.spend} />}
             </>
           )}
           {!s && <Skeleton height={220} />}
@@ -163,6 +147,29 @@ export function OverviewPage() {
         </Card>
       </div>
     </Page>
+  );
+}
+
+function SpendTable({ spend }: { spend: NonNullable<ProfileStats['spend']> }) {
+  return (
+    <div className={styles.spend}>
+      <span className={styles.label}>Inference spend</span>
+      <div className={styles.tableWrap}>
+        <table>
+          <thead>
+            <tr><th scope="col">tier</th><th scope="col">calls</th><th scope="col">prompt</th><th scope="col">completion</th>{spend.costAvailable && <th scope="col">cost</th>}</tr>
+          </thead>
+          <tbody>
+            {spend.tiers.map(tier => (
+              <tr key={tier.tier}>
+                <td>{tier.tier.toLowerCase()}</td><td>{integer(tier.calls)}</td><td>{integer(tier.promptTokens)}</td>
+                <td>{integer(tier.completionTokens)}</td>{spend.costAvailable && <td>${tier.costUsd.toFixed(2)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

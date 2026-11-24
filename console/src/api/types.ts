@@ -56,13 +56,14 @@ export interface ProfileStats {
     contextWindowTokens: number;
     pricePerMillionTokens: number;
   };
+  /** Null until the profile has made a model call: a new or empty profile has no spend to show. */
   spend: {
     tiers: { tier: string; calls: number; promptTokens: number; completionTokens: number; costUsd: number }[];
     totalPromptTokens: number;
     totalCompletionTokens: number;
     totalCostUsd: number;
     costAvailable: boolean;
-  };
+  } | null;
   /** The profile this one sits under, or null at top level. Absent from an older daemon. */
   parent?: string | null;
   /** Profiles below this one, at any depth. */
